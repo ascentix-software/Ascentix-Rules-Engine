@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<WebResource xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <WebResourceId>{b3a886c8-2981-f111-ab0e-70a8a50d11b7}</WebResourceId>
+  <Name>asx_/ruleeditor/asx_editor.css</Name>
+  <DisplayName>Ascentix Rule Builder (fonts + boot shell)</DisplayName>
+  <WebResourceType>2</WebResourceType>
+  <IntroducedVersion>1.0</IntroducedVersion>
+  <IsEnabledForMobileClient>0</IsEnabledForMobileClient>
+  <IsAvailableForMobileOffline>0</IsAvailableForMobileOffline>
+  <IsCustomizable>1</IsCustomizable>
+  <CanBeDeleted>1</CanBeDeleted>
+  <IsHidden>0</IsHidden>
+  <FileName>/WebResources/asx_ruleeditorasx_editorcssB3A886C8-2981-F111-AB0E-70A8A50D11B7</FileName>
+</WebResource>

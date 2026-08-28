@@ -1,0 +1,9 @@
+[
+  "Ascentix.RulesEngine.Plugin.ReadRulesApi",
+  "Ascentix.RulesEngine.Plugin.RulePublishPlugin",
+  "Ascentix.RulesEngine.Plugin.RuleRegistrationPlugin",
+  "Ascentix.RulesEngine.Plugin.RulesEnginePlugin",
+  "Ascentix.RulesEngine.Plugin.RunRulesApi",
+  "Ascentix.RulesEngine.Plugin.SyncStepsApi",
+  "Ascentix.RulesEngine.Plugin.ValidateRuleApi"
+]

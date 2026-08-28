@@ -1,0 +1,41 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<savedqueries xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <savedquery>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>0</CanBeDeleted>
+    <isquickfindquery>0</isquickfindquery>
+    <isprivate>0</isprivate>
+    <isdefault>0</isdefault>
+    <savedqueryid>{f27858f2-b88f-47e3-ac55-d4ad01328ae3}</savedqueryid>
+    <layoutxml>
+      <grid name="resultset" jump="asx_name" select="1" icon="1" preview="1">
+        <row name="result" id="asx_tableconfigid">
+          <cell name="asx_name" width="300" />
+          <cell name="asx_tablelogicalname" width="200" />
+          <cell name="asx_tableconfigtype" width="150" />
+          <cell name="asx_parenttable" width="200" />
+        </row>
+      </grid>
+    </layoutxml>
+    <querytype>0</querytype>
+    <fetchxml>
+      <fetch version="1.0" mapping="logical">
+        <entity name="asx_tableconfig">
+          <attribute name="asx_tableconfigid" />
+          <attribute name="asx_name" />
+          <attribute name="asx_tablelogicalname" />
+          <attribute name="asx_tableconfigtype" />
+          <attribute name="asx_parenttable" />
+          <order attribute="asx_name" descending="false" />
+          <filter type="and">
+            <condition attribute="statecode" operator="eq" value="1" />
+          </filter>
+        </entity>
+      </fetch>
+    </fetchxml>
+    <IntroducedVersion>1.0.0.0</IntroducedVersion>
+    <LocalizedNames>
+      <LocalizedName description="Inactive Table Configs" languagecode="1033" />
+    </LocalizedNames>
+  </savedquery>
+</savedqueries>

@@ -1,0 +1,7 @@
+[
+  { "path": "client/dist/asx_editor.css",        "name": "asx_/ruleeditor/asx_editor.css",            "displayName": "Ascentix Rule Builder (fonts + boot shell)", "type": 2 },
+  { "path": "client/dist/asx_rulesengine.js",    "name": "asx_/rulesengine/asx_rulesengine.js",       "displayName": "Ascentix Rules Engine (form library)", "type": 3 },
+  { "path": "client/dist/asx_authoringforms.js", "name": "asx_/authoringforms/asx_authoringforms.js", "displayName": "Ascentix Authoring Forms",            "type": 3 },
+  { "path": "client/dist/asx_ruleeditor.js",     "name": "asx_/ruleeditor/asx_ruleeditor.js",         "displayName": "Ascentix Rule Builder (bundle)",      "type": 3 },
+  { "path": "client/editor.html",                "name": "asx_/ruleeditor/asx_ruleeditor.html",       "displayName": "Ascentix Rule Builder",               "type": 1 }
+]

@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="DeactivatedStepsFound">
+  <description default="Deactivated steps seen and left alone.">
+    <label description="Deactivated steps seen and left alone." languagecode="1033" />
+  </description>
+  <displayname default="DeactivatedStepsFound">
+    <label description="DeactivatedStepsFound" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>DeactivatedStepsFound</name>
+  <type>7</type>
+</customapiresponseproperty>

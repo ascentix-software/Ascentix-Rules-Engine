@@ -1,0 +1,174 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<forms xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <systemform>
+    <formid>{8308ca38-98fd-4d82-ad41-dfde8f4779b4}</formid>
+    <IntroducedVersion>1.0.0.0</IntroducedVersion>
+    <FormPresentation>1</FormPresentation>
+    <FormActivationState>1</FormActivationState>
+    <form>
+      <tabs>
+        <tab verticallayout="true" id="{e0a4c6ed-9002-401a-a315-8a1908d08d0b}" IsUserDefined="1">
+          <labels>
+            <label description="General" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="false" showbar="false" IsUserDefined="0" id="{8a3aa7d7-d1da-413c-a84b-6d6223ff8bf8}">
+                  <labels>
+                    <label description="General" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{98804d31-9026-4cd4-8cd3-8c285077d0d7}">
+                        <labels>
+                          <label description="Name" languagecode="1033" />
+                        </labels>
+                        <control id="asx_name" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_name" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{94c26c31-db7e-4892-a92f-3cd8c3428f82}">
+                        <labels>
+                          <label description="Owner" languagecode="1033" />
+                        </labels>
+                        <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{ef10e5f7-51f2-85be-2fc9-13f4fab9dcec}">
+                  <labels>
+                    <label description="Relationships" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{95ad6ce1-5446-79f9-dffa-e7d00e8cbf55}">
+                        <labels>
+                          <label description="Rule Condition" languagecode="1033" />
+                        </labels>
+                        <control id="asx_rulecondition" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="asx_rulecondition" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{6e7217ba-34da-be34-2ac2-615291e53893}">
+                        <labels>
+                          <label description="Parent Criteria Group" languagecode="1033" />
+                        </labels>
+                        <control id="asx_parentcriteriagroup" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="asx_parentcriteriagroup" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{1a52326e-d977-c951-be82-66c46be640ae}">
+                  <labels>
+                    <label description="Details" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{e2b0181f-e1d1-31c1-46f2-9acc6e155349}">
+                        <labels>
+                          <label description="Logical Operator" languagecode="1033" />
+                        </labels>
+                        <control id="asx_logicaloperator" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_logicaloperator" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{3577A2F1-DC66-42C2-9BB1-17D787C94877}" name="scg_general">
+                  <labels>
+                    <label description="Search Criteria Group" languagecode="1033" />
+                  </labels>
+                  <rows />
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+        <tab name="children" id="{BFFCCA2E-C711-41A4-A4AF-92B14D8A05D6}" IsUserDefined="1" locklevel="0" showlabel="true" expanded="true">
+          <labels>
+            <label description="Children" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{81578B4C-C865-4E85-ACA6-F50D71C60E5B}" name="scg_children">
+                  <labels>
+                    <label description="Children" languagecode="1033" />
+                  </labels>
+                  <rows />
+                </section>
+                <section showlabel="true" showbar="true" IsUserDefined="0" id="{DC6C340F-F6F2-4955-B131-3D6E4436CD85}">
+                  <labels>
+                    <label description="Criteria" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{1DE30E35-D97A-47EC-9337-4E5730DF3268}" showlabel="true" rowspan="6" colspan="1" auto="false">
+                        <labels>
+                          <label description="Criteria" languagecode="1033" />
+                        </labels>
+                        <control id="SearchCriteriaGroupCriteriaGrid" classid="{E7A81278-8635-4d9e-8D4D-59480B391C5B}">
+                          <parameters>
+                            <ViewId>{3477B279-5D6C-F111-AB0E-7C1E5254B0C9}</ViewId>
+                            <IsUserView>false</IsUserView>
+                            <RelationshipName>asx_criteriagroup_criterion</RelationshipName>
+                            <TargetEntityType>asx_searchcriterion</TargetEntityType>
+                            <AutoExpand>Fixed</AutoExpand>
+                            <RecordsPerPage>5</RecordsPerPage>
+                            <EnableQuickFind>false</EnableQuickFind>
+                            <EnableJumpBar>false</EnableJumpBar>
+                            <EnableViewPicker>false</EnableViewPicker>
+                            <ViewIds>{3477B279-5D6C-F111-AB0E-7C1E5254B0C9}</ViewIds>
+                            <ChartGridMode>Grid</ChartGridMode>
+                          </parameters>
+                        </control>
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="true" IsUserDefined="0" id="{867C821C-E35A-48EB-9D11-699A8C7BCA55}">
+                  <labels>
+                    <label description="Sub-groups" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{CE20848F-A69C-4342-8F85-DF71E961FE7B}" showlabel="true" rowspan="6" colspan="1" auto="false">
+                        <labels>
+                          <label description="Sub-groups" languagecode="1033" />
+                        </labels>
+                        <control id="SearchCriteriaGroupSubgroupsGrid" classid="{E7A81278-8635-4d9e-8D4D-59480B391C5B}">
+                          <parameters>
+                            <ViewId>{4177B279-5D6C-F111-AB0E-7C1E5254B0C9}</ViewId>
+                            <IsUserView>false</IsUserView>
+                            <RelationshipName>asx_criteriagroup_criteriagroup</RelationshipName>
+                            <TargetEntityType>asx_searchcriteriagroup</TargetEntityType>
+                            <AutoExpand>Fixed</AutoExpand>
+                            <RecordsPerPage>5</RecordsPerPage>
+                            <EnableQuickFind>false</EnableQuickFind>
+                            <EnableJumpBar>false</EnableJumpBar>
+                            <EnableViewPicker>false</EnableViewPicker>
+                            <ViewIds>{4177B279-5D6C-F111-AB0E-7C1E5254B0C9}</ViewIds>
+                            <ChartGridMode>Grid</ChartGridMode>
+                          </parameters>
+                        </control>
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+      </tabs>
+    </form>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <LocalizedNames>
+      <LocalizedName description="Information" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="A form for this entity." languagecode="1033" />
+    </Descriptions>
+  </systemform>
+</forms>

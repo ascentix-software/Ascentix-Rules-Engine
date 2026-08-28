@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Details">
+  <description default="JSON per-table breakdown of step names.">
+    <label description="JSON per-table breakdown of step names." languagecode="1033" />
+  </description>
+  <displayname default="Details">
+    <label description="Details" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Details</name>
+  <type>10</type>
+</customapiresponseproperty>

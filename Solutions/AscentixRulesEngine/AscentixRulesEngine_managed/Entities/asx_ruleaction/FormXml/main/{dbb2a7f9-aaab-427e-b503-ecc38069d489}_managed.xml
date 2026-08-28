@@ -1,0 +1,237 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<forms xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <systemform>
+    <formid>{dbb2a7f9-aaab-427e-b503-ecc38069d489}</formid>
+    <IntroducedVersion>1.0.0.0</IntroducedVersion>
+    <FormPresentation>1</FormPresentation>
+    <FormActivationState>1</FormActivationState>
+    <form>
+      <tabs>
+        <tab verticallayout="true" id="{3083a6b8-f329-4666-932b-9a5f9640d82a}" IsUserDefined="1">
+          <labels>
+            <label description="General" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="false" showbar="false" IsUserDefined="0" id="{a82bf485-662e-4d91-889c-ad6702222826}">
+                  <labels>
+                    <label description="General" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{265fae38-4746-4614-833f-351fe6393cf6}">
+                        <labels>
+                          <label description="Name" languagecode="1033" />
+                        </labels>
+                        <control id="asx_name" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_name" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{57bee226-36dd-4716-8cf9-f248f1eb0acf}">
+                        <labels>
+                          <label description="Owner" languagecode="1033" />
+                        </labels>
+                        <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{80f4d0b0-4e37-7fca-b474-336e1d2ccd90}">
+                  <labels>
+                    <label description="Relationships" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{8bec0101-b789-e040-d5ed-992eac10dbe2}">
+                        <labels>
+                          <label description="Rule" languagecode="1033" />
+                        </labels>
+                        <control id="asx_rule" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="asx_rule" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{94651798-3f43-d531-11cb-2dc1f7127300}">
+                  <labels>
+                    <label description="Details" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{e66d2b47-2de9-c6af-1986-1e85109b5434}">
+                        <labels>
+                          <label description="Action Type" languagecode="1033" />
+                        </labels>
+                        <control id="asx_actiontype" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_actiontype" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{267f92c4-5742-7fda-9029-95816fd84803}">
+                        <labels>
+                          <label description="Fire On" languagecode="1033" />
+                        </labels>
+                        <control id="asx_fireon" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_fireon" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{8ee6f2a7-95e9-5f14-f474-5d8e2c02634f}">
+                        <labels>
+                          <label description="Target Column" languagecode="1033" />
+                        </labels>
+                        <control id="asx_targetcolumn" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_targetcolumn" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{401bfe3d-25ce-c9cf-22f8-343e02a10f9a}">
+                        <labels>
+                          <label description="Value" languagecode="1033" />
+                        </labels>
+                        <control id="asx_valuebool" classid="{67FAC785-CD58-4f9f-ABB3-4B7DDC6ED5ED}" datafieldname="asx_valuebool" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{38c56c8a-ebea-2200-a36a-ac414a93fc48}">
+                        <labels>
+                          <label description="Apply Inverse When Not Fired" languagecode="1033" />
+                        </labels>
+                        <control id="asx_applyinversewhennotfired" classid="{67FAC785-CD58-4f9f-ABB3-4B7DDC6ED5ED}" datafieldname="asx_applyinversewhennotfired" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{6eeae525-bfb9-7df4-b082-004b701ab38c}">
+                        <labels>
+                          <label description="Default message - base language" languagecode="1033" />
+                        </labels>
+                        <control id="asx_message" classid="{E0DECE4B-6FC8-4a8f-A065-082708572369}" datafieldname="asx_message" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{8794d302-db4c-d529-15d6-be032f8d48e7}">
+                        <labels>
+                          <label description="Severity" languagecode="1033" />
+                        </labels>
+                        <control id="asx_severity" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_severity" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{48601027-a82e-2c7f-fdfc-dd52715c3aa8}">
+                        <labels>
+                          <label description="Target Table" languagecode="1033" />
+                        </labels>
+                        <control id="asx_targettable" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_targettable" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{e3283e48-edd7-a286-a875-04e941f1a1d6}">
+                        <labels>
+                          <label description="Field Mapping" languagecode="1033" />
+                        </labels>
+                        <control id="asx_fieldmapping" classid="{E0DECE4B-6FC8-4a8f-A065-082708572369}" datafieldname="asx_fieldmapping" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{4585d1a7-95a4-470f-9981-2128dea3c096}">
+                        <labels>
+                          <label description="Order" languagecode="1033" />
+                        </labels>
+                        <control id="asx_order" classid="{C3EFE0C3-0EC6-42be-8349-CBD9079DFD8E}" datafieldname="asx_order" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{101d51d3-de3a-0a48-262a-138485c4f5a7}">
+                        <labels>
+                          <label description="Is Active" languagecode="1033" />
+                        </labels>
+                        <control id="asx_isactive" classid="{67FAC785-CD58-4f9f-ABB3-4B7DDC6ED5ED}" datafieldname="asx_isactive" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{9EC15885-93F3-4DEB-B0C4-D592A265BE5B}" name="action_general">
+                  <labels>
+                    <label description="Action" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{895C19FF-5C13-4A04-B779-FBFD15021AB8}">
+                        <labels>
+                          <label description="Target Node" languagecode="1033" />
+                        </labels>
+                        <control id="asx_targetnode" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="asx_targetnode" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+        <tab name="children" id="{4CC36AB3-E2AD-4732-972C-1379AED560C7}" IsUserDefined="1" locklevel="0" showlabel="true" expanded="true">
+          <labels>
+            <label description="Children" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{FDE7104A-5D4A-4848-BDA9-0671B4C4D4F6}" name="action_children">
+                  <labels>
+                    <label description="Children" languagecode="1033" />
+                  </labels>
+                  <rows />
+                </section>
+                <section showlabel="true" showbar="true" IsUserDefined="0" id="{3711E5FA-DA74-473A-90C9-D2277CEC9BFB}">
+                  <labels>
+                    <label description="Localized Messages" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{F69920ED-036D-40F8-8ECA-E4974EBD8461}" showlabel="true" rowspan="6" colspan="1" auto="false">
+                        <labels>
+                          <label description="Localized Messages" languagecode="1033" />
+                        </labels>
+                        <control id="RuleActionLocalizedMessagesGrid" classid="{E7A81278-8635-4d9e-8D4D-59480B391C5B}">
+                          <parameters>
+                            <ViewId>{BF297778-5D6C-F111-AB0E-002248AF0208}</ViewId>
+                            <IsUserView>false</IsUserView>
+                            <RelationshipName>asx_ruleaction_localizedmessage</RelationshipName>
+                            <TargetEntityType>asx_localizedmessage</TargetEntityType>
+                            <AutoExpand>Fixed</AutoExpand>
+                            <RecordsPerPage>5</RecordsPerPage>
+                            <EnableQuickFind>false</EnableQuickFind>
+                            <EnableJumpBar>false</EnableJumpBar>
+                            <EnableViewPicker>false</EnableViewPicker>
+                            <ViewIds>{BF297778-5D6C-F111-AB0E-002248AF0208}</ViewIds>
+                            <ChartGridMode>Grid</ChartGridMode>
+                          </parameters>
+                        </control>
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+      </tabs>
+      <formLibraries>
+        <Library name="$webresource:asx_/authoringforms/asx_authoringforms.js" libraryUniqueId="{21B113E3-9949-449B-93E8-E3B3B1C5B01E}" />
+      </formLibraries>
+      <events>
+        <event name="onload" application="false" active="false">
+          <InternalHandlers />
+          <Handlers>
+            <Handler functionName="Ascentix.Authoring.onActionLoad" libraryName="$webresource:asx_/authoringforms/asx_authoringforms.js" handlerUniqueId="{CCB371B5-E892-42F8-B0FD-19FEEA369026}" enabled="true" parameters="" passExecutionContext="true" />
+          </Handlers>
+        </event>
+      </events>
+    </form>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <LocalizedNames>
+      <LocalizedName description="Information" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="A form for this entity." languagecode="1033" />
+    </Descriptions>
+  </systemform>
+</forms>

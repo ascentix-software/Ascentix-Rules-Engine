@@ -1,0 +1,9 @@
+<customapirequestparameter uniquename="RecordJson">
+  <displayname default="Record Json">
+    <label description="Record Json" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>RecordJson</name>
+  <type>10</type>
+</customapirequestparameter>

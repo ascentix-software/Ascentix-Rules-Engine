@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net462</TargetFramework>
+    <RootNamespace>Ascentix.RulesEngine.Plugin</RootNamespace>
+    <AssemblyName>Ascentix.RulesEngine.Plugin</AssemblyName>
+    <!-- net462 still defaults to C# 7.3; the engine uses C# 8 switch expressions / patterns. -->
+    <LangVersion>10.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <!-- Dataverse requires plugin assemblies to be strong-name signed. Core is compiled
+         into this assembly via linked source, so only this assembly needs signing. The key
+         comes from Directory.Build.props at the repo root, which defaults to the committed
+         development key and explains how to override it. -->
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(SigningKeyFile)</AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+
+  <!--
+    Linked-source single-assembly plugin: ALL Core engine sources (including
+    Schema/SchemaNames.cs) are compiled into this plugin assembly so it registers as
+    one DLL (no Core.dll runtime dependency). Globbed so new Core files are picked up
+    automatically; obj/bin are excluded.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Ascentix.RulesEngine.Core\**\*.cs"
+             Exclude="..\Ascentix.RulesEngine.Core\obj\**\*.cs;..\Ascentix.RulesEngine.Core\bin\**\*.cs"
+             Link="Core\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
+  </ItemGroup>
+
+</Project>

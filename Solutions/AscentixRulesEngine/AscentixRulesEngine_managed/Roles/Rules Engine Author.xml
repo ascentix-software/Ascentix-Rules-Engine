@@ -1,0 +1,71 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Role id="{db5f63ec-dc69-f111-ab0c-7c1e5254734e}" name="Rules Engine Author" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <IsCustomizable>1</IsCustomizable>
+  <IsAutoAssigned>0</IsAutoAssigned>
+  <RolePrivileges>
+    <RolePrivilege name="prvAppendasx_conditiongroup" level="Global" />
+    <RolePrivilege name="prvAppendasx_LocalizedMessage" level="Global" />
+    <RolePrivilege name="prvAppendasx_nodefiltercriterion" level="Global" />
+    <RolePrivilege name="prvAppendasx_nodefiltergroup" level="Global" />
+    <RolePrivilege name="prvAppendasx_rule" level="Global" />
+    <RolePrivilege name="prvAppendasx_ruleaction" level="Global" />
+    <RolePrivilege name="prvAppendasx_rulecondition" level="Global" />
+    <RolePrivilege name="prvAppendasx_searchcriteriagroup" level="Global" />
+    <RolePrivilege name="prvAppendasx_searchcriterion" level="Global" />
+    <RolePrivilege name="prvAppendasx_tableconfig" level="Global" />
+    <RolePrivilege name="prvAppendToasx_conditiongroup" level="Global" />
+    <RolePrivilege name="prvAppendToasx_LocalizedMessage" level="Global" />
+    <RolePrivilege name="prvAppendToasx_nodefiltercriterion" level="Global" />
+    <RolePrivilege name="prvAppendToasx_nodefiltergroup" level="Global" />
+    <RolePrivilege name="prvAppendToasx_rule" level="Global" />
+    <RolePrivilege name="prvAppendToasx_ruleaction" level="Global" />
+    <RolePrivilege name="prvAppendToasx_rulecondition" level="Global" />
+    <RolePrivilege name="prvAppendToasx_searchcriteriagroup" level="Global" />
+    <RolePrivilege name="prvAppendToasx_searchcriterion" level="Global" />
+    <RolePrivilege name="prvAppendToasx_tableconfig" level="Global" />
+    <RolePrivilege name="prvCreateasx_conditiongroup" level="Global" />
+    <RolePrivilege name="prvCreateasx_LocalizedMessage" level="Global" />
+    <RolePrivilege name="prvCreateasx_nodefiltercriterion" level="Global" />
+    <RolePrivilege name="prvCreateasx_nodefiltergroup" level="Global" />
+    <RolePrivilege name="prvCreateasx_rule" level="Global" />
+    <RolePrivilege name="prvCreateasx_ruleaction" level="Global" />
+    <RolePrivilege name="prvCreateasx_rulecondition" level="Global" />
+    <RolePrivilege name="prvCreateasx_searchcriteriagroup" level="Global" />
+    <RolePrivilege name="prvCreateasx_searchcriterion" level="Global" />
+    <RolePrivilege name="prvCreateasx_tableconfig" level="Global" />
+    <RolePrivilege name="prvCreateSharePointData" level="Global" />
+    <RolePrivilege name="prvDeleteasx_conditiongroup" level="Global" />
+    <RolePrivilege name="prvDeleteasx_LocalizedMessage" level="Global" />
+    <RolePrivilege name="prvDeleteasx_nodefiltercriterion" level="Global" />
+    <RolePrivilege name="prvDeleteasx_nodefiltergroup" level="Global" />
+    <RolePrivilege name="prvDeleteasx_rule" level="Global" />
+    <RolePrivilege name="prvDeleteasx_ruleaction" level="Global" />
+    <RolePrivilege name="prvDeleteasx_rulecondition" level="Global" />
+    <RolePrivilege name="prvDeleteasx_searchcriteriagroup" level="Global" />
+    <RolePrivilege name="prvDeleteasx_searchcriterion" level="Global" />
+    <RolePrivilege name="prvDeleteasx_tableconfig" level="Global" />
+    <RolePrivilege name="prvReadasx_conditiongroup" level="Global" />
+    <RolePrivilege name="prvReadasx_LocalizedMessage" level="Global" />
+    <RolePrivilege name="prvReadasx_nodefiltercriterion" level="Global" />
+    <RolePrivilege name="prvReadasx_nodefiltergroup" level="Global" />
+    <RolePrivilege name="prvReadasx_rule" level="Global" />
+    <RolePrivilege name="prvReadasx_ruleaction" level="Global" />
+    <RolePrivilege name="prvReadasx_rulecondition" level="Global" />
+    <RolePrivilege name="prvReadasx_searchcriteriagroup" level="Global" />
+    <RolePrivilege name="prvReadasx_searchcriterion" level="Global" />
+    <RolePrivilege name="prvReadasx_tableconfig" level="Global" />
+    <RolePrivilege name="prvReadSharePointData" level="Global" />
+    <RolePrivilege name="prvReadSharePointDocument" level="Global" />
+    <RolePrivilege name="prvWriteasx_conditiongroup" level="Global" />
+    <RolePrivilege name="prvWriteasx_LocalizedMessage" level="Global" />
+    <RolePrivilege name="prvWriteasx_nodefiltercriterion" level="Global" />
+    <RolePrivilege name="prvWriteasx_nodefiltergroup" level="Global" />
+    <RolePrivilege name="prvWriteasx_rule" level="Global" />
+    <RolePrivilege name="prvWriteasx_ruleaction" level="Global" />
+    <RolePrivilege name="prvWriteasx_rulecondition" level="Global" />
+    <RolePrivilege name="prvWriteasx_searchcriteriagroup" level="Global" />
+    <RolePrivilege name="prvWriteasx_searchcriterion" level="Global" />
+    <RolePrivilege name="prvWriteasx_tableconfig" level="Global" />
+    <RolePrivilege name="prvWriteSharePointData" level="Global" />
+  </RolePrivileges>
+</Role>

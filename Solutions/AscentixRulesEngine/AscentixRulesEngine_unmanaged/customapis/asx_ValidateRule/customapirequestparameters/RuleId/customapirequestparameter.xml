@@ -1,0 +1,9 @@
+<customapirequestparameter uniquename="RuleId">
+  <displayname default="RuleId">
+    <label description="RuleId" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>0</isoptional>
+  <name>RuleId</name>
+  <type>10</type>
+</customapirequestparameter>

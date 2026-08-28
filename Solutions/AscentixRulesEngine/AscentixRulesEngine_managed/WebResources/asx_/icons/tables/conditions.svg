@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Conditions: Diamond (decision shape) with check -->
+  <path d="M16 4 L28 16 L16 28 L4 16 Z" fill="none" stroke="#605E5C" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M11 16 L14 19 L21 12" fill="none" stroke="#605E5C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

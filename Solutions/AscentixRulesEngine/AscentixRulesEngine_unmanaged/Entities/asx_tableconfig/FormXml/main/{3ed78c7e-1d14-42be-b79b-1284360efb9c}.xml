@@ -1,0 +1,181 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<forms xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <systemform>
+    <formid>{3ed78c7e-1d14-42be-b79b-1284360efb9c}</formid>
+    <IntroducedVersion>1.0.0.0</IntroducedVersion>
+    <FormPresentation>1</FormPresentation>
+    <FormActivationState>1</FormActivationState>
+    <form>
+      <tabs>
+        <tab verticallayout="true" id="{172bf5c1-e169-4391-afa7-a0638fde6351}" IsUserDefined="1">
+          <labels>
+            <label description="General" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="false" showbar="false" IsUserDefined="0" id="{ff020f0f-f1dd-4853-b238-e0b287195722}">
+                  <labels>
+                    <label description="General" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{c6d663c1-b3cf-4c9d-be85-8d56ccfd39a9}">
+                        <labels>
+                          <label description="Name" languagecode="1033" />
+                        </labels>
+                        <control id="asx_name" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_name" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{f56aa8c7-34bb-405a-86e3-53409934cef3}">
+                        <labels>
+                          <label description="Owner" languagecode="1033" />
+                        </labels>
+                        <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{3b6c5b2c-e360-4873-c261-b4a16dc330f7}">
+                  <labels>
+                    <label description="Relationships" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{6743f16a-f564-0367-7681-ab8bfb4c09c6}">
+                        <labels>
+                          <label description="Parent Table" languagecode="1033" />
+                        </labels>
+                        <control id="asx_parenttable" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="asx_parenttable" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{3079bb9d-3f88-66f0-61b9-5182cd3f6752}">
+                  <labels>
+                    <label description="Details" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{d6ae4c5e-d63f-71ef-7a57-071e631cb104}">
+                        <labels>
+                          <label description="Table Logical Name" languagecode="1033" />
+                        </labels>
+                        <control id="asx_tablelogicalname" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_tablelogicalname" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{381e965b-e899-5e65-65a3-9633b71f4d95}">
+                        <labels>
+                          <label description="Table Config Type" languagecode="1033" />
+                        </labels>
+                        <control id="asx_tableconfigtype" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_tableconfigtype" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{8f48c11f-62ab-b716-1a5c-242aad26f679}">
+                        <labels>
+                          <label description="Lookup Column Logical Name" languagecode="1033" />
+                        </labels>
+                        <control id="asx_lookupcolumnlogicalname" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_lookupcolumnlogicalname" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{c905fe94-fce1-d304-4fdf-e25ca3e57042}">
+                        <labels>
+                          <label description="Child Link Field" languagecode="1033" />
+                        </labels>
+                        <control id="asx_childlinkfield" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_childlinkfield" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{68B5D2BB-FCED-4B3C-B9C5-8FBA89D52DF4}" name="tc_general">
+                  <labels>
+                    <label description="Table Config" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{4071C9C2-BBE9-4209-9B6E-E584370BA9D5}">
+                        <labels>
+                          <label description="Lookup Target ID Attribute" languagecode="1033" />
+                        </labels>
+                        <control id="asx_lookuptargetidattribute" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_lookuptargetidattribute" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+        <tab name="children" id="{3DDB44DB-9295-4D0E-8789-8F3A16F9FE39}" IsUserDefined="1" locklevel="0" showlabel="true" expanded="true">
+          <labels>
+            <label description="Children" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{3B2F742D-D1FA-4737-B292-B6E7BDDF781B}" name="tc_children">
+                  <labels>
+                    <label description="Children" languagecode="1033" />
+                  </labels>
+                  <rows />
+                </section>
+                <section showlabel="true" showbar="true" IsUserDefined="0" id="{B1ADA92B-BE50-4CCE-A42E-6148F69E3B31}">
+                  <labels>
+                    <label description="Child Nodes" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{77D17745-0636-4277-8E5D-BDDC08155ADF}" showlabel="true" rowspan="6" colspan="1" auto="false">
+                        <labels>
+                          <label description="Child Nodes" languagecode="1033" />
+                        </labels>
+                        <control id="TableConfigChildNodesGrid" classid="{E7A81278-8635-4d9e-8D4D-59480B391C5B}">
+                          <parameters>
+                            <ViewId>{C5297778-5D6C-F111-AB0E-002248AF0208}</ViewId>
+                            <IsUserView>false</IsUserView>
+                            <RelationshipName>asx_tableconfig_tableconfig</RelationshipName>
+                            <TargetEntityType>asx_tableconfig</TargetEntityType>
+                            <AutoExpand>Fixed</AutoExpand>
+                            <RecordsPerPage>5</RecordsPerPage>
+                            <EnableQuickFind>false</EnableQuickFind>
+                            <EnableJumpBar>false</EnableJumpBar>
+                            <EnableViewPicker>false</EnableViewPicker>
+                            <ViewIds>{C5297778-5D6C-F111-AB0E-002248AF0208}</ViewIds>
+                            <ChartGridMode>Grid</ChartGridMode>
+                          </parameters>
+                        </control>
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+      </tabs>
+      <formLibraries>
+        <Library name="$webresource:asx_/authoringforms/asx_authoringforms.js" libraryUniqueId="{E8F33DA2-2F27-4517-BE39-99D83F59B157}" />
+      </formLibraries>
+      <events>
+        <event name="onload" application="false" active="false">
+          <InternalHandlers />
+          <Handlers>
+            <Handler functionName="Ascentix.Authoring.onTableConfigLoad" libraryName="$webresource:asx_/authoringforms/asx_authoringforms.js" handlerUniqueId="{FDD343E1-21AF-4C90-9F77-2D6F6D9F03E1}" enabled="true" parameters="" passExecutionContext="true" />
+          </Handlers>
+        </event>
+      </events>
+    </form>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <LocalizedNames>
+      <LocalizedName description="Information" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="A form for this entity." languagecode="1033" />
+    </Descriptions>
+  </systemform>
+</forms>

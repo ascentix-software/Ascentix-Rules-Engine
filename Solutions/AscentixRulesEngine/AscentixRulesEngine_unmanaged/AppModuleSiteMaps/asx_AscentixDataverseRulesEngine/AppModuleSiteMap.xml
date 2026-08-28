@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<AppModuleSiteMap xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <SiteMapUniqueName>asx_AscentixDataverseRulesEngine</SiteMapUniqueName>
+  <EnableCollapsibleGroups>False</EnableCollapsibleGroups>
+  <ShowHome>True</ShowHome>
+  <ShowPinned>True</ShowPinned>
+  <ShowRecents>True</ShowRecents>
+  <SiteMap IntroducedVersion="undefined">
+    <Area Id="asx_area_rule_configuration" ShowGroups="true" Title="Rules Engine">
+      <Titles>
+        <Title LCID="1033" Title="Rule Configuration" />
+      </Titles>
+      <Group Id="asx_group_authoring" IsProfile="false" Title="Authoring" ToolTipResourseId="SitemapDesigner.Unknown">
+        <SubArea Id="NewSubArea_6d354d9f" ResourceId="SitemapDesigner.NewSubArea" VectorIcon="/WebResources/asx_/icons/webresources/visualeditor.svg" Icon="/WebResources/asx_/icons/webresources/visualeditor.svg" Url="$webresource:asx_/ruleeditor/asx_ruleeditor.html" Client="All,Outlook,OutlookLaptopClient,OutlookWorkstationClient,Web" AvailableOffline="true" PassParams="false" Sku="All,OnPremise,Live,SPLA">
+          <Titles>
+            <Title LCID="1033" Title="Visual Rule Editor" />
+          </Titles>
+        </SubArea>
+      </Group>
+      <Group Id="asx_group_configuration" ResourceId="SitemapDesigner.NewGroup" IsProfile="false" ToolTipResourseId="SitemapDesigner.Unknown">
+        <Titles>
+          <Title LCID="1033" Title="Configuration" />
+        </Titles>
+        <SubArea Id="nav_rule" Title="Rules" Entity="asx_rule" AvailableOffline="true" PassParams="false" />
+        <SubArea Id="nav_tableconfig" Title="Table Configs" Entity="asx_tableconfig" AvailableOffline="true" PassParams="false" />
+      </Group>
+      <Group Id="asx_group_help" IsProfile="false" Title="Help" ToolTipResourseId="SitemapDesigner.Unknown">
+        <Titles>
+          <Title LCID="1033" Title="Help" />
+        </Titles>
+        <SubArea Id="asx_nav_documentation" ResourceId="SitemapDesigner.NewSubArea" VectorIcon="/WebResources/asx_/icons/webresources/visualeditor.svg" Icon="/WebResources/asx_/icons/webresources/visualeditor.svg" Url="$webresource:asx_/ruleeditor/asx_help.html" Client="All,Outlook,OutlookLaptopClient,OutlookWorkstationClient,Web" AvailableOffline="true" PassParams="false" Sku="All,OnPremise,Live,SPLA">
+          <Titles>
+            <Title LCID="1033" Title="Documentation" />
+          </Titles>
+        </SubArea>
+      </Group>
+    </Area>
+    <Area Id="area_reference" ResourceId="SitemapDesigner.NewArea" ShowGroups="false">
+      <Titles>
+        <Title LCID="1033" Title="Reference" />
+      </Titles>
+      <Group Id="asx_group_reference" IsProfile="false" Title="Reference" ToolTipResourseId="SitemapDesigner.Unknown">
+        <Titles>
+          <Title LCID="1033" Title="Reference Tables" />
+        </Titles>
+        <SubArea Id="nav_conditiongroup" Title="Condition Groups" Entity="asx_conditiongroup" AvailableOffline="true" PassParams="false" />
+        <SubArea Id="nav_rulecondition" Title="Conditions" Entity="asx_rulecondition" AvailableOffline="true" PassParams="false" />
+        <SubArea Id="nav_ruleaction" Title="Actions" Entity="asx_ruleaction" AvailableOffline="true" PassParams="false" />
+        <SubArea Id="nav_searchcriteriagroup" Title="Search Criteria Groups" Entity="asx_searchcriteriagroup" AvailableOffline="true" PassParams="false" />
+        <SubArea Id="nav_searchcriterion" Title="Search Criteria" Entity="asx_searchcriterion" AvailableOffline="true" PassParams="false" />
+        <SubArea Id="nav_nodefiltergroup" Title="Node Filter Groups" Entity="asx_nodefiltergroup" AvailableOffline="true" PassParams="false" />
+        <SubArea Id="nav_nodefiltercriterion" Title="Node Filter Criteria" Entity="asx_nodefiltercriterion" AvailableOffline="true" PassParams="false" />
+        <SubArea Id="nav_localizedmessage" Title="Localized Messages" Entity="asx_localizedmessage" AvailableOffline="true" PassParams="false" />
+      </Group>
+    </Area>
+  </SiteMap>
+  <LocalizedNames>
+    <LocalizedName description="Ascentix Rules Engine" languagecode="1033" />
+  </LocalizedNames>
+</AppModuleSiteMap>

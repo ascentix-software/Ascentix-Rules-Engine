@@ -1,0 +1,75 @@
+name: CI
+
+# Runs the suites that need no Dataverse environment, so a fork's pull request
+# gets the same check a maintainer's does. The live contract suite (test:dev)
+# and the browser suite (test:e2e) need credentials for a real org and run
+# against the maintainer's environment instead.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dotnet:
+    # Core, the plug-in and the test project all target net462, which needs the
+    # .NET Framework reference assemblies present on the Windows image.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build
+        run: dotnet build ValidationEngine.slnx --configuration Release
+
+      - name: Test
+        run: dotnet test tests/Ascentix.RulesEngine.Tests/Ascentix.RulesEngine.Tests.csproj --configuration Release --no-build
+
+  client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      # Regenerates the help bundle first, then checks all three tsconfigs.
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Every skip must carry a reason, an issue and an expiry.
+      - name: Skip lint
+        run: npm run check:skips
+
+      # Every suite the coverage matrix names must resolve to a real test file.
+      - name: Coverage matrix drift
+        run: npm run check:matrix
+
+      # The committed help bundle must match docs/guide, or the editor ships
+      # documentation that no longer exists in the repository.
+      - name: Help bundle is current
+        run: |
+          node scripts/build-docs.mjs
+          git diff --exit-code -- src/editor/help/generated/docs.ts

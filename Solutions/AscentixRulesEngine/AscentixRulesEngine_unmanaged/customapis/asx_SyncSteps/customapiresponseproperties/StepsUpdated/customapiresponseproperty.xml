@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="StepsUpdated">
+  <description default="Filtering-attribute repairs.">
+    <label description="Filtering-attribute repairs." languagecode="1033" />
+  </description>
+  <displayname default="StepsUpdated">
+    <label description="StepsUpdated" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>StepsUpdated</name>
+  <type>7</type>
+</customapiresponseproperty>

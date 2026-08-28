@@ -1,0 +1,150 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ImportExportXml version="9.2.26082.133" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="CrmLive" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26082.133" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.26082.00143">
+  <SolutionManifest>
+    <UniqueName>AscentixRulesEngine</UniqueName>
+    <LocalizedNames>
+      <LocalizedName description="Ascentix Rules Engine" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions />
+    <Version>0.0.0.1</Version>
+    <Managed>1</Managed>
+    <Publisher>
+      <UniqueName>ascentix</UniqueName>
+      <LocalizedNames>
+        <LocalizedName description="Ascentix" languagecode="1033" />
+      </LocalizedNames>
+      <Descriptions />
+      <EMailAddress xsi:nil="true"></EMailAddress>
+      <SupportingWebsiteUrl xsi:nil="true"></SupportingWebsiteUrl>
+      <CustomizationPrefix>asx</CustomizationPrefix>
+      <CustomizationOptionValuePrefix>10000</CustomizationOptionValuePrefix>
+      <Addresses>
+        <Address>
+          <AddressNumber>1</AddressNumber>
+          <AddressTypeCode>1</AddressTypeCode>
+          <City xsi:nil="true"></City>
+          <County xsi:nil="true"></County>
+          <Country xsi:nil="true"></Country>
+          <Fax xsi:nil="true"></Fax>
+          <FreightTermsCode xsi:nil="true"></FreightTermsCode>
+          <ImportSequenceNumber xsi:nil="true"></ImportSequenceNumber>
+          <Latitude xsi:nil="true"></Latitude>
+          <Line1 xsi:nil="true"></Line1>
+          <Line2 xsi:nil="true"></Line2>
+          <Line3 xsi:nil="true"></Line3>
+          <Longitude xsi:nil="true"></Longitude>
+          <Name xsi:nil="true"></Name>
+          <PostalCode xsi:nil="true"></PostalCode>
+          <PostOfficeBox xsi:nil="true"></PostOfficeBox>
+          <PrimaryContactName xsi:nil="true"></PrimaryContactName>
+          <ShippingMethodCode>1</ShippingMethodCode>
+          <StateOrProvince xsi:nil="true"></StateOrProvince>
+          <Telephone1 xsi:nil="true"></Telephone1>
+          <Telephone2 xsi:nil="true"></Telephone2>
+          <Telephone3 xsi:nil="true"></Telephone3>
+          <TimeZoneRuleVersionNumber xsi:nil="true"></TimeZoneRuleVersionNumber>
+          <UPSZone xsi:nil="true"></UPSZone>
+          <UTCOffset xsi:nil="true"></UTCOffset>
+          <UTCConversionTimeZoneCode xsi:nil="true"></UTCConversionTimeZoneCode>
+        </Address>
+        <Address>
+          <AddressNumber>2</AddressNumber>
+          <AddressTypeCode>1</AddressTypeCode>
+          <City xsi:nil="true"></City>
+          <County xsi:nil="true"></County>
+          <Country xsi:nil="true"></Country>
+          <Fax xsi:nil="true"></Fax>
+          <FreightTermsCode xsi:nil="true"></FreightTermsCode>
+          <ImportSequenceNumber xsi:nil="true"></ImportSequenceNumber>
+          <Latitude xsi:nil="true"></Latitude>
+          <Line1 xsi:nil="true"></Line1>
+          <Line2 xsi:nil="true"></Line2>
+          <Line3 xsi:nil="true"></Line3>
+          <Longitude xsi:nil="true"></Longitude>
+          <Name xsi:nil="true"></Name>
+          <PostalCode xsi:nil="true"></PostalCode>
+          <PostOfficeBox xsi:nil="true"></PostOfficeBox>
+          <PrimaryContactName xsi:nil="true"></PrimaryContactName>
+          <ShippingMethodCode>1</ShippingMethodCode>
+          <StateOrProvince xsi:nil="true"></StateOrProvince>
+          <Telephone1 xsi:nil="true"></Telephone1>
+          <Telephone2 xsi:nil="true"></Telephone2>
+          <Telephone3 xsi:nil="true"></Telephone3>
+          <TimeZoneRuleVersionNumber xsi:nil="true"></TimeZoneRuleVersionNumber>
+          <UPSZone xsi:nil="true"></UPSZone>
+          <UTCOffset xsi:nil="true"></UTCOffset>
+          <UTCConversionTimeZoneCode xsi:nil="true"></UTCConversionTimeZoneCode>
+        </Address>
+      </Addresses>
+    </Publisher>
+    <RootComponents>
+      <RootComponent type="1" schemaName="asx_conditiongroup" behavior="0" />
+      <RootComponent type="1" schemaName="asx_localizedmessage" behavior="0" />
+      <RootComponent type="1" schemaName="asx_nodefiltercriterion" behavior="0" />
+      <RootComponent type="1" schemaName="asx_nodefiltergroup" behavior="0" />
+      <RootComponent type="1" schemaName="asx_rule" behavior="0" />
+      <RootComponent type="1" schemaName="asx_ruleaction" behavior="0" />
+      <RootComponent type="1" schemaName="asx_rulecondition" behavior="0" />
+      <RootComponent type="1" schemaName="asx_searchcriteriagroup" behavior="0" />
+      <RootComponent type="1" schemaName="asx_searchcriterion" behavior="0" />
+      <RootComponent type="1" schemaName="asx_tableconfig" behavior="0" />
+      <RootComponent type="20" id="{45c2cff3-dc69-f111-ab0c-7c1e5254734e}" behavior="0" />
+      <RootComponent type="20" id="{db5f63ec-dc69-f111-ab0c-7c1e5254734e}" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/authoringforms/asx_authoringforms.js" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-01-opening-the-rule-builder-01.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-02-the-hub-01.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-03-creating-a-new-rule-01.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-04-editor-layout-01.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-05-building-conditions-01.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-05-building-conditions-02.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-06-comparison-value-sources-01.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-07-building-actions-01.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-09-field-mapping-01.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-10-table-config-tree-01.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-10-table-config-tree-02.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-11-metadata-pickers-01.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-12-validating-and-publishing-01.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-12-validating-and-publishing-02.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/docs/images/02-14-accessibility-responsive-01.png" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/icons/ascentixrulesengineicon/svg" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/icons/tables/actions.svg" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/icons/tables/conditiongroups.svg" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/icons/tables/conditions.svg" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/icons/tables/localizedmessages.svg" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/icons/tables/nodefiltercriteria.svg" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/icons/tables/nodefiltergroups.svg" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/icons/tables/rules.svg" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/icons/tables/searchcriteria.svg" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/icons/tables/searchcriteriagroups.svg" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/icons/tables/tableconfigs.svg" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/icons/webresources/visualeditor.svg" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/ruleeditor/asx_editor.css" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/ruleeditor/asx_help.html" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/ruleeditor/asx_ruleeditor.html" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/ruleeditor/asx_ruleeditor.js" behavior="0" />
+      <RootComponent type="61" schemaName="asx_/rulesengine/asx_rulesengine.js" behavior="0" />
+      <RootComponent type="62" schemaName="asx_AscentixDataverseRulesEngine" behavior="0" />
+      <RootComponent type="80" schemaName="asx_AscentixDataverseRulesEngine" behavior="0" />
+      <RootComponent type="9" schemaName="asx_actionfireon" behavior="0" />
+      <RootComponent type="9" schemaName="asx_actiontype" behavior="0" />
+      <RootComponent type="9" schemaName="asx_channel" behavior="0" />
+      <RootComponent type="9" schemaName="asx_comparisonoperator" behavior="0" />
+      <RootComponent type="9" schemaName="asx_comparisonvaluesource" behavior="0" />
+      <RootComponent type="9" schemaName="asx_conditiontype" behavior="0" />
+      <RootComponent type="9" schemaName="asx_criteriontype" behavior="0" />
+      <RootComponent type="9" schemaName="asx_logicaloperator" behavior="0" />
+      <RootComponent type="9" schemaName="asx_severity" behavior="0" />
+      <RootComponent type="9" schemaName="asx_tableconfigtype" behavior="0" />
+      <RootComponent type="9" schemaName="asx_triggers" behavior="0" />
+      <RootComponent type="91" id="{8c9d7047-549b-4510-9607-6c0e6f1bd7b8}" schemaName="Ascentix.RulesEngine.Plugin, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67f2dcfd2e8488af" behavior="0" />
+      <RootComponent type="92" id="{2a390d05-3aa2-f111-b8dc-3833c5f6e47a}" behavior="0" />
+      <RootComponent type="92" id="{398b9afb-55a2-f111-b8dc-3833c5f6e47a}" behavior="0" />
+      <RootComponent type="92" id="{5eaef1bf-e9a1-f111-b8de-70a8a50da119}" behavior="0" />
+      <RootComponent type="92" id="{a4e5a353-56a2-f111-b8dd-6045bd5d5185}" behavior="0" />
+      <RootComponent type="92" id="{bd2ad6b9-3ba2-f111-b8dc-3833c5f6e47a}" behavior="0" />
+      <RootComponent type="92" id="{bec33b7f-1aa2-f111-b8dd-6045bd5d5185}" behavior="0" />
+      <RootComponent type="92" id="{cbe9a038-56a2-f111-b8dc-3833c5f6e47a}" behavior="0" />
+    </RootComponents>
+    <MissingDependencies />
+  </SolutionManifest>
+</ImportExportXml>

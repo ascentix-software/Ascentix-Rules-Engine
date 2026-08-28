@@ -1,0 +1,18 @@
+<customapi uniquename="asx_RunRules">
+  <allowedcustomprocessingsteptype>0</allowedcustomprocessingsteptype>
+  <bindingtype>0</bindingtype>
+  <description default="Evaluates the rules engine for a record on demand and returns fired actions (non-enforcing). See docs/Schema.md.">
+    <label description="Evaluates the rules engine for a record on demand and returns fired actions (non-enforcing). See docs/Schema.md." languagecode="1033" />
+  </description>
+  <displayname default="Run Rules">
+    <label description="Run Rules" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>0</isfunction>
+  <isprivate>0</isprivate>
+  <name>asx_RunRules</name>
+  <plugintypeid>
+    <plugintypeexportkey>07ee4640-7891-41fb-89cb-3956170c480b</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>

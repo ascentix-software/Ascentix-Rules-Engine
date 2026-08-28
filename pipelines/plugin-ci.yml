@@ -1,0 +1,144 @@
+name: plugin-ci-$(Date:yyyyMMdd)-$(Rev:r)
+
+parameters:
+  # Everything that touches the maintainer's Dataverse environment lives behind this.
+  # It is a template parameter, not a runtime condition, so a fork that sets it false
+  # compiles a pipeline with no reference to the `dataverse-dev` variable group, the
+  # `Azure-DataverseCI` service connection, or the `Ascentix.snk` secure file. Those
+  # references are resolved when the YAML is validated, before any stage `condition:` is read, so a
+  # runtime gate would still fail the whole pipeline on every branch.
+  - name: deployToDev
+    type: boolean
+    default: true
+
+trigger:
+  branches: { include: [main] }
+  paths:
+    include:
+      - Ascentix.RulesEngine.Core/**
+      - Ascentix.RulesEngine.Plugin/**
+      - tests/**
+      - pipelines/plugin-ci.yml
+      - pipelines/Deploy-PluginAssembly.ps1
+      - pipelines/plugintypes.json
+
+pr:
+  branches: { include: ['*'] }
+  paths:
+    include:
+      - Ascentix.RulesEngine.Core/**
+      - Ascentix.RulesEngine.Plugin/**
+      - tests/**
+
+pool:
+  vmImage: windows-latest
+
+variables:
+  # Public key token of the release signing key. Published in README.md so anyone can
+  # verify a downloaded artifact; pinned here so a mis-signed build fails the pipeline.
+  - name: releasePublicKeyToken
+    value: 67f2dcfd2e8488af
+  - name: pluginDll
+    value: Ascentix.RulesEngine.Plugin/bin/Release/net462/Ascentix.RulesEngine.Plugin.dll
+  # NB: ADO exports every pipeline variable as an environment variable, and MSBuild adopts
+  # env vars as default properties. A variable named `assemblyName` therefore forced
+  # AssemblyName=...Plugin onto the Tests project (which doesn't set it explicitly) and
+  # broke NuGet restore with "Ambiguous project name". Keep this name MSBuild-neutral.
+  - name: dataversePluginAssemblyName
+    value: Ascentix.RulesEngine.Plugin
+
+stages:
+  - stage: Test
+    displayName: Test (dotnet)
+    jobs:
+      - job: test
+        steps:
+          - task: UseDotNet@2
+            inputs: { packageType: sdk, version: '10.x' }
+            displayName: Use .NET SDK
+          - script: dotnet test tests/Ascentix.RulesEngine.Tests/Ascentix.RulesEngine.Tests.csproj -c Release
+            displayName: dotnet test
+
+  - ${{ if eq(parameters.deployToDev, true) }}:
+      - stage: Deploy
+        displayName: Build + update plugin assembly in DEV
+        dependsOn: Test
+        condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+        variables:
+          # Scoped to this stage: the test stage needs no environment credentials.
+          - group: dataverse-dev
+        jobs:
+          - job: deploy
+            steps:
+              - task: UseDotNet@2
+                inputs: { packageType: sdk, version: '10.x' }
+                displayName: Use .NET SDK (10.x, because .slnx needs 9.0.200+/10 and CI's 8.0.4xx mis-restores it)
+              # The repo's default signing key is the PUBLIC development key, so that a clean
+              # clone builds and the tests run. It must never sign anything that reaches DEV:
+              # Dataverse registers a plug-in assembly by its strong name, so an assembly signed
+              # with the wrong key is a different identity, and a managed solution carrying it
+              # cannot upgrade an existing install. The real key is an Azure DevOps secure file
+              # and is injected only here.
+              - task: DownloadSecureFile@1
+                name: signingKey
+                displayName: Fetch the release signing key
+                inputs:
+                  secureFile: Ascentix.snk
+              - script: dotnet build Ascentix.RulesEngine.Plugin.csproj -c Release /p:SigningKeyFile=$(signingKey.secureFilePath)
+                workingDirectory: Ascentix.RulesEngine.Plugin
+                displayName: Build signed plugin DLL
+              # Fail loudly rather than shipping an un-upgradeable identity. This is the backstop
+              # for a mis-set secure file, a renamed variable, or a future change to the default key.
+              - pwsh: |
+                  # Derive the expected identity from the PUBLISHED public key rather than a
+                  # literal, so this checks the same thing an adopter checks when they verify a
+                  # download. A token is the last 8 bytes of the SHA-1 of the public key blob,
+                  # reversed.
+                  $keyPath = "$(Build.SourcesDirectory)/Ascentix.RulesEngine.Plugin/Ascentix.Release.publickey"
+                  $pub = [IO.File]::ReadAllBytes($keyPath)
+                  $sha1 = [System.Security.Cryptography.SHA1]::Create().ComputeHash($pub)
+                  $tokenBytes = $sha1[($sha1.Length - 8)..($sha1.Length - 1)]
+                  [array]::Reverse($tokenBytes)
+                  $expected = ($tokenBytes | ForEach-Object { $_.ToString('x2') }) -join ''
+
+                  # Cross-check the published key file itself against the documented constant, so
+                  # a regenerated or swapped key file fails here instead of silently redefining
+                  # what "correct" means.
+                  if ($expected -ne '$(releasePublicKeyToken)') {
+                    throw "Ascentix.Release.publickey does not match the documented release identity " +
+                          "$(releasePublicKeyToken). The published key file has changed."
+                  }
+
+                  $dll = "$(Build.SourcesDirectory)/$(pluginDll)"
+                  $actual = ([System.Reflection.AssemblyName]::GetAssemblyName($dll).GetPublicKeyToken() |
+                      ForEach-Object { $_.ToString('x2') }) -join ''
+                  Write-Host "expected public key token: $expected  (derived from the published key)"
+                  Write-Host "actual   public key token: $actual"
+                  if ($actual -ne $expected) {
+                    throw "Plug-in assembly is signed with the wrong key. Expected $expected, got $actual. " +
+                          "Shipping this would change the assembly identity and break upgrades for every existing install."
+                  }
+                  Write-Host "Release signing identity verified."
+                displayName: Verify release signing identity
+              # Secretless: the ARM workload-identity-federation service connection logs in az,
+              # then we mint a short-lived Dataverse token and update the assembly via Web API.
+              - task: AzureCLI@2
+                displayName: Update plugin assembly in DEV
+                inputs:
+                  azureSubscription: Azure-DataverseCI
+                  scriptType: pscore
+                  scriptLocation: inlineScript
+                  inlineScript: |
+                    $resource = "$(DATAVERSE_URL)".TrimEnd('/')
+                    $token = az account get-access-token --resource $resource --query accessToken -o tsv
+                    if ($LASTEXITCODE -ne 0 -or -not $token) { throw "Failed to acquire Dataverse access token" }
+                    Write-Host "##vso[task.setsecret]$token"   # mask the token in logs (defense-in-depth)
+                    & "$(Build.SourcesDirectory)/pipelines/Deploy-PluginAssembly.ps1" `
+                      -DllPath "$(Build.SourcesDirectory)/$(pluginDll)" `
+                      -EnvUrl "$(DATAVERSE_URL)" `
+                      -AccessToken $token `
+                      -AssemblyName "$(dataversePluginAssemblyName)" `
+                      -PluginTypesManifest "$(Build.SourcesDirectory)/pipelines/plugintypes.json"
+              # Queue the live-L2 verification run (single trigger path, deduped when a
+              # cross-cutting merge deploys via both CI pipelines). See the template.
+              - template: templates/queue-live-l2.yml

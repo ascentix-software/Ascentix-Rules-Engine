@@ -1,0 +1,37 @@
+<Project>
+
+  <!--
+    Strong-name signing.
+
+    Dataverse registers a plug-in assembly by its strong name, so the assembly identity has
+    to stay stable across releases: a different key produces a different public key token,
+    and an installed solution cannot be upgraded across that change.
+
+    A build therefore needs a key, and this repository commits one: Ascentix.Dev.snk, the
+    DEVELOPMENT key, which is what the default below points at. It is deliberately worthless
+    — its only job is to give ordinary builds a valid signature, so that a clean clone builds,
+    the whole test suite runs, and Core's InternalsVisibleTo declaration (which names this
+    key) admits the test assembly, all with no key of your own.
+
+    Official release artifacts are signed with a SEPARATE key that is not in this repository,
+    which is why an official build and a local one have different assembly identities. The
+    public half of the release key is published alongside the development key, as
+    Ascentix.Release.publickey, so anyone can verify an official artifact.
+
+    To sign with your own key instead:
+
+        dotnet build /p:SigningKeyFile=<path to your .snk>
+
+    Note that Core's InternalsVisibleTo names the development key, so a differently signed
+    build cannot also compile the test project — build the plug-in project alone when you
+    override the key. See "Forking and redistribution" in CONTRIBUTING.md.
+
+    Only the projects that declare SignAssembly consume this: the plug-in assembly, and the
+    test assembly that has to share its identity. Core is deliberately unsigned — it is
+    compiled into the plug-in assembly as linked source rather than shipped as its own DLL.
+  -->
+  <PropertyGroup>
+    <SigningKeyFile Condition="'$(SigningKeyFile)' == ''">$(MSBuildThisFileDirectory)Ascentix.RulesEngine.Plugin/Ascentix.Dev.snk</SigningKeyFile>
+  </PropertyGroup>
+
+</Project>

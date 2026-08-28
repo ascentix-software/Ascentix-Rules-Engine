@@ -1,0 +1,135 @@
+name: Bug report
+description: Something in the rules engine behaves differently from the documentation.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. The product collects no telemetry, so your
+        report is the only signal we get.
+
+        **Before you fill this in:**
+
+        - **Do not report a security vulnerability here.** Use the private channels described in
+          `SECURITY.md` instead: this repository's **Security** tab -> **Report a
+          vulnerability**, or email info@ascentix.ca with `SECURITY` in the subject.
+        - **Do not paste customer data, record contents, credentials, tokens, connection
+          strings, or environment URLs.** Rule names, messages, and error text are enough, so please
+          redact anything else. This issue is public.
+        - Check [Beta Limitations](https://ascentix.ca/power-platform/rules-engine/beta-limitations)
+          and [Troubleshooting](https://ascentix.ca/power-platform/rules-engine/troubleshooting)
+          first; some behaviour that looks wrong is documented and intentional.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting
+      options:
+        - label: This is not a security vulnerability (those go through SECURITY.md).
+          required: true
+        - label: I have removed customer data, credentials, and environment URLs from everything I am about to paste.
+          required: true
+        - label: I checked the Beta Limitations page and this is not one of the documented limits.
+          required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Solution version
+      description: >-
+        From the environment's Solutions list, the version shown for
+        "Ascentix Rules Engine" (for example 1.0.0.2).
+      placeholder: 1.0.0.N
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What did you do, what did you expect, and what happened?
+      description: >-
+        Steps in order, then the expected result, then the actual result. Be specific about
+        which record was saved and which rule you think should have applied.
+      placeholder: |
+        1. Published a rule on <table> with a Row Count condition and a Block action firing On No Match.
+        2. Created a record with no child rows.
+        Expected: the save is blocked with the rule's message.
+        Actual: the save succeeded.
+    validations:
+      required: true
+
+  - type: textarea
+    id: error-text
+    attributes:
+      label: Exact error text, pasted verbatim
+      description: >-
+        Copy the message exactly as it appeared: the save error, the editor's error panel, the
+        API response, or the browser console line. Do not paraphrase or retype it. Leave blank
+        if there was no error.
+      render: text
+
+  - type: input
+    id: rule-and-table
+    attributes:
+      label: Rule name and target table
+      description: Both are on the rule's row in the hub. Rename the rule first if its name is sensitive.
+      placeholder: "\"Order needs at least one line\" on sample_order"
+
+  - type: dropdown
+    id: reproduces
+    attributes:
+      label: Does it reproduce?
+      options:
+        - Every time
+        - Sometimes / intermittently
+        - Once, and I have not been able to repeat it
+        - I have not tried again
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does it happen?
+      multiple: true
+      options:
+        - Save enforcement (server plug-in)
+        - Form behaviour (client form library)
+        - Rule Builder / editor
+        - Custom API (asx_RunRules / asx_ValidateRule / asx_SyncSteps)
+        - Install, upgrade, or uninstall
+        - Security roles or privileges
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: run-rules
+    attributes:
+      label: Does it reproduce through asx_RunRules?
+      description: >-
+        Call asx_RunRules for the table and record with IncludeDiagnostics set to true. It
+        reports what fired without writing anything. Paste the Diagnostics output here. Its
+        timings and row counts are usually enough for us to see where the time or the rows went.
+      render: json
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment details
+      description: >-
+        Dataverse environment type (trial, sandbox, developer), the environment's base language
+        (especially if it is not English), and for editor problems the browser and version
+        plus anything from the browser console (F12). No environment URLs, please.
+      placeholder: |
+        Environment: sandbox, base language English
+        Browser: Edge 141
+        Console: (paste CSP violations or script errors here)
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description: Rule configuration shape, Table Config tree depth, approximate row volumes, or anything else you think matters.

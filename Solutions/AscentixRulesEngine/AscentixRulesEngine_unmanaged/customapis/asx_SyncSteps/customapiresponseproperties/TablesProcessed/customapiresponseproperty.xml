@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="TablesProcessed">
+  <description default="Distinct tables reconciled or swept.">
+    <label description="Distinct tables reconciled or swept." languagecode="1033" />
+  </description>
+  <displayname default="TablesProcessed">
+    <label description="TablesProcessed" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>TablesProcessed</name>
+  <type>7</type>
+</customapiresponseproperty>

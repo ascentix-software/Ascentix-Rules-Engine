@@ -1,0 +1,62 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<optionset Name="asx_comparisonoperator" localizedName="Comparison Operator" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <OptionSetType>picklist</OptionSetType>
+  <IsGlobal>1</IsGlobal>
+  <IntroducedVersion>1.0.0.0</IntroducedVersion>
+  <IsCustomizable>1</IsCustomizable>
+  <displaynames>
+    <displayname description="Comparison Operator" languagecode="1033" />
+  </displaynames>
+  <options>
+    <option value="1" IsHidden="0">
+      <labels>
+        <label description="Equals" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="2" IsHidden="0">
+      <labels>
+        <label description="Not Equals" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="3" IsHidden="0">
+      <labels>
+        <label description="Greater Than" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="4" IsHidden="0">
+      <labels>
+        <label description="Greater Than Or Equal" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="5" IsHidden="0">
+      <labels>
+        <label description="Less Than" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="6" IsHidden="0">
+      <labels>
+        <label description="Less Than Or Equal" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="7" IsHidden="0">
+      <labels>
+        <label description="Contains" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="8" IsHidden="0">
+      <labels>
+        <label description="Does Not Contain" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="9" IsHidden="0">
+      <labels>
+        <label description="Is Null" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="10" IsHidden="0">
+      <labels>
+        <label description="Is Not Null" languagecode="1033" />
+      </labels>
+    </option>
+  </options>
+</optionset>

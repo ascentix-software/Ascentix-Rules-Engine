@@ -1,0 +1,9 @@
+<customapirequestparameter uniquename="RecordId">
+  <displayname default="Record Id">
+    <label description="Record Id" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>RecordId</name>
+  <type>10</type>
+</customapirequestparameter>

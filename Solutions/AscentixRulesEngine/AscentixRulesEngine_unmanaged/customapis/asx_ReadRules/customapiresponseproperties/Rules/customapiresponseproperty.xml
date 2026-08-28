@@ -1,0 +1,8 @@
+<customapiresponseproperty uniquename="Rules">
+  <displayname default="Rules">
+    <label description="Rules" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Rules</name>
+  <type>10</type>
+</customapiresponseproperty>

@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<WebResource xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <WebResourceId>{b213ec16-7d6b-f111-ab0e-002248b232b3}</WebResourceId>
+  <Name>asx_/rulesengine/asx_rulesengine.js</Name>
+  <DisplayName>Ascentix Rules Engine (form library)</DisplayName>
+  <Description>Runs OnForm rules via asx_RunRules and applies client actions.</Description>
+  <LanguageCode>0</LanguageCode>
+  <WebResourceType>3</WebResourceType>
+  <IntroducedVersion>1.0.0.0</IntroducedVersion>
+  <IsEnabledForMobileClient>0</IsEnabledForMobileClient>
+  <IsAvailableForMobileOffline>0</IsAvailableForMobileOffline>
+  <IsCustomizable>1</IsCustomizable>
+  <CanBeDeleted>1</CanBeDeleted>
+  <IsHidden>0</IsHidden>
+  <FileName>/WebResources/asx_rulesengineasx_rulesenginejsB213EC16-7D6B-F111-AB0E-002248B232B3</FileName>
+</WebResource>

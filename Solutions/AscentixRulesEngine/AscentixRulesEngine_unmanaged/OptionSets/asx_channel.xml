@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<optionset Name="asx_channel" localizedName="Channel" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <OptionSetType>picklist</OptionSetType>
+  <IsGlobal>1</IsGlobal>
+  <IntroducedVersion>1.0.0.0</IntroducedVersion>
+  <IsCustomizable>1</IsCustomizable>
+  <displaynames>
+    <displayname description="Channel" languagecode="1033" />
+  </displaynames>
+  <options>
+    <option value="1" ExternalValue="" IsHidden="0">
+      <labels>
+        <label description="Standard" languagecode="1033" />
+      </labels>
+      <Descriptions>
+        <Description description="Every non-portal origin: model-driven apps, the Web API, integrations and service principals." languagecode="1033" />
+      </Descriptions>
+    </option>
+    <option value="2" ExternalValue="" IsHidden="0">
+      <labels>
+        <label description="Portal" languagecode="1033" />
+      </labels>
+    </option>
+  </options>
+</optionset>

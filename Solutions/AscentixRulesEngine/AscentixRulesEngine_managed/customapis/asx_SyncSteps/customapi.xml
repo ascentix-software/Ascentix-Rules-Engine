@@ -1,0 +1,19 @@
+<customapi uniquename="asx_SyncSteps">
+  <allowedcustomprocessingsteptype>0</allowedcustomprocessingsteptype>
+  <bindingtype>0</bindingtype>
+  <description default="Reconciles the generated enforcement steps for every table (Mode=Sync) or removes them all for pre-uninstall cleanup (Mode=RemoveAll). Caller must hold prvWriteSdkMessageProcessingStep.">
+    <label description="Reconciles the generated enforcement steps for every table (Mode=Sync) or removes them all for pre-uninstall cleanup (Mode=RemoveAll). Caller must hold prvWriteSdkMessageProcessingStep." languagecode="1033" />
+  </description>
+  <displayname default="Sync Steps">
+    <label description="Sync Steps" languagecode="1033" />
+  </displayname>
+  <executeprivilegename>prvWriteSdkMessageProcessingStep</executeprivilegename>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>0</isfunction>
+  <isprivate>0</isprivate>
+  <name>Sync Steps</name>
+  <plugintypeid>
+    <plugintypeexportkey>25ec5866-e6c6-4c7c-ad3c-a9f35f92c354</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>

@@ -1,0 +1,233 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<forms xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <systemform>
+    <formid>{81432c2b-5c6e-4ce0-8dd7-50cb684446fa}</formid>
+    <IntroducedVersion>1.0.0.0</IntroducedVersion>
+    <FormPresentation>1</FormPresentation>
+    <FormActivationState>1</FormActivationState>
+    <form>
+      <tabs>
+        <tab verticallayout="true" id="{5fce606a-0e75-466b-8c14-729273866c4a}" IsUserDefined="1">
+          <labels>
+            <label description="General" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="false" showbar="false" IsUserDefined="0" id="{8f3448e0-b8db-42dd-ae6b-c426c7256114}">
+                  <labels>
+                    <label description="General" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{85962757-d25c-484e-a7ae-c6d15d37fe3c}">
+                        <labels>
+                          <label description="Name" languagecode="1033" />
+                        </labels>
+                        <control id="asx_name" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_name" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{f7b3e29d-a266-4edd-a088-d3093d3f2031}">
+                        <labels>
+                          <label description="Owner" languagecode="1033" />
+                        </labels>
+                        <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{a838c5b8-dfcf-f05e-3199-44110f0b5bca}">
+                  <labels>
+                    <label description="Relationships" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{045bea37-4b43-273e-6c3b-e15bccd162ca}">
+                        <labels>
+                          <label description="Condition Group" languagecode="1033" />
+                        </labels>
+                        <control id="asx_conditiongroup" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="asx_conditiongroup" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{aa0fc526-6a0f-cf57-3a4d-e6e9368420c2}">
+                        <labels>
+                          <label description="Table Config" languagecode="1033" />
+                        </labels>
+                        <control id="asx_tableconfig" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="asx_tableconfig" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{590b6329-f0d0-5e25-8b33-579dd5c767b7}">
+                  <labels>
+                    <label description="Details" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{f05da6b4-0b12-9aea-4e19-16d26599aa47}">
+                        <labels>
+                          <label description="Condition Type" languagecode="1033" />
+                        </labels>
+                        <control id="asx_conditiontype" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_conditiontype" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{bbf368e9-1126-7031-2da1-34a92ccf4b09}">
+                        <labels>
+                          <label description="Comparison Column" languagecode="1033" />
+                        </labels>
+                        <control id="asx_comparisoncolumn" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_comparisoncolumn" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{8e0bb685-806e-2c21-24d8-238dc511c093}">
+                        <labels>
+                          <label description="Comparison Operator" languagecode="1033" />
+                        </labels>
+                        <control id="asx_comparisonoperator" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_comparisonoperator" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{ff607caa-271a-975a-82f8-b35bd95874b0}">
+                        <labels>
+                          <label description="Comparison Value" languagecode="1033" />
+                        </labels>
+                        <control id="asx_comparisonvalue" classid="{E0DECE4B-6FC8-4a8f-A065-082708572369}" datafieldname="asx_comparisonvalue" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{63b6f503-873f-ca54-714e-7e9a0dd5530f}">
+                        <labels>
+                          <label description="Min Expected Rows" languagecode="1033" />
+                        </labels>
+                        <control id="asx_minexpectedrows" classid="{C3EFE0C3-0EC6-42be-8349-CBD9079DFD8E}" datafieldname="asx_minexpectedrows" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{d9d15d51-96b7-24e2-b1c3-400e0a13f442}">
+                        <labels>
+                          <label description="Max Expected Rows" languagecode="1033" />
+                        </labels>
+                        <control id="asx_maxexpectedrows" classid="{C3EFE0C3-0EC6-42be-8349-CBD9079DFD8E}" datafieldname="asx_maxexpectedrows" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{537EACEB-3064-46A9-980A-77F00F769675}" name="condition_header">
+                  <labels>
+                    <label description="Condition" languagecode="1033" />
+                  </labels>
+                  <rows />
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{0F4AF2B6-7E81-462C-A5B3-63A47AC7D73C}" name="comparison">
+                  <labels>
+                    <label description="Comparison" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{930E07AA-43A2-437C-9014-6E1EAFCCAF76}">
+                        <labels>
+                          <label description="Comparison Value Source" languagecode="1033" />
+                        </labels>
+                        <control id="asx_comparisonvaluesource" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_comparisonvaluesource" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{CFEA56E5-4448-4E5A-B1B1-D1C775BE2DC3}">
+                        <labels>
+                          <label description="Comparison Value Column" languagecode="1033" />
+                        </labels>
+                        <control id="asx_comparisonvaluecolumn" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_comparisonvaluecolumn" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{118B6E1D-59DB-4E0C-86C1-9D8CB0E4ED49}">
+                        <labels>
+                          <label description="Comparison Value Node" languagecode="1033" />
+                        </labels>
+                        <control id="asx_comparisonvaluenode" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="asx_comparisonvaluenode" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{A037349D-4DE8-485C-9950-E29B98F21977}" name="rowcount">
+                  <labels>
+                    <label description="Row Count" languagecode="1033" />
+                  </labels>
+                  <rows />
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+        <tab name="children" id="{4A66EC35-F3AE-4B44-9A51-993963073934}" IsUserDefined="1" locklevel="0" showlabel="true" expanded="true">
+          <labels>
+            <label description="Children" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{F1441BC8-B21C-40E3-9AA4-BE3C21E7DE35}" name="condition_children">
+                  <labels>
+                    <label description="Children" languagecode="1033" />
+                  </labels>
+                  <rows />
+                </section>
+                <section showlabel="true" showbar="true" IsUserDefined="0" id="{4EEFCB10-F568-4574-B6A5-6F52BA5FFB1A}">
+                  <labels>
+                    <label description="Search-Criteria Groups" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{9077C5A3-0706-4412-B2A0-B63976953E9A}" showlabel="true" rowspan="6" colspan="1" auto="false">
+                        <labels>
+                          <label description="Search-Criteria Groups" languagecode="1033" />
+                        </labels>
+                        <control id="ConditionSearchCriteriaGrid" classid="{E7A81278-8635-4d9e-8D4D-59480B391C5B}">
+                          <parameters>
+                            <ViewId>{0D77B279-5D6C-F111-AB0E-7C1E5254B0C9}</ViewId>
+                            <IsUserView>false</IsUserView>
+                            <RelationshipName>asx_condition_criteriagroup</RelationshipName>
+                            <TargetEntityType>asx_searchcriteriagroup</TargetEntityType>
+                            <AutoExpand>Fixed</AutoExpand>
+                            <RecordsPerPage>5</RecordsPerPage>
+                            <EnableQuickFind>false</EnableQuickFind>
+                            <EnableJumpBar>false</EnableJumpBar>
+                            <EnableViewPicker>false</EnableViewPicker>
+                            <ViewIds>{0D77B279-5D6C-F111-AB0E-7C1E5254B0C9}</ViewIds>
+                            <ChartGridMode>Grid</ChartGridMode>
+                          </parameters>
+                        </control>
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+      </tabs>
+      <formLibraries>
+        <Library name="$webresource:asx_/authoringforms/asx_authoringforms.js" libraryUniqueId="{49D9B06C-B864-4055-8894-26E900FFA864}" />
+      </formLibraries>
+      <events>
+        <event name="onload" application="false" active="false">
+          <InternalHandlers />
+          <Handlers>
+            <Handler functionName="Ascentix.Authoring.onConditionLoad" libraryName="$webresource:asx_/authoringforms/asx_authoringforms.js" handlerUniqueId="{5ED3D126-C870-45AA-B861-797BA11D6E43}" enabled="true" parameters="" passExecutionContext="true" />
+          </Handlers>
+        </event>
+      </events>
+    </form>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <LocalizedNames>
+      <LocalizedName description="Information" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="A form for this entity." languagecode="1033" />
+    </Descriptions>
+  </systemform>
+</forms>

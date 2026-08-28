@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<optionset Name="asx_criteriontype" localizedName="Criterion Type" description="Node-filter criterion kind: Comparison vs Exists (has related rows)." xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <OptionSetType>picklist</OptionSetType>
+  <IsGlobal>1</IsGlobal>
+  <IntroducedVersion>1.0.0.56</IntroducedVersion>
+  <IsCustomizable>1</IsCustomizable>
+  <displaynames>
+    <displayname description="Criterion Type" languagecode="1033" />
+  </displaynames>
+  <Descriptions>
+    <Description description="Node-filter criterion kind: Comparison vs Exists (has related rows)." languagecode="1033" />
+  </Descriptions>
+  <options>
+    <option value="1" ExternalValue="" IsHidden="0">
+      <labels>
+        <label description="Comparison" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="2" ExternalValue="" IsHidden="0">
+      <labels>
+        <label description="Exists" languagecode="1033" />
+      </labels>
+    </option>
+  </options>
+</optionset>

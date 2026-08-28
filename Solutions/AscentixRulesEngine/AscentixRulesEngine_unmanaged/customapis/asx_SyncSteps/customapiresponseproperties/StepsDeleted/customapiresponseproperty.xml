@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="StepsDeleted">
+  <description default="Steps deleted (orphans for Sync; everything engine-owned for RemoveAll).">
+    <label description="Steps deleted (orphans for Sync; everything engine-owned for RemoveAll)." languagecode="1033" />
+  </description>
+  <displayname default="StepsDeleted">
+    <label description="StepsDeleted" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>StepsDeleted</name>
+  <type>7</type>
+</customapiresponseproperty>

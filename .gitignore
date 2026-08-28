@@ -1,0 +1,62 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/packages
+
+# Build output (general)
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio / temp
+.vs/
+*.tmp
+
+# Superpowers brainstorming companion (local mockups)
+.superpowers/
+
+# Dataverse connect (secrets / caches / generated)
+.env
+.vscode/settings.json
+.claude/mcp_settings.json
+.token_cache.bin
+*.snk
+# The development key IS committed on purpose: it signs ordinary builds so the test
+# assembly loads on a plain checkout. It signs nothing anyone should trust, and the
+# key that signs official releases is never in this repository.
+!Ascentix.Dev.snk
+# The release public key is published so anyone can verify an official artifact.
+!*.publickey
+__pycache__/
+*.pyc
+solutions/*.zip
+plugins/**/bin/
+plugins/**/obj/
+
+# Client form library (Plan 4B)
+node_modules/
+client/node_modules/
+client/dist/
+
+# Claude Code session/agent scratch
+.claude/
+
+# Playwright MCP session scratch
+.playwright-mcp/
+
+# Playwright local session (Layer 3 e2e) — never commit
+client/e2e/.auth/
+
+# Local MCP server configuration: machine-specific, and it names a live environment URL.
+.mcp.json
+
+# Live-run bookkeeping written by `npm run test:dev` / `test:e2e`. Records the hostname of
+# whichever environment the run targeted, so it is per-checkout state, not shared history.
+# Both readers tolerate its absence (the staleness report just says NO RECORDED RUN).
+client/live-runs.json
+
+# Evidence written by the fresh-org install/upgrade/uninstall runner; the runner creates it.
+client/tier-c-runs/
+
+# Profiling output. Reports are published with the release they measure, not committed.
+docs/perf/

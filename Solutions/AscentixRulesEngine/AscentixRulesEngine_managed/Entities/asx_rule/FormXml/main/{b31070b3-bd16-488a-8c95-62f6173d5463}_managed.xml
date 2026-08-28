@@ -1,0 +1,281 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<forms xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <systemform>
+    <formid>{b31070b3-bd16-488a-8c95-62f6173d5463}</formid>
+    <IntroducedVersion>1.0.0.0</IntroducedVersion>
+    <FormPresentation>1</FormPresentation>
+    <FormActivationState>1</FormActivationState>
+    <form headerdensity="HighWithControls">
+      <tabs>
+        <tab verticallayout="true" id="{5d147579-28ab-4475-a36b-c358d5323c2a}" IsUserDefined="1">
+          <labels>
+            <label description="General" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="false" showbar="false" IsUserDefined="0" id="{15ba8c7b-e794-4a23-8cb8-796b32defddb}">
+                  <labels>
+                    <label description="General" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{0969df7e-85a1-49a5-9f14-62763d97ad4e}">
+                        <labels>
+                          <label description="Name" languagecode="1033" />
+                        </labels>
+                        <control id="asx_name" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_name" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{9b98b12a-9d6e-48b5-8764-064dba2dd028}">
+                        <labels>
+                          <label description="Owner" languagecode="1033" />
+                        </labels>
+                        <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{7894767e-faf3-0e28-d83d-9fc260e5c26f}">
+                  <labels>
+                    <label description="Details" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{9d8597f6-8750-61e3-3be6-2fbe7f3a0cdc}">
+                        <labels>
+                          <label description="Table Logical Name" languagecode="1033" />
+                        </labels>
+                        <control id="asx_tablelogicalname" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_tablelogicalname" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{C2FE35A9-4E85-4D47-94B8-4F06309A6C23}" name="rule_header">
+                  <labels>
+                    <label description="Rule" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{BAEFBA73-CD45-47DB-BD40-6850921C7C58}">
+                        <labels>
+                          <label description="Triggers" languagecode="1033" />
+                        </labels>
+                        <control id="asx_triggers" classid="{4AA28AB7-9C13-4F57-A73D-AD894D048B5F}" datafieldname="asx_triggers" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{70507D52-09C6-412F-B925-7E0FC8D0CDA0}" name="rule_lifecycle">
+                  <labels>
+                    <label description="Lifecycle" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{51D4A940-D956-4F1A-929D-1280AD3BEDC8}">
+                        <labels>
+                          <label description="Status" languagecode="1033" />
+                        </labels>
+                        <control id="statuscode" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="statuscode" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{8E035D7F-FC0A-450A-AEEA-09CB83C691E7}">
+                        <labels>
+                          <label description="Effective From" languagecode="1033" />
+                        </labels>
+                        <control id="asx_effectivefrom" classid="{5B773807-9FB2-42db-97C3-7A91EFF8ADFF}" datafieldname="asx_effectivefrom" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{6E5C2DB0-3139-4293-BC86-A6A04F0C8435}">
+                        <labels>
+                          <label description="Effective To" languagecode="1033" />
+                        </labels>
+                        <control id="asx_effectiveto" classid="{5B773807-9FB2-42db-97C3-7A91EFF8ADFF}" datafieldname="asx_effectiveto" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{50F902AC-5743-471E-9302-CE947ACB1302}">
+                        <labels>
+                          <label description="Evaluation Context" languagecode="1033" />
+                        </labels>
+                        <control id="asx_evaluationcontext" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_evaluationcontext" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{bb8af265-e27b-4336-9db3-ebf8894ead41}" locklevel="0" colspan="1" rowspan="1">
+                        <labels>
+                          <label description="Channels" languagecode="1033" />
+                        </labels>
+                        <control id="asx_channels" classid="{4AA28AB7-9C13-4F57-A73D-AD894D048B5F}" datafieldname="asx_channels" disabled="false" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+        <tab name="logic" id="{6A08F51D-B8C5-427C-850E-09CEA7AE8C2A}" IsUserDefined="1" locklevel="0" showlabel="true" expanded="true">
+          <labels>
+            <label description="Logic" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{CCAC3744-6A69-4ECC-9522-FFA499770D2E}" name="logic_main">
+                  <labels>
+                    <label description="Logic" languagecode="1033" />
+                  </labels>
+                  <rows />
+                </section>
+                <section showlabel="true" showbar="true" IsUserDefined="0" id="{98B77EAF-DD06-460C-B1FD-7135C159BD9E}">
+                  <labels>
+                    <label description="Actions" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{48245E5E-7BEB-466D-A247-4758C04765F6}" showlabel="true" rowspan="6" colspan="1" auto="false">
+                        <labels>
+                          <label description="Actions" languagecode="1033" />
+                        </labels>
+                        <control id="RuleActionsGrid" classid="{E7A81278-8635-4d9e-8D4D-59480B391C5B}">
+                          <parameters>
+                            <ViewId>{DFD4B973-5D6C-F111-AB0E-7C1E5254B0C9}</ViewId>
+                            <IsUserView>false</IsUserView>
+                            <RelationshipName>asx_rule_ruleaction</RelationshipName>
+                            <TargetEntityType>asx_ruleaction</TargetEntityType>
+                            <AutoExpand>Fixed</AutoExpand>
+                            <RecordsPerPage>5</RecordsPerPage>
+                            <EnableQuickFind>false</EnableQuickFind>
+                            <EnableJumpBar>false</EnableJumpBar>
+                            <EnableViewPicker>false</EnableViewPicker>
+                            <ViewIds>{DFD4B973-5D6C-F111-AB0E-7C1E5254B0C9}</ViewIds>
+                            <ChartGridMode>Grid</ChartGridMode>
+                          </parameters>
+                        </control>
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="true" IsUserDefined="0" id="{29727963-79EE-44FC-B186-AE4484BE9A5D}">
+                  <labels>
+                    <label description="Execution Conditions" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{ACADCDDB-E497-494D-9599-1E9E4F5782BB}" showlabel="true" rowspan="6" colspan="1" auto="false">
+                        <labels>
+                          <label description="Execution Conditions" languagecode="1033" />
+                        </labels>
+                        <control id="RuleExecutionConditionGroupsGrid" classid="{E7A81278-8635-4d9e-8D4D-59480B391C5B}">
+                          <parameters>
+                            <ViewId>{E0D8A75D-6F6C-F111-AB0E-7C1E5254B0C9}</ViewId>
+                            <IsUserView>false</IsUserView>
+                            <RelationshipName>asx_rule_conditiongroup</RelationshipName>
+                            <TargetEntityType>asx_conditiongroup</TargetEntityType>
+                            <AutoExpand>Fixed</AutoExpand>
+                            <RecordsPerPage>5</RecordsPerPage>
+                            <EnableQuickFind>false</EnableQuickFind>
+                            <EnableJumpBar>false</EnableJumpBar>
+                            <EnableViewPicker>false</EnableViewPicker>
+                            <ViewIds>{E0D8A75D-6F6C-F111-AB0E-7C1E5254B0C9}</ViewIds>
+                            <ChartGridMode>Grid</ChartGridMode>
+                          </parameters>
+                        </control>
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="true" IsUserDefined="0" id="{97B5C1EA-C629-481C-94B9-A91D26C3A513}">
+                  <labels>
+                    <label description="Conditions" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{50A41799-C5E8-46C7-A5B1-685077A98A16}" showlabel="true" rowspan="6" colspan="1" auto="false">
+                        <labels>
+                          <label description="Conditions" languagecode="1033" />
+                        </labels>
+                        <control id="RuleValidationConditionGroupsGrid" classid="{E7A81278-8635-4d9e-8D4D-59480B391C5B}">
+                          <parameters>
+                            <ViewId>{E2D8A75D-6F6C-F111-AB0E-7C1E5254B0C9}</ViewId>
+                            <IsUserView>false</IsUserView>
+                            <RelationshipName>asx_rule_conditiongroup</RelationshipName>
+                            <TargetEntityType>asx_conditiongroup</TargetEntityType>
+                            <AutoExpand>Fixed</AutoExpand>
+                            <RecordsPerPage>5</RecordsPerPage>
+                            <EnableQuickFind>false</EnableQuickFind>
+                            <EnableJumpBar>false</EnableJumpBar>
+                            <EnableViewPicker>false</EnableViewPicker>
+                            <ViewIds>{E2D8A75D-6F6C-F111-AB0E-7C1E5254B0C9}</ViewIds>
+                            <ChartGridMode>Grid</ChartGridMode>
+                          </parameters>
+                        </control>
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+      </tabs>
+      <header id="{b65e08b3-9e21-4755-8e60-4e6c87bbb747}" celllabelposition="Top" columns="111" labelwidth="115" celllabelalignment="Left">
+        <rows>
+          <row>
+            <cell id="{30d4698e-1956-40d4-975b-63bfc11b2149}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{bdaae411-e2e0-4d27-9ab1-3f5f290c22d0}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{3c1088d1-8524-4dfa-9eaf-aef441d10c28}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+          </row>
+        </rows>
+      </header>
+      <footer id="{3f88546e-e66c-4ecc-8266-d1d9e44f534c}" celllabelposition="Top" columns="111" labelwidth="115" celllabelalignment="Left">
+        <rows>
+          <row>
+            <cell id="{f6310324-2422-4725-be49-cae10bb108cb}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{11735d18-4192-4821-8b6d-e190da639cd1}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{907d9622-812e-4275-9023-08b671e2de11}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+          </row>
+        </rows>
+      </footer>
+      <DisplayConditions Order="0" FallbackForm="true">
+        <Everyone />
+      </DisplayConditions>
+    </form>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <LocalizedNames>
+      <LocalizedName description="Information" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="A form for this entity." languagecode="1033" />
+    </Descriptions>
+  </systemform>
+</forms>

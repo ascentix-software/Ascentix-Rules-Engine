@@ -1,0 +1,18 @@
+<customapi uniquename="asx_ReadRules">
+  <allowedcustomprocessingsteptype>0</allowedcustomprocessingsteptype>
+  <bindingtype>0</bindingtype>
+  <description default="Returns the rule definitions (graph) for a table as JSON. Read-only; no evaluation.">
+    <label description="Returns the rule definitions (graph) for a table as JSON. Read-only; no evaluation." languagecode="1033" />
+  </description>
+  <displayname default="asx_ReadRules">
+    <label description="asx_ReadRules" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>1</isfunction>
+  <isprivate>0</isprivate>
+  <name>asx_ReadRules</name>
+  <plugintypeid>
+    <plugintypeexportkey>39fc1a36-9978-4e02-ab7b-de73fa103b90</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>

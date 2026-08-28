@@ -1,0 +1,9 @@
+<customapirequestparameter uniquename="IncludeDiagnostics">
+  <displayname default="IncludeDiagnostics">
+    <label description="IncludeDiagnostics" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>IncludeDiagnostics</name>
+  <type>0</type>
+</customapirequestparameter>

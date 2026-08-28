@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<optionset Name="asx_comparisonvaluesource" localizedName="Comparison Value Source" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <OptionSetType>picklist</OptionSetType>
+  <IsGlobal>1</IsGlobal>
+  <IntroducedVersion>1.0.0.0</IntroducedVersion>
+  <IsCustomizable>1</IsCustomizable>
+  <displaynames>
+    <displayname description="Comparison Value Source" languagecode="1033" />
+  </displaynames>
+  <options>
+    <option value="1" ExternalValue="" IsHidden="0">
+      <labels>
+        <label description="Literal" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="2" ExternalValue="" IsHidden="0">
+      <labels>
+        <label description="Field Reference" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="3" IsHidden="0">
+      <labels>
+        <label description="Template" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="4" IsHidden="0">
+      <labels>
+        <label description="Date Expression" languagecode="1033" />
+      </labels>
+    </option>
+  </options>
+</optionset>

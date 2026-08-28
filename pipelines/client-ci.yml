@@ -1,0 +1,100 @@
+name: client-ci-$(Date:yyyyMMdd)-$(Rev:r)
+
+parameters:
+  # Everything that touches the maintainer's Dataverse environment lives behind this.
+  # It is a template parameter, not a runtime condition, so a fork that sets it false
+  # compiles a pipeline with no reference to the `dataverse-dev` variable group, the
+  # `Azure-DataverseCI` service connection. Those references are resolved when the
+  # YAML is validated, before any stage `condition:` is read, so a
+  # runtime gate would still fail the whole pipeline on every branch.
+  - name: deployToDev
+    type: boolean
+    default: true
+
+trigger:
+  branches: { include: [main] }
+  paths:
+    include:
+      - client/**
+      - pipelines/client-ci.yml
+      - pipelines/webresources.json
+      - pipelines/Deploy-WebResources.ps1
+
+pr:
+  branches: { include: ['*'] }
+  paths:
+    include:
+      - client/**
+
+pool:
+  vmImage: windows-latest
+
+stages:
+  - stage: Test
+    displayName: Test (vitest + typecheck)
+    jobs:
+      - job: test
+        steps:
+          - task: UseNode@1
+            inputs: { version: '24.x' }
+            displayName: Use Node 24
+          - script: npm ci
+            workingDirectory: client
+            displayName: npm ci
+          - script: npm test
+            workingDirectory: client
+            displayName: vitest run
+          - script: npm run typecheck
+            workingDirectory: client
+            displayName: tsc --noEmit
+          - script: npm run check:skips
+            workingDirectory: client
+            displayName: skip-lint (annotated, unexpired skips only)
+          - script: npm run check:matrix
+            workingDirectory: client
+            displayName: coverage-matrix drift check
+          - script: npm run check:staleness
+            workingDirectory: client
+            displayName: live-suite staleness report (L2/L3)
+
+  - ${{ if eq(parameters.deployToDev, true) }}:
+      - stage: Deploy
+        displayName: Build + deploy web resources to DEV
+        dependsOn: Test
+        condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+        variables:
+          # Scoped to this stage: the test stage needs no environment credentials.
+          - group: dataverse-dev
+        jobs:
+          - job: deploy
+            steps:
+              - task: UseNode@1
+                inputs: { version: '24.x' }
+                displayName: Use Node 24
+              - script: npm ci
+                workingDirectory: client
+                displayName: npm ci
+              - script: npm run build
+                workingDirectory: client
+                displayName: esbuild bundles
+              # Secretless: the ARM workload-identity-federation service connection logs in az,
+              # then we mint a short-lived Dataverse token and hand it to the deploy script.
+              - task: AzureCLI@2
+                displayName: Deploy web resources to DEV
+                inputs:
+                  azureSubscription: Azure-DataverseCI
+                  scriptType: pscore
+                  scriptLocation: inlineScript
+                  inlineScript: |
+                    $resource = "$(DATAVERSE_URL)".TrimEnd('/')
+                    $token = az account get-access-token --resource $resource --query accessToken -o tsv
+                    if ($LASTEXITCODE -ne 0 -or -not $token) { throw "Failed to acquire Dataverse access token" }
+                    Write-Host "##vso[task.setsecret]$token"   # mask the token in logs (defense-in-depth)
+                    & "$(Build.SourcesDirectory)/pipelines/Deploy-WebResources.ps1" `
+                      -ManifestPath "$(Build.SourcesDirectory)/pipelines/webresources.json" `
+                      -EnvUrl "$(DATAVERSE_URL)" `
+                      -AccessToken $token `
+                      -SolutionName "$(SOLUTION_NAME)"
+              # Queue the live-L2 verification run (single trigger path, deduped when a
+              # cross-cutting merge deploys via both CI pipelines). See the template.
+              - template: templates/queue-live-l2.yml

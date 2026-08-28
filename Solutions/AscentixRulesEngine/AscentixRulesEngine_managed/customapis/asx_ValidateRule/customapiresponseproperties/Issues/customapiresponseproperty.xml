@@ -1,0 +1,8 @@
+<customapiresponseproperty uniquename="Issues">
+  <displayname default="Issues">
+    <label description="Issues" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Issues</name>
+  <type>10</type>
+</customapiresponseproperty>

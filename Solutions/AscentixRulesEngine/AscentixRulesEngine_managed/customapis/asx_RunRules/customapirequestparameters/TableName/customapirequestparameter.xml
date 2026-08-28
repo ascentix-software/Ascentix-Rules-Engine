@@ -1,0 +1,9 @@
+<customapirequestparameter uniquename="TableName">
+  <displayname default="Table Name">
+    <label description="Table Name" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>0</isoptional>
+  <name>TableName</name>
+  <type>10</type>
+</customapirequestparameter>

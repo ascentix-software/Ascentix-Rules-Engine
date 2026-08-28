@@ -1,0 +1,107 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<forms xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <systemform>
+    <formid>{d08780a0-4989-45a4-826c-f52877a0fece}</formid>
+    <IntroducedVersion>1.0.0.0</IntroducedVersion>
+    <FormPresentation>1</FormPresentation>
+    <FormActivationState>1</FormActivationState>
+    <form>
+      <tabs>
+        <tab verticallayout="true" id="{32d38664-9be6-4c6f-8500-c0c17ea1e036}" IsUserDefined="1">
+          <labels>
+            <label description="General" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="false" showbar="false" IsUserDefined="0" id="{31b9c76b-a69b-49e1-be88-d02dcbe7349e}">
+                  <labels>
+                    <label description="General" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{a9723109-ef54-4344-a4b2-c0120cddea26}">
+                        <labels>
+                          <label description="Name" languagecode="1033" />
+                        </labels>
+                        <control id="asx_name" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_name" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{6a734936-9596-4112-aa5b-8d080e248671}">
+                        <labels>
+                          <label description="Owner" languagecode="1033" />
+                        </labels>
+                        <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{73465dbf-fed4-808d-2a1b-d642b0237649}">
+                  <labels>
+                    <label description="Relationships" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{1c5aac7f-2d0f-0818-c6ff-0844aa364d92}">
+                        <labels>
+                          <label description="Filter Group" languagecode="1033" />
+                        </labels>
+                        <control id="asx_filtergroup" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="asx_filtergroup" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{aa59b71f-8eb8-818b-d813-ca55a9029408}">
+                  <labels>
+                    <label description="Details" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{941526b2-82fd-bb9d-9577-8acbc8f9fe17}">
+                        <labels>
+                          <label description="Field Name" languagecode="1033" />
+                        </labels>
+                        <control id="asx_fieldname" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_fieldname" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{383dea52-a1fe-90a2-860e-c98e4e7f8bb7}">
+                        <labels>
+                          <label description="Operator" languagecode="1033" />
+                        </labels>
+                        <control id="asx_operator" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_operator" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{33ba2cf8-7794-0172-57f3-fa596d5c9122}">
+                        <labels>
+                          <label description="Value" languagecode="1033" />
+                        </labels>
+                        <control id="asx_value" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_value" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+                <section showlabel="true" showbar="false" IsUserDefined="0" id="{BC032960-C3C1-4C5D-A038-3A145E61B8C5}" name="nfc_general">
+                  <labels>
+                    <label description="Node Filter Criterion" languagecode="1033" />
+                  </labels>
+                  <rows />
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+      </tabs>
+    </form>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <LocalizedNames>
+      <LocalizedName description="Information" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="A form for this entity." languagecode="1033" />
+    </Descriptions>
+  </systemform>
+</forms>

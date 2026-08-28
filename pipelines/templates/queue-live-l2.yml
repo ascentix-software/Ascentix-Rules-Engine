@@ -1,0 +1,40 @@
+# Deterministic deploy->verify: explicitly queue the live-L2 pipeline (id 8).
+# This is the ONLY trigger path. client-live.yml deliberately has no
+# pipeline-resource triggers (they registered late and double-fired every deploy;
+# removed 2026-08-08). Do not re-add them there.
+#
+# Dedup: a PR touching both plugin and client paths deploys via BOTH CI pipelines,
+# each of which runs this step, so two L2 runs for one merge commit. Since both CIs
+# build the same commit and this step runs only AFTER its deploy completed, a
+# pipeline-8 run that is still queued (notStarted) for this same commit will start
+# after this deploy too, so it verifies both, and we skip queuing a second. A run that
+# already STARTED may predate this deploy, so we still queue: fail-open to a
+# duplicate verification, never to a missing one. (If both queue steps race in the
+# same instant, both may queue, which is rare and harmless for the same reason.) The queued
+# run is pinned to Build.SourceVersion, so the dedup key, and what L2 checks out,
+# is the exact merge commit, even if main moved meanwhile.
+#
+# Requires the project build service to hold "Queue builds" on pipeline 8
+# (granted 2026-08-08; symptom of a missing grant is TF215106 on this step).
+
+steps:
+  - powershell: |
+      $headers = @{ Authorization = "Bearer $(System.AccessToken)" }
+      $base = "$(System.CollectionUri)$(System.TeamProject)"
+
+      $queued = Invoke-RestMethod -Method Get -Headers $headers `
+        -Uri "$base/_apis/build/builds?definitions=8&statusFilter=notStarted&api-version=7.1"
+      $dup = @($queued.value | Where-Object { $_.sourceVersion -eq "$(Build.SourceVersion)" })
+      if ($dup.Count -gt 0) {
+        Write-Host "Live-L2 run $($dup[0].id) is already queued for $(Build.SourceVersion) and will start after this deploy. Skipping duplicate."
+        return
+      }
+
+      $body = @{ resources = @{ repositories = @{ self = @{
+        refName = "refs/heads/main"; version = "$(Build.SourceVersion)"
+      } } } } | ConvertTo-Json -Depth 5
+      Invoke-RestMethod -Method Post `
+        -Uri "$base/_apis/pipelines/8/runs?api-version=7.1" `
+        -Headers $headers -ContentType "application/json" -Body $body | Out-Null
+      Write-Host "Queued live-L2 verification run for $(Build.SourceVersion)."
+    displayName: Queue live L2 verification (dedup by commit)

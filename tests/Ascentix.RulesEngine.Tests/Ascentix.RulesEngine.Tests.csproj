@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net462</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <LangVersion>latest</LangVersion>
+    <!--
+      We deliberately stay on FakeXrmEasy 1.58.x (MIT, free). Its v1.x API is marked
+      [Obsolete] to push the licensed v2/v3; that nag (CS0618) is suppressed here only.
+      v1.x fakes the frozen SDK 9 surface this engine targets, so it remains fit for
+      purpose. Revisit only if we adopt a maintained free alternative (e.g. XrmMockup).
+    -->
+    <NoWarn>$(NoWarn);CS0618</NoWarn>
+    <!-- Signed with the plugin's key so Core's InternalsVisibleTo (a strong-named friend
+         declaration) admits this assembly; the engine's reference-extraction helpers are
+         internals behind RuleReferences and the per-kind truth tables still pin them. -->
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(SigningKeyFile)</AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!--
+      FakeXrmEasy.9 is the SDK v9 variant of FakeXrmEasy 1.58.x. The plain
+      "FakeXrmEasy" package is bound to the CRM 2011 (v5) SDK assemblies, whose
+      IOrganizationService is incompatible with the engine (which compiles against
+      Microsoft.CrmSdk.CoreAssemblies 9.x). The .9 variant aligns the SDK types.
+    -->
+    <PackageReference Include="FakeXrmEasy.9" Version="1.58.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Ascentix.RulesEngine.Plugin\Ascentix.RulesEngine.Plugin.csproj" />
+  </ItemGroup>
+
+</Project>

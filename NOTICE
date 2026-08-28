@@ -1,0 +1,121 @@
+Ascentix Rules Engine
+Copyright 2026 Ascentix Software
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This NOTICE covers the source distribution. The release artifact - the managed
+solution zip published from this repository - carries its own, self-contained
+notice at distribution/NOTICE, which reproduces the third-party license texts in
+full because they have to travel with the binary. Keep the two in step.
+
+
+--------------------------------------------------------------------------------
+Third-party components redistributed in the shipped managed solution
+--------------------------------------------------------------------------------
+
+Two web resources are build products that embed third-party code and assets:
+client/dist/asx_ruleeditor.js (the Rule Builder bundle, produced by esbuild from
+client/src/editor/index.tsx) and client/dist/asx_editor.css (the font web resource,
+produced by client/scripts/build-font-css.mjs). The components below ship inside
+them.
+
+  Manrope (variable font), via @fontsource-variable/manrope
+    Copyright 2019 The Manrope Project Authors (https://github.com/sharanda/manrope)
+    Licensed under the SIL Open Font License, Version 1.1 - http://scripts.sil.org/OFL
+    OFL clause 2 requires the copyright notice AND the license text to accompany
+    every copy; both are reproduced in full in distribution/NOTICE.
+
+  React, React DOM - MIT License
+    Copyright (c) Facebook, Inc. and its affiliates.
+
+  Scheduler, use-sync-external-store - MIT License
+    Copyright (c) Meta Platforms, Inc. and affiliates.
+
+  Fluent UI React v9 (@fluentui/react-components and the @fluentui/* packages it
+  depends on, including @fluentui/react-icons, @fluentui/react-theme,
+  @fluentui/tokens, @fluentui/keyboard-keys, @fluentui/priority-overflow),
+  Griffel (@griffel/core, @griffel/react), Tabster and Keyborg - MIT License
+    Copyright (c) Microsoft Corporation
+    NOT COVERED BY THIS PROJECT'S APACHE-2.0 LICENSE. The MIT grant above covers
+    Fluent UI's code. It does not cover the icon artwork. The Fluent UI license
+    files state: "Usage of the fonts and icons referenced in Fluent UI React is
+    subject to the terms listed at https://aka.ms/fluentui-assets-license", which
+    resolves to the Microsoft Fabric Assets License Agreement. That agreement
+    grants a non-exclusive, revocable, non-transferable and non-assignable license
+    to use the assets in connection with a Microsoft API, or to show that an
+    application integrates with Microsoft products; Microsoft retains ownership.
+
+    Eighteen Fluent icon glyphs are embedded as SVG path data in the
+    asx_ruleeditor.js web resource. Ascentix Software cannot, and does not,
+    sublicense that artwork under Apache-2.0. If you fork this project, your right
+    to use those icons comes from the Microsoft agreement directly and not from
+    this repository's LICENSE. Read those terms and satisfy yourself that your use
+    qualifies, or replace the icons with a set you can license yourself.
+
+    This carve-out applies ONLY to the Fluent icon glyphs. The solution's own table
+    and sitemap icons, under Solutions/**/WebResources/asx_/icons/, are original
+    work by Ascentix Software and are covered by this project's Apache-2.0 license
+    like the rest of the repository.
+
+  Floating UI (@floating-ui/core, @floating-ui/dom, @floating-ui/utils,
+  @floating-ui/devtools) - MIT License
+    Copyright (c) 2021-present Floating UI contributors
+
+  @emotion/hash - MIT License
+    Copyright (c) Emotion team and other contributors
+
+  @ctrl/tinycolor - MIT License
+    Copyright (c) Scott Cooper <scttcper@gmail.com>
+
+  rtl-css-js - MIT License
+    Copyright (c) 2017 Kent C. Dodds
+
+  stylis - MIT License
+    Copyright (c) 2016-present Sultan Tarimo
+
+  Embla Carousel (embla-carousel, embla-carousel-autoplay, embla-carousel-fade)
+  - MIT License
+    Embla Carousel - Copyright (c) 2019-present. Package created by David Jerleke.
+
+  @swc/helpers - Apache License, Version 2.0
+    Copyright 2024 SWC contributors.
+    The package ships no NOTICE file, so nothing further is propagated.
+
+MIT and BSD-family licenses require their copyright and permission notices to
+accompany redistribution; those texts are reproduced in distribution/NOTICE and are
+also available per package in client/node_modules/<package>/LICENSE after `npm ci`.
+
+
+--------------------------------------------------------------------------------
+Components used to build, register or test the engine - NOT redistributed
+--------------------------------------------------------------------------------
+
+  Microsoft.CrmSdk.CoreAssemblies - the Dataverse SDK assemblies that
+    Ascentix.RulesEngine.Core and .Plugin compile against. Dataverse
+    supplies them at runtime; the exported solution's PluginAssemblies folder
+    contains only the engine's own AscentixRulesEnginePlugin.dll. Governed
+    by the license accompanying that NuGet package.
+
+  esbuild, TypeScript, vitest, jsdom, marked, @playwright/test, the
+  @testing-library packages and the @types/* declaration packages (declared in
+  client/package.json), and xunit, xunit.runner.visualstudio,
+  Microsoft.NET.Test.Sdk and FakeXrmEasy.9 (declared in
+  tests/Ascentix.RulesEngine.Tests) - each under its own license.
+
+  marked renders this project's own Markdown documentation to HTML during
+  `npm run build`; the generated HTML is Ascentix content and no marked code is
+  bundled into any web resource.
+
+  tslib is present in client/node_modules as a transitive install but is not
+  reachable from any bundle entry point and appears in no shipped web resource.
+  (Fluent UI's TypeScript runtime helpers come from @swc/helpers, listed above.)
+
+
+--------------------------------------------------------------------------------
+Verifying this list
+--------------------------------------------------------------------------------
+
+Run esbuild with `--metafile` over the three `npm run build` entry points
+(client/src/index.ts, client/src/authoring/index.ts, client/src/editor/index.tsx);
+every third-party input that reaches a shipped bundle is listed in the metafile.
+The first two entry points bundle no third-party code at all.

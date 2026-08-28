@@ -1,0 +1,38 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<savedqueries xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <savedquery>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <isquickfindquery>0</isquickfindquery>
+    <isprivate>0</isprivate>
+    <isdefault>0</isdefault>
+    <savedqueryid>{dfd4b973-5d6c-f111-ab0e-7c1e5254b0c9}</savedqueryid>
+    <layoutxml>
+      <grid name="resultset" jump="asx_order" select="1" preview="0" icon="1">
+        <row name="result" id="asx_order">
+          <cell name="asx_order" width="80" />
+          <cell name="asx_actiontype" width="150" />
+          <cell name="asx_fireon" width="120" />
+          <cell name="asx_targetcolumn" width="200" />
+          <cell name="asx_message" width="300" />
+        </row>
+      </grid>
+    </layoutxml>
+    <querytype>0</querytype>
+    <fetchxml>
+      <fetch>
+        <entity name="asx_ruleaction">
+          <attribute name="asx_order" />
+          <attribute name="asx_actiontype" />
+          <attribute name="asx_fireon" />
+          <attribute name="asx_targetcolumn" />
+          <attribute name="asx_message" />
+        </entity>
+      </fetch>
+    </fetchxml>
+    <IntroducedVersion>1.0.0.0</IntroducedVersion>
+    <LocalizedNames>
+      <LocalizedName description="Asx Rule - Actions" languagecode="1033" />
+    </LocalizedNames>
+  </savedquery>
+</savedqueries>

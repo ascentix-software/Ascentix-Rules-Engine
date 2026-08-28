@@ -1,0 +1,46 @@
+# Shared live-L2 job: seed DEV fixtures, run the full DEV-contract suite (L2) against the org.
+# Used by client-live.yml (deploy-triggered) and as the release gate stage in solution-release.yml.
+# Auth: the AzureCLI@2 wrapper logs `az` in via workload identity federation; devToken.ts shells
+# out to `az account get-access-token`, so no secrets are needed for the main path.
+jobs:
+  - job: liveL2
+    displayName: seed + DEV contract suite (L2)
+    steps:
+      - task: UseNode@1
+        inputs: { version: '24.x' }
+        displayName: Use Node 24
+      - script: npm ci
+        workingDirectory: client
+        displayName: npm ci
+      - task: AzureCLI@2
+        displayName: seed fixtures + run L2 vs DEV
+        inputs:
+          azureSubscription: Azure-DataverseCI
+          scriptType: pscore
+          scriptLocation: inlineScript
+          workingDirectory: client
+          inlineScript: |
+            node scripts/seed-dev-fixtures.mjs
+            if ($LASTEXITCODE -ne 0) { throw "seed-dev-fixtures failed" }
+            npx vitest run --config vitest.config.dev.ts --reporter=default --reporter=junit --outputFile="$(Build.ArtifactStagingDirectory)/l2-junit.xml"
+            if ($LASTEXITCODE -ne 0) { throw "L2 DEV contract suite failed" }
+        env:
+          DATAVERSE_URL: $(DATAVERSE_URL)
+          CI: 'true'
+          # Secret variables need explicit mapping. Both SP app users provisioned in DEV
+          # 2026-08-09: channel SP (sysadmin; drives the Application-channel suite) and the
+          # Author-only SP (Rules Engine Author role only; escalationGuard + SyncSteps gate leg).
+          SERVICE_PRINCIPAL_CLIENT_ID: $(SERVICE_PRINCIPAL_CLIENT_ID)
+          SERVICE_PRINCIPAL_CLIENT_SECRET: $(SERVICE_PRINCIPAL_CLIENT_SECRET)
+          SERVICE_PRINCIPAL_TENANT_ID: $(SERVICE_PRINCIPAL_TENANT_ID)
+          AUTHOR_SP_CLIENT_ID: $(AUTHOR_SP_CLIENT_ID)
+          AUTHOR_SP_CLIENT_SECRET: $(AUTHOR_SP_CLIENT_SECRET)
+          AUTHOR_SP_TENANT_ID: $(AUTHOR_SP_TENANT_ID)
+      - task: PublishTestResults@2
+        condition: always()
+        displayName: Publish L2 results (JUnit)
+        inputs:
+          testResultsFormat: JUnit
+          testResultsFiles: $(Build.ArtifactStagingDirectory)/l2-junit.xml
+          testRunTitle: L2 DEV contract
+          failTaskOnFailedTests: false

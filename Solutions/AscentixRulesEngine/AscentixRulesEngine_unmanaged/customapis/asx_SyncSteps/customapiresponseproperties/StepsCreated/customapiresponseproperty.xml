@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="StepsCreated">
+  <description default="Steps recreated by Sync.">
+    <label description="Steps recreated by Sync." languagecode="1033" />
+  </description>
+  <displayname default="StepsCreated">
+    <label description="StepsCreated" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>StepsCreated</name>
+  <type>7</type>
+</customapiresponseproperty>

@@ -1,0 +1,70 @@
+name: Question
+description: Ask how something works, or whether the engine can do what you need.
+title: "[Question] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions are welcome. If something was hard to work out, that usually means the
+        documentation needs fixing.
+
+        **Please note:**
+
+        - **Do not report a security vulnerability here.** Use the private channels described in
+          `SECURITY.md` instead: this repository's **Security** tab -> **Report a
+          vulnerability**, or email info@ascentix.ca with `SECURITY` in the subject.
+        - **Do not paste customer data, credentials, tokens, or environment URLs.** This issue
+          is public.
+        - The answer may already be on the
+          [documentation site](https://ascentix.ca/power-platform/rules-engine/), and
+          [Core Concepts](https://ascentix.ca/power-platform/rules-engine/core-concepts),
+          [How Rules Run](https://ascentix.ca/power-platform/rules-engine/how-rules-run),
+          and [Beta Limitations](https://ascentix.ca/power-platform/rules-engine/beta-limitations)
+          cover most of it.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting
+      options:
+        - label: This is not a security vulnerability (those go through SECURITY.md).
+          required: true
+        - label: I will not paste customer data, credentials, or environment URLs.
+          required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: What are you trying to achieve, and what part is unclear?
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you have already read or tried
+      description: Which documentation pages you looked at, and what you attempted. This tells us where the docs let you down.
+
+  - type: input
+    id: version
+    attributes:
+      label: Solution version
+      description: From the environment's Solutions list, if the question is about an installed version.
+      placeholder: 1.0.0.N
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the product?
+      multiple: true
+      options:
+        - Authoring rules (conditions, actions, Table Configs)
+        - Save enforcement behaviour
+        - Form behaviour
+        - Custom APIs
+        - Install, upgrade, or uninstall
+        - Security roles, privileges, evaluation context
+        - Building from source / contributing
+        - Something else

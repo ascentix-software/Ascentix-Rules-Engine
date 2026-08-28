@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<PluginAssembly FullName="Ascentix.RulesEngine.Plugin, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67f2dcfd2e8488af" PluginAssemblyId="8c9d7047-549b-4510-9607-6c0e6f1bd7b8" CustomizationLevel="1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <IsolationMode>2</IsolationMode>
+  <SourceType>0</SourceType>
+  <IntroducedVersion>1.0.0.0</IntroducedVersion>
+  <FileName>/PluginAssemblies/AscentixRulesEnginePlugin-8C9D7047-549B-4510-9607-6C0E6F1BD7B8/AscentixRulesEnginePlugin.dll</FileName>
+  <PluginTypes>
+    <PluginType AssemblyQualifiedName="Ascentix.RulesEngine.Plugin.ReadRulesApi, Ascentix.RulesEngine.Plugin, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67f2dcfd2e8488af" PluginTypeId="39fc1a36-9978-4e02-ab7b-de73fa103b90" Name="Ascentix.RulesEngine.Plugin.ReadRulesApi">
+      <FriendlyName>b0e3e962-aacc-4812-9cfd-e32e9fcb7554</FriendlyName>
+    </PluginType>
+    <PluginType AssemblyQualifiedName="Ascentix.RulesEngine.Plugin.RulePublishPlugin, Ascentix.RulesEngine.Plugin, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67f2dcfd2e8488af" PluginTypeId="3ad83b4b-86f8-497b-a75f-8710a03a8390" Name="Ascentix.RulesEngine.Plugin.RulePublishPlugin">
+      <FriendlyName>b47c8005-1ec9-4cb9-8744-5e8a510134e3</FriendlyName>
+    </PluginType>
+    <PluginType AssemblyQualifiedName="Ascentix.RulesEngine.Plugin.RuleRegistrationPlugin, Ascentix.RulesEngine.Plugin, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67f2dcfd2e8488af" PluginTypeId="f9ce97bd-57b7-411e-8c63-078624460e73" Name="Ascentix.RulesEngine.Plugin.RuleRegistrationPlugin">
+      <FriendlyName>40170c2e-2608-4841-91cb-60d5387b43dd</FriendlyName>
+    </PluginType>
+    <PluginType AssemblyQualifiedName="Ascentix.RulesEngine.Plugin.RulesEnginePlugin, Ascentix.RulesEngine.Plugin, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67f2dcfd2e8488af" PluginTypeId="e6615897-0679-42ab-920a-fbc754d8659d" Name="Ascentix.RulesEngine.Plugin.RulesEnginePlugin">
+      <FriendlyName>96429bfa-a583-467f-839e-718d9bb7d933</FriendlyName>
+    </PluginType>
+    <PluginType AssemblyQualifiedName="Ascentix.RulesEngine.Plugin.RunRulesApi, Ascentix.RulesEngine.Plugin, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67f2dcfd2e8488af" PluginTypeId="07ee4640-7891-41fb-89cb-3956170c480b" Name="Ascentix.RulesEngine.Plugin.RunRulesApi">
+      <FriendlyName>8b68ea02-137e-42d9-bb94-d595b51357c6</FriendlyName>
+    </PluginType>
+    <PluginType AssemblyQualifiedName="Ascentix.RulesEngine.Plugin.SyncStepsApi, Ascentix.RulesEngine.Plugin, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67f2dcfd2e8488af" PluginTypeId="25ec5866-e6c6-4c7c-ad3c-a9f35f92c354" Name="Ascentix.RulesEngine.Plugin.SyncStepsApi">
+      <FriendlyName>e40e2d10-29d2-4046-8ab5-9959831c3449</FriendlyName>
+    </PluginType>
+    <PluginType AssemblyQualifiedName="Ascentix.RulesEngine.Plugin.ValidateRuleApi, Ascentix.RulesEngine.Plugin, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67f2dcfd2e8488af" PluginTypeId="1281479a-e48b-4e0d-a7ed-7ebba182219a" Name="Ascentix.RulesEngine.Plugin.ValidateRuleApi">
+      <FriendlyName>f9c45a60-74ea-4e6a-bd3e-d3991daf13da</FriendlyName>
+    </PluginType>
+  </PluginTypes>
+</PluginAssembly>

@@ -1,0 +1,19 @@
+name: client-live-$(Date:yyyyMMdd)-$(Rev:r)
+
+# No triggers of its own. Each CI pipeline's Deploy stage queues this run
+# explicitly. See templates/queue-live-l2.yml.
+
+trigger: none
+pr: none
+
+pool:
+  vmImage: windows-latest
+
+variables:
+  - group: dataverse-dev
+
+stages:
+  - stage: LiveL2
+    displayName: L2 DEV contract (live)
+    jobs:
+      - template: templates/live-l2-job.yml

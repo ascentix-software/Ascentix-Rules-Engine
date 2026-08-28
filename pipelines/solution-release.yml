@@ -1,0 +1,169 @@
+name: solution-release-$(Date:yyyyMMdd)-$(Rev:r)
+
+# Maintainer-only, and started by hand. It exports from the maintainer's DEV
+# environment, stamps the solution version and tags the release, so nothing
+# should be able to start it as a side effect of a commit.
+trigger: none
+pr: none
+
+# Version policy: beta releases ship as solution version 0.0.0.N, and 1.0.0.0 is reserved
+# for the first full release. Dataverse solution versions are numeric only, so "beta" can
+# never appear in the version an administrator sees in their org. Numbering the betas
+# 1.0.0.N would therefore have told every adopter they were running v1, and would have
+# spent the 1.0.0 range before v1 existed. 0.0.0.N says pre-release on its own, and the
+# documentation is what carries the word "beta".
+#
+# N must increase on every release, because a managed upgrade rejects a lower version than
+# the one already installed. betaNumber = 0, the default, is a NON-release run: no version
+# stamp, no tag, export and mirror branch only.
+parameters:
+  - name: betaNumber
+    displayName: "Beta number N. 0 = not a release (no version stamp, no tag). N>=1 releases beta N as solution version 0.0.0.N"
+    type: number
+    default: 0
+
+pool:
+  vmImage: windows-latest
+
+variables:
+  - group: dataverse-dev
+  - name: serviceConnection
+    value: DataverseRulesEngine-DEV
+  - name: outDir
+    value: $(Build.ArtifactStagingDirectory)
+
+stages:
+  # Release gate (Tier B): nothing exports without a green L2 against the exact DEV state being
+  # shipped. The gate run is its own freshness evidence, so there are no calendar rules.
+  - stage: LiveL2Gate
+    displayName: L2 DEV contract gate (live)
+    jobs:
+      - template: templates/live-l2-job.yml
+
+  - stage: Export
+    displayName: Export managed + unmanaged from DEV
+    dependsOn: LiveL2Gate
+    condition: succeeded()
+    jobs:
+      - job: export
+        steps:
+          # persistCredentials keeps the build token in git config so the
+          # commit-unpacked-solution step below can push back to the repo.
+          - checkout: self
+            persistCredentials: true
+
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.tool-installer.PowerPlatformToolInstaller@2
+            displayName: Install pac CLI
+
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.publish-customizations.PowerPlatformPublishCustomizations@2
+            displayName: Publish customizations
+            inputs:
+              authenticationType: PowerPlatformSPN
+              PowerPlatformSPN: $(serviceConnection)
+
+          # NOTE: writes the version stamp back into the DEV solution, so this pipeline is not purely
+          # read-only. Release runs only (betaNumber >= 1); see the semver mapping at the top.
+          - ${{ if ge(parameters.betaNumber, 1) }}:
+              - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.set-solution-version.PowerPlatformSetSolutionVersion@2
+                displayName: Set solution version 0.0.0.${{ parameters.betaNumber }} (beta ${{ parameters.betaNumber }})
+                inputs:
+                  authenticationType: PowerPlatformSPN
+                  PowerPlatformSPN: $(serviceConnection)
+                  SolutionName: $(SOLUTION_NAME)
+                  SolutionVersionNumber: 0.0.0.${{ parameters.betaNumber }}
+
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.export-solution.PowerPlatformExportSolution@2
+            displayName: Export unmanaged
+            inputs:
+              authenticationType: PowerPlatformSPN
+              PowerPlatformSPN: $(serviceConnection)
+              SolutionName: $(SOLUTION_NAME)
+              SolutionOutputFile: $(outDir)/$(SOLUTION_NAME)_unmanaged.zip
+              Managed: false
+
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.export-solution.PowerPlatformExportSolution@2
+            displayName: Export managed
+            inputs:
+              authenticationType: PowerPlatformSPN
+              PowerPlatformSPN: $(serviceConnection)
+              SolutionName: $(SOLUTION_NAME)
+              SolutionOutputFile: $(outDir)/$(SOLUTION_NAME)_managed.zip
+              Managed: true
+
+          # Release runs get semver-named copies, the exact filenames shipped to the
+          # website / AppSource, plus LICENSE, NOTICE and SHA256SUMS.txt in the same artifact,
+          # plus the release tag on the exported commit.
+          # LICENSE/NOTICE live in distribution/ (not the repo root): these are the copies
+          # bundled INTO the release artifact, kept separate from the source tree's own.
+          - ${{ if ge(parameters.betaNumber, 1) }}:
+              - pwsh: |
+                  $v = "0.0.0.${{ parameters.betaNumber }}"
+                  Copy-Item "$(outDir)/$(SOLUTION_NAME)_managed.zip"   "$(outDir)/$(SOLUTION_NAME)_${v}_managed.zip"
+                  Copy-Item "$(outDir)/$(SOLUTION_NAME)_unmanaged.zip" "$(outDir)/$(SOLUTION_NAME)_${v}_unmanaged.zip"
+                  Copy-Item "distribution/LICENSE" "$(outDir)/LICENSE"
+                  Copy-Item "distribution/NOTICE"  "$(outDir)/NOTICE"
+                  # sha256sum format: <lowercase hex><two spaces><filename>, LF line endings,
+                  # so downloaders can run `sha256sum -c SHA256SUMS.txt` as-is.
+                  $sums = Get-ChildItem "$(outDir)/*.zip" | Sort-Object Name | ForEach-Object {
+                    "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name
+                  }
+                  [IO.File]::WriteAllText("$(outDir)/SHA256SUMS.txt", ($sums -join "`n") + "`n")
+                  Write-Host "Release artifacts stamped ${v}. SHA256SUMS.txt:"
+                  $sums | ForEach-Object { Write-Host $_ }
+                workingDirectory: $(Build.SourcesDirectory)
+                displayName: Stamp semver artifact names + bundle LICENSE, NOTICE, SHA256SUMS
+
+          - task: PublishBuildArtifacts@1
+            displayName: Publish solution zips
+            inputs:
+              PathtoPublish: $(outDir)
+              ArtifactName: solution
+
+          # --- Unpack both flavors and commit them to the repo (Solutions/<name>/<name>_<flavor>).
+          #     The previous unpacked content is deleted first so components removed in DEV
+          #     also disappear from the repo. The folders are an exact mirror of this export.
+          - pwsh: |
+              Remove-Item -Recurse -Force "Solutions/$(SOLUTION_NAME)" -ErrorAction SilentlyContinue
+            workingDirectory: $(Build.SourcesDirectory)
+            displayName: Clean previous unpacked solution
+
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.unpack-solution.PowerPlatformUnpackSolution@2
+            displayName: Unpack unmanaged
+            inputs:
+              SolutionInputFile: $(outDir)/$(SOLUTION_NAME)_unmanaged.zip
+              SolutionTargetFolder: $(Build.SourcesDirectory)/Solutions/$(SOLUTION_NAME)/$(SOLUTION_NAME)_unmanaged
+              SolutionType: Unmanaged
+
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.unpack-solution.PowerPlatformUnpackSolution@2
+            displayName: Unpack managed
+            inputs:
+              SolutionInputFile: $(outDir)/$(SOLUTION_NAME)_managed.zip
+              SolutionTargetFolder: $(Build.SourcesDirectory)/Solutions/$(SOLUTION_NAME)/$(SOLUTION_NAME)_managed
+              SolutionType: Managed
+
+          # The mirror lands on its own branch, never straight onto the target branch.
+          # Nothing in this pipeline writes to main: the export is captured
+          # automatically so it cannot drift, and a person decides when it lands.
+          - pwsh: |
+              git config user.email "pipeline@ascentixsoftware.com"
+              git config user.name "solution-release pipeline"
+              git add -A Solutions
+              git diff --cached --quiet
+              if ($LASTEXITCODE -eq 0) { Write-Host "No solution changes to commit."; exit 0 }
+              $branch = "solution/sync-$(Build.BuildId)"
+              git commit -m "chore(solution): sync unpacked DEV solution (build $(Build.BuildId)) [skip ci]"
+              git push origin "HEAD:refs/heads/$branch"
+              Write-Host "Solution mirror pushed to $branch. Open a pull request to land it."
+            workingDirectory: $(Build.SourcesDirectory)
+            displayName: Push unpacked solution to a mirror branch
+
+          # Tag the released state (after the mirror commit so the tag includes it).
+          # Requires "Contribute" + "Create tag" for the build service on the repo.
+          - ${{ if ge(parameters.betaNumber, 1) }}:
+              - pwsh: |
+                  $tag = "v0.0.0.${{ parameters.betaNumber }}"
+                  git tag $tag
+                  git push origin $tag
+                  Write-Host "Tagged $tag."
+                workingDirectory: $(Build.SourcesDirectory)
+                displayName: Tag release

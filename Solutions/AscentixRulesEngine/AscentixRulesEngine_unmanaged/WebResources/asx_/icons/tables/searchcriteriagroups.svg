@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Search Criteria Groups: Brackets wrapping a single magnifying glass -->
+  <!-- Left bracket -->
+  <path d="M3 6 L1 6 L1 26 L3 26" fill="none" stroke="#605E5C" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Right bracket -->
+  <path d="M29 6 L31 6 L31 26 L29 26" fill="none" stroke="#605E5C" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Magnifying glass -->
+  <circle cx="14" cy="14" r="7" fill="none" stroke="#605E5C" stroke-width="1.5"/>
+  <line x1="19" y1="19" x2="25" y2="25" stroke="#605E5C" stroke-width="2" stroke-linecap="round"/>
+  <!-- Filter lines inside lens -->
+  <line x1="10.5" y1="12" x2="17.5" y2="12" stroke="#605E5C" stroke-width="1.3" stroke-linecap="round"/>
+  <line x1="11.5" y1="15" x2="16.5" y2="15" stroke="#605E5C" stroke-width="1.3" stroke-linecap="round"/>
+</svg>

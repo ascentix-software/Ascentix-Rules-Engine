@@ -1,0 +1,20 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (privately)
+    url: https://github.com/ascentix-software/Ascentix-Rules-Engine/security/advisories/new
+    about: >-
+      Do NOT open a public issue for a vulnerability. Use this link (the repository's Security tab
+      -> "Report a vulnerability"), or email info@ascentix.ca with SECURITY in the subject. Full
+      policy, expectations, and the list of documented security behaviours are in SECURITY.md.
+
+  - name: Documentation
+    url: https://ascentix.ca/power-platform/rules-engine/
+    about: >-
+      Installation, core concepts, runtime enforcement, evaluation context, troubleshooting,
+      and the full list of beta limitations. Check here before filing.
+
+  - name: General contact (info@ascentix.ca)
+    url: https://ascentix.ca/contact
+    about: >-
+      Anything that is not a bug or a question about the product: licensing, commercial
+      enquiries, or a report you would rather not make in public.

@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<optionset Name="asx_triggers" localizedName="Triggers" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <OptionSetType>picklist</OptionSetType>
+  <IsGlobal>1</IsGlobal>
+  <IntroducedVersion>1.0.0.0</IntroducedVersion>
+  <IsCustomizable>1</IsCustomizable>
+  <displaynames>
+    <displayname description="Triggers" languagecode="1033" />
+  </displaynames>
+  <options>
+    <option value="1" IsHidden="0">
+      <labels>
+        <label description="On Create" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="2" IsHidden="0">
+      <labels>
+        <label description="On Form" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="3" IsHidden="0">
+      <labels>
+        <label description="Manual" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="4" IsHidden="0">
+      <labels>
+        <label description="On Update" languagecode="1033" />
+      </labels>
+    </option>
+    <option value="5" IsHidden="0">
+      <labels>
+        <label description="On Delete" languagecode="1033" />
+      </labels>
+    </option>
+  </options>
+</optionset>

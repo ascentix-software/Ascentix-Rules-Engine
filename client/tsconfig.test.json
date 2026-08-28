@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["xrm", "react", "react-dom", "node"]
+  },
+  "include": ["test"]
+}

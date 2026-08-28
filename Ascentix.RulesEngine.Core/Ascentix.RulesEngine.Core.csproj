@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net462</TargetFramework>
+    <RootNamespace>Ascentix.RulesEngine.Core</RootNamespace>
+    <AssemblyName>Ascentix.RulesEngine.Core</AssemblyName>
+    <!-- net462 still defaults to C# 7.3; the engine uses C# 8 switch expressions / patterns. -->
+    <LangVersion>8.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <!-- Schema/SchemaNames.cs is the single source of truth for schema names; it
+       lives here and is auto-included, and linked into the deployer + plugin. -->
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CrmSdk.CoreAssemblies" Version="9.0.2.60" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
+  </ItemGroup>
+
+</Project>

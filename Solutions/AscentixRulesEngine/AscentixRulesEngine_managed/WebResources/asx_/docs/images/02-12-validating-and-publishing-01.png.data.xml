@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<WebResource xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <WebResourceId>{241a46de-197e-f111-ab0e-70a8a50d11b7}</WebResourceId>
+  <Name>asx_/docs/images/02-12-validating-and-publishing-01.png</Name>
+  <DisplayName>Docs image 02-12-validating-and-publishing-01.png</DisplayName>
+  <WebResourceType>5</WebResourceType>
+  <IntroducedVersion>1.0.0.51</IntroducedVersion>
+  <IsEnabledForMobileClient>0</IsEnabledForMobileClient>
+  <IsAvailableForMobileOffline>0</IsAvailableForMobileOffline>
+  <IsCustomizable>1</IsCustomizable>
+  <CanBeDeleted>1</CanBeDeleted>
+  <IsHidden>0</IsHidden>
+  <FileName>/WebResources/asx_docsimages02-12-validating-and-publishing-01pn241A46DE-197E-F111-AB0E-70A8A50D11B7</FileName>
+</WebResource>

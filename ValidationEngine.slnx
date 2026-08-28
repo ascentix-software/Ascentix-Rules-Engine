@@ -1,0 +1,45 @@
+<Solution>
+  <Folder Name="/client/">
+    <File Path="client/package-lock.json" />
+    <File Path="client/package.json" />
+    <File Path="client/src/recordJson.ts" />
+    <File Path="client/tsconfig.json" />
+    <File Path="client/vitest.config.ts" />
+  </Folder>
+  <Folder Name="/client/src/">
+    <File Path="client/.gitignore" />
+    <File Path="client/src/api.ts" />
+    <File Path="client/src/applier.ts" />
+    <File Path="client/src/classifier.ts" />
+    <File Path="client/src/contract.ts" />
+    <File Path="client/src/engine.ts" />
+    <File Path="client/src/index.ts" />
+    <File Path="client/src/xrm.ts" />
+  </Folder>
+  <Folder Name="/client/src/authoring/">
+    <File Path="client/src/authoring/index.ts" />
+    <File Path="client/src/authoring/visibility.ts" />
+  </Folder>
+  <Folder Name="/client/test/">
+    <File Path="client/test/api.test.ts" />
+    <File Path="client/test/applier.test.ts" />
+    <File Path="client/test/classifier.test.ts" />
+    <File Path="client/test/contract.test.ts" />
+    <File Path="client/test/engine.test.ts" />
+    <File Path="client/test/index.test.ts" />
+    <File Path="client/test/mockXrm.test.ts" />
+    <File Path="client/test/mockXrm.ts" />
+    <File Path="client/test/recordJson.test.ts" />
+    <File Path="client/test/smoke.test.ts" />
+  </Folder>
+  <Folder Name="/client/test/authoring/">
+    <File Path="client/test/authoring/handlers.test.ts" />
+    <File Path="client/test/authoring/visibility.test.ts" />
+  </Folder>
+  <Project Path="Ascentix.RulesEngine.Core/Ascentix.RulesEngine.Core.csproj" Id="e864a4cf-c1f6-4d36-b2e1-3688d855b30c" />
+  <Project Path="Ascentix.RulesEngine.Plugin/Ascentix.RulesEngine.Plugin.csproj" Id="8a3d2d44-e35c-4e94-b9cb-aef8f2243a74" />
+  <Project Path="tests/Ascentix.RulesEngine.Tests/Ascentix.RulesEngine.Tests.csproj" Id="f7a91c3d-2e84-4b16-9d05-6c8af1e3b240" />
+  <Properties Name="CRMSolutionProperties">
+    <Property Name="SolutionIsBoundToCRM" Value="True" />
+  </Properties>
+</Solution>

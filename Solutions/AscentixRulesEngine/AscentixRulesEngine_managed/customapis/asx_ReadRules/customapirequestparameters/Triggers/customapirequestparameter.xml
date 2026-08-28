@@ -1,0 +1,9 @@
+<customapirequestparameter uniquename="Triggers">
+  <displayname default="Triggers">
+    <label description="Triggers" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>Triggers</name>
+  <type>10</type>
+</customapirequestparameter>

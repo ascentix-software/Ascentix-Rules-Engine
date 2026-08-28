@@ -1,0 +1,8 @@
+<customapiresponseproperty uniquename="FailedRuleCount">
+  <displayname default="Failed Rule Count">
+    <label description="Failed Rule Count" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>FailedRuleCount</name>
+  <type>7</type>
+</customapiresponseproperty>

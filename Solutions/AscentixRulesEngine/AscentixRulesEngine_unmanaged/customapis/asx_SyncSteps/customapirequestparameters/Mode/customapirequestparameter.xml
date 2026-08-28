@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="Mode">
+  <description default="Sync (default) or RemoveAll.">
+    <label description="Sync (default) or RemoveAll." languagecode="1033" />
+  </description>
+  <displayname default="Mode">
+    <label description="Mode" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>Mode</name>
+  <type>10</type>
+</customapirequestparameter>

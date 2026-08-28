@@ -1,0 +1,78 @@
+name: localization-deploy-$(Date:yyyyMMdd)-$(Rev:r)
+
+# Used to do a fresh install in a multilingual org to validate both the managed deployment
+# and ensuring that localized strings are functional.
+
+trigger: none
+pr: none
+
+pool:
+  vmImage: windows-latest
+
+variables:
+  - group: dataverse-dev
+
+steps:
+  - pwsh: dotnet tool install --global Microsoft.PowerApps.CLI.Tool
+    displayName: Install pac CLI
+
+  - pwsh: |
+      pac auth create --url "$(DATAVERSE_URL)" --applicationId "$env:SP_ID" --clientSecret "$env:SP_SECRET" --tenant "$env:SP_TENANT" --name dev
+      if ($LASTEXITCODE -ne 0) { throw "pac auth (DEV) failed" }
+      pac solution export --name "$(SOLUTION_NAME)" --managed --path "$(Build.ArtifactStagingDirectory)/$(SOLUTION_NAME)_managed.zip"
+      if ($LASTEXITCODE -ne 0) { throw "export failed" }
+    displayName: Export managed from DEV
+    env:
+      SP_ID: $(SERVICE_PRINCIPAL_CLIENT_ID)
+      SP_SECRET: $(SERVICE_PRINCIPAL_CLIENT_SECRET)
+      SP_TENANT: $(SERVICE_PRINCIPAL_TENANT_ID)
+
+  - pwsh: |
+      pac auth create --url "$(LOCALIZATION_ENV_URL)" --applicationId "$env:SP_ID" --clientSecret "$env:SP_SECRET" --tenant "$env:SP_TENANT" --name loc
+      if ($LASTEXITCODE -ne 0) { throw "pac auth (localization) failed" }
+      pac solution import --path "$(Build.ArtifactStagingDirectory)/$(SOLUTION_NAME)_managed.zip" --activate-plugins --force-overwrite
+      if ($LASTEXITCODE -ne 0) { throw "import failed" }
+    displayName: Import into localization org
+    env:
+      SP_ID: $(SERVICE_PRINCIPAL_CLIENT_ID)
+      SP_SECRET: $(SERVICE_PRINCIPAL_CLIENT_SECRET)
+      SP_TENANT: $(SERVICE_PRINCIPAL_TENANT_ID)
+
+  # Post-import: the Rules Engine Author role now exists on the org, so ensure the
+  # Author-only SP is an app user holding EXACTLY that role (the escalation and
+  # SyncSteps-gate legs depend on it having no elevated privileges).
+  - pwsh: |
+      $envUrl = "$(LOCALIZATION_ENV_URL)".TrimEnd('/')
+      $tokenResp = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$env:SP_TENANT/oauth2/v2.0/token" `
+        -ContentType "application/x-www-form-urlencoded" `
+        -Body @{ client_id = $env:SP_ID; client_secret = $env:SP_SECRET; grant_type = "client_credentials"; scope = "$envUrl/.default" }
+      $headers = @{ Authorization = "Bearer $($tokenResp.access_token)"; Accept = "application/json"; "OData-MaxVersion" = "4.0"; "OData-Version" = "4.0" }
+      $base = "$envUrl/api/data/v9.2"
+
+      $bu = (Invoke-RestMethod -Headers $headers -Uri "$base/businessunits?`$select=businessunitid&`$filter=parentbusinessunitid%20eq%20null").value[0].businessunitid
+      $flt = [uri]::EscapeDataString("applicationid eq $env:AUTHOR_ID")
+      $users = (Invoke-RestMethod -Headers $headers -Uri "$base/systemusers?`$select=systemuserid&`$filter=$flt").value
+      if ($users.Count -eq 0) {
+        Invoke-RestMethod -Method Post -Headers $headers -ContentType "application/json" -Uri "$base/systemusers" `
+          -Body (@{ applicationid = $env:AUTHOR_ID; "businessunitid@odata.bind" = "/businessunits($bu)" } | ConvertTo-Json)
+        $users = (Invoke-RestMethod -Headers $headers -Uri "$base/systemusers?`$select=systemuserid&`$filter=$flt").value
+        Write-Host "Author SP app user created."
+      }
+      $uid = $users[0].systemuserid
+
+      # Solution-shipped role: invariant name, safe to look up by name even on a French org.
+      $rflt = [uri]::EscapeDataString("name eq 'Rules Engine Author' and _businessunitid_value eq $bu")
+      $role = (Invoke-RestMethod -Headers $headers -Uri "$base/roles?`$select=roleid&`$filter=$rflt").value[0].roleid
+      $have = (Invoke-RestMethod -Headers $headers -Uri "$base/systemusers($uid)/systemuserroles_association?`$select=roleid").value
+      if (-not ($have | Where-Object { $_.roleid -eq $role })) {
+        Invoke-RestMethod -Method Post -Headers $headers -ContentType "application/json" `
+          -Uri "$base/systemusers($uid)/systemuserroles_association/`$ref" `
+          -Body (@{ "@odata.id" = "$base/roles($role)" } | ConvertTo-Json)
+        Write-Host "Rules Engine Author role assigned."
+      } else { Write-Host "Author SP already holds the role." }
+    displayName: Ensure Author-only app user + role
+    env:
+      SP_ID: $(SERVICE_PRINCIPAL_CLIENT_ID)
+      SP_SECRET: $(SERVICE_PRINCIPAL_CLIENT_SECRET)
+      SP_TENANT: $(SERVICE_PRINCIPAL_TENANT_ID)
+      AUTHOR_ID: $(AUTHOR_SP_CLIENT_ID)
