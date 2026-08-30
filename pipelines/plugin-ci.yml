@@ -22,13 +22,7 @@ trigger:
       - pipelines/Deploy-PluginAssembly.ps1
       - pipelines/plugintypes.json
 
-pr:
-  branches: { include: ['*'] }
-  paths:
-    include:
-      - Ascentix.RulesEngine.Core/**
-      - Ascentix.RulesEngine.Plugin/**
-      - tests/**
+pr: none
 
 pool:
   vmImage: windows-latest
