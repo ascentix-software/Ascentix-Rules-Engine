@@ -295,6 +295,114 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void Delete_blocks_when_in_flight_row_is_removed_from_sibling_aggregate()
+        {
+            string Q(string f) => SchemaNames.Qualify(f);
+            var ids = (
+                rule: Guid.NewGuid(),
+                lineRoot: Guid.NewGuid(),
+                orderLookup: Guid.NewGuid(),
+                siblings: Guid.NewGuid(),
+                grp: Guid.NewGuid(),
+                cond: Guid.NewGuid(),
+                act: Guid.NewGuid()
+            );
+            var orderId = Guid.NewGuid();
+            var doomedLineId = Guid.NewGuid();
+            var keepLineId = Guid.NewGuid();
+            const string message = "sum below floor";
+
+            var lineRoot = new Entity(Q(SchemaNames.TableConfig.Entity), ids.lineRoot)
+            {
+                [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_orderline",
+                [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.RootTable),
+            };
+            var orderLookup = new Entity(Q(SchemaNames.TableConfig.Entity), ids.orderLookup)
+            {
+                [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_order",
+                [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.LookupTable),
+                [Q(SchemaNames.TableConfig.ParentTable)] = new EntityReference(Q(SchemaNames.TableConfig.Entity), ids.lineRoot),
+                [Q(SchemaNames.TableConfig.LookupColumnLogicalName)] = "sample_orderid",
+                [Q(SchemaNames.TableConfig.LookupTargetIdAttribute)] = "sample_orderid",
+            };
+            var siblings = new Entity(Q(SchemaNames.TableConfig.Entity), ids.siblings)
+            {
+                [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_orderline",
+                [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.ChildTable),
+                [Q(SchemaNames.TableConfig.ParentTable)] = new EntityReference(Q(SchemaNames.TableConfig.Entity), ids.orderLookup),
+                [Q(SchemaNames.TableConfig.ChildLinkField)] = "sample_orderid",
+            };
+            var rule = new Entity(Q(SchemaNames.Rule.Entity), ids.rule)
+            {
+                [Q(SchemaNames.Rule.TableLogicalName)] = "sample_orderline",
+                ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
+                [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
+                    new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnDelete) }),
+            };
+            var group = new Entity(Q(SchemaNames.ConditionGroup.Entity), ids.grp)
+            {
+                [Q(SchemaNames.ConditionGroup.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
+                [Q(SchemaNames.ConditionGroup.LogicalOperator)] = new OptionSetValue((int)LogicalOperator.And),
+                [Q(SchemaNames.ConditionGroup.IsExecutionCondition)] = false,
+            };
+            var condition = new Entity(Q(SchemaNames.RuleCondition.Entity), ids.cond)
+            {
+                [Q(SchemaNames.RuleCondition.ConditionGroup)] = new EntityReference(Q(SchemaNames.ConditionGroup.Entity), ids.grp),
+                [Q(SchemaNames.RuleCondition.TableConfig)] = new EntityReference(Q(SchemaNames.TableConfig.Entity), ids.lineRoot),
+                [Q(SchemaNames.RuleCondition.ConditionType)] = new OptionSetValue((int)ConditionType.Expression),
+                [Q(SchemaNames.RuleCondition.ConditionExpression)] = "sum(node:" + ids.siblings + ".sample_lineamount)",
+                [Q(SchemaNames.RuleCondition.ComparisonOperator)] = new OptionSetValue((int)ComparisonOperator.GreaterThanOrEqual),
+                [Q(SchemaNames.RuleCondition.ComparisonValue)] = "100",
+                [Q(SchemaNames.RuleCondition.ComparisonValueSource)] = new OptionSetValue((int)ComparisonValueSource.Literal),
+            };
+            var action = new Entity(Q(SchemaNames.RuleAction.Entity), ids.act)
+            {
+                [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
+                [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.Block),
+                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
+                [Q(SchemaNames.RuleAction.Message)] = message,
+                [Q(SchemaNames.RuleAction.Order)] = 1,
+                [Q(SchemaNames.RuleAction.IsActive)] = true,
+            };
+
+            var order = new Entity("sample_order", orderId)
+            {
+                ["sample_orderid"] = orderId,
+                ["sample_name"] = "Order A",
+            };
+            var doomedLine = new Entity("sample_orderline", doomedLineId)
+            {
+                ["sample_orderlineid"] = doomedLineId,
+                ["sample_name"] = "Doomed",
+                ["sample_lineamount"] = new Money(100m),
+                ["sample_orderid"] = new EntityReference("sample_order", orderId),
+            };
+            var keepLine = new Entity("sample_orderline", keepLineId)
+            {
+                ["sample_orderlineid"] = keepLineId,
+                ["sample_name"] = "Keep",
+                ["sample_lineamount"] = new Money(5m),
+                ["sample_orderid"] = new EntityReference("sample_order", orderId),
+            };
+
+            var context = new XrmFakedContext();
+            context.Initialize(new List<Entity>
+            {
+                lineRoot, orderLookup, siblings, rule, group, condition, action,
+                order, doomedLine, keepLine
+            });
+
+            var input = new ParameterCollection
+            {
+                { "Target", new EntityReference("sample_orderline", doomedLineId) }
+            };
+
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
+                context.ExecutePluginWith<RulesEnginePlugin>(Ctx("Delete", input)));
+            Assert.Contains(message, ex.Message);
+        }
+
+        [Fact]
         public void CreateMultiple_evaluates_every_record_in_the_batch()
         {
             var context = new XrmFakedContext();
