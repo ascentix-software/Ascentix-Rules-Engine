@@ -20,11 +20,7 @@ trigger:
       - pipelines/webresources.json
       - pipelines/Deploy-WebResources.ps1
 
-pr:
-  branches: { include: ['*'] }
-  paths:
-    include:
-      - client/**
+pr: none
 
 pool:
   vmImage: windows-latest
