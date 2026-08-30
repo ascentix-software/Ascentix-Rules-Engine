@@ -12,7 +12,7 @@ parameters:
     default: true
 
 trigger:
-  branches: { include: [main] }
+  branches: { include: [develop] }
   paths:
     include:
       - Ascentix.RulesEngine.Core/**
@@ -63,7 +63,7 @@ stages:
       - stage: Deploy
         displayName: Build + update plugin assembly in DEV
         dependsOn: Test
-        condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+        condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/develop'))
         variables:
           # Scoped to this stage: the test stage needs no environment credentials.
           - group: dataverse-dev

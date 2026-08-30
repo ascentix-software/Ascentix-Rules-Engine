@@ -1,4 +1,5 @@
-# Deterministic deploy->verify: explicitly queue the live-L2 pipeline (id 8).
+# Deterministic deploy->verify: explicitly queue the live-L2 pipeline.
+# ADO-source definitions use id 8; GitHub-source definitions use id 15.
 # This is the ONLY trigger path. client-live.yml deliberately has no
 # pipeline-resource triggers (they registered late and double-fired every deploy;
 # removed 2026-08-08). Do not re-add them there.
@@ -12,18 +13,33 @@
 # duplicate verification, never to a missing one. (If both queue steps race in the
 # same instant, both may queue, which is rare and harmless for the same reason.) The queued
 # run is pinned to Build.SourceVersion, so the dedup key, and what L2 checks out,
-# is the exact merge commit, even if main moved meanwhile.
+# is the exact merge commit, even if the branch moved meanwhile.
 #
-# Requires the project build service to hold "Queue builds" on pipeline 8
+# Requires the project build service to hold "Queue builds" on the selected Live L2 pipeline
 # (granted 2026-08-08; symptom of a missing grant is TF215106 on this step).
+
+parameters:
+  - name: adoLiveL2PipelineId
+    type: number
+    default: 8
+  - name: githubLiveL2PipelineId
+    type: number
+    default: 15
 
 steps:
   - powershell: |
       $headers = @{ Authorization = "Bearer $(System.AccessToken)" }
       $base = "$(System.CollectionUri)$(System.TeamProject)"
+      $repoProvider = "$(Build.Repository.Provider)"
+      $liveL2DefinitionId = if ($repoProvider -in @("GitHub", "GitHubEnterprise")) {
+        "${{ parameters.githubLiveL2PipelineId }}"
+      } else {
+        "${{ parameters.adoLiveL2PipelineId }}"
+      }
+      Write-Host "Repository provider '$repoProvider' selects live-L2 pipeline $liveL2DefinitionId."
 
       $queued = Invoke-RestMethod -Method Get -Headers $headers `
-        -Uri "$base/_apis/build/builds?definitions=8&statusFilter=notStarted&api-version=7.1"
+        -Uri "$base/_apis/build/builds?definitions=$liveL2DefinitionId&statusFilter=notStarted&api-version=7.1"
       $dup = @($queued.value | Where-Object { $_.sourceVersion -eq "$(Build.SourceVersion)" })
       if ($dup.Count -gt 0) {
         Write-Host "Live-L2 run $($dup[0].id) is already queued for $(Build.SourceVersion) and will start after this deploy. Skipping duplicate."
@@ -31,10 +47,10 @@ steps:
       }
 
       $body = @{ resources = @{ repositories = @{ self = @{
-        refName = "refs/heads/main"; version = "$(Build.SourceVersion)"
+        refName = "$(Build.SourceBranch)"; version = "$(Build.SourceVersion)"
       } } } } | ConvertTo-Json -Depth 5
       Invoke-RestMethod -Method Post `
-        -Uri "$base/_apis/pipelines/8/runs?api-version=7.1" `
+        -Uri "$base/_apis/pipelines/$liveL2DefinitionId/runs?api-version=7.1" `
         -Headers $headers -ContentType "application/json" -Body $body | Out-Null
       Write-Host "Queued live-L2 verification run for $(Build.SourceVersion)."
     displayName: Queue live L2 verification (dedup by commit)
