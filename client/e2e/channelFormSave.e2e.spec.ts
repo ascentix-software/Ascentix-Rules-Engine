@@ -8,6 +8,7 @@ import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 // The sample app is org-specific (SAMPLE_APP_ID in the environment / repo-root .env):
 // one resolver, shared with formSaveOracle.
 import { sampleAppId } from "./formSaveOracle";
+import { waitForVisibleOrAscentixScriptError } from "./uciScriptDialog";
 
 // Channel gating proven live from a human's model-driven FORM SAVE, paired with the SP's API
 // write. Channels are Standard (1) vs Portal (2) only: the platform populates
@@ -60,7 +61,9 @@ async function formSaveOnce(page: Page, uiName: string): Promise<"SAVED" | "BLOC
   const { dataverseUrl } = readDevEnv();
   await page.goto(`${dataverseUrl.replace(/\/+$/, "")}/main.aspx?appid=${sampleAppId()}&pagetype=entityrecord&etn=sample_order`);
   const nameBox = page.locator('[data-id="sample_name.fieldControl-text-box-text"]');
-  await expect(nameBox).toBeVisible({ timeout: 60_000 });
+  await waitForVisibleOrAscentixScriptError(page, nameBox, "sample_order Name textbox", {
+    dismissAndContinue: true,
+  });
   if (await page.getByRole("dialog", { name: /sign in again/i }).isVisible().catch(() => false)) {
     throw new Error("e2e auth expired — run `npm run test:e2e:auth`, then re-run.");
   }

@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { createDevApi, deleteDevRecord } from "../test-dev/devApi";
 import { readDevEnv } from "../test-dev/devEnv";
+import { gotoUciFormWithScriptRetry } from "./uciScriptDialog";
 
 // Confirmed against DEV. All on the sample_order main form ("Information");
 // no Published OnForm rules exist on sample_order (the 4 existing are Draft, which
@@ -34,28 +35,18 @@ export async function createSubjectOrder(
 // cycle to settle. The library round-trips to asx_RunRules on load; give it time,
 // then confirm Xrm's form context is ready.
 export async function openOrderForm(page: Page, appId: string, recordId: string): Promise<void> {
-  await page.goto(orderFormUrl(appId, recordId), { waitUntil: "load" });
-  await page.waitForFunction(
-    () => !!(window as any).Xrm?.Page?.getControl && (window as any).Xrm.Page.ui?.getFormType?.() > 0,
-    { timeout: 60_000 },
-  );
-  // Allow the initial asx_RunRules round-trip + applier cycle to complete.
-  await page.waitForTimeout(2500);
+  await gotoUciFormWithScriptRetry(page, orderFormUrl(appId, recordId), "sample_order existing-record form");
 }
 
 // A NEW (unsaved) sample_order form: no id, so xrm.getRecordId() is null and the
 // library's cycles send RecordJson only. Never save from this form.
 export async function openNewOrderForm(page: Page, appId: string): Promise<void> {
   const { dataverseUrl } = readDevEnv();
-  await page.goto(
+  await gotoUciFormWithScriptRetry(
+    page,
     `${dataverseUrl.replace(/\/+$/, "")}/main.aspx?appid=${appId}&pagetype=entityrecord&etn=sample_order`,
-    { waitUntil: "load" },
+    "sample_order create form",
   );
-  await page.waitForFunction(
-    () => !!(window as any).Xrm?.Page?.getControl && (window as any).Xrm.Page.ui?.getFormType?.() > 0,
-    { timeout: 60_000 },
-  );
-  await page.waitForTimeout(2500);
 }
 
 // ---- Reading form state -----------------------------------------------------------------

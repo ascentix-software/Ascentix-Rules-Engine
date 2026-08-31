@@ -3,6 +3,7 @@ import { readDevEnv, requireDevEnv } from "../test-dev/devEnv";
 import { createDevApi, deleteDevRecord } from "../test-dev/devApi";
 import { enforcementSettled } from "../test-dev/ruleBehavior/settle";
 import { armReauthGuard } from "./editorHarness";
+import { dismissAscentixScriptError, waitForVisibleOrAscentixScriptError } from "./uciScriptDialog";
 
 // The record-persistence oracle for "did a server-side Block stop this form save?".
 //
@@ -68,8 +69,11 @@ export async function formSaveOrderOnce(
     `${dataverseUrl.replace(/\/+$/, "")}/main.aspx?appid=${sampleAppId()}&pagetype=entityrecord&etn=sample_order`,
   );
   const nameBox = page.locator('[data-id="sample_name.fieldControl-text-box-text"]');
-  await nameBox.waitFor({ state: "visible", timeout: 60_000 });
+  await waitForVisibleOrAscentixScriptError(page, nameBox, "sample_order Name textbox", {
+    dismissAndContinue: !opts.ready,
+  });
   await settle();
+  await dismissAscentixScriptError(page);
   await nameBox.click();
   await nameBox.fill(uiName);
   const totalBox = page.getByRole("textbox", { name: "Order Total" });

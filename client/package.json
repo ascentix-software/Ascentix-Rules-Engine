@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "test:dev": "vitest run --config vitest.config.dev.ts && node scripts/record-live-run.mjs l2",
     "test:e2e": "playwright test --project=editor && node scripts/record-live-run.mjs l3",
+    "test:e2e:headed": "playwright test --project=editor --headed && node scripts/record-live-run.mjs l3",
     "test:e2e:auth": "playwright test --project=auth --headed",
     "typecheck": "node scripts/build-docs.mjs && tsc --noEmit && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p tsconfig.e2e.json",
     "check:skips": "node scripts/check-skips.mjs",
