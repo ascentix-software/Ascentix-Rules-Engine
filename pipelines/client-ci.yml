@@ -12,7 +12,7 @@ parameters:
     default: true
 
 trigger:
-  branches: { include: [main] }
+  branches: { include: [develop] }
   paths:
     include:
       - client/**
@@ -20,11 +20,7 @@ trigger:
       - pipelines/webresources.json
       - pipelines/Deploy-WebResources.ps1
 
-pr:
-  branches: { include: ['*'] }
-  paths:
-    include:
-      - client/**
+pr: none
 
 pool:
   vmImage: windows-latest
@@ -61,7 +57,7 @@ stages:
       - stage: Deploy
         displayName: Build + deploy web resources to DEV
         dependsOn: Test
-        condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+        condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/develop'))
         variables:
           # Scoped to this stage: the test stage needs no environment credentials.
           - group: dataverse-dev

@@ -1,12 +1,13 @@
-import { describe, it, beforeAll, afterEach, afterAll } from "vitest";
-import { deleteDevRecord } from "./devApi";
+import { describe, it, expect, beforeAll, afterEach, afterAll } from "vitest";
+import { createDevApi, deleteDevRecord } from "./devApi";
 import { ensureLineRootedConfig, authorRule } from "./ruleBehavior/authoring";
 import {
   createSubject, createOrderLine, updateSubject,
-  expectBlockedOnUpdate, expectBlockedOnCreate, expectBlockedOnDelete,
+  expectBlockedOnUpdate, expectBlockedOnCreate,
 } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
 import { resolveNavProp } from "./ruleBehavior/navProps";
+import { settle } from "./ruleBehavior/settle";
 
 // In-flight traversal consistency. Enforcement steps are PRE-operation, so a rule rooted on
 // sample_orderline that traverses back to its order's lines re-reads the very table being
@@ -18,6 +19,7 @@ import { resolveNavProp } from "./ruleBehavior/navProps";
 
 let tc: Awaited<ReturnType<typeof ensureLineRootedConfig>>;
 const cleanups: Array<() => Promise<void>> = [];
+const api = createDevApi();
 
 beforeAll(async () => {
   await sweepRuleBehaviorOrphans();
@@ -123,27 +125,30 @@ describe("in-flight traversal consistency (root table re-read by its own rule)",
 
     // Teardown ordering matters here and nowhere else in this file: a published OnDelete rule
     // blocks the very deletes teardown needs (removing the last big line drops the sum under the
-    // floor). `cleanups` pops LIFO, so everything that must outlive the rule is seeded BEFORE the
-    // rule is authored: the rule's own cleanup then pops first and unpublishes it.
-    const { lineIds } = await seedOrder("ZZ_RB_if_del", [100, 5]);
-
-    // The settle probe consumes its own order (a successful delete destroys the subject, so the
-    // assertion itself cannot retry). Its rows are drained after the rule is gone, for the same
-    // reason: deleting them while the rule is live is exactly what the rule blocks.
+    // floor). The garbage-drain cleanup is registered before the rule is authored, so LIFO pops
+    // the rule cleanup first and removes enforcement before draining rows.
+    // Every delete attempt needs its own order (a successful delete destroys the subject). The
+    // rows are drained after the rule is gone, for the same reason: deleting them while the rule
+    // is live is exactly what the rule blocks.
     const probeGarbage: Array<{ set: string; id: string }> = [];
     cleanups.push(async () => {
       for (const g of probeGarbage.reverse()) await deleteDevRecord(g.set, g.id).catch(() => {});
     });
 
-    const settleProbe = async () => {
+    const seedDeleteSubject = async (name: string): Promise<string> => {
       const orderId = await createSubject("sample_orders", {
-        sample_name: "ZZ_RB_if_del_probe_o", sample_ordertotal: 0,
+        sample_name: `${name}_o`, sample_ordertotal: 0,
       });
       probeGarbage.push({ set: "sample_orders", id: orderId });
-      const lineId = await createOrderLine(orderId, { sample_name: "ZZ_RB_if_del_probe_l", sample_lineamount: 100 });
+      const lineId = await createOrderLine(orderId, { sample_name: `${name}_l`, sample_lineamount: 100 });
       probeGarbage.push({ set: "sample_orderlines", id: lineId });
-      const keep = await createOrderLine(orderId, { sample_name: "ZZ_RB_if_del_probe_k", sample_lineamount: 5 });
+      const keep = await createOrderLine(orderId, { sample_name: `${name}_k`, sample_lineamount: 5 });
       probeGarbage.push({ set: "sample_orderlines", id: keep });
+      return lineId;
+    };
+
+    const settleProbe = async () => {
+      const lineId = await seedDeleteSubject("ZZ_RB_if_del_probe");
       try {
         await deleteDevRecord("sample_orderlines", lineId);
         return false; // not blocked yet: the step cache has not settled
@@ -158,6 +163,33 @@ describe("in-flight traversal consistency (root table re-read by its own rule)",
     });
 
     // Remaining after the delete = 5 < 100 -> blocked. Stale read: 100 + 5 = 105 >= 100 -> allowed.
-    await expectBlockedOnDelete("sample_orderlines", lineIds[0], message);
+    let blockedLineId = "";
+    await settle(
+      async () => {
+        const lineId = await seedDeleteSubject("ZZ_RB_if_del_assert");
+        try {
+          await deleteDevRecord("sample_orderlines", lineId);
+          return false;
+        } catch (e: any) {
+          expect(e.message).toContain("(400)");
+          expect(e.message).toContain("This record could not be saved:");
+          expect(e.message).toContain(message);
+          blockedLineId = lineId;
+          return true;
+        }
+      },
+      {
+        label: "expectBlockedOnDelete sample_orderlines inflight",
+        capMs: 30000,
+        intervalMs: 1000,
+        timeoutMessage: ({ capMs }) =>
+          `expectBlockedOnDelete: delete was never blocked within ${capMs}ms ` +
+          "- step cache never settled or the rule never enforced.",
+      },
+    );
+
+    // Rollback: the row survives its own blocked delete.
+    const still = await api.retrieveRecord("sample_orderlines", blockedLineId, "?$select=sample_name");
+    expect(still).toBeTruthy();
   });
 });

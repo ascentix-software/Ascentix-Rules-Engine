@@ -12,7 +12,7 @@ parameters:
     default: true
 
 trigger:
-  branches: { include: [main] }
+  branches: { include: [develop] }
   paths:
     include:
       - Ascentix.RulesEngine.Core/**
@@ -22,13 +22,7 @@ trigger:
       - pipelines/Deploy-PluginAssembly.ps1
       - pipelines/plugintypes.json
 
-pr:
-  branches: { include: ['*'] }
-  paths:
-    include:
-      - Ascentix.RulesEngine.Core/**
-      - Ascentix.RulesEngine.Plugin/**
-      - tests/**
+pr: none
 
 pool:
   vmImage: windows-latest
@@ -63,7 +57,7 @@ stages:
       - stage: Deploy
         displayName: Build + update plugin assembly in DEV
         dependsOn: Test
-        condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+        condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/develop'))
         variables:
           # Scoped to this stage: the test stage needs no environment credentials.
           - group: dataverse-dev
