@@ -10,6 +10,7 @@ import { recoveryKey } from "../../src/editor/ui/useRuleRecovery";
 import { resetTempIds } from "../../src/editor/model/ids";
 import type { EditorApi } from "../../src/editor/webapi";
 import type { RuleGraph } from "../../src/editor/model/types";
+import { publishedDefinition, publishedRuleId } from "./publishedFixtures";
 
 const PUBLISHED = 753840000;
 const scope = "https://audit.crm.dynamics.com";
@@ -18,7 +19,7 @@ const records = { search: async () => [], resolveName: async () => null, queryBy
 
 function mount(graph = makeGraph(), overrides: Partial<EditorApi> = {}, reload = vi.fn(async () => clone(graph))) {
   const api = { getClientUrl: () => scope, executeBatch: vi.fn(async () => ({ httpStatus: 200, text: "HTTP/1.1 204 No Content" })),
-    validateRule: vi.fn(async () => ({ isValid: true, issues: [] })), publishRule: vi.fn(async () => {}),
+    validateRule: vi.fn(async () => ({ isValid: true, issues: [], draftHash: "validated-candidate" })), publishRule: vi.fn(async () => {}),
     unpublishRule: vi.fn(async () => {}), ...overrides };
   const view = render(<MetadataProvider service={fakeMetadata({ account: [] })}>
     <RecordSearchProvider service={records}><SystemChoicesProvider>
@@ -41,20 +42,48 @@ function stored(snapshot: RuleGraph, working: RuleGraph) {
 }
 
 describe("authoring lifecycle and recovery", () => {
-  it("requires unpublish before a published rule can be changed", async () => {
+  it("views a frozen revision read-only and returns to unsaved draft edits", async () => {
+    const graph = makeGraph(); graph.rule.id = publishedRuleId; graph.rule.statusCode = PUBLISHED;
+    graph.rule.publishedRevisionId = "revision-1"; graph.rule.publishedVersion = 1;
+    mount(graph, { readPublishedRule: vi.fn(async () => publishedDefinition) });
+    rename("Unsaved draft");
+    fireEvent.click(screen.getByRole("button", { name: "View published" }));
+    await screen.findByText("Viewing the published revision — read-only");
+    expect(screen.getByRole("button", { name: "Rename rule" })).toBeDisabled();
+    expect(screen.getAllByText("Frozen version").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Back to draft" }));
+    expect(screen.getByRole("button", { name: "Rename rule" })).toBeEnabled();
+    expect(screen.getAllByText("Unsaved draft").length).toBeGreaterThan(0);
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+  });
+
+  it("restoring a draft is explicit and uses its original version check", async () => {
+    const graph = makeGraph(); graph.rule.statusCode = PUBLISHED; graph.rule.publishedRevisionId = "revision-1";
+    graph.rule.etag = 'W/"42"';
+    const restoreRuleDraft = vi.fn(async () => {});
+    const { api } = mount(graph, { restoreRuleDraft });
+    rename("Will be discarded");
+    fireEvent.click(screen.getByRole("button", { name: "Restore published to draft" }));
+    expect(restoreRuleDraft).not.toHaveBeenCalled();
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Restore draft" }));
+    await screen.findByText(/Draft restored from the published revision/);
+    expect(restoreRuleDraft).toHaveBeenCalledWith("r1", 'W/"42"');
+    expect(api.unpublishRule).not.toHaveBeenCalled();
+  });
+  it("edits a draft while the published rule stays active", async () => {
     const graph = makeGraph({ actions: [makeAction()] });
     graph.rule.statusCode = PUBLISHED;
-    const draft = clone(graph); draft.rule.statusCode = 1;
+    const draft = clone(graph); draft.rule.name = "Revised draft";
     const { api } = mount(graph, {}, vi.fn(async () => draft));
-    expect(screen.getByRole("button", { name: "Rename rule" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Delete action" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
-    const dialog = within(await screen.findByRole("dialog"));
-    fireEvent.click(dialog.getByRole("button", { name: "Unpublish" }));
-    await screen.findByText(/Rule unpublished/);
     expect(screen.getByRole("button", { name: "Rename rule" })).toBeEnabled();
-    expect(api.executeBatch).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Delete action" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
+    rename("Revised draft");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Saved.");
+    expect(screen.getByText("Published")).toBeInTheDocument();
+    expect(api.unpublishRule).not.toHaveBeenCalled();
+    expect(api.publishRule).not.toHaveBeenCalled();
   });
 
   it("undo restores a deleted subtree and redo removes it again", () => {
@@ -68,7 +97,7 @@ describe("authoring lifecycle and recovery", () => {
     expect(screen.queryByRole("button", { name: "Edit group Nested" })).toBeNull();
   });
 
-  it("explicitly saves and validates edits before publishing and locking the editor", async () => {
+  it("publishes the validated draft and keeps editing available", async () => {
     const graph = makeGraph(); graph.rule.etag = 'W/"1"';
     const saved = clone(graph); saved.rule.name = "Validated draft"; saved.rule.etag = 'W/"2"';
     const published = clone(saved); published.rule.statusCode = PUBLISHED;
@@ -81,8 +110,8 @@ describe("authoring lifecycle and recovery", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Publish" }));
     await screen.findByText("Rule published successfully.");
-    expect(api.publishRule).toHaveBeenCalledWith("r1", 'W/"2"');
-    expect(screen.getByRole("button", { name: "Rename rule" })).toBeDisabled();
+    expect(api.publishRule).toHaveBeenCalledWith("r1", 'W/"2"', "validated-candidate");
+    expect(screen.getByRole("button", { name: "Rename rule" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
   });
 

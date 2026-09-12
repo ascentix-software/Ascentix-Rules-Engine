@@ -42,7 +42,7 @@ export const NAV = {
 } as const;
 
 export const RULE_SELECT =
-  "asx_ruleid,asx_name,asx_tablelogicalname,statuscode," +
+  "asx_ruleid,asx_name,asx_tablelogicalname,statuscode,_asx_publishedrevision_value,asx_publishedversion," +
   "asx_triggers,asx_channels,asx_effectivefrom,asx_effectiveto,asx_evaluationcontext,asx_triggercolumns," +
   LOOKUP.ruleOfTableConfig;
 export const GROUP_SELECT =

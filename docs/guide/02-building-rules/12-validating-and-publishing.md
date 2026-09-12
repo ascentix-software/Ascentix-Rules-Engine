@@ -20,8 +20,10 @@ standing in the way.
 
 When there are unsaved edits, the button reads **Save & validate**: it first saves
 the Draft, then validates the persisted result. On a clean rule it reads **Validate**.
-Published rules are read-only in the builder; unpublish before editing them. During
-that editing period the rule is not enforced. See *Saving & Concurrency*.
+Published rules remain active while you edit and save their draft. Validate the
+draft, then **Publish** to replace the live revision. Validation checks the captured
+configuration, including shared data models. If it changes before publication,
+publication is rejected and you must validate again. See *Saving & Concurrency*.
 
 ## Validation layers
 
@@ -65,7 +67,8 @@ passed. The rule is valid"** banner and **Publish** becomes available.
 
 ## Publishing is enforced
 
-Publishing moves a rule from **Draft** to **Published**. Only
+Publishing creates a numbered revision and enables the rule. Republishing a live
+rule atomically replaces its active revision. Only
 **Published** rules are enforced at runtime; a Draft rule, however valid,
 doesn't run. See *Rule Lifecycle* for the full Draft/Published/Archived
 flow, and *Runtime Enforcement* for how a published rule's actions are

@@ -24,12 +24,26 @@ Every rule has a status:
 - **Archived** is a retired status. An Archived rule is kept for history but is
   **never enforced**.
 
+## Editing and publishing revisions
+
+Every rule also has an editable draft. Its status describes enforcement, not whether
+the draft can be edited. Saving a published rule leaves its active revision running.
+Publishing captures the draft and its complete data-model configuration as a new
+revision. Shared-model edits take effect independently for each rule when republished.
+Business records and caller permissions remain live.
+
+**View published** shows the active definition. Already-open business forms can retain
+the definition fetched when they loaded; reload them to pick up a new publication.
+The server uses the active revision for new evaluations.
+
 ## Effective window
 
 A rule can optionally carry an effective window:
 
 - **Effective From**: the rule is not enforced before this date/time.
 - **Effective To**: the rule is not enforced after this date/time.
+
+Editing these values changes the draft schedule. Publish to apply it to enforcement.
 
 Both are stored in **UTC**, and both are optional independently. Leaving a bound
 **null** leaves that side of the window open. A Published rule with no effective

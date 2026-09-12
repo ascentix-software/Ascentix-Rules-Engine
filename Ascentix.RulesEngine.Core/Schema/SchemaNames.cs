@@ -51,6 +51,26 @@ namespace Ascentix.RulesEngine.Schema
             public const string EvaluationContext = "evaluationcontext";
             public const string RootTableConfig = "roottableconfig";       // lookup → tableconfig (root node of the rule's shareable tree)
             public const string TriggerColumns = "triggercolumns";        // JSON array of root-table column logical names that fire OnUpdate
+            public const string PublishedRevision = "publishedrevision";
+            public const string PublishedVersion = "publishedversion";
+            public const string PublishHash = "publishhash";
+            public const string DraftStamp = "draftstamp";
+        }
+
+        public static class RuleRevision
+        {
+            public const string Entity = "rulerevision";
+            public const string Rule = "rule";
+            public const string Version = "version";
+            public const string Definition = "definition";
+            public const string Hash = "hash";
+            public const string Publisher = "publisher";
+            public const string PublishedOn = "publishedon";
+        }
+
+        public static class PublicationLock
+        {
+            public const string Entity = "publicationlock";
         }
 
         public static class TableConfig

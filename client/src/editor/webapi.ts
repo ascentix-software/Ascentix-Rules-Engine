@@ -13,9 +13,11 @@ export interface WebApiPort {
   retrieveMultipleRecords(entity: string, options?: string): Promise<{ entities: any[] }>;
   createRecord(entity: string, data: Record<string, any>): Promise<string>;
   /** Call asx_ValidateRule and return the parsed verdict. */
-  validateRule(ruleId: string): Promise<{ isValid: boolean; issues: ApiIssue[] }>;
+  validateRule(ruleId: string): Promise<{ isValid: boolean; issues: ApiIssue[]; draftHash?: string }>;
   /** PATCH the rule's statuscode to Published (753840000). */
-  publishRule(ruleId: string, etag?: string | null): Promise<void>;
+  publishRule(ruleId: string, etag?: string | null, draftHash?: string): Promise<void>;
+  readPublishedRule?(ruleId: string): Promise<string>;
+  restoreRuleDraft?(ruleId: string, etag: string): Promise<void>;
   /** PATCH the rule's statuscode back to Draft (1), the inverse of publishRule. */
   unpublishRule(ruleId: string, etag?: string | null): Promise<void>;
 }
@@ -102,15 +104,20 @@ export function createWebApiPort(): EditorApi {
       const isValid: boolean = raw.IsValid ?? false;
       const issuesParsed = raw.Issues ? JSON.parse(raw.Issues) : { isValid, issues: [] };
       const issues: ApiIssue[] = issuesParsed.issues ?? [];
-      return { isValid, issues };
+      if (typeof raw.DraftHash !== "string") throw new Error("The backend does not support draft revisions yet. Deploy the revision schema and plugins before publishing.");
+      return { isValid, issues, draftHash: raw.DraftHash };
     },
     // Lifecycle status reasons (docs/Schema.md §2.1): Draft = 1, Published = 753840000.
-    publishRule: (ruleId, etag) => patchStatus(base, "publishRule", ruleId, 753840000, etag),
+    publishRule: (ruleId, etag, hash) => patchStatus(base, "publishRule", ruleId, 753840000, etag, hash),
     unpublishRule: (ruleId, etag) => patchStatus(base, "unpublishRule", ruleId, 1, etag),
+    readPublishedRule: async (ruleId) => (await revisionRequest(base, "asx_ReadPublishedRule", { RuleId: ruleId })).Definition,
+    restoreRuleDraft: async (ruleId, etag) => { await revisionRequest(base, "asx_RestoreRuleDraft", {
+      RuleId: ruleId, ExpectedVersion: etag.replace(/^W\/"|"$/g, ""),
+    }); },
   };
 }
 
-async function patchStatus(base: string, op: string, ruleId: string, statuscode: number, etag?: string | null): Promise<void> {
+async function patchStatus(base: string, op: string, ruleId: string, statuscode: number, etag?: string | null, hash?: string): Promise<void> {
   const res = await fetch(`${base}/api/data/${API_VERSION}/asx_rules(${ruleId})`, {
     method: "PATCH",
     credentials: "same-origin",
@@ -121,7 +128,16 @@ async function patchStatus(base: string, op: string, ruleId: string, statuscode:
       "OData-Version": "4.0",
       ...(etag ? { "If-Match": etag } : {}),
     },
-    body: JSON.stringify({ statuscode }),
+    body: JSON.stringify({ statuscode, ...(hash ? { asx_publishhash: hash } : {}) }),
   });
-  if (!res.ok) throw new Error(`${op} PATCH failed (${res.status})`);
+  if (!res.ok) { const raw = await res.json().catch(() => null); throw new Error(`${op} PATCH failed (${res.status}): ${raw?.error?.message ?? "Request failed"}`); }
+}
+
+async function revisionRequest(base: string, name: string, body: Record<string, string>): Promise<any> {
+  const response = await fetch(`${base}/api/data/${API_VERSION}/${name}`, {
+    method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) { const raw = await response.json().catch(() => null); throw new Error(raw?.error?.message ?? `${name} failed (${response.status})`); }
+  return response.status === 204 ? {} : response.json();
 }

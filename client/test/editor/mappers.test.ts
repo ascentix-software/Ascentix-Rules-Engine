@@ -11,6 +11,8 @@ describe("record mappers", () => {
       name: "Credit limit approver required",
       tableLogicalName: "account",
       statusCode: 1,
+      publishedRevisionId: null,
+      publishedVersion: 0,
       etag: null,
       triggers: [1, 4],
       channels: [],

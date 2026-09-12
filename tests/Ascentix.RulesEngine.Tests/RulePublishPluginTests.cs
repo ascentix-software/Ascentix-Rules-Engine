@@ -6,6 +6,7 @@ using Ascentix.RulesEngine.Schema;
 using FakeXrmEasy;
 using Microsoft.Xrm.Sdk;
 using Xunit;
+using Ascentix.RulesEngine.Core.Publication;
 
 namespace Ascentix.RulesEngine.Tests
 {
@@ -38,7 +39,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var ruleId = Guid.NewGuid();
             var ctx = new XrmFakedContext();
-            ctx.Initialize(new List<Entity> { SeedInvalidRule(ruleId) });
+            ctx.Initialize(new List<Entity> { SeedInvalidRule(ruleId), new Entity(PublicationSchema.Lock, PublicationSchema.LockId) });
 
             var target = new Entity(Q(SchemaNames.Rule.Entity), ruleId) { ["statuscode"] = new OptionSetValue((int)RuleStatus.Published) };
             var pctx = UpdateContext(target, new OptionSetValue((int)RuleStatus.Draft));
@@ -61,16 +62,16 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
-        public void Already_published_edit_does_not_re_gate()
+        public void Already_published_status_write_validates_a_new_revision()
         {
             var ruleId = Guid.NewGuid();
             var ctx = new XrmFakedContext();
-            ctx.Initialize(new List<Entity> { SeedInvalidRule(ruleId) });
+            ctx.Initialize(new List<Entity> { SeedInvalidRule(ruleId), new Entity(PublicationSchema.Lock, PublicationSchema.LockId) });
 
             var target = new Entity(Q(SchemaNames.Rule.Entity), ruleId) { ["statuscode"] = new OptionSetValue((int)RuleStatus.Published) };
             var pctx = UpdateContext(target, new OptionSetValue((int)RuleStatus.Published)); // old already Published
 
-            ctx.ExecutePluginWith<RulePublishPlugin>(pctx); // no throw (no transition)
+            Assert.Throws<InvalidPluginExecutionException>(() => ctx.ExecutePluginWith<RulePublishPlugin>(pctx));
         }
 
         [Fact]
@@ -78,7 +79,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var ruleId = Guid.NewGuid();
             var ctx = new XrmFakedContext();
-            ctx.Initialize(new List<Entity> { SeedInvalidRule(ruleId) });
+            ctx.Initialize(new List<Entity> { SeedInvalidRule(ruleId), new Entity(PublicationSchema.Lock, PublicationSchema.LockId) });
 
             var target = new Entity(Q(SchemaNames.Rule.Entity), ruleId) { ["statuscode"] = new OptionSetValue((int)RuleStatus.Published) };
             var pctx = new XrmFakedPluginExecutionContext

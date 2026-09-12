@@ -1,6 +1,8 @@
 [
   "Ascentix.RulesEngine.Plugin.ReadRulesApi",
   "Ascentix.RulesEngine.Plugin.RulePublishPlugin",
+  "Ascentix.RulesEngine.Plugin.RuleRevisionGuardPlugin",
+  "Ascentix.RulesEngine.Plugin.RuleRevisionApi",
   "Ascentix.RulesEngine.Plugin.RuleRegistrationPlugin",
   "Ascentix.RulesEngine.Plugin.RulesEnginePlugin",
   "Ascentix.RulesEngine.Plugin.RunRulesApi",

@@ -51,14 +51,19 @@ work.
 
 ## Editing a published rule
 
-Published rules open **read-only** in the Rule Builder. Choose **Unpublish** and
-confirm that all enforcement and automation from this rule will stop until it is
-published again. You can then edit the Draft, save, validate, and publish it.
-Any recovered unsaved edits stay in the editor when you unpublish.
+Published rules open an **editable draft**. Save as often as needed while the last
+published revision continues enforcing. **Publish** validates the saved draft and
+replaces the active revision. A rejected publication leaves the active revision intact.
 
-This workflow does not create a separate revision while the original stays live.
-It governs edits in the Rule Builder; direct configuration edits through classic
-forms or APIs, and edits to shared table configurations, remain separate operations.
+**View published** opens the frozen definition, including its data model, read-only.
+**Back to draft** returns to your work, preserving unsaved edits. **Restore published
+to draft** asks you to confirm replacing both saved and unsaved draft changes. It
+creates a private copy of the published data model so other rules' shared models
+are unaffected. You must publish again to change enforcement.
+
+Classic-form and API configuration edits also change only the draft. Shared-model
+changes affect a published rule only after that rule is republished. **Unpublish**
+remains an explicit way to stop enforcement; it is not required for editing.
 
 ## No autosave
 

@@ -28,7 +28,7 @@ function makeFetch(validateResponse: { IsValid: boolean; Issues: string }): type
   return vi.fn(async (url: string | URL | Request, opts?: RequestInit) => {
     const urlStr = String(url);
     if (urlStr.includes("asx_ValidateRule") && opts?.method === "POST") {
-      return new Response(JSON.stringify(validateResponse), {
+      return new Response(JSON.stringify({ ...validateResponse, DraftHash: "candidate-hash" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });

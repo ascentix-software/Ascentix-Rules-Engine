@@ -41,7 +41,7 @@ namespace Ascentix.RulesEngine.Core.Engine
             {
                 var traversalService = bucket.Context == RuleEvaluationContext.User ? userService : systemService;
                 var input = EvaluationGatherer.ForBucket(
-                    systemService, traversalService, logicalName, inputs, buildMode, trigger, languageId,
+                    bucket.ConfigurationService ?? systemService, traversalService, logicalName, inputs, buildMode, trigger, languageId,
                     bucket.Rules, bucket.Context, diag);
                 var verdict = BucketEvaluator.Evaluate(input, trace, diag);
                 for (var k = 0; k < input.Records.Count; k++)

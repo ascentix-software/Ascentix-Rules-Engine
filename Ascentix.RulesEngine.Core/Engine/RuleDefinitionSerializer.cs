@@ -96,6 +96,20 @@ namespace Ascentix.RulesEngine.Core.Engine
         private static readonly string NameField = SchemaNames.Qualify(SchemaNames.PrimaryName);
         private static readonly string TriggersField = SchemaNames.Qualify(SchemaNames.Rule.Triggers);
 
+        public static string Combine(string table, int language, IEnumerable<string> definitions)
+        {
+            var serializer = new DataContractJsonSerializer(typeof(EnvelopeDto));
+            var envelope = new EnvelopeDto { TableLogicalName = table, LanguageId = language, Rules = new List<RuleDto>() };
+            foreach (var json in definitions)
+                using (var input = new MemoryStream(Encoding.UTF8.GetBytes(json)))
+                    envelope.Rules.AddRange(((EnvelopeDto)serializer.ReadObject(input)).Rules);
+            using (var output = new MemoryStream())
+            {
+                serializer.WriteObject(output, envelope);
+                return Encoding.UTF8.GetString(output.ToArray());
+            }
+        }
+
         public static string Serialize(
             string tableLogicalName,
             int languageId,

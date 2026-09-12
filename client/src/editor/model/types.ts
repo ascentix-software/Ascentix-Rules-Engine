@@ -10,6 +10,8 @@ export interface RuleHeader {
   name: string;
   tableLogicalName: string;
   statusCode: number | null;
+  publishedRevisionId?: string | null;
+  publishedVersion?: number;
   etag: string | null;
   triggers: number[];
   channels: number[];

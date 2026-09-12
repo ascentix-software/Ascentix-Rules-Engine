@@ -31,7 +31,7 @@ the engine's own configuration tables:
 | `asx_ruleaction` | Create, Update, Delete |
 
 These six `RuleRegistrationPlugin` steps travel with the solution, as does the
-publish gate described below, for seven shipped steps in total. No filtering
+publish gate and the revision guards described below. No filtering
 attributes are applied to the six: every create, update, and delete against a
 rule or an action passes through `RuleRegistrationPlugin`.
 
@@ -53,6 +53,13 @@ Dataverse's bulk `CreateMultiple` / `UpdateMultiple` messages.
 A rule only enforces once it's **Published** (see *Rule Lifecycle*). A shipped step
 on `asx_rule` runs the same validation as *Validating & Publishing* and blocks the
 Draft → Published transition if the rule is invalid.
+
+Every explicit publication, including republishing a live rule, captures the saved
+draft and its data model. Configuration guards execute first (order 1), the
+publisher next (20), and registration reconciliation last (30), all synchronously
+in pre-operation. Guards cover Create/Update/Delete of the ten configuration tables
+and revision table, plus legacy SetState on rules. Draft edits preserve the
+registrations required by the published snapshot.
 
 ## Drift repair
 

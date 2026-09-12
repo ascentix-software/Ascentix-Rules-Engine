@@ -1,13 +1,15 @@
 # Plugin registration (bootstrap)
 
-The engine has three plugins in one signed assembly, plus the four Custom API
+The engine ships one signed assembly with enforcement, authoring, and Custom API
 implementations:
 
 - **`RulesEnginePlugin`**: evaluates and enforces rules. Its steps on **customer tables**
   are generated at runtime by the registration plugin (below), so they are NOT shipped.
 - **`RuleRegistrationPlugin`**: keeps those generated steps in sync with rule config.
-- **`RulePublishPlugin`**: the publish gate, blocking a Draft to Published transition on an
-  invalid rule. See `docs/Schema.md` §5.1.
+- **`RulePublishPlugin`**: validates and snapshots every publication, including replacing
+  an active revision. See `docs/Schema.md` §5.1.
+- **`RuleRevisionGuardPlugin`**: serializes configuration edits, advances draft versions,
+  and protects immutable revision data and publication pointers.
 
 ## Shipped (bootstrap) steps: register once, ship in the solution
 
@@ -21,8 +23,18 @@ Register `RuleRegistrationPlugin` (pre-operation, synchronous) on:
 Plus one publish-gate step: `RulePublishPlugin` on `asx_rule` Update, `PreImage` carrying
 `statuscode`.
 
-Add the assembly and these seven steps (with the pre-images) to the unmanaged solution
-so they travel in the managed build. No filtering attributes on these steps.
+Add the assembly and these seven steps (with the pre-images) to the unmanaged solution.
+The revision deployment also adds synchronous pre-operation guards on Create/Update/Delete
+for all ten configuration tables and `asx_rulerevision`, plus `asx_rule` SetState.
+Global Associate/Disassociate guards reject configuration relationship changes
+through those messages; use record Update so lifecycle/version checks run.
+Execution order is guard 1 → publisher 20 → registration 30. No filtering attributes
+on these steps. Add all guards and the three revision APIs to the managed package.
+
+`pipelines/Deploy-RuleRevisions.ps1` provisions additive metadata and registrations;
+`pipelines/plugin-ci.yml` orders Schema, assembly deployment, Register, and Backfill.
+See [revision deployment](deployment/published-rule-revisions.md) before deploying
+the client or packaging a managed release. Existing published rules stay enabled.
 
 ## Generated steps
 
@@ -36,7 +48,10 @@ Registration Tool shows them. Removing the engine = delete these.
 state**: it overlays the triggering change (Target + pre-image) onto the committed rule/
 action set, so a pre-operation reconcile accounts for its own in-flight change. A rule
 published via a `statuscode` Update registers its enforcement step within that same
-transaction; unpublishing, deleting, or adding/removing a Block action reconciles likewise.
+transaction. Unpublishing and deleting reconcile likewise. Draft action edits use
+the frozen published definition and cannot remove or narrow enforcement. Internal
+backfill, draft-stamp, restore, and delete-cleanup writes skip intermediate
+reconciliation; the outer publication/delete operation reconciles its final state.
 
 Drift repair is the **`asx_SyncSteps` Custom API**. Its modes, its gating privilege, its response
 shape, the fact that admin-deactivated steps are never re-enabled, and the single-table fallback
