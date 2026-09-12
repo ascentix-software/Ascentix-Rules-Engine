@@ -53,10 +53,17 @@ unrelated business-record relationships are unaffected.
 
 Revision Create/Update/Delete and publication-pointer/version/stamp writes are
 guarded. Only nested operations from the server's publication transaction may
-write them. Internal SDK requests carry a tag bound to the originating transaction,
-registered handler, operation, and target identity, covering platforms that omit
-mutable parent shared variables. A tag without valid registered ancestry grants
-no authority. Deleting a rule removes its revisions in that transaction. The new
+write them. Internal SDK requests carry a tag bound to the originating transaction
+and caller, the service identity returned by `WhoAmI`, operation, and target identity.
+The nested pipeline must execute as that service identity; its initiating user can
+differ from the API caller when the system service performs the write. Tags cover
+platforms that omit mutable parent shared variables. For the global restore and
+backfill APIs, the guard resolves the main handler from the unique API registration
+instead of depending on a serialized parent extension or empty primary-entity value.
+The API must be an unbound action, disallow additional processing steps, and use
+`RuleRevisionApi`. Other internal plugin writes retain their owning-step check.
+A tag without valid registered ancestry grants no authority. Deleting a rule removes
+its revisions in that transaction. The new
 read API checks rule Read access; restore also checks rule Write access and the
 expected version. Authors need no direct CRUD rights on revision or lock tables.
 
@@ -91,6 +98,12 @@ commit; completed schema and registration components are reused. No deletion of
 partially registered components is required. Keep authoring paused until registration
 and backfill complete, then deploy the client and run the live suites.
 
+If backfill fails with `Published revisions are immutable and can only be created
+by publishing a rule`, deploy the repaired plugin assembly that recognizes tagged
+system-service writes, then rerun Register and Backfill through plugin CI. Do not
+disable the revision guard or delete existing snapshots. The failed transaction rolls
+back its batch; the next run processes only published rules still missing a revision.
+
 Backfill is restartable: only Published rules with no pointer are captured. Until
 conversion, those legacy rules retain their existing runtime read path. Once guards
 are installed, a configuration mutation first captures outstanding legacy rules;
@@ -124,6 +137,10 @@ Local coverage includes snapshot round-trips, draft/runtime and form isolation,
 different frozen link fields sharing a node GUID, unchanged step analysis, stale
 publication rejection, raw-write guards, bounded/restartable backfill, restore access
 and version checks, and private restoration preserving literal values.
+The backfill regression executes nested revision Create and rule Update requests
+through the actual guard, publisher, and registration plugins. It covers a changed
+initiating user, serialized parent contexts, tag location, restart behavior, and
+rejection of mismatched origins, service identities, targets, and API registrations.
 Client coverage includes editing while published, publication, viewing a frozen
 definition without losing unsaved work, and restoring after confirmation.
 
