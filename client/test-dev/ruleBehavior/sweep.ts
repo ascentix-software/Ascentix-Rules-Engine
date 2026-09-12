@@ -24,16 +24,16 @@ async function sweepSet(entitySet: string, nameField: string): Promise<void> {
 
 // Crash-recovery backstop: clears stray ZZ_RB_ rows left by an interrupted authoring run, in
 // dependency order so FK-restrict relationships don't block the sweep (actions/conditions/groups
-// before rules; orderlines before orders; orders before customers). asx_tableconfig is
+// after server-owned rule cleanup; orderlines before orders; orders before customers). asx_tableconfig is
 // self-referential (asx_parenttable): a few repeated passes clear it regardless of node depth,
 // since each pass deletes whatever no longer has children and a restrict-blocked delete just
 // waits for its child to be cleared on an earlier pass. Every individual delete is wrapped so one
 // restrict-order miss never aborts the rest of the sweep.
 export async function sweepRuleBehaviorOrphans(): Promise<void> {
+  await sweepSet(ENTITY_SET.rule, "asx_name");
   await sweepSet(ENTITY_SET.action, "asx_name");
   await sweepSet(ENTITY_SET.condition, "asx_name");
   await sweepSet(ENTITY_SET.group, "asx_name");
-  await sweepSet(ENTITY_SET.rule, "asx_name");
   for (let pass = 0; pass < 3; pass++) {
     await sweepSet(ENTITY_SET.tableConfig, "asx_name");
   }

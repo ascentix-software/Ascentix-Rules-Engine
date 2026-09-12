@@ -29,10 +29,10 @@ for all ten configuration tables and `asx_rulerevision`, plus `asx_rule` SetStat
 Global Associate/Disassociate guards reject configuration relationship changes
 through those messages; use record Update so lifecycle/version checks run.
 Execution order is guard 1 → publisher 20 → registration 30. No filtering attributes
-on these steps. Add all guards and the three revision APIs to the managed package.
+on these steps. Add all guards and the four authoring APIs to the managed package.
 
-`pipelines/Deploy-RuleRevisions.ps1` provisions additive metadata and registrations;
-`pipelines/plugin-ci.yml` orders Schema, assembly deployment, Register, and Backfill.
+`pipelines/Configure-RuleAuthoring.ps1` provisions additive metadata and registrations;
+`pipelines/plugin-ci.yml` orders Schema, assembly deployment, and Register.
 See [revision deployment](deployment/published-rule-revisions.md) before deploying
 the client or packaging a managed release. Existing published rules stay enabled.
 
@@ -50,7 +50,7 @@ action set, so a pre-operation reconcile accounts for its own in-flight change. 
 published via a `statuscode` Update registers its enforcement step within that same
 transaction. Unpublishing and deleting reconcile likewise. Draft action edits use
 the frozen published definition and cannot remove or narrow enforcement. Internal
-backfill, draft-stamp, restore, and delete-cleanup writes skip intermediate
+draft creation, draft-stamp, restore, and delete-cleanup writes skip intermediate
 reconciliation; the outer publication/delete operation reconciles its final state.
 
 Drift repair is the **`asx_SyncSteps` Custom API**. Its modes, its gating privilege, its response

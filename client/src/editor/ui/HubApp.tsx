@@ -245,7 +245,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                       <div>
                         <div style={{ fontSize: 14, fontWeight: 600, color: color.ink }}>{r.name}</div>
                         <div style={{ fontSize: 12, color: color.inkMuted }}>uses{" "}
-                          {r.rootConfigId
+                          {r.rootConfigReadOnly ? <span>{r.rootConfigName ?? "Published data model"}</span> : r.rootConfigId
                             ? <button type="button" className={styles.focusRing} onClick={(e) => { e.stopPropagation(); navigate("tableconfig", r.rootConfigId!); }}
                                 style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: color.brandInk, fontWeight: 600, fontSize: 12 }}>{r.rootConfigName ?? r.rootConfigId}</button>
                             : <span style={{ color: color.inkMuted }}>—</span>}

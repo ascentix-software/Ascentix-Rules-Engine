@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createWebApiPort } from "./webapi";
-import { loadRuleGraph } from "./load/index";
+import { loadRuleEditorGraph } from "./load/ruleEditorGraph";
 import { loadConfigGraph } from "./load/tableConfigEditor";
 import { loadHubData } from "./load/hubData";
 import { loadValueLabels } from "./load/valueLabels";
@@ -104,7 +104,7 @@ async function renderView(root: Root) {
   if (!route.id) { root.render(missingId("rule")); return; }
   const ruleId = route.id;
   try {
-    const reload = () => loadRuleGraph(api, ruleId);
+    const reload = () => loadRuleEditorGraph(api, ruleId);
     const graph = await reload();
     const valueLabels = await loadValueLabels(service, graph);
     root.render(withProviders("rule editor",

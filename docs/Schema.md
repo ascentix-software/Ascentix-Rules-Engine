@@ -2,7 +2,7 @@
 
 Authoritative reference for the Dataverse schema, kept in sync with `Ascentix.RulesEngine.Core/Schema/SchemaNames.cs`
 and the deployment source. Existing schema is authored in Dataverse; published-revision
-additions are provisioned by `pipelines/Deploy-RuleRevisions.ps1`. Local source does not
+additions are provisioned by `pipelines/Configure-RuleAuthoring.ps1`. Local source does not
 establish that these additions are already installed in an environment.
 
 - **Publisher:** Ascentix · **Default prefix:** `asx` (configurable; names below use the
@@ -47,11 +47,12 @@ Top-level rule, scoped to a table. Parent of conditions and actions.
 rules default to **Draft**. The engine enforces **only Published** rules (within the effective
 window below). `asx_isactive` is retired.
 
-The normalized rule and child records are the mutable draft. Published behavior is
-read from the immutable revision referenced by `asx_publishedrevision`, including
-schedule, channels, triggers, actions, and shared data-model definitions. Editing
-the draft does not change enforcement. Create a Draft first; publish with a separate
-status update. Changing a rule's business table is prohibited after creation.
+Published rules retain their normalized graph or use an immutable revision referenced
+by `asx_publishedrevision`. **Edit rule** creates or reopens a separate normalized
+working copy linked by `asx_draftof`; it does not modify the original graph.
+Publishing a working copy switches the original rule's active snapshot and advances
+its version. The working copy remains Draft. Changing a rule's business table is
+prohibited after creation. Existing rules require no initialization operation.
 
 | Column | Schema name | Type | Req | Notes |
 |---|---|---|---|---|
@@ -59,6 +60,8 @@ status update. Changing a rule's business table is prohibited after creation.
 | Published Revision | `asx_publishedrevision` | Lookup → `asx_rulerevision` | | Server-controlled current revision |
 | Published Version | `asx_publishedversion` | Integer | | Server-controlled monotonically increasing publication number |
 | Publish Hash | `asx_publishhash` | Text (64) | | Expected SHA-256 of the validated draft; sent with status PATCH and cleared by publication |
+| Working Draft Of | `asx_draftof` | Lookup → `asx_rule` | | Server-controlled stable identity for a separate working copy |
+| Draft Base Version | `asx_draftbaseversion` | Integer | | Active publication version on which this draft is based |
 | Draft Stamp | `asx_draftstamp` | Text (36) | | Server-controlled value updated by every owned graph mutation to advance header row version |
 | Triggers | `asx_triggers` | MultiSelect → `asx_triggers` | ✔ | At least one (editor-enforced) |
 | Channels | `asx_channels` | MultiSelect → `asx_channel` | | Empty ⇒ applies on all channels; gates which origin channel (Standard/Portal) a rule fires on |
@@ -256,7 +259,7 @@ direct writes. Deleted only with the owning rule.
 | `asx_version` | Integer | Number within the rule |
 | `asx_definition` | Memo (1,000,000) | Format 1 snapshot of typed configuration rows; maximum 10,000 rows |
 | `asx_hash` | Text (64) | SHA-256 of serialized snapshot |
-| `asx_publisher` | Lookup → `systemuser` | Publishing user, or initializing administrator during legacy backfill |
+| `asx_publisher` | Lookup → `systemuser` | Publishing user, or author whose shared-model edit preserved existing behavior |
 | `asx_publishedon` | DateTime | Snapshot creation time in UTC |
 
 ### 2.12 Publication Lock (`asx_publicationlock`)
@@ -626,12 +629,15 @@ by `Ascentix.RulesEngine.Plugin.RuleRevisionApi`.
 |---|---|---|---|
 | `asx_ReadPublishedRule` | `RuleId` String | `Definition` String | `prvReadasx_rule` plus record Read access |
 | `asx_RestoreRuleDraft` | `RuleId`, `ExpectedVersion` Strings | None | `prvReadasx_rule` plus record Read/Write access; expected header row version |
-| `asx_InitializeRuleRevisions` | None | `Remaining` Integer | `prvWriteEntity` (customizer/admin) |
+| `asx_OpenRuleDraft` | `RuleId` String | `DraftId` String | `prvReadasx_rule` plus record Read/Write access |
+| `asx_CopyRule` | `RuleId` String | `NewRuleId` String | `prvCreateasx_rule` plus source record Read access |
 
-Restore keeps the published pointer and status intact and clones data-model nodes
-privately. Initialize captures up to ten legacy Published rules with missing
-pointers per request and can be repeated safely. Deployment source and live
-acceptance requirements are in `docs/deployment/published-rule-revisions.md`.
+Open creates or reuses one working copy while the original stays active. Restore
+accepts the working-copy ID and ETag, preserves active enforcement, and reclaims
+unused private models. Read resolves either ID to the stable published rule.
+`asx_tableconfig.asx_isprivate` is a Boolean, default false, identifying cloned
+working models excluded from shared-model lists. The installation and acceptance
+contract is in `docs/deployment/published-rule-revisions.md`.
 
 ---
 

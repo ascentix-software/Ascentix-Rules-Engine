@@ -51,7 +51,7 @@ work.
 
 ## Editing a published rule
 
-Published rules open an **editable draft**. Save as often as needed while the last
+Choose **Edit rule** on a published rule to create or reopen its **working draft**. Save as often as needed while the last
 published revision continues enforcing. **Publish** validates the saved draft and
 replaces the active revision. A rejected publication leaves the active revision intact.
 
@@ -61,7 +61,7 @@ to draft** asks you to confirm replacing both saved and unsaved draft changes. I
 creates a private copy of the published data model so other rules' shared models
 are unaffected. You must publish again to change enforcement.
 
-Classic-form and API configuration edits also change only the draft. Shared-model
+API callers open the working draft before editing its records. Direct changes to published configuration are rejected. Shared-model
 changes affect a published rule only after that rule is republished. **Unpublish**
 remains an explicit way to stop enforcement; it is not required for editing.
 

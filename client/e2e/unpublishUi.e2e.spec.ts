@@ -3,8 +3,9 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { ensureTableConfig, authorRule } from "../test-dev/ruleBehavior/authoring";
-import { resolveAppId } from "./devHelpers";
+import { resolveAppId, createThrowawayRule } from "./devHelpers";
 import { openRuleFromHub, toolbar } from "./editorHarness";
+import { loadPublishedGraph } from "../src/editor/load/publishedGraph";
 
 // The emergency brake, inside the Rule Builder: the Unpublish command on the editor toolbar.
 //
@@ -36,6 +37,36 @@ const statusOf = async (ruleId: string) => {
   );
   return r.entities[0].statuscode as number;
 };
+
+test("Edit rule opens a working draft and publishes it without stopping the active rule", async ({ page }) => {
+  const fixture = await createThrowawayRule();
+  const api = createDevApi();
+  const header = () => api.retrieveRecord(ENTITY_SET.rule, fixture.ruleId, "?$select=asx_name,statuscode,asx_publishedversion");
+  const published = async () => loadPublishedGraph(await api.readPublishedRule!(fixture.ruleId), fixture.ruleId);
+  try {
+    const valid = await api.validateRule(fixture.ruleId);
+    await api.publishRule(fixture.ruleId, (await header())["@odata.etag"], valid.draftHash);
+    const frame = await openRuleFromHub(page, await resolveAppId(), fixture.ruleName);
+    await expect(frame.getByRole("button", { name: "Rename rule" })).toBeDisabled();
+    await frame.getByRole("button", { name: "Edit rule", exact: true }).click();
+    await expect(frame.getByRole("button", { name: "Rename rule" })).toBeEnabled();
+    await frame.getByRole("button", { name: "Rename rule" }).click();
+    const revisedName = fixture.ruleName + " revised";
+    await frame.getByLabel("Rule name", { exact: true }).fill(revisedName);
+    await frame.getByLabel("Rule name", { exact: true }).press("Enter");
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
+    await expect(frame.getByText("Saved.", { exact: true })).toBeVisible();
+    expect((await header()).statuscode).toBe(PUBLISHED);
+    expect((await published()).rule.name).toBe(fixture.ruleName);
+    await toolbar(frame).getByRole("button", { name: "Validate", exact: true }).click();
+    await expect(frame.getByText(/Validation passed/)).toBeVisible();
+    await toolbar(frame).getByRole("button", { name: "Publish", exact: true }).click();
+    await expect(frame.getByText("Rule published successfully.", { exact: true })).toBeVisible();
+    expect((await header()).statuscode).toBe(PUBLISHED);
+    expect((await header()).asx_publishedversion).toBe(2);
+    expect((await published()).rule.name).toBe(revisedName);
+  } finally { await fixture.cleanup(); }
+});
 
 test("Unpublish is offered only for a Published rule, confirms, and persists Draft", async ({ page }) => {
   const appId = await resolveAppId();

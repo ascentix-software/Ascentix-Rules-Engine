@@ -14,32 +14,44 @@ it("keeps execution on the published revision through invalid edits and stale pu
     const initial = await api.validateRule(fixture.ruleId);
     await api.publishRule(fixture.ruleId, (await header())["@odata.etag"], initial.draftHash);
     const first = await published();
-    const actionId = first.actions[0].id;
     const liveMessage = first.actions[0].message;
     expect(await messages()).toContain(liveMessage);
 
+    const draftId = await api.openRuleDraft!(fixture.ruleId);
+    expect(draftId).not.toBe(fixture.ruleId);
+    expect(await api.openRuleDraft!(fixture.ruleId)).toBe(draftId);
+    const draftHeader = () => api.retrieveRecord("asx_rules", draftId, "?$select=statuscode,_asx_roottableconfig_value");
+    const actions = await api.retrieveMultipleRecords("asx_ruleactions", `?$select=asx_ruleactionid&$filter=_asx_rule_value eq ${draftId}`);
+    const actionId = actions.entities[0].asx_ruleactionid;
+    await expect(updateDevRecord("asx_ruleactions", first.actions[0].id, { asx_message: "Direct edit" })).rejects.toThrow(/working draft/);
+
     await updateDevRecord("asx_ruleactions", actionId, { asx_message: "" });
-    const invalid = await api.validateRule(fixture.ruleId);
+    const invalid = await api.validateRule(draftId);
     expect(invalid.isValid).toBe(false);
-    await expect(api.publishRule(fixture.ruleId, (await header())["@odata.etag"], invalid.draftHash)).rejects.toThrow();
+    await expect(api.publishRule(draftId, (await draftHeader())["@odata.etag"], invalid.draftHash)).rejects.toThrow();
     expect((await header()).asx_publishedversion).toBe(1);
     expect(await messages()).toContain(liveMessage);
 
     const nextMessage = "Published revision two " + fixture.ruleId;
     await updateDevRecord("asx_ruleactions", actionId, { asx_message: nextMessage });
-    const valid = await api.validateRule(fixture.ruleId);
+    const valid = await api.validateRule(draftId);
     expect(valid.isValid).toBe(true);
-    await updateDevRecord("asx_tableconfigs", first.rule.rootTableConfigId!, { asx_name: "ZZ_RB_model_changed_after_validation" });
-    await expect(api.publishRule(fixture.ruleId, (await header())["@odata.etag"], valid.draftHash)).rejects.toThrow(/changed after validation/);
+    await updateDevRecord("asx_tableconfigs", (await draftHeader())._asx_roottableconfig_value, { asx_name: "ZZ_RB_model_changed_after_validation" });
+    await expect(api.publishRule(draftId, (await draftHeader())["@odata.etag"], valid.draftHash)).rejects.toThrow(/changed after validation/);
     expect((await published()).actions[0].message).toBe(liveMessage);
     expect(await messages()).toContain(liveMessage);
 
-    const revalidated = await api.validateRule(fixture.ruleId);
-    await api.publishRule(fixture.ruleId, (await header())["@odata.etag"], revalidated.draftHash);
+    const revalidated = await api.validateRule(draftId);
+    await api.publishRule(draftId, (await draftHeader())["@odata.etag"], revalidated.draftHash);
     expect((await header()).asx_publishedversion).toBe(2);
     expect((await header()).statuscode).toBe(753840000);
     expect(await messages()).toContain(nextMessage);
     expect(await messages()).not.toContain(liveMessage);
+    expect((await draftHeader()).statuscode).toBe(1);
+    await updateDevRecord("asx_ruleactions", actionId, { asx_message: "Discard this" });
+    await api.restoreRuleDraft!(draftId, (await draftHeader())["@odata.etag"]);
+    expect((await published()).actions[0].message).toBe(nextMessage);
+    expect(await messages()).toContain(nextMessage);
   } finally {
     await fixture.cleanup();
   }

@@ -1,7 +1,7 @@
-<# Additive revision schema, registrations, and restartable backfill. Does not export Solutions/. #>
+<# Provision authoring metadata in the maintainer environment for managed-solution export. #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('Schema','Register','Backfill')][string]$Phase,
+    [Parameter(Mandatory)][ValidateSet('Schema','Register')][string]$Phase,
     [Parameter(Mandatory)][string]$EnvUrl,
     [Parameter(Mandatory)][string]$AccessToken,
     [string]$SolutionName = 'AscentixRulesEngine',
@@ -63,7 +63,7 @@ if ($Phase -eq 'Schema') {
         $field = Field $spec[1] $type $spec[1]; $field.MaxLength = [int]$spec[2]
         EnsureField $spec[0] $field
     }
-    foreach ($spec in @(@('asx_rule','asx_PublishedVersion'), @('asx_rulerevision','asx_Version'))) {
+    foreach ($spec in @(@('asx_rule','asx_PublishedVersion'), @('asx_rule','asx_DraftBaseVersion'), @('asx_rulerevision','asx_Version'))) {
         $field = Field $spec[1] 'Integer' 'Published version'; $field.MinValue = 0; $field.MaxValue = 2147483647
         EnsureField $spec[0] $field
     }
@@ -72,20 +72,35 @@ if ($Phase -eq 'Schema') {
     EnsureLookup 'asx_rulerevision' 'asx_rule' 'asx_Rule' 'Rule'
     EnsureLookup 'asx_rulerevision' 'systemuser' 'asx_Publisher' 'Publisher'
     EnsureLookup 'asx_rule' 'asx_rulerevision' 'asx_PublishedRevision' 'Published revision'
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity></entities></importexportxml>' } | Out-Null
-    $locks = Request GET 'asx_publicationlocks?$select=asx_publicationlockid&$filter=asx_publicationlockid eq 7e0d7362-c0fd-44ab-a8a1-aecb70d86a79'
-    if ($locks.value.Count -eq 0) {
-        Request POST 'asx_publicationlocks' @{ asx_publicationlockid = '7e0d7362-c0fd-44ab-a8a1-aecb70d86a79'; asx_name = 'Configuration transaction lock' } | Out-Null
+    EnsureLookup 'asx_rule' 'asx_rule' 'asx_DraftOf' 'Working draft of'
+    $private = Field 'asx_IsPrivate' 'Boolean' 'Private rule model'
+    $private.DefaultValue = $false
+    $private.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.BooleanOptionSetMetadata';
+        TrueOption = @{ Value = 1; Label = (Label 'Yes') }; FalseOption = @{ Value = 0; Label = (Label 'No') } }
+    EnsureField 'asx_tableconfig' $private
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity></entities></importexportxml>' } | Out-Null
+    # Only configure the product's shipped views; personal/customer views are not selected.
+    foreach ($spec in @(@('asx_rule','asx_draftof'), @('asx_tableconfig','asx_isprivate'))) {
+        $viewFolder = Join-Path $PSScriptRoot "../Solutions/$SolutionName/${SolutionName}_unmanaged/Entities/$($spec[0])/SavedQueries"
+        foreach ($file in Get-ChildItem -LiteralPath $viewFolder -Filter '*.xml') {
+            [xml]$source = Get-Content -LiteralPath $file.FullName -Raw
+            $id = ([string]$source.savedqueries.savedquery.savedqueryid).Trim('{}')
+            $view = Request GET "savedqueries($id)?`$select=fetchxml"
+            [xml]$fetch = $view.fetchxml
+            $entity = $fetch.SelectSingleNode("/fetch/entity[@name='$($spec[0])']")
+            if (!$entity) { throw "Unexpected entity in shipped view $id" }
+            if (!$entity.SelectSingleNode("filter/condition[@attribute='$($spec[1])']")) {
+                $filter = $fetch.CreateElement('filter'); $filter.SetAttribute('type', 'and')
+                $condition = $fetch.CreateElement('condition'); $condition.SetAttribute('attribute', $spec[1])
+                if ($spec[0] -eq 'asx_rule') { $condition.SetAttribute('operator', 'null') }
+                else { $condition.SetAttribute('operator', 'ne'); $condition.SetAttribute('value', '1') }
+                $filter.AppendChild($condition) | Out-Null; $entity.AppendChild($filter) | Out-Null
+                Request PATCH "savedqueries($id)" @{ fetchxml = $fetch.OuterXml } | Out-Null
+            }
+        }
     }
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity></entities></importexportxml>' } | Out-Null
     Write-Host '[revisions] additive schema ready'
-    return
-}
-
-if ($Phase -eq 'Backfill') {
-    do {
-        $result = Request POST 'asx_InitializeRuleRevisions' @{}
-        Write-Host "[revisions] legacy rules remaining: $($result.Remaining)"
-    } while ([int]$result.Remaining -gt 0)
     return
 }
 
@@ -155,6 +170,11 @@ function EnsureParameter([string]$ApiId, [string]$Name, [int]$Type, [bool]$Outpu
     Request POST $set $body | Out-Null
 }
 $revisionType = PluginType 'RuleRevisionApi'
+$authoringApis = @('asx_ReadPublishedRule', 'asx_RestoreRuleDraft', 'asx_OpenRuleDraft', 'asx_CopyRule')
+$ownedApis = Request GET "customapis?`$select=customapiid,uniquename&`$filter=_plugintypeid_value eq $revisionType"
+foreach ($api in $ownedApis.value) {
+    if ($api.uniquename -notin $authoringApis) { Request DELETE "customapis($($api.customapiid))" | Out-Null }
+}
 foreach ($spec in @(
     @('asx_ReadPublishedRule', 'Read the immutable configuration of the active published rule revision.'),
     @('asx_RestoreRuleDraft', 'Restore the published configuration into a draft without changing active enforcement.')
@@ -164,8 +184,12 @@ foreach ($spec in @(
     if ($spec[0] -eq 'asx_ReadPublishedRule') { EnsureParameter $id 'Definition' 10 $true 'Serialized configuration of the active published rule revision.' }
     else { EnsureParameter $id 'ExpectedVersion' 10 $false 'Expected rule row version for optimistic concurrency.' }
 }
-$id = EnsureApi 'asx_InitializeRuleRevisions' 'prvWriteEntity' 'Initialize immutable revisions for a batch of existing published rules.'
-EnsureParameter $id 'Remaining' 7 $true 'Number of published rules still requiring an initial revision.'
+$id = EnsureApi 'asx_OpenRuleDraft' 'prvReadasx_rule' 'Open a separate working draft while the published rule continues enforcing.'
+EnsureParameter $id 'RuleId' 10 $false 'Identifier of the rule to edit.'
+EnsureParameter $id 'DraftId' 10 $true 'Identifier of the existing or newly created working draft.'
+$id = EnsureApi 'asx_CopyRule' 'prvCreateasx_rule' 'Copy a rule definition and its model into a new unpublished rule.'
+EnsureParameter $id 'RuleId' 10 $false 'Identifier of the source rule.'
+EnsureParameter $id 'NewRuleId' 10 $true 'Identifier of the new unpublished rule.'
 $validate = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq 'asx_ValidateRule'"
 if ($validate.value.Count -ne 1) { throw 'Missing asx_ValidateRule API.' }
 EnsureParameter $validate.value[0].customapiid 'DraftHash' 10 $true 'SHA-256 hash of the saved draft configuration checked by validation.'

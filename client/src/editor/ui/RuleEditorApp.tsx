@@ -121,8 +121,9 @@ export function RuleEditorApp({
   const closePanel = () => { setSelection({ kind: "rule" }); setPanelOpen(false); };
 
   const dirty = JSON.stringify(snapshot) !== JSON.stringify(working);
-  const recovery = useRuleRecovery(recoveryKey(api.getClientUrl?.() ?? window.location.origin, initialGraph.rule.id), snapshot, working);
-  const editable = !publishedView && !busy && !recovery.pending;
+  const recovery = useRuleRecovery(recoveryKey(api.getClientUrl?.() ?? window.location.origin, initialGraph.rule.activeRuleId ?? initialGraph.rule.id), snapshot, working);
+  const needsDraft = published && !working.rule.activeRuleId;
+  const editable = !publishedView && !busy && !recovery.pending && !needsDraft;
   const setWorking: React.Dispatch<React.SetStateAction<RuleGraph>> = (value) => {
     if (editable) history.set(value);
   };
@@ -253,7 +254,7 @@ export function RuleEditorApp({
   }
 
   async function onPublish() {
-    if (busy || recovery.pending || publishedView || dirty || !validationResult?.isValid) return;
+    if (!editable || dirty || !validationResult?.isValid) return;
     setBusy(true);
     setBanner(null);
     try {
@@ -266,12 +267,24 @@ export function RuleEditorApp({
     } finally { setBusy(false); }
   }
 
+  async function onEdit() {
+    if (busy || !api.openRuleDraft) return;
+    setBusy(true);
+    setBanner(null);
+    try {
+      await api.openRuleDraft(working.rule.id);
+      await acceptFresh(await reload());
+    } catch (e) { setBanner({ intent: "error", text: `Could not open the draft: ${formatError(e)}` }); }
+    finally { setBusy(false); }
+  }
+
   async function onViewPublished() {
     if (publishedView) { setPublishedView(null); setSelection({ kind: "rule" }); return; }
     if (!api.readPublishedRule) return;
     setBusy(true);
     try {
-      setPublishedView(await loadPublishedGraph(await api.readPublishedRule(working.rule.id), working.rule.id));
+      const id = working.rule.activeRuleId ?? working.rule.id;
+      setPublishedView(await loadPublishedGraph(await api.readPublishedRule(id), id));
       setSelection({ kind: "rule" });
     } catch (e) { setBanner({ intent: "error", text: `Could not load the published revision: ${formatError(e)}` }); }
     finally { setBusy(false); }
@@ -297,7 +310,7 @@ export function RuleEditorApp({
     const pending = clone(workingRef.current);
     try {
       const before = await reload();
-      await api.unpublishRule(working.rule.id, before.rule.etag);
+      await api.unpublishRule(working.rule.activeRuleId ?? working.rule.id, before.rule.activeEtag ?? before.rule.etag);
       const fresh = await reload();
       setServerStatus(fresh.rule.statusCode);
       if (dirty) {
@@ -367,7 +380,7 @@ export function RuleEditorApp({
             <TitleActionsRow stacked={titleStacked}
               left={
                 <div>
-                  <Eyebrow>{publishedView ? "Published revision" : "Rule draft"}</Eyebrow>
+                  <Eyebrow>{publishedView || needsDraft ? "Published rule" : "Rule draft"}</Eyebrow>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 2 }}>
                     {renaming ? (
                       <Input
@@ -410,12 +423,13 @@ export function RuleEditorApp({
               actions={
                 <div aria-busy={busy} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   {dirty && <UnsavedPill />}
-                  <Button appearance="primary" disabled={!editable || !dirty} onClick={onSave}>Save</Button>
+                  {needsDraft && !publishedView && <Button appearance="primary" disabled={busy || !api.openRuleDraft} onClick={onEdit}>Edit rule</Button>}
+                  <Button appearance={needsDraft ? "secondary" : "primary"} disabled={!editable || !dirty} onClick={onSave}>Save</Button>
                   <Button disabled={busy || !!publishedView} onClick={() => guardNavigate(onReload)}>Reload</Button>
                   <Button disabled={busy || !!recovery.pending || !!publishedView} onClick={onValidate}>{dirty ? "Save & validate" : "Validate"}</Button>
                   <Button
                     appearance="primary"
-                    disabled={busy || !!recovery.pending || !!publishedView || dirty || !validationResult?.isValid}
+                    disabled={!editable || dirty || !validationResult?.isValid}
                     onClick={onPublish}
                   >
                     Publish
@@ -433,15 +447,15 @@ export function RuleEditorApp({
               <Button size="small" disabled={!editable || !history.canUndo} onClick={() => { history.undo(); setSelection({ kind: "rule" }); }}>Undo</Button>
               <Button size="small" disabled={!editable || !history.canRedo} onClick={() => { history.redo(); setSelection({ kind: "rule" }); }}>Redo</Button>
               <Button size="small" disabled={busy || !dirty} onClick={() => setReviewOpen(true)}>Review changes</Button>
-              <Button size="small" disabled={busy || !working.rule.publishedRevisionId || !api.readPublishedRule} onClick={onViewPublished}>{publishedView ? "Back to draft" : "View published"}</Button>
-              <Button size="small" disabled={!editable || !working.rule.publishedRevisionId || !snapshot.rule.etag || !api.restoreRuleDraft} onClick={() => setRestoreOpen(true)}>Restore published to draft</Button>
+              <Button size="small" disabled={busy || (!published && !working.rule.publishedRevisionId) || !api.readPublishedRule} onClick={onViewPublished}>{publishedView ? "Back to draft" : "View published"}</Button>
+              <Button size="small" disabled={!editable || !working.rule.activeRuleId || !snapshot.rule.etag || !api.restoreRuleDraft} onClick={() => setRestoreOpen(true)}>Restore published to draft</Button>
             </div>
           </div>
         }
       >
         <div style={{ padding: "0 24px 24px" }}>
           {(published || publishedView) && <Callout intent="info" title={publishedView ? "Viewing the published revision — read-only" : "The published version stays active while you edit"}>
-            {publishedView ? "This definition includes the data model captured at publication. Return to the draft to make changes." : "Save and validate your draft here. Publish replaces the live version after server validation; shared data-model changes also take effect only when this rule is republished."}
+            {publishedView ? "This is the configuration currently used for enforcement." : needsDraft ? "Choose Edit rule to open a separate working draft. This published rule keeps enforcing while you make changes." : "Save and validate your draft here. Publish replaces the live version after server validation; shared data-model changes also take effect only when this rule is republished."}
           </Callout>}
           {recovery.pending && <Callout intent="warning" title="Unsaved work is available from this browser tab">
             <p>Restore your previous edits or discard the recovery copy. Restoring does not save or publish anything.</p>

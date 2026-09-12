@@ -1,113 +1,30 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
 using Microsoft.Xrm.Sdk.Messages;
-using Microsoft.Crm.Sdk.Messages;
+using Microsoft.Xrm.Sdk.Metadata;
 using Ascentix.RulesEngine.Core.Publication;
 
 namespace Ascentix.RulesEngine.Plugin.Publication
 {
     public static class PublicationCoordinator
     {
-        private const string Marker = "Ascentix.InternalRevisionWrite";
-        public static bool IsInternal(IPluginExecutionContext context, IOrganizationService service)
+        public static void Internal(IPluginExecutionContext context, IOrganizationService service, Action<IOrganizationService> action, bool reconcile = false)
         {
-            if (!context.IsInTransaction || context.Mode != 0) return false;
-            for (var parent = context.ParentContext; parent != null; parent = parent.ParentContext)
-                if (parent.IsInTransaction && parent.CorrelationId == context.CorrelationId &&
-                    parent.SharedVariables != null && parent.SharedVariables.TryGetValue(Marker, out var value) && value is Guid id && id == parent.CorrelationId)
-                    return true;
-            // SDK operations can omit mutable SharedVariables from their parent frames.
-            // A request tag also binds the write to its registered transactional ancestor.
-            string tag = null;
-            for (var frame = context; frame != null && tag == null && frame.CorrelationId == context.CorrelationId; frame = frame.ParentContext)
-                if (frame.SharedVariables != null && frame.SharedVariables.TryGetValue("tag", out var rawTag)) tag = rawTag as string;
-            var target = context.InputParameters.TryGetValue("Target", out var rawTarget)
-                ? (rawTarget as Entity)?.ToEntityReference() ?? rawTarget as EntityReference : null;
-            if (tag == null || target == null || context.UserId == Guid.Empty) return false;
-            for (var parent = context.ParentContext; parent != null; parent = parent.ParentContext)
-            {
-                if (!parent.IsInTransaction || parent.Mode != 0 || parent.CorrelationId != context.CorrelationId ||
-                    tag != WriteTag(parent, context.MessageName, target, context.UserId)) continue;
-                if (IsRevisionApi(parent))
-                {
-                    if (RegisteredRevisionApi(service, parent.MessageName)) return true;
-                    continue;
-                }
-                var extension = parent.OwningExtension;
-                if (extension == null) continue;
-                EntityReference handler = null;
-                if (extension.LogicalName == "sdkmessageprocessingstep")
-                    handler = service.Retrieve(extension.LogicalName, extension.Id, new ColumnSet("eventhandler"))
-                        .GetAttributeValue<EntityReference>("eventhandler");
-                else if (extension.LogicalName == "customapi")
-                    handler = service.Retrieve(extension.LogicalName, extension.Id, new ColumnSet("plugintypeid"))
-                        .GetAttributeValue<EntityReference>("plugintypeid");
-                if (handler?.LogicalName != "plugintype") continue;
-                var type = service.Retrieve("plugintype", handler.Id, new ColumnSet("typename")).GetAttributeValue<string>("typename");
-                if (parent.Stage == 20 && parent.MessageName == "Update" && parent.PrimaryEntityName == "asx_rule" &&
-                    type == typeof(RulePublishPlugin).FullName) return true;
-                if (parent.Stage == 20 && new[] { "Create", "Update", "Delete" }.Contains(parent.MessageName) &&
-                    PublicationSchema.IsConfig(parent.PrimaryEntityName) && type == typeof(RuleRevisionGuardPlugin).FullName) return true;
-            }
-            return false;
+            if (!context.IsInTransaction || context.Mode != 0)
+                throw new InvalidPluginExecutionException("Rule changes require a synchronous database transaction.");
+            action(new InternalWriter(service, reconcile));
         }
 
-        public static string WriteTag(IPluginExecutionContext owner, string message, EntityReference target, Guid executor)
-        {
-            // Global Custom API parent frames can omit the executing extension and normalize
-            // the empty primary entity. Resolve their main handler from API registration instead.
-            var api = IsRevisionApi(owner);
-            var identity = api
-                ? owner.CorrelationId + ":" + owner.MessageName + ":" + owner.InitiatingUserId + ":" +
-                    executor + ":" + message + ":" + target.LogicalName + ":" + target.Id
-                : owner.CorrelationId + ":" + owner.OwningExtension?.Id + ":" +
-                owner.MessageName + ":" + owner.PrimaryEntityName + ":" + owner.PrimaryEntityId + ":" +
-                owner.InitiatingUserId + ":" + executor + ":" + message + ":" + target.LogicalName + ":" + target.Id;
-            using (var hash = SHA256.Create())
-                return (api ? "Ascentix.RuleRevisionApiWrite.v2:" : "Ascentix.RuleRevisionWrite.v2:") +
-                    BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(identity))).Replace("-", "");
-        }
-
-        private static bool IsRevisionApi(IPluginExecutionContext context) => context.Stage == 30 &&
-            (context.MessageName == "asx_RestoreRuleDraft" || context.MessageName == "asx_InitializeRuleRevisions");
-
-        private static bool RegisteredRevisionApi(IOrganizationService service, string message)
-        {
-            var query = new QueryExpression("customapi") { TopCount = 2,
-                ColumnSet = new ColumnSet("plugintypeid", "bindingtype", "isfunction", "allowedcustomprocessingsteptype") };
-            query.Criteria.AddCondition("uniquename", ConditionOperator.Equal, message);
-            var registrations = service.RetrieveMultiple(query).Entities;
-            if (registrations.Count != 1) return false;
-            var api = registrations[0];
-            if (api.GetAttributeValue<OptionSetValue>("bindingtype")?.Value != 0 ||
-                !api.Contains("isfunction") || api.GetAttributeValue<bool>("isfunction") ||
-                api.GetAttributeValue<OptionSetValue>("allowedcustomprocessingsteptype")?.Value != 0) return false;
-            var handler = api.GetAttributeValue<EntityReference>("plugintypeid");
-            return handler?.LogicalName == "plugintype" &&
-                service.Retrieve("plugintype", handler.Id, new ColumnSet("typename")).GetAttributeValue<string>("typename") == typeof(RuleRevisionApi).FullName;
-        }
-
-        public static void Internal(IPluginExecutionContext context, IOrganizationService service, Action<IOrganizationService> action)
-        {
-            var hadPrevious = context.SharedVariables.TryGetValue(Marker, out var previous);
-            context.SharedVariables[Marker] = context.CorrelationId;
-            try { action(new InternalWriter(service, context)); }
-            finally
-            {
-                if (hadPrevious) context.SharedVariables[Marker] = previous;
-                else context.SharedVariables.Remove(Marker);
-            }
-        }
         public static void Lock(IOrganizationService service, IPluginExecutionContext context)
         {
-            if (!context.IsInTransaction) throw new InvalidPluginExecutionException("Revision changes require a synchronous database transaction.");
+            if (!context.IsInTransaction) throw new InvalidPluginExecutionException("Rule changes require a synchronous database transaction.");
             service.Execute(new UpsertRequest { Target = new Entity(PublicationSchema.Lock, PublicationSchema.LockId) {
                 ["asx_name"] = Guid.NewGuid().ToString() } });
         }
+
         public static Entity Store(IOrganizationService service, RuleSnapshot snapshot, int version, Guid publisher)
         {
             var json = snapshot.Serialize();
@@ -121,23 +38,35 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             return revision;
         }
 
-        // Capture old behavior before ANY authoring write can change a legacy dependency.
-        // The deployment backfill invokes this in bounded batches before authors resume work.
-        public static void Bootstrap(IOrganizationService service, IPluginExecutionContext context, int limit = 0)
+        // Preserve only existing live definitions that use the shared configuration being changed.
+        public static void PreserveSharedConfiguration(IOrganizationService service, IPluginExecutionContext context, IEnumerable<Guid> changedIds)
         {
+            var ids = new HashSet<Guid>(changedIds.Where(id => id != Guid.Empty));
+            if (ids.Count == 0) return;
+            // A rule referencing a descendant also depends on the changed ancestor.
+            var nodes = RuleSnapshot.QueryAll(service, new QueryExpression("asx_tableconfig") {
+                ColumnSet = new ColumnSet("asx_parenttable") });
+            bool expanded;
+            do {
+                expanded = false;
+                foreach (var node in nodes)
+                    if (ids.Contains(node.GetAttributeValue<EntityReference>("asx_parenttable")?.Id ?? Guid.Empty))
+                        expanded |= ids.Add(node.Id);
+            } while (expanded);
             var query = new QueryExpression("asx_rule") { ColumnSet = new ColumnSet(true) };
             query.Criteria.AddCondition("statuscode", ConditionOperator.Equal, 753840000);
             query.Criteria.AddCondition(PublicationSchema.Pointer, ConditionOperator.Null);
-            var rules = RuleSnapshot.QueryAll(service, query);
-            if (limit == 0 && rules.Count > 20)
-                throw new InvalidPluginExecutionException("Published revisions must be initialized before editing. Run the revision backfill deployment step; enforcement remains active.");
-            foreach (var rule in limit > 0 ? rules.Take(limit) : rules)
+            foreach (var rule in RuleSnapshot.QueryAll(service, query))
             {
+                var authored = RuleSnapshot.Capture(service, rule.Id, includeConfigs: false);
+                if (!authored.Rows.SelectMany(row => row.Attributes.Values).Any(value =>
+                    (value.Kind == "reference" && Guid.TryParse(value.Value, out var reference) && ids.Contains(reference)) ||
+                    (value.Kind == "string" && value.Value != null && ids.Any(id => value.Value.IndexOf(id.ToString(), StringComparison.OrdinalIgnoreCase) >= 0)))) continue;
                 var snapshot = RuleSnapshot.Capture(service, rule.Id);
                 Internal(context, service, writer => {
-                    var revision = Store(writer, snapshot, 1, context.InitiatingUserId);
+                    var revision = Store(writer, snapshot, rule.GetAttributeValue<int>(PublicationSchema.Number), context.InitiatingUserId);
                     writer.Update(new Entity("asx_rule", rule.Id) {
-                        [PublicationSchema.Pointer] = revision.ToEntityReference(), [PublicationSchema.Number] = 1 });
+                        [PublicationSchema.Pointer] = revision.ToEntityReference() });
                 });
             }
         }
@@ -145,16 +74,43 @@ namespace Ascentix.RulesEngine.Plugin.Publication
         private sealed class InternalWriter : IOrganizationService
         {
             private readonly IOrganizationService service;
-            private readonly IPluginExecutionContext owner;
-            private Guid? executor;
-            public InternalWriter(IOrganizationService service, IPluginExecutionContext owner)
-            { this.service = service; this.owner = owner; }
+            private readonly bool reconcile;
+            private readonly Dictionary<string, string> steps = new Dictionary<string, string>();
+            public InternalWriter(IOrganizationService service, bool reconcile)
+            { this.service = service; this.reconcile = reconcile; }
+
+            private string StepIds(string message, string table)
+            {
+                var key = message + ":" + table;
+                if (steps.TryGetValue(key, out var found)) return found;
+                var metadata = (RetrieveEntityResponse)service.Execute(new RetrieveEntityRequest {
+                    LogicalName = table, EntityFilters = EntityFilters.Entity });
+                var objectTypeCode = metadata.EntityMetadata.ObjectTypeCode
+                    ?? throw new InvalidPluginExecutionException("Rule configuration table metadata is incomplete.");
+                var query = new QueryExpression("sdkmessageprocessingstep") { ColumnSet = new ColumnSet(false) };
+                query.Criteria.AddCondition("statecode", ConditionOperator.Equal, 0);
+                var type = query.AddLink("plugintype", "eventhandler", "plugintypeid");
+                var names = new List<object> { typeof(RuleRevisionGuardPlugin).FullName, typeof(RulePublishPlugin).FullName };
+                if (!reconcile) names.Add(typeof(RuleRegistrationPlugin).FullName);
+                type.LinkCriteria.AddCondition("typename", ConditionOperator.In, names.ToArray());
+                var assembly = type.AddLink("pluginassembly", "pluginassemblyid", "pluginassemblyid");
+                var identity = typeof(PublicationCoordinator).Assembly.GetName();
+                assembly.LinkCriteria.AddCondition("name", ConditionOperator.Equal, identity.Name);
+                assembly.LinkCriteria.AddCondition("publickeytoken", ConditionOperator.Equal,
+                    string.Concat(identity.GetPublicKeyToken().Select(b => b.ToString("x2"))));
+                query.AddLink("sdkmessage", "sdkmessageid", "sdkmessageid").LinkCriteria.AddCondition("name", ConditionOperator.Equal, message);
+                query.AddLink("sdkmessagefilter", "sdkmessagefilterid", "sdkmessagefilterid").LinkCriteria.AddCondition("primaryobjecttypecode", ConditionOperator.Equal, objectTypeCode);
+                var matches = service.RetrieveMultiple(query).Entities;
+                if (matches.Count > 3) throw new InvalidPluginExecutionException("Duplicate rule lifecycle registrations must be repaired.");
+                found = string.Join(",", matches.Select(step => step.Id.ToString()));
+                steps[key] = found;
+                return found;
+            }
+
             private OrganizationResponse Send(OrganizationRequest request, EntityReference target)
             {
-                // System-service child pipelines can report a different initiating user.
-                // Bind authorization to the identity of the service that actually sends the write.
-                if (!executor.HasValue) executor = ((WhoAmIResponse)service.Execute(new WhoAmIRequest())).UserId;
-                request["tag"] = WriteTag(owner, request.RequestName, target, executor.Value);
+                var ids = StepIds(request.RequestName, target.LogicalName);
+                if (ids.Length > 0) request["BypassBusinessLogicExecutionStepIds"] = ids;
                 return service.Execute(request);
             }
             public Guid Create(Entity entity) => ((CreateResponse)Send(new CreateRequest { Target = entity }, entity.ToEntityReference())).id;

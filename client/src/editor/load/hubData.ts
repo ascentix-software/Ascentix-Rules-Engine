@@ -1,6 +1,7 @@
 import type { WebApiPort } from "../webapi";
 import { ENTITY, LOOKUP } from "./odata";
 import { parseMultiSelect } from "../model/enums";
+import { loadPublishedGraph } from "./publishedGraph";
 
 const FV = "@OData.Community.Display.V1.FormattedValue";
 
@@ -8,6 +9,7 @@ export interface RuleListItem {
   id: string; name: string; tableLogicalName: string; statusCode: number | null;
   triggers: number[]; actionCount: number;
   rootConfigId: string | null; rootConfigName: string | null;
+  rootConfigReadOnly?: boolean;
   modifiedOn: string | null; modifiedBy: string | null;
 }
 export interface ConfigListItem {
@@ -75,10 +77,10 @@ export function groupUsedBy(rules: { rootConfigId: string | null }[]): Map<strin
 export async function loadHubData(api: WebApiPort): Promise<HubData> {
   const [ruleResp, actionResp, nodeResp] = await Promise.all([
     retrieveAll(api, ENTITY.rule,
-      `?$select=asx_ruleid,asx_name,asx_tablelogicalname,statuscode,asx_triggers,${LOOKUP.ruleOfTableConfig},modifiedon,_modifiedby_value&$orderby=modifiedon desc`),
+      `?$select=asx_ruleid,asx_name,asx_tablelogicalname,statuscode,asx_triggers,_asx_publishedrevision_value,${LOOKUP.ruleOfTableConfig},modifiedon,_modifiedby_value&$filter=_asx_draftof_value eq null&$orderby=modifiedon desc`),
     retrieveAll(api, ENTITY.action, `?$select=${LOOKUP.ruleOfAction}`),
     retrieveAll(api, ENTITY.tableConfig,
-      `?$select=asx_tableconfigid,asx_name,asx_tablelogicalname,asx_tableconfigtype,${LOOKUP.parentTableOfConfig},modifiedon,_modifiedby_value&$orderby=modifiedon desc`),
+      `?$select=asx_tableconfigid,asx_name,asx_tablelogicalname,asx_tableconfigtype,${LOOKUP.parentTableOfConfig},modifiedon,_modifiedby_value&$filter=asx_isprivate ne true&$orderby=modifiedon desc`),
   ]);
   const truncated = ruleResp.truncated || actionResp.truncated || nodeResp.truncated;
 
@@ -96,16 +98,21 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
     }
   }
 
-  const rules: RuleListItem[] = ruleResp.entities.map((r) => {
+  const rules: RuleListItem[] = await Promise.all(ruleResp.entities.map(async (r) => {
     const rootConfigId = r[LOOKUP.ruleOfTableConfig] ?? null;
+    const published = r._asx_publishedrevision_value && api.readPublishedRule
+      ? await loadPublishedGraph(await api.readPublishedRule(r.asx_ruleid), r.asx_ruleid) : null;
+    const publishedRoot = published?.rule.rootTableConfigId;
     return {
-      id: r.asx_ruleid, name: r.asx_name, tableLogicalName: r.asx_tablelogicalname,
-      statusCode: r.statuscode ?? null, triggers: parseMultiSelect(r.asx_triggers),
-      actionCount: actionCounts.get(r.asx_ruleid) ?? 0,
-      rootConfigId, rootConfigName: rootConfigId ? nodeName.get(rootConfigId) ?? null : null,
+      id: r.asx_ruleid, name: published?.rule.name ?? r.asx_name, tableLogicalName: r.asx_tablelogicalname,
+      statusCode: r.statuscode ?? null, triggers: published?.rule.triggers ?? parseMultiSelect(r.asx_triggers),
+      actionCount: published?.actions.length ?? actionCounts.get(r.asx_ruleid) ?? 0,
+      rootConfigId: published ? publishedRoot ?? null : rootConfigId,
+      rootConfigReadOnly: !!published,
+      rootConfigName: published ? (publishedRoot ? published.tableConfigs[publishedRoot]?.name ?? null : null) : (rootConfigId ? nodeName.get(rootConfigId) ?? r[LOOKUP.ruleOfTableConfig + FV] ?? null : null),
       modifiedOn: r.modifiedon ?? null, modifiedBy: r["_modifiedby_value" + FV] ?? null,
     };
-  });
+  }));
 
   const usedBy = groupUsedBy(rules);
   const configs: ConfigListItem[] = nodeResp.entities

@@ -9,7 +9,7 @@ using Ascentix.RulesEngine.Plugin.Publication;
 
 namespace Ascentix.RulesEngine.Plugin
 {
-    // Main-operation handler for ReadPublishedRule, RestoreRuleDraft and InitializeRuleRevisions.
+    // Main-operation handler for opening, viewing, and discarding a working draft.
     public sealed class RuleRevisionApi : PluginBase
     {
         public RuleRevisionApi() : base(typeof(RuleRevisionApi)) { }
@@ -17,53 +17,60 @@ namespace Ascentix.RulesEngine.Plugin
         {
             var context = local.PluginExecutionContext;
             var service = local.SystemUserService;
-            if (context.MessageName == "asx_InitializeRuleRevisions")
-            {
-                // The Custom API additionally requires prvWriteEntity (customizer/admin).
-                PublicationCoordinator.Lock(service, context);
-                PublicationCoordinator.Bootstrap(service, context, 10);
-                var q = new QueryExpression("asx_rule") { ColumnSet = new ColumnSet(false) };
-                q.Criteria.AddCondition("statuscode", ConditionOperator.Equal, 753840000);
-                q.Criteria.AddCondition(PublicationSchema.Pointer, ConditionOperator.Null);
-                context.OutputParameters["Remaining"] = RuleSnapshot.QueryAll(service, q).Count;
-                return;
-            }
+            if (context.MessageName != "asx_OpenRuleDraft" && context.MessageName != "asx_ReadPublishedRule" && context.MessageName != "asx_RestoreRuleDraft" && context.MessageName != "asx_CopyRule")
+                throw new InvalidPluginExecutionException("Unknown rule authoring operation.");
             if (!context.InputParameters.TryGetValue("RuleId", out var raw) || !Guid.TryParse(raw as string, out var ruleId))
                 throw new InvalidPluginExecutionException("RuleId is required.");
+            var header = service.Retrieve("asx_rule", ruleId, new ColumnSet(true));
+            var original = header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf) ?? header.ToEntityReference();
             var access = (RetrievePrincipalAccessResponse)service.Execute(new RetrievePrincipalAccessRequest {
-                Principal = new EntityReference("systemuser", context.InitiatingUserId), Target = new EntityReference("asx_rule", ruleId) });
+                Principal = new EntityReference("systemuser", context.InitiatingUserId), Target = original });
             if ((access.AccessRights & AccessRights.ReadAccess) == 0)
                 throw new InvalidPluginExecutionException("You do not have permission to read this rule.");
-            if (context.MessageName == "asx_RestoreRuleDraft")
+            if (context.MessageName != "asx_ReadPublishedRule")
             {
-                if ((access.AccessRights & AccessRights.WriteAccess) == 0)
+                if (context.MessageName != "asx_CopyRule" && (access.AccessRights & AccessRights.WriteAccess) == 0)
                     throw new InvalidPluginExecutionException("You do not have permission to edit this rule.");
                 PublicationCoordinator.Lock(service, context);
             }
-            var header = service.Retrieve("asx_rule", ruleId, new ColumnSet(true));
-            var snapshot = PublishedRules.Read(service, header);
-            if (snapshot == null) throw new InvalidPluginExecutionException("This rule has no published revision. Initialize existing revisions before using this operation.");
+            header = service.Retrieve("asx_rule", ruleId, new ColumnSet(true));
+            var active = original.Id == ruleId ? header : service.Retrieve("asx_rule", original.Id, new ColumnSet(true));
+            if (context.MessageName == "asx_CopyRule") {
+                var source = PublishedRules.Read(service, active) ?? RuleSnapshot.Capture(service, active.Id);
+                var owner = new Entity("asx_rule", active.Id) { ["ownerid"] = new EntityReference("systemuser", context.InitiatingUserId) };
+                context.OutputParameters["NewRuleId"] = RuleDrafts.Copy(service, context, owner, source, workingDraft: false).ToString();
+                return;
+            }
+            if (context.MessageName == "asx_OpenRuleDraft")
+            {
+                context.OutputParameters["DraftId"] = RuleDrafts.Open(service, context, active).ToString();
+                return;
+            }
+            var snapshot = PublishedRules.Read(service, active);
+            if (snapshot == null && active.GetAttributeValue<OptionSetValue>("statuscode")?.Value == 753840000)
+                snapshot = RuleSnapshot.Capture(service, active.Id);
+            if (snapshot == null) throw new InvalidPluginExecutionException("This rule has not been published.");
             if (context.MessageName == "asx_ReadPublishedRule")
             { context.OutputParameters["Definition"] = snapshot.Serialize(); return; }
             if (context.MessageName != "asx_RestoreRuleDraft") throw new InvalidPluginExecutionException("Unknown revision operation.");
+            if (header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf) == null)
+                throw new InvalidPluginExecutionException("Open the working draft before discarding its changes.");
             var expected = context.InputParameters.TryGetValue("ExpectedVersion", out var version) ? version as string : null;
             var current = header.RowVersion ?? Convert.ToString(header.GetAttributeValue<long>("versionnumber"));
             if (string.IsNullOrEmpty(expected) || expected != current)
                 throw new InvalidPluginExecutionException("This rule changed elsewhere. Reload before discarding its draft.");
-            PublicationCoordinator.Internal(context, service, writer => Restore(writer, header, snapshot));
+            PublicationCoordinator.Internal(context, service, writer => {
+                Restore(writer, header, RuleDrafts.Reidentify(snapshot, header.Id));
+                writer.Update(new Entity("asx_rule", header.Id) {
+                    [PublicationSchema.DraftBaseVersion] = active.GetAttributeValue<int>(PublicationSchema.Number) });
+            });
         }
 
         public static void Restore(IOrganizationService service, Entity header, RuleSnapshot published)
         {
             var current = RuleSnapshot.Capture(service, header.Id, false);
-            var pendingDeletes = current.Rows.Where(r => r.Entity != "asx_rule").Select(r => r.ToSdk()).ToList();
-            while (pendingDeletes.Count > 0)
-            {
-                var leaves = pendingDeletes.Where(r => !pendingDeletes.Any(other => other.Id != r.Id &&
-                    other.Attributes.Values.OfType<EntityReference>().Any(ref0 => ref0.Id == r.Id))).ToList();
-                if (leaves.Count == 0) throw new InvalidPluginExecutionException("The draft contains an ownership cycle; repair it before restoring.");
-                foreach (var row in leaves) { service.Delete(row.LogicalName, row.Id); pendingDeletes.Remove(row); }
-            }
+            var models = RuleDrafts.PrivateModels(service, current);
+            RuleDrafts.DeleteChildren(service, current);
             // Shared models must never be rolled back for other rules. Restore a private copy.
             var ids = published.Rows.Where(r => r.Entity != "asx_rule").ToDictionary(r => r.Id, r => Guid.NewGuid());
             var modelIds = published.Rows.Where(r => r.Entity == "asx_tableconfig").ToDictionary(r => r.Id, r => ids[r.Id]);
@@ -79,6 +86,9 @@ namespace Ascentix.RulesEngine.Plugin
                         value = DraftReferenceRemapper.Rewrite(row, a.Key, text, modelIds);
                     e[a.Key] = value;
                 }
+                if (row.Entity == "asx_tableconfig") e["asx_isprivate"] = true;
+                if (row.Entity != "asx_rule" && header.GetAttributeValue<EntityReference>("ownerid") is EntityReference owner)
+                    e["ownerid"] = owner;
                 return e;
             }
             var creates = published.Rows.Where(r => r.Entity != "asx_rule").Select(Clone).ToList();
@@ -94,6 +104,7 @@ namespace Ascentix.RulesEngine.Plugin
                 if (field != "statuscode" && !patch.Contains(field)) patch[field] = null;
             patch[PublicationSchema.DraftStamp] = Guid.NewGuid().ToString();
             service.Update(patch);
+            RuleDrafts.RemoveUnusedModels(service, models);
         }
     }
 }
