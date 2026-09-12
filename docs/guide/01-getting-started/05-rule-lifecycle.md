@@ -35,5 +35,14 @@ Both are stored in **UTC**, and both are optional independently. Leaving a bound
 **null** leaves that side of the window open. A Published rule with no effective
 window set is enforced continuously, subject only to its Triggers and Channels.
 
+The Rule Builder edits an exact **date and time**, including seconds. Its
+**Schedule timezone** defaults to UTC; choose Local to display and enter values in
+your browser's timezone. Switching the display timezone preserves the scheduled
+instants. The summary shows when enforcement starts and ends.
+
+The end bound is inclusive and refers to that exact time, not the end of the
+selected calendar day. For an ambiguous local time during a daylight-saving
+transition, use UTC to specify the intended instant precisely.
+
 > A rule outside its effective window, or still in Draft, is loaded and evaluated
 > the same way structurally, but does not apply.

@@ -64,7 +64,7 @@ test("validation failure: issues panel renders and Publish stays disabled", asyn
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
 
     // Not dirty, so Validate round-trips immediately (no implicit save).
-    await frame.getByRole("button", { name: "Validate" }).click();
+    await frame.getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
     await expect(frame.getByText(/Validation found \d+ issues?\./)).toBeVisible({ timeout: 30_000 });
 
     // The always-mounted live region lists the issues.
@@ -93,9 +93,9 @@ test("412 conflict: concurrent API edit → 'changed elsewhere' banner, no write
     await nameBox.fill(`${fixture.ruleName} (ui)`);
     await nameBox.press("Enter");
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
-    await frame.getByRole("button", { name: "Save" }).click();
+    await frame.getByRole("button", { name: "Save", exact: true }).click();
 
-    await expect(frame.getByText(/This rule changed elsewhere\. Reload before saving\./)).toBeVisible({ timeout: 30_000 });
+    await expect(frame.getByText(/This rule changed elsewhere\./)).toBeVisible({ timeout: 30_000 });
 
     // The changeset was atomic: the API's edit survived, the browser's did not land.
     const api = createDevApi();

@@ -117,7 +117,7 @@ test("node filter authored in the UI persists a criterion row the engine can rea
     // The inspector summary now reports the block: "<node> · 1 condition".
     await expect(frame.getByText(/\(this record's collection\) · 1 condition/)).toBeVisible();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const tree = await filterTreeOf(rule.ruleId);
@@ -140,9 +140,9 @@ test("node filter authored in the UI persists a criterion row the engine can rea
     await frame.getByRole("button", { name: "+ Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     await frame.getByRole("textbox", { name: "Show-message message" }).fill("ZZ_RB filtered row count");
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
-    await toolbar(frame).getByRole("button", { name: "Validate" }).click();
+    await toolbar(frame).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
     await expect(frame.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
   } finally {
     await rule.cleanup();
@@ -188,7 +188,7 @@ test("node filter: OR toggle and a second criterion persist on the same filter g
     await dialog.getByRole("button", { name: "Apply", exact: true }).click();
     await expect(frame.getByText(/\(this record's collection\) · 2 conditions/)).toBeVisible();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const tree = await filterTreeOf(rule.ruleId);
@@ -253,7 +253,7 @@ test("an untouched seeded filter row is not persisted as a blank criterion", asy
     await dialog.getByRole("textbox", { name: "Filter value" }).first().fill("1");
 
     await dialog.getByRole("button", { name: "Apply", exact: true }).click();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     // Only the filled criterion may reach the server: a null-column/null-operator row is exactly

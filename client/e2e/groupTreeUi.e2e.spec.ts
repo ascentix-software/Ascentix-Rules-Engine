@@ -61,7 +61,7 @@ test("validation band, Or operator, and a nested subgroup all persist", async ({
     // Nest a subgroup under it via the group header's "Subgroup" chip.
     await frame.getByRole("button", { name: "Subgroup" }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const groups = await groupsOf(fixture.ruleId);
@@ -94,13 +94,13 @@ test("deleting a condition and a group removes the rows, not just the tree nodes
 
     // Delete the condition (row-level trash button), then save.
     await frame.getByRole("button", { name: "Delete condition" }).click();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
     expect(await conditionCount(before[0].asx_conditiongroupid as string)).toBe(0);
 
     // Now delete the (empty) group and save again.
     await frame.getByRole("button", { name: "Delete group" }).click();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
     expect(await groupsOf(fixture.ruleId)).toEqual([]);
 

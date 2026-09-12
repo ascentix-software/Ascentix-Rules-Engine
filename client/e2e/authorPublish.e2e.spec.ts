@@ -29,11 +29,11 @@ test("author → save → publish persists a Published rule", async ({ page }) =
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
 
     // SAVE (real $batch to DEV).
-    await frame.getByRole("button", { name: "Save" }).click();
+    await frame.getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible();
 
     // VALIDATE (required before Publish; sets validationResult.isValid).
-    await frame.getByRole("button", { name: "Validate" }).click();
+    await frame.getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
     await expect(frame.getByText("Validation passed. The rule is valid.")).toBeVisible();
 
     // PUBLISH (statuscode → 753840000).

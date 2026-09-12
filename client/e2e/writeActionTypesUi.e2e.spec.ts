@@ -89,7 +89,7 @@ test("CreateRecord authored in the UI: target table plus literal and from-this-r
     await expect(frame.getByText("Ready to apply")).toBeVisible();
     await frame.getByRole("button", { name: "Apply", exact: true }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const action = await actionOf(rule.ruleId);
@@ -126,7 +126,7 @@ test("DeleteRecord authored in the UI: only single-cardinality nodes are offered
     await expect(frame.getByRole("option", { name: /_line$/ })).toHaveCount(0);
     await frame.getByRole("option", { name: /ZZ_RB_wtui_dr/ }).first().click();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const action = await actionOf(rule.ruleId);

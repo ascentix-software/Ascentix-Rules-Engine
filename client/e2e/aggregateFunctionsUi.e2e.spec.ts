@@ -128,7 +128,7 @@ test("Expression: avg, min and max authored from the Insert-aggregate menu survi
     await frame.getByRole("option", { name: CHOICE.operator.greaterThan, exact: true }).click();
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const [c] = await conditionsOf(rule.ruleId);
@@ -173,7 +173,7 @@ test("Expression: Count authored from the Insert-aggregate menu takes a collecti
     await frame.getByRole("option", { name: CHOICE.operator.greaterThanOrEqual, exact: true }).click();
     await frame.getByRole("textbox", { name: "Value" }).fill("2");
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const [c] = await conditionsOf(rule.ruleId);

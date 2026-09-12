@@ -50,11 +50,11 @@ test("a 5xx on save shows the failure banner and KEEPS the edit dirty and recove
     await nameBox.press("Enter");
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
 
     // The documented surface: an error banner naming the failure, never a silent no-op and
     // never a raw "[object Object]" (the error-containment contract).
-    await expect(frame.getByText(/Save failed:/)).toBeVisible({ timeout: 30_000 });
+    await expect(frame.getByText(/Save (or refresh )?failed:/)).toBeVisible({ timeout: 30_000 });
     await expect(frame.getByText(/\[object Object\]/)).toHaveCount(0);
     expect(injected).toBeGreaterThan(0);
 
@@ -76,7 +76,7 @@ test("a 5xx on save shows the failure banner and KEEPS the edit dirty and recove
     // RECOVERY: once the server is healthy the same click must succeed. A banner that leaves the
     // editor wedged (busy stuck, button disabled) would pass every assertion above.
     await page.unroute("**/api/data/**/$batch");
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const after = await api.retrieveMultipleRecords(
@@ -96,7 +96,7 @@ test("a 5xx on publish shows the failure banner and the rule stays Draft", async
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
 
     // Validate on a clean rule round-trips without saving, so Publish becomes enabled.
-    await toolbar(frame).getByRole("button", { name: "Validate" }).click();
+    await toolbar(frame).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
     await expect(frame.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
 
     // Fail ONLY the publish PATCH (webapi.ts publishRule). Matching on method keeps the

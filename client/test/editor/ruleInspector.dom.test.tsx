@@ -26,13 +26,13 @@ describe("RuleInspector", () => {
 
   it("shows the Effective-from date when the rule has one", () => {
     mount({ effectiveFrom: "2026-01-01" });
-    expect(screen.getByDisplayValue("2026-01-01")).toBeInTheDocument();
+    expect(screen.getByLabelText("Effective from")).toHaveValue("2026-01-01T00:00");
   });
 
   it("fires onPatch with the new Effective-from date on change", () => {
     const { onPatch } = mount({ effectiveFrom: "2026-01-01" });
-    fireEvent.change(screen.getByDisplayValue("2026-01-01"), { target: { value: "2026-02-02" } });
-    expect(onPatch).toHaveBeenCalledWith({ effectiveFrom: "2026-02-02T00:00:00Z" });
+    fireEvent.change(screen.getByLabelText("Effective from"), { target: { value: "2026-02-02T17:30" } });
+    expect(onPatch).toHaveBeenCalledWith({ effectiveFrom: "2026-02-02T17:30:00.000Z" });
   });
 
   it("defaults the Evaluation context combobox to User", async () => {

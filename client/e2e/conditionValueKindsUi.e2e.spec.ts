@@ -142,7 +142,7 @@ test("condition literals for Choice, Yes/No and Multi-select persist the option 
     await page.keyboard.press("Escape"); // a multiselect Combobox stays open between picks
 
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const rows = await conditionsOf(rule.ruleId);
@@ -218,7 +218,7 @@ test("changing the comparison column's KIND re-gates the operator list and clear
     await frame.getByRole("option", { name: CHOICE.valueSource.template, exact: true }).click();
     await frame.getByPlaceholder("Text with {fields}: use Insert field").fill(TEMPLATE);
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     // The stale state is now PERSISTED. Without this the next save proves nothing: a bind that was
@@ -260,7 +260,7 @@ test("changing the comparison column's KIND re-gates the operator list and clear
 
     // Save with NOTHING re-picked. This is the whole point: whatever the UI shows, the row is what
     // the engine reads, and a stale operator/value that merely stopped rendering still fires.
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     [c] = await conditionsOf(rule.ruleId);
@@ -275,7 +275,7 @@ test("changing the comparison column's KIND re-gates the operator list and clear
     await openCondition(frame, CFG, "sample_ordertotal"); // the save above closed the inspector
     await pickOperator(frame, CHOICE.operator.greaterThan);
     await frame.getByRole("textbox", { name: "Value" }).fill("250");
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     [c] = await conditionsOf(rule.ruleId);

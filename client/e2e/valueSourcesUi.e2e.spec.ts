@@ -67,7 +67,7 @@ test("FieldReference value source: right-hand column persists and the literal Va
     await pickColumn(frame, "Right-hand column", "credit", /\(creditlimit\)/);
 
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const c = await conditionOf(fixture.ruleId);
@@ -110,7 +110,7 @@ test("Text template value source: offered only for a text column, and Insert fie
 
     await expect(template).toHaveValue("ACME {root.accountnumber}");
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const c = await conditionOf(fixture.ruleId);
@@ -150,7 +150,7 @@ test("Date calculation value source: builds the DateExprSpec JSON envelope Core 
     await unit.click();
     await frame.getByRole("option", { name: "Days" }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const c = await conditionOf(fixture.ruleId);

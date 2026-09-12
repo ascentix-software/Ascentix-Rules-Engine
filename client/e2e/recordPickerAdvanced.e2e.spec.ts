@@ -106,7 +106,7 @@ test("record picker: a saved view plus an Advanced filter narrows the grid, and 
     await picker.getByRole("radio", { name: `Select ${keepName}` }).check();
     await picker.getByRole("button", { name: "Select", exact: true }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     // The KEEP guid landed, not the DROP one.

@@ -50,7 +50,7 @@ test("lookup condition via the record picker persists the GUID and re-resolves t
     await picker.getByRole("radio", { name: `Select ${customerName}` }).check({ timeout: 30_000 });
     await picker.getByRole("button", { name: "Select", exact: true }).click();
 
-    await frame.getByRole("button", { name: "Save" }).click();
+    await frame.getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     // Persisted: the condition's literal comparison value carries the record's GUID.

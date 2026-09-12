@@ -262,7 +262,7 @@ test("a filtered aggregate authored in the Map columns dialog persists expressio
     await expect(mapDialog(frame).getByText("Ready to apply")).toBeVisible();
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const action = await actionOf(rule.ruleId);
@@ -312,7 +312,7 @@ test("a filtered aggregate authored in the Map columns dialog persists expressio
 
     // Last, because a failure here is then unambiguous: everything persisted and round-tripped,
     // and the SERVER validator is what rejected the filtered-aggregate mapping.
-    await toolbar(reloaded).getByRole("button", { name: "Validate" }).click();
+    await toolbar(reloaded).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
     await expect(reloaded.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
   } finally {
     await deleteRuleCascade(rule.ruleId); // the UI-created action isn't tracked by the fixture
@@ -383,7 +383,7 @@ test("the Aggregates chip row rewrites the aggregate in place, including across 
     await expect(mapDialog(frame).getByText("Ready to apply")).toBeVisible();
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const mapping = JSON.parse(String((await actionOf(rule.ruleId)).asx_fieldmapping)) as MappingEntry[];

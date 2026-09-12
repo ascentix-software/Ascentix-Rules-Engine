@@ -10,10 +10,7 @@ import type { RecordSearchService } from "../../src/editor/records";
 import type { EditorApi } from "../../src/editor/webapi";
 import type { RuleGraph } from "../../src/editor/model/types";
 
-// Publish used to be a one-way door in the editor: there was no inverse anywhere in the
-// client, so an author had to leave the Rule Builder to release a Block that was stopping every
-// save on a table. Unpublish sits ALONGSIDE Publish (re-publishing an edited Published rule is a
-// real flow, so Publish must never be hidden).
+// Published rules remain inspectable, with an explicit unpublish-to-edit transition.
 
 const DRAFT = 1;
 const PUBLISHED = 753840000;
@@ -69,7 +66,7 @@ describe("RuleEditorApp Unpublish", () => {
     expect(screen.getByRole("button", { name: "Publish" })).toBeInTheDocument();
   });
 
-  it("is enabled for a Published rule, and Publish stays available for a re-publish", () => {
+  it("is enabled for a Published rule while Publish is disabled", () => {
     renderApp(PUBLISHED, {});
     expect(toolbarUnpublish()).toBeEnabled();
     expect(screen.getByRole("button", { name: "Publish" })).toBeInTheDocument();
@@ -79,7 +76,7 @@ describe("RuleEditorApp Unpublish", () => {
     renderApp(PUBLISHED, {});
     openConfirm();
     expect(await screen.findByText('Unpublish "Credit limit guard"?')).toBeInTheDocument();
-    expect(screen.getByText(/saves on opportunity will no longer be blocked by this rule/i))
+    expect(screen.getByText(/All enforcement and automation from this rule on opportunity will stop/i))
       .toBeInTheDocument();
   });
 
@@ -92,7 +89,7 @@ describe("RuleEditorApp Unpublish", () => {
 
     expect(await screen.findByText(/Rule unpublished/i)).toBeInTheDocument();
     expect(unpublishRule).toHaveBeenCalledOnce();
-    expect(unpublishRule).toHaveBeenCalledWith("r1");
+    expect(unpublishRule).toHaveBeenCalledWith("r1", null);
     // The reload ran: the badge now reflects the persisted Draft status.
     expect(screen.getByText("Draft")).toBeInTheDocument();
   });
@@ -116,7 +113,7 @@ describe("RuleEditorApp Unpublish", () => {
     const dialog = within(await screen.findByRole("dialog"));
     fireEvent.click(dialog.getByRole("button", { name: "Unpublish" }));
 
-    expect(await screen.findByText(/Unpublish failed: .*403/)).toBeInTheDocument();
+    expect(await screen.findByText(/Unpublish or refresh failed: .*403/)).toBeInTheDocument();
     expect(screen.getByText("Published")).toBeInTheDocument();
     expect(toolbarUnpublish()).toBeEnabled();
   });

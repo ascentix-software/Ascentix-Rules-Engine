@@ -2,14 +2,13 @@ import { Dropdown, Option, Input, Field, Badge } from "@fluentui/react-component
 import type { RuleHeader } from "../../model/types";
 import { TRIGGER_OPTIONS, CHANNEL_OPTIONS, EVALUATION_CONTEXT_OPTIONS, triggerLabel, channelLabel } from "../../model/enums";
 import { MultiColumnPicker } from "../pickers/MetadataPickers";
+import { EffectiveWindowFields } from "./EffectiveWindowFields";
 
 export function RuleInspector({
   rule, onPatch,
 }: { rule: RuleHeader; onPatch(patch: Partial<RuleHeader>): void }) {
   const toggleIn = (list: number[], v: number): number[] =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
-  const dateInput = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
-  const toIso = (d: string) => (d ? `${d}T00:00:00Z` : null);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -51,12 +50,7 @@ export function RuleInspector({
         {rule.triggerColumns.map((c) => <Badge key={c} appearance="tint">{c}</Badge>)}
       </div>
 
-      <Field label="Effective from">
-        <Input type="date" value={dateInput(rule.effectiveFrom)} onChange={(_e, d) => onPatch({ effectiveFrom: toIso(d.value) })} />
-      </Field>
-      <Field label="Effective to">
-        <Input type="date" value={dateInput(rule.effectiveTo)} onChange={(_e, d) => onPatch({ effectiveTo: toIso(d.value) })} />
-      </Field>
+      <EffectiveWindowFields rule={rule} onPatch={onPatch} />
 
       <Field label="Evaluation context">
         <Dropdown

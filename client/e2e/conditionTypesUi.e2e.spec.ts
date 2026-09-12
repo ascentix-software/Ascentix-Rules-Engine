@@ -76,7 +76,7 @@ test("RowCount authored in the UI: count mode 'At least one (exists)' seeds min=
     await frame.getByRole("option", { name: "At least one (exists)" }).click();
 
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const [c] = await conditionsOf(rule.ruleId);
@@ -120,7 +120,7 @@ test("RowCount 'Between N and M' authored in the UI persists both bounds", async
     await frame.getByRole("spinbutton", { name: "Maximum" }).fill("5");
     await frame.getByRole("spinbutton", { name: "Minimum" }).fill("2");
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const [c] = await conditionsOf(rule.ruleId);
@@ -153,7 +153,7 @@ test("RegexMatch authored in the UI persists the column and the pattern", async 
 
     await frame.getByRole("textbox", { name: "Pattern (regex)" }).fill(PATTERN);
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const [c] = await conditionsOf(rule.ruleId);
@@ -195,7 +195,7 @@ test("Expression authored in the UI: Insert aggregate builds a sum() token that 
     await frame.getByRole("option", { name: CHOICE.operator.greaterThan, exact: true }).click();
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const [c] = await conditionsOf(rule.ruleId);
@@ -209,10 +209,10 @@ test("Expression authored in the UI: Insert aggregate builds a sum() token that 
     await frame.getByRole("button", { name: "+ Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     await frame.getByRole("textbox", { name: "Show-message message" }).fill("ZZ_RB aggregate condition fired");
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
-    await toolbar(frame).getByRole("button", { name: "Validate" }).click();
+    await toolbar(frame).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
     await expect(frame.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
   } finally {
     await rule.cleanup();
@@ -259,7 +259,7 @@ test("RowCount 'Between N and M' keeps both inputs while the minimum is typed up
     await expect(frame.getByRole("spinbutton", { name: "Maximum" })).toBeVisible();
 
     await frame.getByRole("spinbutton", { name: "Maximum" }).fill("5");
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const [c] = await conditionsOf(rule.ruleId);

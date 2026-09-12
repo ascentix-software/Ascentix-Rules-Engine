@@ -47,7 +47,7 @@ test("channels: default is All; Standard then +Portal persist as the asx_channel
 
     await expect(stripValue(frame, "Channels")).toHaveText("Standard");
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     expect(String((await api.retrieveMultipleRecords(ENTITY_SET.rule, select)).entities[0].asx_channels))
@@ -60,7 +60,7 @@ test("channels: default is All; Standard then +Portal persist as the asx_channel
     await page.keyboard.press("Escape");
 
     await expect(stripValue(frame, "Channels")).toHaveText("Standard, Portal");
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const both = String((await api.retrieveMultipleRecords(ENTITY_SET.rule, select)).entities[0].asx_channels)
@@ -88,7 +88,7 @@ test("channels: deselecting every channel writes null (back to All), not an empt
     await page.keyboard.press("Escape");
 
     await expect(stripValue(frame, "Channels")).toHaveText("All");
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     // encodeMultiSelect returns null for an empty list, because an empty STRING would make

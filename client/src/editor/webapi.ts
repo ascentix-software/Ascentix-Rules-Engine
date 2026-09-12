@@ -15,9 +15,9 @@ export interface WebApiPort {
   /** Call asx_ValidateRule and return the parsed verdict. */
   validateRule(ruleId: string): Promise<{ isValid: boolean; issues: ApiIssue[] }>;
   /** PATCH the rule's statuscode to Published (753840000). */
-  publishRule(ruleId: string): Promise<void>;
+  publishRule(ruleId: string, etag?: string | null): Promise<void>;
   /** PATCH the rule's statuscode back to Draft (1), the inverse of publishRule. */
-  unpublishRule(ruleId: string): Promise<void>;
+  unpublishRule(ruleId: string, etag?: string | null): Promise<void>;
 }
 
 // A full-page web resource can reach the Client API on the window or its parent.
@@ -105,12 +105,12 @@ export function createWebApiPort(): EditorApi {
       return { isValid, issues };
     },
     // Lifecycle status reasons (docs/Schema.md §2.1): Draft = 1, Published = 753840000.
-    publishRule: (ruleId) => patchStatus(base, "publishRule", ruleId, 753840000),
-    unpublishRule: (ruleId) => patchStatus(base, "unpublishRule", ruleId, 1),
+    publishRule: (ruleId, etag) => patchStatus(base, "publishRule", ruleId, 753840000, etag),
+    unpublishRule: (ruleId, etag) => patchStatus(base, "unpublishRule", ruleId, 1, etag),
   };
 }
 
-async function patchStatus(base: string, op: string, ruleId: string, statuscode: number): Promise<void> {
+async function patchStatus(base: string, op: string, ruleId: string, statuscode: number, etag?: string | null): Promise<void> {
   const res = await fetch(`${base}/api/data/${API_VERSION}/asx_rules(${ruleId})`, {
     method: "PATCH",
     credentials: "same-origin",
@@ -119,6 +119,7 @@ async function patchStatus(base: string, op: string, ruleId: string, statuscode:
       Accept: "application/json",
       "OData-MaxVersion": "4.0",
       "OData-Version": "4.0",
+      ...(etag ? { "If-Match": etag } : {}),
     },
     body: JSON.stringify({ statuscode }),
   });

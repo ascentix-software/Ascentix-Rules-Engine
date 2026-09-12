@@ -62,7 +62,7 @@ test("lookup node added from the node inspector persists the lookup column and t
     // The inspector must describe the relationship it just created.
     await expect(frame.getByText(/Lookup via parent column "sample_customerid"/)).toBeVisible();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const children = await nodesUnder(cfg.id);

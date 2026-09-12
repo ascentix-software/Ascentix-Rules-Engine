@@ -143,7 +143,7 @@ test("the five never-authored count modes each persist the min/max pair their se
     }
 
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const rows = await conditionsOf(rule.ruleId);
@@ -248,7 +248,7 @@ test("Insert field splices a {root.x} token at the caret in a message body and i
     await expect(frInput, "the translation row splices off an <Input>'s selectionStart (ActionInspector.tsx:66-69)").toHaveValue(FRENCH);
 
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     // --- the oracle: both messages VERBATIM on the rows the engine renders from ---------------
@@ -272,7 +272,7 @@ test("Insert field splices a {root.x} token at the caret in a message body and i
 
     // A token the editor emits but the SERVER validator rejects would be the worst outcome of the
     // three, so it is checked last and on the saved rule: everything above already round-tripped.
-    await toolbar(frame).getByRole("button", { name: "Validate" }).click();
+    await toolbar(frame).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
     await expect(frame.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
   } finally {
     await deleteRuleCascade(rule.ruleId); // reclaims the UI-authored asx_localizedmessage row

@@ -18,6 +18,11 @@ Publishing is **gated** on validity: a **Draft** rule only becomes
 **Published** if it validates cleanly. **Validate** reports what is
 standing in the way.
 
+When there are unsaved edits, the button reads **Save & validate**: it first saves
+the Draft, then validates the persisted result. On a clean rule it reads **Validate**.
+Published rules are read-only in the builder; unpublish before editing them. During
+that editing period the rule is not enforced. See *Saving & Concurrency*.
+
 ## Validation layers
 
 Validation runs three layers of checks, in order, collecting every issue

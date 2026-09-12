@@ -135,7 +135,7 @@ test("a condition authored in the editor with a related right-hand node persists
     await pickFromCombobox(frame, "Right-hand column", "creditlimit", /\(sample_creditlimit\)/);
 
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const c = await conditionOf(rule.ruleId);
@@ -154,7 +154,7 @@ test("a condition authored in the editor with a related right-hand node persists
     await expect(reloaded.getByRole("combobox", { name: "Right-hand node" })).toContainText(`${NAME}_parent`);
     await expect(reloaded.getByRole("combobox", { name: "Right-hand column" })).toHaveValue(/\(sample_creditlimit\)/);
 
-    await toolbar(reloaded).getByRole("button", { name: "Validate" }).click();
+    await toolbar(reloaded).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
     await expect(reloaded.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
   } finally {
     await deleteRuleCascade(rule.ruleId); // the UI-created condition isn't tracked by the fixture
@@ -197,7 +197,7 @@ test("re-pointing an already-persisted condition at a related node emits the bin
     await frame.getByRole("option", { name: `${NAME}_parent`, exact: true }).click();
 
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const after = await conditionOf(rule.ruleId);
