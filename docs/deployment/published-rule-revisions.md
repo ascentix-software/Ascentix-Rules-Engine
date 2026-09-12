@@ -84,6 +84,13 @@ the assembly/registration changeover; runtime enforcement can continue. Enable a
 required guards before reopening authoring. Do not run the independent client
 deployment ahead of the backend when promoting this change for the first time.
 
+If registration fails with `Attribute 'description' cannot be NULL`, use the
+updated deployment script that supplies descriptions for the Custom APIs and
+their request parameters and response properties. Rerun plugin CI from the repaired
+commit; completed schema and registration components are reused. No deletion of
+partially registered components is required. Keep authoring paused until registration
+and backfill complete, then deploy the client and run the live suites.
+
 Backfill is restartable: only Published rules with no pointer are captured. Until
 conversion, those legacy rules retain their existing runtime read path. Once guards
 are installed, a configuration mutation first captures outstanding legacy rules;
@@ -107,6 +114,11 @@ that preserves the snapshot read path. Taking an environment backup before upgra
 and restoring it as a whole is a separate operational recovery decision.
 
 ## Verification
+
+`pwsh -NoProfile -File tests/pipelines/Test-RuleRevisionRegistration.ps1` runs the
+Register phase against an in-memory Web API. It checks required descriptions and
+length limits, API parameter contracts, and retries after partial and completed
+registration. Plugin CI runs it before deployment; it does not replace live verification.
 
 Local coverage includes snapshot round-trips, draft/runtime and form isolation,
 different frozen link fields sharing a node GUID, unchanged step analysis, stale
