@@ -1,4 +1,4 @@
-# Runs the real Register phase against an in-memory Web API; no environment or credentials required.
+# Runs authoring configuration against an in-memory Web API; no environment or credentials required.
 [CmdletBinding()]
 param(
     [string]$DeploymentScript = (Join-Path $PSScriptRoot '../../pipelines/Configure-RuleAuthoring.ps1')
@@ -113,4 +113,117 @@ foreach ($interrupt in @($false, $true)) {
     Register
     Assert ($state.Creates -eq 13) 'Completed deployment retry created duplicate components.'
     Write-Host "PASS: API registration and idempotent retry (interrupted=$interrupt)."
+}
+
+& {
+    $views = @{}
+    $viewContexts = @{}
+    $fields = @{}
+    $tables = @{}
+    $schemaState = @{ Writes = 0; FailViewOnce = $false }
+    function Invoke-RestMethod {
+        param($Method, $Uri, $Headers, $ContentType, $Body)
+        $path = $Uri.Substring('https://registration.invalid/api/data/v9.2/'.Length)
+        $record = if ($Body) { $Body | ConvertFrom-Json -AsHashtable } else { @{} }
+        if ($Method -eq 'GET') {
+            switch -Regex ($path) {
+                "^EntityDefinitions\?.*LogicalName eq '([^']+)'" {
+                    return @{ value = @(if ($tables.ContainsKey($Matches[1])) { $tables[$Matches[1]] }) }
+                }
+                "^EntityDefinitions\(LogicalName='([^']+)'\)/Attributes\?.*LogicalName eq '([^']+)'" {
+                    return @{ value = @(if ($fields.ContainsKey("$($Matches[1])/$($Matches[2])")) { @{ LogicalName = $Matches[2] } }) }
+                }
+                '^savedqueries\(([\w-]+)\)' {
+                    return $viewContexts[$Matches[1]] + @{ fetchxml = $views[$Matches[1]] }
+                }
+            }
+        }
+        if ($Method -eq 'POST') {
+            switch -Regex ($path) {
+                '^EntityDefinitions$' {
+                    $name = $record.SchemaName.ToLowerInvariant()
+                    Assert (!$tables.ContainsKey($name)) 'Duplicate table creation.'
+                    $tables[$name] = @{ LogicalName = $name }
+                    $schemaState.Writes++
+                    return
+                }
+                "^EntityDefinitions\(LogicalName='([^']+)'\)/Attributes$" {
+                    $key = "$($Matches[1])/$($record.SchemaName.ToLowerInvariant())"
+                    Assert (!$fields.ContainsKey($key)) 'Duplicate field creation.'
+                    $fields[$key] = $record
+                    $schemaState.Writes++
+                    return
+                }
+                '^RelationshipDefinitions$' {
+                    $key = "$($record.ReferencingEntity)/$($record.Lookup.SchemaName.ToLowerInvariant())"
+                    Assert (!$fields.ContainsKey($key)) 'Duplicate lookup creation.'
+                    $fields[$key] = $record.Lookup
+                    $schemaState.Writes++
+                    return
+                }
+                '^PublishXml$' { return }
+            }
+        }
+        if ($Method -eq 'PATCH' -and $path -match '^savedqueries\(([\w-]+)\)$') {
+            $id = $Matches[1]
+            Assert ($views.ContainsKey($id)) 'Updated a view outside the shipped view manifest.'
+            [xml]$before = $views[$id]
+            [xml]$after = $record.fetchxml
+            $entity = $after.fetch.entity
+            $rowFilters = @($entity.SelectNodes("filter[not(@isquickfindfields='1' or @isquickfindfields='true')]"))
+            Assert ($rowFilters.Count -eq 1 -and $rowFilters[0].type -eq 'and') 'Expected a single AND row-selection filter.'
+            $field = if ($entity.name -eq 'asx_rule') { 'asx_draftof' } else { 'asx_isprivate' }
+            Assert ($null -ne $rowFilters[0].SelectSingleNode("condition[@attribute='$field']")) 'Exclusion must apply to every row, outside any OR or search filter.'
+            $searchPath = "/fetch/entity/filter[@isquickfindfields='1']"
+            foreach ($property in @('layoutxml', 'returnedtypecode', 'querytype', 'isquickfindquery')) {
+                Assert ($record.ContainsKey($property) -and $record[$property] -ceq $viewContexts[$id][$property]) "View update omitted or changed $property."
+            }
+            Assert ($before.SelectSingleNode($searchPath).OuterXml -ceq $after.SelectSingleNode($searchPath).OuterXml) 'Quick Find search criteria changed.'
+            foreach ($oldFilter in $before.SelectNodes("/fetch/entity/filter[not(@isquickfindfields='1')]")) {
+                foreach ($child in $oldFilter.ChildNodes) {
+                    Assert ($record.fetchxml.Contains($child.OuterXml)) 'Existing view criteria were lost or regrouped.'
+                }
+                if ($oldFilter.type -eq 'or') {
+                    Assert ($record.fetchxml.Contains($oldFilter.OuterXml)) 'An existing OR filter was widened or changed to AND.'
+                }
+            }
+            if ($schemaState.FailViewOnce) { $schemaState.FailViewOnce = $false; throw 'Simulated view update interruption.' }
+            $views[$id] = $record.fetchxml
+            $schemaState.Writes++
+            return
+        }
+        throw "Unexpected schema request: $Method $path"
+    }
+    foreach ($interrupt in @($false, $true)) {
+        $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear()
+        $schemaState.Writes = 0; $schemaState.FailViewOnce = $interrupt
+        foreach ($table in @('asx_rule', 'asx_tableconfig')) {
+            $folder = Join-Path $PSScriptRoot "../../Solutions/AscentixRulesEngine/AscentixRulesEngine_unmanaged/Entities/$table/SavedQueries"
+            foreach ($file in Get-ChildItem -LiteralPath $folder -Filter '*.xml') {
+                [xml]$source = Get-Content -LiteralPath $file.FullName -Raw
+                $id = ([string]$source.savedqueries.savedquery.savedqueryid).Trim('{}')
+                $views[$id] = $source.savedqueries.savedquery.fetchxml.fetch.OuterXml
+                $viewContexts[$id] = @{ layoutxml = $source.savedqueries.savedquery.layoutxml.grid.OuterXml;
+                    returnedtypecode = $table; querytype = [int]$source.savedqueries.savedquery.querytype;
+                    isquickfindquery = $source.savedqueries.savedquery.isquickfindquery -eq '1' }
+            }
+        }
+        # Exercise OR and multiple ordinary filters as well as the actual shipped Quick Find views.
+        $ordinaryIds = @($views.Keys | Where-Object { $views[$_] -notmatch 'isquickfindfields' -and $views[$_] -match 'name="asx_rule"' } | Sort-Object)
+        $views[$ordinaryIds[0]] = '<fetch><entity name="asx_rule"><filter type="or"><condition attribute="statecode" operator="eq" value="0" /><condition attribute="asx_name" operator="eq" value="Example" /></filter></entity></fetch>'
+        $views[$ordinaryIds[1]] = '<fetch><entity name="asx_rule"><filter type="and"><condition attribute="statecode" operator="eq" value="0" /></filter><filter type="or"><condition attribute="asx_name" operator="eq" value="A" /><condition attribute="asx_name" operator="eq" value="B" /></filter></entity></fetch>'
+        if ($interrupt) {
+            $interrupted = $false
+            try { & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock' }
+            catch { if ($_.Exception.Message -ne 'Simulated view update interruption.') { throw }; $interrupted = $true }
+            Assert $interrupted 'Schema retry scenario did not interrupt.'
+        }
+        & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
+        Assert ($tables.Count -eq 2 -and $fields.Count -eq 13) 'Expected additive authoring tables and fields.'
+        Assert ($schemaState.Writes -eq (15 + $views.Count)) 'Unexpected metadata write count.'
+        $writes = $schemaState.Writes
+        & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
+        Assert ($schemaState.Writes -eq $writes) 'Schema retry changed already configured metadata.'
+        Write-Host "PASS: schema and shipped views, filter preservation, idempotent retry (interrupted=$interrupt)."
+    }
 }

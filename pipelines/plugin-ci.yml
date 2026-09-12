@@ -49,7 +49,7 @@ stages:
       - job: test
         steps:
           - pwsh: ./tests/pipelines/Test-RuleAuthoringRegistration.ps1
-            displayName: Test revision API registration and retry
+            displayName: Test authoring schema, views, API registration and retry
           - task: UseDotNet@2
             inputs: { packageType: sdk, version: '10.x' }
             displayName: Use .NET SDK
