@@ -34,7 +34,6 @@ namespace Ascentix.RulesEngine.Plugin
             if (localPluginContext == null) throw new ArgumentNullException(nameof(localPluginContext));
 
             var context = localPluginContext.PluginExecutionContext;
-            if (PublicationCoordinator.IsInternal(context, localPluginContext.SystemUserService)) return;
             // Registration writes system tables, so run as the system user.
             var service = localPluginContext.SystemUserService;
             var trace = localPluginContext.TracingService;

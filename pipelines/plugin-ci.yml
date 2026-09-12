@@ -20,7 +20,7 @@ trigger:
       - tests/**
       - pipelines/plugin-ci.yml
       - pipelines/Deploy-PluginAssembly.ps1
-      - pipelines/Deploy-RuleRevisions.ps1
+      - pipelines/Configure-RuleAuthoring.ps1
       - pipelines/plugintypes.json
 
 pr: none
@@ -48,7 +48,7 @@ stages:
     jobs:
       - job: test
         steps:
-          - pwsh: ./tests/pipelines/Test-RuleRevisionRegistration.ps1
+          - pwsh: ./tests/pipelines/Test-RuleAuthoringRegistration.ps1
             displayName: Test revision API registration and retry
           - task: UseDotNet@2
             inputs: { packageType: sdk, version: '10.x' }
@@ -130,15 +130,14 @@ stages:
                     $token = az account get-access-token --resource $resource --query accessToken -o tsv
                     if ($LASTEXITCODE -ne 0 -or -not $token) { throw "Failed to acquire Dataverse access token" }
                     Write-Host "##vso[task.setsecret]$token"   # mask the token in logs (defense-in-depth)
-                    & "$(Build.SourcesDirectory)/pipelines/Deploy-RuleRevisions.ps1" -Phase Schema -EnvUrl $resource -AccessToken $token
+                    & "$(Build.SourcesDirectory)/pipelines/Configure-RuleAuthoring.ps1" -Phase Schema -EnvUrl $resource -AccessToken $token
                     & "$(Build.SourcesDirectory)/pipelines/Deploy-PluginAssembly.ps1" `
                       -DllPath "$(Build.SourcesDirectory)/$(pluginDll)" `
                       -EnvUrl "$(DATAVERSE_URL)" `
                       -AccessToken $token `
                       -AssemblyName "$(dataversePluginAssemblyName)" `
                       -PluginTypesManifest "$(Build.SourcesDirectory)/pipelines/plugintypes.json"
-                    & "$(Build.SourcesDirectory)/pipelines/Deploy-RuleRevisions.ps1" -Phase Register -EnvUrl $resource -AccessToken $token
-                    & "$(Build.SourcesDirectory)/pipelines/Deploy-RuleRevisions.ps1" -Phase Backfill -EnvUrl $resource -AccessToken $token
+                    & "$(Build.SourcesDirectory)/pipelines/Configure-RuleAuthoring.ps1" -Phase Register -EnvUrl $resource -AccessToken $token
               # Queue the live-L2 verification run (single trigger path, deduped when a
               # cross-cutting merge deploys via both CI pipelines). See the template.
               - template: templates/queue-live-l2.yml

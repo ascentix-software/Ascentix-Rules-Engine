@@ -93,6 +93,35 @@ stages:
           # Release runs get semver-named copies, the exact filenames shipped to the
           # website / AppSource, plus LICENSE, NOTICE and SHA256SUMS.txt in the same artifact,
           # plus the release tag on the exported commit.
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              Add-Type -AssemblyName System.IO.Compression.FileSystem
+              foreach ($flavor in @('managed', 'unmanaged')) {
+                $zip = [IO.Compression.ZipFile]::OpenRead("$(outDir)/$(SOLUTION_NAME)_${flavor}.zip")
+                try {
+                  $reader = [IO.StreamReader]::new($zip.GetEntry('customizations.xml').Open())
+                  try { [xml]$xml = $reader.ReadToEnd() } finally { $reader.Dispose() }
+                  foreach ($field in @('asx_draftof','asx_draftbaseversion','asx_isprivate','asx_publishedrevision','asx_publishedversion','asx_draftstamp','asx_publishhash')) {
+                    if (!$xml.SelectSingleNode("//attribute[Name='$field']")) { throw "Package is missing $field" }
+                  }
+                  foreach ($table in @('asx_rulerevision','asx_publicationlock')) {
+                    if (!$xml.SelectSingleNode("//Entity[Name='$table']")) { throw "Package is missing $table" }
+                  }
+                  foreach ($name in @('asx_OpenRuleDraft','asx_ReadPublishedRule','asx_RestoreRuleDraft','asx_CopyRule')) {
+                    if (!$xml.SelectSingleNode("//customapi[@uniquename='$name']/plugintypeid")) { throw "Package is missing authoring API $name" }
+                  }
+                  $guards = @($xml.SelectNodes('//SdkMessageProcessingStep') | Where-Object { $_.PluginTypeName -like 'Ascentix.RulesEngine.Plugin.RuleRevisionGuardPlugin,*' -and $_.Stage -eq '20' -and $_.Mode -eq '0' -and $_.Rank -eq '1' })
+                  if ($guards.Count -ne 36) { throw "Expected 36 packaged synchronous configuration guards; found $($guards.Count)" }
+                  foreach ($table in @('asx_rule','asx_tableconfig')) {
+                    $field = if ($table -eq 'asx_rule') { 'asx_draftof' } else { 'asx_isprivate' }
+                    $views = @($xml.SelectNodes("//savedquery/fetchxml/fetch/entity[@name='$table']"))
+                    if (!$views.Count -or @($views | Where-Object { !$_.SelectSingleNode("filter/condition[@attribute='$field']") }).Count) { throw "Package contains unfiltered $table views" }
+                  }
+                  Write-Host "Verified authoring components in $flavor package."
+                } finally { $zip.Dispose() }
+              }
+            displayName: Verify packaged rule authoring contract
+
           # LICENSE/NOTICE live in distribution/ (not the repo root): these are the copies
           # bundled INTO the release artifact, kept separate from the source tree's own.
           - ${{ if ge(parameters.betaNumber, 1) }}:

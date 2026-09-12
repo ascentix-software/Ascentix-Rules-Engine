@@ -21,6 +21,7 @@ and the WHEN/THEN zones that hold the rule body.
 A **breadcrumb** back to the hub, the rule's **name**, a
 **Draft**/**Published** status badge, and the header actions:
 
+- **Edit rule**: creates or reopens a working draft while the published rule stays active.
 - **Save**: writes draft changes to the server while any published revision stays active.
 - **Reload**: discards in-memory edits and re-fetches the rule from the
   server.

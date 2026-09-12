@@ -10,7 +10,7 @@ import type { RecordSearchService } from "../../src/editor/records";
 import type { EditorApi } from "../../src/editor/webapi";
 import type { RuleGraph } from "../../src/editor/model/types";
 
-// Published rules remain inspectable, with an explicit unpublish-to-edit transition.
+// Unpublish is an explicit stop-enforcement action, independent of draft editing.
 
 const DRAFT = 1;
 const PUBLISHED = 753840000;

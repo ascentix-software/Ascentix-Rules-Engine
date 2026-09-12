@@ -6,6 +6,7 @@ using Ascentix.RulesEngine.Core.Validation;
 using Ascentix.RulesEngine.Core.Publication;
 using Ascentix.RulesEngine.Plugin.Publication;
 using Microsoft.Xrm.Sdk.Query;
+using Microsoft.Crm.Sdk.Messages;
 
 namespace Ascentix.RulesEngine.Plugin
 {
@@ -25,7 +26,6 @@ namespace Ascentix.RulesEngine.Plugin
             var service = localPluginContext.SystemUserService;
 
             if (!context.InputParameters.TryGetValue("Target", out var t) || !(t is Entity target)) return;
-            if (PublicationCoordinator.IsInternal(context, service)) return;
 
             if (target.GetAttributeValue<OptionSetValue>("statuscode")?.Value != (int)RuleStatus.Published) return;
 
@@ -60,7 +60,30 @@ namespace Ascentix.RulesEngine.Plugin
                 throw new InvalidPluginExecutionException(
                     "This rule can't be published until these problems are fixed:\n" +
                     ValidationReportSerializer.JoinErrors(secReport));
-            var header = service.Retrieve("asx_rule", target.Id, new ColumnSet(PublicationSchema.Number));
+            var header = service.Retrieve("asx_rule", target.Id, new ColumnSet(true));
+            var source = header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf);
+            if (source != null)
+            {
+                var access = (RetrievePrincipalAccessResponse)service.Execute(new RetrievePrincipalAccessRequest {
+                    Principal = new EntityReference("systemuser", context.InitiatingUserId), Target = source });
+                if ((access.AccessRights & AccessRights.WriteAccess) == 0)
+                    throw new InvalidPluginExecutionException("You do not have permission to publish this rule.");
+                var active = service.Retrieve("asx_rule", source.Id, new ColumnSet(true));
+                if (header.GetAttributeValue<int>(PublicationSchema.DraftBaseVersion) != active.GetAttributeValue<int>(PublicationSchema.Number))
+                    throw new InvalidPluginExecutionException("The published rule changed. Reload its draft before publishing.");
+                var next = checked(active.GetAttributeValue<int>(PublicationSchema.Number) + 1);
+                var published = RuleDrafts.Reidentify(snapshot, active.Id);
+                Entity revision = null;
+                PublicationCoordinator.Internal(context, service, writer => revision = PublicationCoordinator.Store(writer, published, next, context.InitiatingUserId));
+                PublicationCoordinator.Internal(context, service, writer => writer.Update(new Entity("asx_rule", active.Id) {
+                    [PublicationSchema.Pointer] = revision.ToEntityReference(), [PublicationSchema.Number] = next,
+                    ["statuscode"] = new OptionSetValue((int)RuleStatus.Published), ["asx_name"] = header.GetAttributeValue<string>("asx_name")
+                }), reconcile: true);
+                target["statuscode"] = new OptionSetValue(1);
+                target[PublicationSchema.DraftBaseVersion] = next;
+                target[PublicationSchema.PublishHash] = null;
+                return;
+            }
             var version = checked(header.GetAttributeValue<int>(PublicationSchema.Number) + 1);
             PublicationCoordinator.Internal(context, service, writer => {
                 var revision = PublicationCoordinator.Store(writer, snapshot, version, context.InitiatingUserId);

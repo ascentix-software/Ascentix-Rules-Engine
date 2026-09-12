@@ -14,6 +14,9 @@ interface TrackedRecord {
 }
 
 async function deleteInReverse(created: TrackedRecord[]): Promise<void> {
+  for (const rule of created.filter(rec => rec.set === "asx_rules")) {
+    await deleteDevRecord(rule.set, rule.id);
+  }
   while (created.length) {
     const rec = created.pop()!;
     await deleteDevRecord(rec.set, rec.id);

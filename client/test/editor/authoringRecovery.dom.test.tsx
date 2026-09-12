@@ -43,7 +43,7 @@ function stored(snapshot: RuleGraph, working: RuleGraph) {
 
 describe("authoring lifecycle and recovery", () => {
   it("views a frozen revision read-only and returns to unsaved draft edits", async () => {
-    const graph = makeGraph(); graph.rule.id = publishedRuleId; graph.rule.statusCode = PUBLISHED;
+    const graph = makeGraph(); graph.rule.activeRuleId = publishedRuleId; graph.rule.statusCode = PUBLISHED;
     graph.rule.publishedRevisionId = "revision-1"; graph.rule.publishedVersion = 1;
     mount(graph, { readPublishedRule: vi.fn(async () => publishedDefinition) });
     rename("Unsaved draft");
@@ -59,6 +59,7 @@ describe("authoring lifecycle and recovery", () => {
 
   it("restoring a draft is explicit and uses its original version check", async () => {
     const graph = makeGraph(); graph.rule.statusCode = PUBLISHED; graph.rule.publishedRevisionId = "revision-1";
+    graph.rule.activeRuleId = "active-rule";
     graph.rule.etag = 'W/"42"';
     const restoreRuleDraft = vi.fn(async () => {});
     const { api } = mount(graph, { restoreRuleDraft });
@@ -73,14 +74,21 @@ describe("authoring lifecycle and recovery", () => {
   it("edits a draft while the published rule stays active", async () => {
     const graph = makeGraph({ actions: [makeAction()] });
     graph.rule.statusCode = PUBLISHED;
-    const draft = clone(graph); draft.rule.name = "Revised draft";
-    const { api } = mount(graph, {}, vi.fn(async () => draft));
+    const opened = clone(graph); opened.rule.id = "draft-id"; opened.rule.activeRuleId = graph.rule.id;
+    const draft = clone(opened); draft.rule.name = "Revised draft";
+    const openRuleDraft = vi.fn(async () => opened.rule.id);
+    const { api } = mount(graph, { openRuleDraft }, vi.fn().mockResolvedValueOnce(opened).mockResolvedValueOnce(draft));
+    expect(screen.getByRole("button", { name: "Rename rule" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Edit rule" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Rename rule" })).toBeEnabled());
+    expect(openRuleDraft).toHaveBeenCalledWith("r1");
     expect(screen.getByRole("button", { name: "Rename rule" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Delete action" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
     rename("Revised draft");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByText("Saved.");
+    expect(JSON.stringify(vi.mocked(api.executeBatch).mock.calls)).toContain("draft-id");
     expect(screen.getByText("Published")).toBeInTheDocument();
     expect(api.unpublishRule).not.toHaveBeenCalled();
     expect(api.publishRule).not.toHaveBeenCalled();
@@ -99,6 +107,7 @@ describe("authoring lifecycle and recovery", () => {
 
   it("publishes the validated draft and keeps editing available", async () => {
     const graph = makeGraph(); graph.rule.etag = 'W/"1"';
+    graph.rule.activeRuleId = "active-rule";
     const saved = clone(graph); saved.rule.name = "Validated draft"; saved.rule.etag = 'W/"2"';
     const published = clone(saved); published.rule.statusCode = PUBLISHED;
     const { api } = mount(graph, {}, vi.fn().mockResolvedValueOnce(saved).mockResolvedValueOnce(published));

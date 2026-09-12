@@ -300,6 +300,16 @@ export function devOrg(identity = "user", opts = {}) {
       if (!r.ok) throw shapeError("readPublishedRule", r.status, r.text);
       return r.json.Definition;
     },
+    async openRuleDraft(ruleId) {
+      const r = await request("POST", "asx_OpenRuleDraft", { RuleId: ruleId });
+      if (!r.ok) throw shapeError("openRuleDraft", r.status, r.text);
+      return r.json.DraftId;
+    },
+    async copyRule(ruleId) {
+      const r = await request("POST", "asx_CopyRule", { RuleId: ruleId });
+      if (!r.ok) throw shapeError("copyRule", r.status, r.text);
+      return r.json.NewRuleId;
+    },
     async restoreRuleDraft(ruleId, etag) {
       const r = await request("POST", "asx_RestoreRuleDraft", { RuleId: ruleId, ExpectedVersion: etag.replace(/^W\/"|"$/g, "") });
       if (!r.ok) throw shapeError("restoreRuleDraft", r.status, r.text);

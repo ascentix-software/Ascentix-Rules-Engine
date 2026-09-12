@@ -29,12 +29,10 @@ slug: installation
 
 Everything ships in the solution: the rule configuration tables, the plug-in
 assembly with its bootstrap registration steps, the Custom APIs, the model-driven app, the Rule Builder web resources, and the two security roles.
-Revision-enabled builds create their internal coordination record automatically.
-When upgrading an environment with existing published rules, an administrator must
-call `asx_InitializeRuleRevisions` until its `Remaining` output is zero before
-authoring resumes. This captures existing behavior without unpublishing any rule.
-The source deployment workflow performs this backfill automatically; a managed
-solution import alone does not run it.
+Existing rules work after import. Open a published rule and choose **Edit rule**
+to create or resume its working draft. The published rule continues enforcing
+until you publish the draft. Internal coordination and configuration preservation
+are handled automatically; no migration command or customer pipeline is required.
 
 ## Assign roles
 

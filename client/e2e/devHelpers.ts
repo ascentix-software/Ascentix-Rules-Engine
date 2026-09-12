@@ -11,61 +11,9 @@ export async function findIdByName(entitySet: string, nameField: string, idField
   return r.entities.length ? (r.entities[0][idField] as string) : null;
 }
 
-// Deletes a rule and ALL its children, including rows the UI created that no fixture
-// tracked (author-in-UI, write-action, duplicate specs). Child-first: conditions →
-// subgroups → root groups → actions → rule. Node-filter rows are not queried: the e2e
-// fixtures never author them through the UI.
+// Server lifecycle deletion includes the working draft and all owned configuration.
 export async function deleteRuleCascade(ruleId: string): Promise<void> {
-  const api = createDevApi();
-  const list = async (set: string, filter: string, idField: string) =>
-    (await api.retrieveMultipleRecords(set, `?$filter=${filter}&$select=${idField}`)).entities.map(
-      (e) => e[idField] as string,
-    );
-  const groups = (await api.retrieveMultipleRecords(
-    ENTITY_SET.group,
-    `?$filter=${LOOKUP.ruleOfGroup} eq ${ruleId}&$select=asx_conditiongroupid,${LOOKUP.parentGroup}`,
-  )).entities;
-  for (const g of groups) {
-    for (const cid of await list(ENTITY_SET.condition, `_asx_conditiongroup_value eq ${g.asx_conditiongroupid}`, "asx_ruleconditionid")) {
-      // Node-filter rows hang off the CONDITION and do NOT cascade when it is deleted (the same
-      // note diff.ts carries at its filter-delete branch). Since nodeFilterUi.e2e authors them
-      // through the UI, this cascade has to reclaim them or every run leaks a filter tree.
-      // Criteria first, then the groups deepest-first (a child group binds its parent).
-      const fgroups = (await api.retrieveMultipleRecords(
-        ENTITY_SET.nodeFilterGroup,
-        `?$filter=${LOOKUP.filterGroupCondition} eq ${cid}&$select=asx_nodefiltergroupid,${LOOKUP.filterParentGroup}`,
-      )).entities;
-      for (const fg of fgroups) {
-        for (const crit of await list(
-          ENTITY_SET.nodeFilterCriterion,
-          `${LOOKUP.filterGroupOfCriterion} eq ${fg.asx_nodefiltergroupid}`,
-          "asx_nodefiltercriterionid",
-        )) {
-          await deleteDevRecord(ENTITY_SET.nodeFilterCriterion, crit).catch(() => {});
-        }
-      }
-      const childFirst = [...fgroups].sort((a, b) =>
-        (a[LOOKUP.filterParentGroup] ? 0 : 1) - (b[LOOKUP.filterParentGroup] ? 0 : 1));
-      for (const fg of childFirst) {
-        await deleteDevRecord(ENTITY_SET.nodeFilterGroup, fg.asx_nodefiltergroupid as string).catch(() => {});
-      }
-      await deleteDevRecord(ENTITY_SET.condition, cid).catch(() => {});
-    }
-  }
-  const subFirst = [...groups].sort((a, b) =>
-    (a[LOOKUP.parentGroup] ? 0 : 1) - (b[LOOKUP.parentGroup] ? 0 : 1));
-  for (const g of subFirst) await deleteDevRecord(ENTITY_SET.group, g.asx_conditiongroupid as string).catch(() => {});
-  for (const aid of await list(ENTITY_SET.action, `${LOOKUP.ruleOfAction} eq ${ruleId}`, "asx_ruleactionid")) {
-    // Localized-message children first: the UI can author them (ActionInspector's Translations
-    // field), and asx_localizedmessage rows do not cascade off the action delete.
-    for (const mid of await list(
-      ENTITY_SET.localizedMessage, `_asx_ruleaction_value eq ${aid}`, "asx_localizedmessageid",
-    )) {
-      await deleteDevRecord(ENTITY_SET.localizedMessage, mid).catch(() => {});
-    }
-    await deleteDevRecord(ENTITY_SET.action, aid).catch(() => {});
-  }
-  await deleteDevRecord(ENTITY_SET.rule, ruleId).catch(() => {});
+  await deleteDevRecord(ENTITY_SET.rule, ruleId);
 }
 
 // Single root-table config node under the ZZ_RB_ prefix (sweep backstop). cleanup()
@@ -142,6 +90,9 @@ export async function createRuleFixture(opts: RuleFixtureOpts = {}): Promise<{ r
   const created: { set: string; id: string }[] = [];
   const track = (set: string, id: string) => { created.push({ set, id }); return id; };
   const cleanup = async () => {
+    for (const rule of created.filter(c => c.set === ENTITY_SET.rule)) {
+      await deleteRuleCascade(rule.id);
+    }
     for (const c of created.reverse()) {
       await deleteDevRecord(c.set, c.id).catch(
         (e) => console.warn(`ZZ_P2E2E_ cleanup: failed to delete ${c.set}(${c.id}): ${e}`),

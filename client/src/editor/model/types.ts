@@ -12,6 +12,8 @@ export interface RuleHeader {
   statusCode: number | null;
   publishedRevisionId?: string | null;
   publishedVersion?: number;
+  activeRuleId?: string;
+  activeEtag?: string | null;
   etag: string | null;
   triggers: number[];
   channels: number[];

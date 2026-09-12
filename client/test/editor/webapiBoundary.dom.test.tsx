@@ -20,6 +20,16 @@ afterEach(() => {
 });
 
 describe("createWebApiPort / resolveXrm boundary", () => {
+  it("opens and copies rules using the authoring API response contracts", async () => {
+    (window as any).Xrm = fakeXrm();
+    const request = vi.fn(async (url: string) => ({ ok: true, status: 200,
+      json: async () => url.endsWith("asx_OpenRuleDraft") ? { DraftId: "working-copy" } : { NewRuleId: "new-rule" } }));
+    vi.stubGlobal("fetch", request);
+    const api = createWebApiPort();
+    expect(await api.openRuleDraft!("active-rule")).toBe("working-copy");
+    expect(await api.copyRule!("active-rule")).toBe("new-rule");
+    expect(request).toHaveBeenCalledWith(expect.stringContaining("asx_OpenRuleDraft"), expect.objectContaining({ method: "POST", body: JSON.stringify({ RuleId: "active-rule" }) }));
+  });
   it("resolves Xrm from window when present", () => {
     (window as any).Xrm = fakeXrm();
     const api = createWebApiPort();

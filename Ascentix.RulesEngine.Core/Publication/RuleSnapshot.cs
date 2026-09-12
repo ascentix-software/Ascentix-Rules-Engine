@@ -19,13 +19,15 @@ namespace Ascentix.RulesEngine.Core.Publication
         public const string Number = "asx_publishedversion";
         public const string PublishHash = "asx_publishhash";
         public const string DraftStamp = "asx_draftstamp";
+        public const string DraftOf = "asx_draftof";
+        public const string DraftBaseVersion = "asx_draftbaseversion";
         public const string Lock = "asx_publicationlock";
         public static readonly Guid LockId = new Guid("7e0d7362-c0fd-44ab-a8a1-aecb70d86a79");
         public static readonly string[] ConfigTables = { "asx_rule", "asx_conditiongroup", "asx_rulecondition",
             "asx_searchcriteriagroup", "asx_searchcriterion", "asx_nodefiltergroup", "asx_nodefiltercriterion",
             "asx_ruleaction", "asx_localizedmessage", "asx_tableconfig" };
         public static bool IsConfig(string entity) => ConfigTables.Contains(entity);
-        public static bool IsProtected(string field) => field == Pointer || field == Number || field == DraftStamp;
+        public static bool IsProtected(string field) => field == Pointer || field == Number || field == DraftStamp || field == DraftOf || field == DraftBaseVersion;
     }
 
     [DataContract]

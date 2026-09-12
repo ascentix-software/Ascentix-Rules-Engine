@@ -17,6 +17,8 @@ export interface WebApiPort {
   /** PATCH the rule's statuscode to Published (753840000). */
   publishRule(ruleId: string, etag?: string | null, draftHash?: string): Promise<void>;
   readPublishedRule?(ruleId: string): Promise<string>;
+  openRuleDraft?(ruleId: string): Promise<string>;
+  copyRule?(ruleId: string): Promise<string>;
   restoreRuleDraft?(ruleId: string, etag: string): Promise<void>;
   /** PATCH the rule's statuscode back to Draft (1), the inverse of publishRule. */
   unpublishRule(ruleId: string, etag?: string | null): Promise<void>;
@@ -104,13 +106,15 @@ export function createWebApiPort(): EditorApi {
       const isValid: boolean = raw.IsValid ?? false;
       const issuesParsed = raw.Issues ? JSON.parse(raw.Issues) : { isValid, issues: [] };
       const issues: ApiIssue[] = issuesParsed.issues ?? [];
-      if (typeof raw.DraftHash !== "string") throw new Error("The backend does not support draft revisions yet. Deploy the revision schema and plugins before publishing.");
+      if (typeof raw.DraftHash !== "string") throw new Error("This installation is missing required rule-authoring components. Contact your administrator.");
       return { isValid, issues, draftHash: raw.DraftHash };
     },
     // Lifecycle status reasons (docs/Schema.md §2.1): Draft = 1, Published = 753840000.
     publishRule: (ruleId, etag, hash) => patchStatus(base, "publishRule", ruleId, 753840000, etag, hash),
     unpublishRule: (ruleId, etag) => patchStatus(base, "unpublishRule", ruleId, 1, etag),
     readPublishedRule: async (ruleId) => (await revisionRequest(base, "asx_ReadPublishedRule", { RuleId: ruleId })).Definition,
+    openRuleDraft: async (ruleId) => (await revisionRequest(base, "asx_OpenRuleDraft", { RuleId: ruleId })).DraftId,
+    copyRule: async (ruleId) => (await revisionRequest(base, "asx_CopyRule", { RuleId: ruleId })).NewRuleId,
     restoreRuleDraft: async (ruleId, etag) => { await revisionRequest(base, "asx_RestoreRuleDraft", {
       RuleId: ruleId, ExpectedVersion: etag.replace(/^W\/"|"$/g, ""),
     }); },

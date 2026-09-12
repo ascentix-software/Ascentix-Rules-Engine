@@ -55,6 +55,8 @@ namespace Ascentix.RulesEngine.Schema
             public const string PublishedVersion = "publishedversion";
             public const string PublishHash = "publishhash";
             public const string DraftStamp = "draftstamp";
+            public const string DraftOf = "draftof";
+            public const string DraftBaseVersion = "draftbaseversion";
         }
 
         public static class RuleRevision
@@ -75,6 +77,7 @@ namespace Ascentix.RulesEngine.Schema
 
         public static class TableConfig
         {
+            public const string IsPrivate = "isprivate";
             public const string Entity = "tableconfig";
             public const string TableLogicalName = "tablelogicalname";
             public const string TableConfigType = "tableconfigtype";
