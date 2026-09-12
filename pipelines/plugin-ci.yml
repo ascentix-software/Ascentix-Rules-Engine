@@ -48,6 +48,8 @@ stages:
     jobs:
       - job: test
         steps:
+          - pwsh: ./tests/pipelines/Test-RuleRevisionRegistration.ps1
+            displayName: Test revision API registration and retry
           - task: UseDotNet@2
             inputs: { packageType: sdk, version: '10.x' }
             displayName: Use .NET SDK

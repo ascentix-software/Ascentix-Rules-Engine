@@ -14,7 +14,11 @@ $headers = @{ Authorization = "Bearer $AccessToken"; Accept = 'application/json'
 function Request([string]$Method, [string]$Path, $Body = $null) {
     $args0 = @{ Method = $Method; Uri = "$base/$Path"; Headers = $headers }
     if ($null -ne $Body) { $args0.ContentType = 'application/json'; $args0.Body = $Body | ConvertTo-Json -Depth 30 -Compress }
-    Invoke-RestMethod @args0
+    try { Invoke-RestMethod @args0 }
+    catch {
+        Write-Warning "[revisions] $Phase request failed: $Method $Path"
+        throw
+    }
 }
 function Label([string]$Text) { @{ LocalizedLabels = @(@{ Label = $Text; LanguageCode = 1033 }) } }
 function Field([string]$Name, [string]$Type, [string]$Display) {
@@ -133,33 +137,36 @@ foreach ($spec in @(@('RulePublishPlugin',20), @('RuleRegistrationPlugin',30))) 
         Request PATCH "sdkmessageprocessingsteps($($step.sdkmessageprocessingstepid))" @{ rank = [int]$spec[1] } | Out-Null
     }
 }
-function EnsureApi([string]$Name, [string]$Privilege) {
+function EnsureApi([string]$Name, [string]$Privilege, [string]$Description) {
     $existing = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq '$Name'"
-    $body = @{ uniquename = $Name; name = $Name; displayname = $Name; bindingtype = 0; isfunction = $false;
+    $body = @{ uniquename = $Name; name = $Name; displayname = $Name; description = $Description; bindingtype = 0; isfunction = $false;
         allowedcustomprocessingsteptype = 0; isprivate = $false; workflowsdkstepenabled = $false;
         executeprivilegename = $Privilege; 'PluginTypeId@odata.bind' = "/plugintypes($revisionType)" }
     if ($existing.value.Count -eq 0) { Request POST 'customapis' $body | Out-Null; $existing = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq '$Name'" }
-    else { Request PATCH "customapis($($existing.value[0].customapiid))" @{ 'PluginTypeId@odata.bind' = "/plugintypes($revisionType)"; executeprivilegename = $Privilege } | Out-Null }
+    else { Request PATCH "customapis($($existing.value[0].customapiid))" @{ 'PluginTypeId@odata.bind' = "/plugintypes($revisionType)"; executeprivilegename = $Privilege; description = $Description } | Out-Null }
     $existing.value[0].customapiid
 }
-function EnsureParameter([string]$ApiId, [string]$Name, [int]$Type, [bool]$Output) {
+function EnsureParameter([string]$ApiId, [string]$Name, [int]$Type, [bool]$Output, [string]$Description) {
     $set = if ($Output) { 'customapiresponseproperties' } else { 'customapirequestparameters' }
     $existing = Request GET "${set}?`$select=uniquename&`$filter=_customapiid_value eq $ApiId and uniquename eq '$Name'"
     if ($existing.value.Count -gt 0) { return }
-    $body = @{ uniquename = $Name; name = $Name; displayname = $Name; type = $Type; 'CustomAPIId@odata.bind' = "/customapis($ApiId)" }
+    $body = @{ uniquename = $Name; name = $Name; displayname = $Name; description = $Description; type = $Type; 'CustomAPIId@odata.bind' = "/customapis($ApiId)" }
     if (!$Output) { $body.isoptional = $false }
     Request POST $set $body | Out-Null
 }
 $revisionType = PluginType 'RuleRevisionApi'
-foreach ($name in @('asx_ReadPublishedRule','asx_RestoreRuleDraft')) {
-    $id = EnsureApi $name 'prvReadasx_rule'
-    EnsureParameter $id 'RuleId' 10 $false
-    if ($name -eq 'asx_ReadPublishedRule') { EnsureParameter $id 'Definition' 10 $true }
-    else { EnsureParameter $id 'ExpectedVersion' 10 $false }
+foreach ($spec in @(
+    @('asx_ReadPublishedRule', 'Read the immutable configuration of the active published rule revision.'),
+    @('asx_RestoreRuleDraft', 'Restore the published configuration into a draft without changing active enforcement.')
+)) {
+    $id = EnsureApi $spec[0] 'prvReadasx_rule' $spec[1]
+    EnsureParameter $id 'RuleId' 10 $false 'Identifier of the rule to read or restore.'
+    if ($spec[0] -eq 'asx_ReadPublishedRule') { EnsureParameter $id 'Definition' 10 $true 'Serialized configuration of the active published rule revision.' }
+    else { EnsureParameter $id 'ExpectedVersion' 10 $false 'Expected rule row version for optimistic concurrency.' }
 }
-$id = EnsureApi 'asx_InitializeRuleRevisions' 'prvWriteEntity'
-EnsureParameter $id 'Remaining' 7 $true
+$id = EnsureApi 'asx_InitializeRuleRevisions' 'prvWriteEntity' 'Initialize immutable revisions for a batch of existing published rules.'
+EnsureParameter $id 'Remaining' 7 $true 'Number of published rules still requiring an initial revision.'
 $validate = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq 'asx_ValidateRule'"
 if ($validate.value.Count -ne 1) { throw 'Missing asx_ValidateRule API.' }
-EnsureParameter $validate.value[0].customapiid 'DraftHash' 10 $true
+EnsureParameter $validate.value[0].customapiid 'DraftHash' 10 $true 'SHA-256 hash of the saved draft configuration checked by validation.'
 Write-Host '[revisions] guards, lifecycle ordering, and APIs registered'
