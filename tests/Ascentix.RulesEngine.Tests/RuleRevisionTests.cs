@@ -10,9 +10,11 @@ using Ascentix.RulesEngine.Plugin;
 using Ascentix.RulesEngine.Plugin.Publication;
 using Ascentix.RulesEngine.Plugin.Registration;
 using FakeXrmEasy;
+using FakeItEasy;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Metadata;
 using Microsoft.Xrm.Sdk.Query;
+using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Crm.Sdk.Messages;
 using Xunit;
 
@@ -237,6 +239,87 @@ namespace Ascentix.RulesEngine.Tests
             Assert.NotNull(context.GetOrganizationService().Retrieve(PublicationSchema.Lock, PublicationSchema.LockId, new ColumnSet(true)));
         }
 
+        private static Entity RegisterRevisionApi(IOrganizationService service, string name)
+        {
+            var type = new Entity("plugintype", Guid.NewGuid()) { ["typename"] = typeof(RuleRevisionApi).FullName };
+            service.Create(type);
+            var api = new Entity("customapi", Guid.NewGuid()) {
+                ["uniquename"] = name, ["plugintypeid"] = type.ToEntityReference(),
+                ["allowedcustomprocessingsteptype"] = new OptionSetValue(0),
+                ["bindingtype"] = new OptionSetValue(0), ["isfunction"] = false };
+            service.Create(api);
+            return api;
+        }
+
+        private static void ExecutePlugin<T>(IOrganizationService service, IPluginExecutionContext execution) where T : IPlugin, new()
+        {
+            var factory = A.Fake<IOrganizationServiceFactory>();
+            A.CallTo(() => factory.CreateOrganizationService(A<Guid?>._)).Returns(service);
+            var provider = A.Fake<IServiceProvider>();
+            A.CallTo(() => provider.GetService(A<Type>._)).Returns(null);
+            A.CallTo(() => provider.GetService(typeof(IOrganizationServiceFactory))).Returns(factory);
+            A.CallTo(() => provider.GetService(typeof(IPluginExecutionContext))).Returns(execution);
+            A.CallTo(() => provider.GetService(typeof(IExecutionContext))).Returns(execution);
+            A.CallTo(() => provider.GetService(typeof(ITracingService))).Returns(new XrmFakedTracingService());
+            new T().Execute(provider);
+        }
+
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        [InlineData(true, true)]
+        public void Backfill_nested_system_writes_pass_guards_with_serialized_parent_context(bool tagOnIntermediateFrame, bool omitExtension)
+        {
+            var ruleId = Guid.NewGuid(); var context = Context(Rule(ruleId)); var service = context.GetOrganizationService();
+            var api = RegisterRevisionApi(service, "asx_InitializeRuleRevisions");
+            var systemUser = Guid.NewGuid();
+            var owner = new RemoteExecutionContext { Stage = 30, IsInTransaction = true,
+                CorrelationId = Guid.NewGuid(), InitiatingUserId = Guid.NewGuid(),
+                MessageName = "asx_InitializeRuleRevisions", OwningExtension = api.ToEntityReference() };
+            // The nested pipeline retains the operation identity, but not mutable handler-local data.
+            var parent = new RemoteExecutionContext { Stage = 30, IsInTransaction = true,
+                CorrelationId = owner.CorrelationId, InitiatingUserId = owner.InitiatingUserId,
+                MessageName = owner.MessageName, PrimaryEntityName = omitExtension ? "none" : owner.PrimaryEntityName,
+                OwningExtension = omitExtension ? null : owner.OwningExtension };
+            var writer = A.Fake<IOrganizationService>(o => o.Wrapping(service));
+            A.CallTo(() => writer.Execute(A<OrganizationRequest>.That.Matches(r => r is WhoAmIRequest)))
+                .Returns(new WhoAmIResponse { Results = { { "UserId", systemUser } } });
+            var guardedWrites = 0;
+            A.CallTo(() => writer.Execute(A<OrganizationRequest>.That.Matches(r => r is CreateRequest || r is UpdateRequest)))
+                .ReturnsLazily((OrganizationRequest request) => {
+                    var target = (Entity)request["Target"];
+                    var child = new RemoteExecutionContext { Stage = 20, IsInTransaction = true,
+                        CorrelationId = owner.CorrelationId, InitiatingUserId = systemUser, UserId = systemUser,
+                        MessageName = request.RequestName, PrimaryEntityName = target.LogicalName, PrimaryEntityId = target.Id,
+                        ParentContext = parent, InputParameters = { { "Target", target } } };
+                    if (tagOnIntermediateFrame)
+                        child.ParentContext = new RemoteExecutionContext { Stage = 30, IsInTransaction = true,
+                            CorrelationId = owner.CorrelationId, InitiatingUserId = systemUser, UserId = systemUser,
+                            MessageName = request.RequestName, PrimaryEntityName = target.LogicalName,
+                            ParentContext = parent, SharedVariables = { { "tag", request["tag"] } } };
+                    else child.SharedVariables["tag"] = request["tag"];
+                    ExecutePlugin<RuleRevisionGuardPlugin>(service, child);
+                    if (target.LogicalName == "asx_rule")
+                    {
+                        ExecutePlugin<RulePublishPlugin>(service, child);
+                        ExecutePlugin<RuleRegistrationPlugin>(service, child);
+                    }
+                    guardedWrites++;
+                    if (request is CreateRequest)
+                        return (OrganizationResponse)new CreateResponse { Results = { { "id", service.Create(target) } } };
+                    service.Update(target);
+                    return new UpdateResponse();
+                });
+            ExecutePlugin<RuleRevisionApi>(writer, owner);
+            Assert.Equal(0, owner.OutputParameters["Remaining"]);
+            Assert.Equal(2, guardedWrites);
+            Assert.Equal("Live", Read(service, ruleId).Rows.Single(r => r.Entity == "asx_rule").ToSdk().GetAttributeValue<string>("asx_name"));
+            ExecutePlugin<RuleRevisionApi>(writer, owner);
+            Assert.Equal(2, guardedWrites);
+            Assert.Single(service.RetrieveMultiple(new QueryExpression(PublicationSchema.Revision)).Entities);
+        }
+
         [Fact]
         public void Internal_restore_and_delete_writes_do_not_reconcile_intermediate_draft_state()
         {
@@ -251,20 +334,23 @@ namespace Ascentix.RulesEngine.Tests
             context.ExecuteTransactional<RuleRegistrationPlugin>(request);
         }
 
-        [Fact]
-        public void Tagged_internal_writes_require_registered_ancestry_and_exact_target_identity()
+        [Theory]
+        [InlineData("asx_RestoreRuleDraft")]
+        [InlineData("asx_InitializeRuleRevisions")]
+        public void Tagged_internal_writes_require_registered_ancestry_and_exact_target_identity(string message)
         {
             var context = Context(); var service = context.GetOrganizationService();
-            var handler = new Entity("plugintype", Guid.NewGuid()) { ["typename"] = typeof(RuleRevisionApi).FullName };
-            service.Create(handler);
-            var api = new Entity("customapi", Guid.NewGuid()) { ["plugintypeid"] = handler.ToEntityReference() }; service.Create(api);
+            var api = RegisterRevisionApi(service, message);
+            var executor = Guid.NewGuid();
+            var handler = api.GetAttributeValue<EntityReference>("plugintypeid");
             var parent = new RemoteExecutionContext { Stage = 30, IsInTransaction = true,
-                CorrelationId = Guid.NewGuid(), InitiatingUserId = Guid.NewGuid(), MessageName = "asx_RestoreRuleDraft",
+                CorrelationId = Guid.NewGuid(), InitiatingUserId = Guid.NewGuid(), MessageName = message,
                 OwningExtension = api.ToEntityReference() };
             var target = new Entity("asx_ruleaction", Guid.NewGuid());
             var request = new RemoteExecutionContext { Stage = 20, IsInTransaction = true,
+                UserId = executor,
                 CorrelationId = parent.CorrelationId, InitiatingUserId = parent.InitiatingUserId, MessageName = "Create", ParentContext = parent,
-                SharedVariables = { { "tag", PublicationCoordinator.WriteTag(parent, "Create", target.ToEntityReference()) } },
+                SharedVariables = { { "tag", PublicationCoordinator.WriteTag(parent, "Create", target.ToEntityReference(), executor) } },
                 InputParameters = { { "Target", target } } };
             Assert.True(PublicationCoordinator.IsInternal(request, service));
             request.InputParameters["Target"] = new Entity("asx_ruleaction", Guid.NewGuid());
@@ -274,6 +360,64 @@ namespace Ascentix.RulesEngine.Tests
             Assert.False(PublicationCoordinator.IsInternal(request, service));
             request.ParentContext = null;
             Assert.False(PublicationCoordinator.IsInternal(request, service));
+        }
+
+        [Theory]
+        [InlineData("correlation")]
+        [InlineData("origin-caller")]
+        [InlineData("executor")]
+        [InlineData("empty-executor")]
+        [InlineData("operation")]
+        [InlineData("target-table")]
+        [InlineData("missing-tag")]
+        [InlineData("transaction")]
+        [InlineData("async")]
+        [InlineData("parent-transaction")]
+        [InlineData("parent-async")]
+        [InlineData("parent-stage")]
+        [InlineData("unknown-api")]
+        [InlineData("missing-registration")]
+        [InlineData("duplicate-registration")]
+        [InlineData("extra-processing-steps")]
+        [InlineData("bound-api")]
+        [InlineData("function")]
+        public void Api_internal_write_authorization_rejects_invalid_origin_or_registration(string invalid)
+        {
+            var context = Context(); var service = context.GetOrganizationService();
+            var api = RegisterRevisionApi(service, "asx_InitializeRuleRevisions");
+            var executor = Guid.NewGuid();
+            var parent = new RemoteExecutionContext { Stage = 30, IsInTransaction = true,
+                CorrelationId = Guid.NewGuid(), InitiatingUserId = Guid.NewGuid(), MessageName = "asx_InitializeRuleRevisions" };
+            var target = new Entity(PublicationSchema.Revision, Guid.NewGuid());
+            var child = new RemoteExecutionContext { Stage = 20, IsInTransaction = true,
+                UserId = executor,
+                CorrelationId = parent.CorrelationId, InitiatingUserId = parent.InitiatingUserId,
+                MessageName = "Create", PrimaryEntityName = target.LogicalName, ParentContext = parent,
+                InputParameters = { { "Target", target } },
+                SharedVariables = { { "tag", PublicationCoordinator.WriteTag(parent, "Create", target.ToEntityReference(), executor) } } };
+            switch (invalid)
+            {
+                case "correlation": child.CorrelationId = Guid.NewGuid(); break;
+                case "origin-caller": parent.InitiatingUserId = Guid.NewGuid(); break;
+                case "executor": child.UserId = Guid.NewGuid(); break;
+                case "empty-executor": child.UserId = Guid.Empty; break;
+                case "operation": child.MessageName = "Delete"; break;
+                case "target-table": child.InputParameters["Target"] = new Entity("asx_rule", target.Id); break;
+                case "missing-tag": child.SharedVariables.Clear(); break;
+                case "transaction": child.IsInTransaction = false; break;
+                case "async": child.Mode = 1; break;
+                case "parent-transaction": parent.IsInTransaction = false; break;
+                case "parent-async": parent.Mode = 1; break;
+                case "parent-stage": parent.Stage = 20; break;
+                case "unknown-api": parent.MessageName = "asx_ReadPublishedRule"; break;
+                case "missing-registration": service.Delete("customapi", api.Id); break;
+                case "duplicate-registration": RegisterRevisionApi(service, parent.MessageName); break;
+                case "extra-processing-steps": api["allowedcustomprocessingsteptype"] = new OptionSetValue(2); service.Update(api); break;
+                case "bound-api": api["bindingtype"] = new OptionSetValue(1); service.Update(api); break;
+                case "function": api["isfunction"] = true; service.Update(api); break;
+            }
+            Assert.False(PublicationCoordinator.IsInternal(child, service));
+            Assert.Throws<InvalidPluginExecutionException>(() => ExecutePlugin<RuleRevisionGuardPlugin>(service, child));
         }
 
         [Fact]

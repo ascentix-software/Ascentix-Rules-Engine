@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
 using Microsoft.Xrm.Sdk.Messages;
+using Microsoft.Crm.Sdk.Messages;
 using Ascentix.RulesEngine.Core.Publication;
 
 namespace Ascentix.RulesEngine.Plugin.Publication
@@ -26,13 +27,18 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                 if (frame.SharedVariables != null && frame.SharedVariables.TryGetValue("tag", out var rawTag)) tag = rawTag as string;
             var target = context.InputParameters.TryGetValue("Target", out var rawTarget)
                 ? (rawTarget as Entity)?.ToEntityReference() ?? rawTarget as EntityReference : null;
-            if (tag == null || target == null || !context.IsInTransaction || context.Mode != 0) return false;
+            if (tag == null || target == null || context.UserId == Guid.Empty) return false;
             for (var parent = context.ParentContext; parent != null; parent = parent.ParentContext)
             {
                 if (!parent.IsInTransaction || parent.Mode != 0 || parent.CorrelationId != context.CorrelationId ||
-                    parent.InitiatingUserId != context.InitiatingUserId || parent.OwningExtension == null ||
-                    tag != WriteTag(parent, context.MessageName, target)) continue;
+                    tag != WriteTag(parent, context.MessageName, target, context.UserId)) continue;
+                if (IsRevisionApi(parent))
+                {
+                    if (RegisteredRevisionApi(service, parent.MessageName)) return true;
+                    continue;
+                }
                 var extension = parent.OwningExtension;
+                if (extension == null) continue;
                 EntityReference handler = null;
                 if (extension.LogicalName == "sdkmessageprocessingstep")
                     handler = service.Retrieve(extension.LogicalName, extension.Id, new ColumnSet("eventhandler"))
@@ -46,19 +52,43 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                     type == typeof(RulePublishPlugin).FullName) return true;
                 if (parent.Stage == 20 && new[] { "Create", "Update", "Delete" }.Contains(parent.MessageName) &&
                     PublicationSchema.IsConfig(parent.PrimaryEntityName) && type == typeof(RuleRevisionGuardPlugin).FullName) return true;
-                if (parent.Stage == 30 && (parent.MessageName == "asx_RestoreRuleDraft" || parent.MessageName == "asx_InitializeRuleRevisions") &&
-                    type == typeof(RuleRevisionApi).FullName) return true;
             }
             return false;
         }
 
-        public static string WriteTag(IPluginExecutionContext owner, string message, EntityReference target)
+        public static string WriteTag(IPluginExecutionContext owner, string message, EntityReference target, Guid executor)
         {
-            var identity = owner.CorrelationId + ":" + owner.OwningExtension?.Id + ":" +
+            // Global Custom API parent frames can omit the executing extension and normalize
+            // the empty primary entity. Resolve their main handler from API registration instead.
+            var api = IsRevisionApi(owner);
+            var identity = api
+                ? owner.CorrelationId + ":" + owner.MessageName + ":" + owner.InitiatingUserId + ":" +
+                    executor + ":" + message + ":" + target.LogicalName + ":" + target.Id
+                : owner.CorrelationId + ":" + owner.OwningExtension?.Id + ":" +
                 owner.MessageName + ":" + owner.PrimaryEntityName + ":" + owner.PrimaryEntityId + ":" +
-                owner.InitiatingUserId + ":" + message + ":" + target.LogicalName + ":" + target.Id;
+                owner.InitiatingUserId + ":" + executor + ":" + message + ":" + target.LogicalName + ":" + target.Id;
             using (var hash = SHA256.Create())
-                return "Ascentix.RuleRevisionWrite.v1:" + BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(identity))).Replace("-", "");
+                return (api ? "Ascentix.RuleRevisionApiWrite.v2:" : "Ascentix.RuleRevisionWrite.v2:") +
+                    BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(identity))).Replace("-", "");
+        }
+
+        private static bool IsRevisionApi(IPluginExecutionContext context) => context.Stage == 30 &&
+            (context.MessageName == "asx_RestoreRuleDraft" || context.MessageName == "asx_InitializeRuleRevisions");
+
+        private static bool RegisteredRevisionApi(IOrganizationService service, string message)
+        {
+            var query = new QueryExpression("customapi") { TopCount = 2,
+                ColumnSet = new ColumnSet("plugintypeid", "bindingtype", "isfunction", "allowedcustomprocessingsteptype") };
+            query.Criteria.AddCondition("uniquename", ConditionOperator.Equal, message);
+            var registrations = service.RetrieveMultiple(query).Entities;
+            if (registrations.Count != 1) return false;
+            var api = registrations[0];
+            if (api.GetAttributeValue<OptionSetValue>("bindingtype")?.Value != 0 ||
+                !api.Contains("isfunction") || api.GetAttributeValue<bool>("isfunction") ||
+                api.GetAttributeValue<OptionSetValue>("allowedcustomprocessingsteptype")?.Value != 0) return false;
+            var handler = api.GetAttributeValue<EntityReference>("plugintypeid");
+            return handler?.LogicalName == "plugintype" &&
+                service.Retrieve("plugintype", handler.Id, new ColumnSet("typename")).GetAttributeValue<string>("typename") == typeof(RuleRevisionApi).FullName;
         }
 
         public static void Internal(IPluginExecutionContext context, IOrganizationService service, Action<IOrganizationService> action)
@@ -116,11 +146,15 @@ namespace Ascentix.RulesEngine.Plugin.Publication
         {
             private readonly IOrganizationService service;
             private readonly IPluginExecutionContext owner;
+            private Guid? executor;
             public InternalWriter(IOrganizationService service, IPluginExecutionContext owner)
             { this.service = service; this.owner = owner; }
             private OrganizationResponse Send(OrganizationRequest request, EntityReference target)
             {
-                request["tag"] = WriteTag(owner, request.RequestName, target);
+                // System-service child pipelines can report a different initiating user.
+                // Bind authorization to the identity of the service that actually sends the write.
+                if (!executor.HasValue) executor = ((WhoAmIResponse)service.Execute(new WhoAmIRequest())).UserId;
+                request["tag"] = WriteTag(owner, request.RequestName, target, executor.Value);
                 return service.Execute(request);
             }
             public Guid Create(Entity entity) => ((CreateResponse)Send(new CreateRequest { Target = entity }, entity.ToEntityReference())).id;
