@@ -36,11 +36,11 @@ test("triggers, trigger columns, and effective-from edited in the inspector pers
       .or(frame.getByRole("option", { name: /\(name\)$/ })).first().click();
     await page.keyboard.press("Escape");
 
-    // Effective from (date input).
-    await frame.getByRole("textbox", { name: "Effective from" }).fill("2026-01-01");
+    // Effective from is an exact UTC date and time by default.
+    await frame.getByLabel("Effective from", { exact: true }).fill("2026-01-01T17:30");
 
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
-    await frame.getByRole("button", { name: "Save" }).click();
+    await frame.getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const api = createDevApi();
@@ -53,7 +53,7 @@ test("triggers, trigger columns, and effective-from edited in the inspector pers
     expect(triggerValues).toEqual(["3", "4"]); // Manual + OnUpdate
     expect(String(rule.asx_triggercolumns)).toContain("name");
     expect(rule.asx_effectivefrom).toBeTruthy();
-    expect(String(rule.asx_effectivefrom)).toContain("2026-01-01");
+    expect(new Date(String(rule.asx_effectivefrom)).toISOString()).toBe("2026-01-01T17:30:00.000Z");
   } finally {
     await fixture.cleanup();
   }

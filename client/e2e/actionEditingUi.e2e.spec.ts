@@ -60,7 +60,7 @@ test("action row controls: severity, fire-on, Active off, reorder and delete all
     // Active is a Switch; unchecking it must survive the round-trip as asx_isactive = false.
     await frame.getByRole("switch", { name: "Active" }).uncheck();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     let rows = await actionsOf(fixture.ruleId);
@@ -79,7 +79,7 @@ test("action row controls: severity, fire-on, Active off, reorder and delete all
     await secondRow.hover();
     await secondRow.getByRole("button", { name: "Move up" }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     rows = await actionsOf(fixture.ruleId);
@@ -92,7 +92,7 @@ test("action row controls: severity, fire-on, Active off, reorder and delete all
     await topRow.hover();
     await topRow.getByRole("button", { name: "Delete action" }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     rows = await actionsOf(fixture.ruleId);
@@ -125,7 +125,7 @@ test("localized message authored in the UI persists as an asx_localizedmessage c
     await row.getByRole("textbox").fill("ZZ_RB message en français");
 
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const acts = await api.retrieveMultipleRecords(

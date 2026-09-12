@@ -124,7 +124,7 @@ export async function openConfigFromHub(page: Page, appId: string, cfgName: stri
 }
 
 // The header command bar (Save / Reload / Validate / Publish). ALWAYS go through this rather
-// than a frame-wide getByRole("button", { name: "Save" }): the GraphTree's action rows are
+// than a frame-wide getByRole("button", { name: "Save", exact: true }): the GraphTree's action rows are
 // themselves role="button" and their accessible name is derived from their contents, so a rule
 // carrying a Block action produces a row named "Edit action 2: Block save", which a frame-wide
 // non-exact "Save" match picks up as a second element and strict mode rejects. (Hit for real
@@ -135,9 +135,9 @@ export function toolbar(frame: FrameLocator): Locator {
 
 // The proven Save → Validate → Publish sequence (banner strings from RuleEditorApp).
 export async function saveValidatePublish(frame: FrameLocator): Promise<void> {
-  await toolbar(frame).getByRole("button", { name: "Save" }).click();
+  await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
   await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
-  await toolbar(frame).getByRole("button", { name: "Validate" }).click();
+  await toolbar(frame).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
   await expect(frame.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
   // exact: true, because role-name matching is SUBSTRING based, and the toolbar also carries
   // an "Unpublish" button, so a bare "Publish" is a strict-mode violation. Same trap as the

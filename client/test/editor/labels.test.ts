@@ -61,6 +61,11 @@ describe("actionEffect", () => {
   it("classifies write actions", () => {
     expect(actionEffect(act({ actionType: "CreateRecord" })).kind).toBe("write");
   });
+  it.each([1, 2, 3])("marks a field message as form-blocking at severity %i", (severity) => {
+    expect(actionEffect(act({ targetColumn: "name", severity }))).toEqual({ kind: "block", label: "Blocks form save" });
+    expect(actionWhatHappens(act({ targetColumn: "name", severity }))).toContain("regardless of severity");
+    expect(actionWhatHappens(act({ severity }))).toContain("save still allowed");
+  });
 });
 
 describe("actionWhatHappens", () => {
@@ -69,10 +74,11 @@ describe("actionWhatHappens", () => {
     targetTable: null, targetNodeId: null, message: null, fieldMapping: null, value: null,
     applyInverseWhenNotFired: null, severity: null, isActive: true, localizedMessages: [], ...p,
   });
-  it("describes a field-targeted warning that does not block", () => {
+  it("describes a field-targeted warning that blocks this form", () => {
     const s = actionWhatHappens(act({ actionType: "ShowMessage", severity: 2, targetColumn: "region" }));
     expect(s).toContain("region");
-    expect(s).toContain("save still allowed");
+    expect(s).toContain("blocks this form's save");
+    expect(s).not.toContain("save still allowed");
   });
   it("describes a block", () => {
     expect(actionWhatHappens(act({ actionType: "Block" }))).toContain("prevents the save");

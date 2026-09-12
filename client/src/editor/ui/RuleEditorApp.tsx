@@ -40,6 +40,10 @@ import { SYSTEM_CHOICE } from "./choiceLabels";
 import { useEditorStyles } from "./styles";
 import { useIsWide } from "./useIsWide";
 import { color } from "./tokens";
+import { useEditHistory } from "./useEditHistory";
+import { recoveryKey, useRuleRecovery } from "./useRuleRecovery";
+import { ReviewChangesDialog } from "./ReviewChangesDialog";
+import { reserveTempIds } from "../model/ids";
 
 const clone = (g: RuleGraph): RuleGraph => JSON.parse(JSON.stringify(g));
 // Deterministic-enough unique ids for batch/changeset boundaries.
@@ -81,7 +85,9 @@ export function RuleEditorApp({
   const resolve = React.useMemo(() => makeValueLabelResolver(valueLabels), [valueLabels]);
   const seededManual = React.useMemo(() => seedManualNames(initialGraph, resolve), [initialGraph, resolve]);
   const [snapshot, setSnapshot] = React.useState<RuleGraph>(() => reconcileAutoNames(clone(initialGraph), seededManual, resolve));
-  const [working, setWorking] = React.useState<RuleGraph>(() => reconcileAutoNames(clone(initialGraph), seededManual, resolve));
+  const history = useEditHistory<RuleGraph>(() => reconcileAutoNames(clone(initialGraph), seededManual, resolve));
+  const working = history.value;
+  const [serverStatus, setServerStatus] = React.useState(initialGraph.rule.statusCode);
   const [manual, setManual] = React.useState<Set<string>>(seededManual);
   const manualRef = React.useRef(manual);
   manualRef.current = manual;
@@ -89,6 +95,8 @@ export function RuleEditorApp({
   workingRef.current = working;
   const [selection, setSelection] = React.useState<Selection>({ kind: "rule" });
   const [busy, setBusy] = React.useState(false);
+  const published = serverStatus === 753840000;
+  const [reviewOpen, setReviewOpen] = React.useState(false);
   const [banner, setBanner] = React.useState<{ intent: "success" | "error" | "warning"; text: string } | null>(null);
   const [renaming, setRenaming] = React.useState(false);
   const [nameDraft, setNameDraft] = React.useState("");
@@ -108,7 +116,30 @@ export function RuleEditorApp({
   const closePanel = () => { setSelection({ kind: "rule" }); setPanelOpen(false); };
 
   const dirty = JSON.stringify(snapshot) !== JSON.stringify(working);
-  const { confirmNavigate, guardDialog } = useUnsavedGuard(dirty);
+  const recovery = useRuleRecovery(recoveryKey(api.getClientUrl?.() ?? window.location.origin, initialGraph.rule.id), snapshot, working);
+  const editable = !published && !busy && !recovery.pending;
+  const setWorking: React.Dispatch<React.SetStateAction<RuleGraph>> = (value) => {
+    if (editable) history.set(value);
+  };
+  const { confirmNavigate: guardNavigate, guardDialog } = useUnsavedGuard(dirty);
+  const confirmNavigate = (action: () => void) => guardNavigate(() => {
+    if (dirty) recovery.clear();
+    action();
+  });
+  React.useEffect(() => {
+    const names = seedManualNames(working, resolve);
+    manualRef.current = names;
+    setManual(names);
+  }, [working, resolve]);
+
+  function restoreRecovery() {
+    if (!recovery.pending) return;
+    reserveTempIds(recovery.pending.working);
+    setSnapshot(recovery.pending.snapshot);
+    history.reset(recovery.pending.working);
+    recovery.dismiss();
+    setBanner({ intent: "warning", text: "Recovered unsaved edits. They have not been saved. If the rule changed elsewhere, review and copy your changes before reloading." });
+  }
 
   // Invalidate stale validation result whenever the working graph changes after a validate.
   React.useEffect(() => {
@@ -146,181 +177,122 @@ export function RuleEditorApp({
     onMoveAction: (id, dir) => setWorking((g) => moveAction(g, id, dir)),
   };
 
+  async function acceptFresh(fresh: RuleGraph) {
+    const vl = await loadValueLabels(fresh);
+    setValueLabels(vl);
+    const resolver = makeValueLabelResolver(vl);
+    const names = seedManualNames(fresh, resolver);
+    manualRef.current = names;
+    setManual(names);
+    const graph = reconcileAutoNames(clone(fresh), names, resolver);
+    setSnapshot(graph);
+    history.reset(clone(graph));
+    setServerStatus(fresh.rule.statusCode);
+    setSelection({ kind: "rule" });
+  }
+
+  function reportSaveFailure(result: SaveResult): boolean {
+    if (result.status === "conflict") {
+      setBanner({ intent: "warning", text: "This rule changed elsewhere. Your edits are still here. Review and copy your changes before reloading the current version." });
+      return true;
+    }
+    if (result.status === "error") {
+      setBanner({ intent: "error", text: `Save failed: ${result.message ?? "unknown error"}` });
+      return true;
+    }
+    return false;
+  }
+
   async function onSave() {
+    if (!editable) return;
     setBusy(true);
     setBanner(null);
     try {
-      const res: SaveResult = await saveRuleGraph(api, snapshot, working, nextIds());
-      if (res.status === "noop") {
-        setBanner({ intent: "success", text: "Nothing to save." });
-      } else if (res.status === "saved") {
-        const fresh = await reload();
-        const vl = await loadValueLabels(fresh);
-        setValueLabels(vl);
-        const r = makeValueLabelResolver(vl);
-        const m = seedManualNames(fresh, r);
-        manualRef.current = m;
-        setManual(m);
-        setSnapshot(reconcileAutoNames(clone(fresh), m, r));
-        setWorking(reconcileAutoNames(clone(fresh), m, r));
-        setSelection({ kind: "rule" });
-        setBanner({ intent: "success", text: "Saved." });
-      } else if (res.status === "conflict") {
-        setBanner({ intent: "warning", text: `This rule changed elsewhere. Reload before saving. ${res.message ?? ""}` });
-      } else {
-        setBanner({ intent: "error", text: `Save failed: ${res.message ?? "unknown error"}` });
-      }
+      const result = await saveRuleGraph(api, snapshot, workingRef.current, nextIds());
+      if (reportSaveFailure(result)) return;
+      if (result.status === "saved") await acceptFresh(await reload());
+      setBanner({ intent: "success", text: result.status === "noop" ? "Nothing to save." : "Saved." });
     } catch (e) {
-      setBanner({ intent: "error", text: `Save failed: ${formatError(e)}` });
-    } finally {
-      setBusy(false);
-    }
+      setBanner({ intent: "error", text: `Save or refresh failed: ${formatError(e)}. Your local edits are retained; review them before reloading.` });
+    } finally { setBusy(false); }
   }
 
   async function onReload() {
     setBusy(true);
     try {
-      const fresh = await reload();
-      const vl = await loadValueLabels(fresh);
-      setValueLabels(vl);
-      const r = makeValueLabelResolver(vl);
-      const m = seedManualNames(fresh, r);
-      manualRef.current = m;
-      setManual(m);
-      setSnapshot(reconcileAutoNames(clone(fresh), m, r));
-      setWorking(reconcileAutoNames(clone(fresh), m, r));
-      setSelection({ kind: "rule" });
+      await acceptFresh(await reload());
       setBanner(null);
     } catch (e) {
-      // Without this, a failed reload is an unhandled rejection and the app
-      // silently keeps stale state.
       setBanner({ intent: "error", text: `Reload failed: ${formatError(e)}` });
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   }
 
   async function onValidate() {
+    if (busy || recovery.pending || (published && dirty)) return;
     setBusy(true);
     setBanner(null);
     try {
-      // Save first if dirty: the API validates persisted state.
-      if (JSON.stringify(snapshot) !== JSON.stringify(workingRef.current)) {
-        const saveRes = await saveRuleGraph(api, snapshot, workingRef.current, nextIds());
-        if (saveRes.status === "conflict") {
-          setBanner({ intent: "warning", text: `Save before validate: ${saveRes.message ?? "conflict"}.` });
-          return;
-        }
-        if (saveRes.status === "error") {
-          setBanner({ intent: "error", text: `Save before validate failed: ${saveRes.message ?? "unknown error"}.` });
-          return;
-        }
-        if (saveRes.status === "saved") {
-          const fresh = await reload();
-          const vl = await loadValueLabels(fresh);
-          setValueLabels(vl);
-          const r = makeValueLabelResolver(vl);
-          const m = seedManualNames(fresh, r);
-          manualRef.current = m;
-          setManual(m);
-          setSnapshot(reconcileAutoNames(clone(fresh), m, r));
-          setWorking(reconcileAutoNames(clone(fresh), m, r));
-          setSelection({ kind: "rule" });
-        }
+      if (dirty) {
+        const result = await saveRuleGraph(api, snapshot, workingRef.current, nextIds());
+        if (reportSaveFailure(result)) return;
+        if (result.status === "saved") await acceptFresh(await reload());
       }
-      const ruleId = working.rule.id;
-      const result = await api.validateRule(ruleId);
+      const result = await api.validateRule(working.rule.id);
       setValidationResult(result);
-      if (result.isValid) {
-        setBanner({ intent: "success", text: "Validation passed. The rule is valid." });
-      } else {
-        setBanner({ intent: "warning", text: `Validation found ${result.issues.length} issue${result.issues.length === 1 ? "" : "s"}.` });
-      }
+      setBanner(result.isValid
+        ? { intent: "success", text: "Validation passed. The rule is valid." }
+        : { intent: "warning", text: `Validation found ${result.issues.length} issue${result.issues.length === 1 ? "" : "s"}.` });
     } catch (e) {
       setBanner({ intent: "error", text: `Validate failed: ${formatError(e)}` });
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   }
 
   async function onPublish() {
-    if (!validationResult?.isValid) return;
+    if (busy || recovery.pending || published || dirty || !validationResult?.isValid) return;
     setBusy(true);
     setBanner(null);
     try {
-      // Re-validate (save-if-dirty first) to confirm state is still valid.
-      if (JSON.stringify(snapshot) !== JSON.stringify(workingRef.current)) {
-        const saveRes = await saveRuleGraph(api, snapshot, workingRef.current, nextIds());
-        if (saveRes.status === "conflict" || saveRes.status === "error") {
-          setBanner({ intent: "error", text: `Save before publish failed: ${saveRes.message ?? "unknown error"}.` });
-          return;
-        }
-        if (saveRes.status === "saved") {
-          const fresh = await reload();
-          const vl = await loadValueLabels(fresh);
-          setValueLabels(vl);
-          const r = makeValueLabelResolver(vl);
-          const m = seedManualNames(fresh, r);
-          manualRef.current = m;
-          setManual(m);
-          setSnapshot(reconcileAutoNames(clone(fresh), m, r));
-          setWorking(reconcileAutoNames(clone(fresh), m, r));
-          setSelection({ kind: "rule" });
-        }
-      }
-      const ruleId = working.rule.id;
-      const recheck = await api.validateRule(ruleId);
-      setValidationResult(recheck);
-      if (!recheck.isValid) {
-        setBanner({ intent: "warning", text: `Cannot publish. Validation found ${recheck.issues.length} issue${recheck.issues.length === 1 ? "" : "s"}.` });
+      const result = await api.validateRule(working.rule.id);
+      setValidationResult(result);
+      if (!result.isValid) {
+        setBanner({ intent: "warning", text: `Cannot publish. Validation found ${result.issues.length} issue${result.issues.length === 1 ? "" : "s"}.` });
         return;
       }
-      await api.publishRule(ruleId);
-      // Reload to reflect the new Published status.
-      const fresh = await reload();
-      const vl = await loadValueLabels(fresh);
-      setValueLabels(vl);
-      const r = makeValueLabelResolver(vl);
-      const m = seedManualNames(fresh, r);
-      manualRef.current = m;
-      setManual(m);
-      setSnapshot(reconcileAutoNames(clone(fresh), m, r));
-      setWorking(reconcileAutoNames(clone(fresh), m, r));
-      setSelection({ kind: "rule" });
+      await api.publishRule(working.rule.id, snapshot.rule.etag);
+      setServerStatus(753840000);
+      await acceptFresh(await reload());
       setBanner({ intent: "success", text: "Rule published successfully." });
     } catch (e) {
       setBanner({ intent: "error", text: `Publish failed: ${formatError(e)}` });
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   }
 
-  // Release a Published rule back to Draft. The inverse of onPublish: no validation is involved
-  // (a rule that stops being enforced can't break anything), so this is just the status PATCH
-  // plus the same reload-then-banner sequence.
   async function onUnpublish() {
     setUnpublishOpen(false);
+    if (busy || recovery.pending || !published) return;
     setBusy(true);
     setBanner(null);
+    const pending = clone(workingRef.current);
     try {
-      await api.unpublishRule(working.rule.id);
-      // Reload to reflect the new Draft status.
+      const before = await reload();
+      await api.unpublishRule(working.rule.id, before.rule.etag);
       const fresh = await reload();
-      const vl = await loadValueLabels(fresh);
-      setValueLabels(vl);
-      const r = makeValueLabelResolver(vl);
-      const m = seedManualNames(fresh, r);
-      manualRef.current = m;
-      setManual(m);
-      setSnapshot(reconcileAutoNames(clone(fresh), m, r));
-      setWorking(reconcileAutoNames(clone(fresh), m, r));
-      setSelection({ kind: "rule" });
-      setBanner({ intent: "success", text: "Rule unpublished. It is back to Draft and no longer enforced." });
+      setServerStatus(fresh.rule.statusCode);
+      if (dirty) {
+        // Only advance the baseline ETag when the pre-unpublish version was ours.
+        // Older recovered edits retain their stale version and still conflict on save.
+        const etag = snapshot.rule.etag === before.rule.etag ? fresh.rule.etag : snapshot.rule.etag;
+        setSnapshot({ ...snapshot, rule: { ...snapshot.rule, statusCode: 1, etag } });
+        history.reset({ ...pending, rule: { ...pending.rule, statusCode: 1, etag } });
+      } else {
+        await acceptFresh(fresh);
+      }
+      setBanner({ intent: "success", text: dirty
+        ? "Rule unpublished. Enforcement has stopped. Your unsaved edits are preserved; review and save them before publishing again."
+        : "Rule unpublished. It is back to Draft and no longer enforced." });
     } catch (e) {
-      setBanner({ intent: "error", text: `Unpublish failed: ${formatError(e)}` });
-    } finally {
-      setBusy(false);
-    }
+      setBanner({ intent: "error", text: `Unpublish or refresh failed: ${formatError(e)}. Your local edits are retained. Reload to confirm the current status.` });
+    } finally { setBusy(false); }
   }
 
   // Build a map of issues by target id for inline rendering.
@@ -352,6 +324,9 @@ export function RuleEditorApp({
     onRemoveTranslation: (id: string, tid: string) => setWorking((g) => removeTranslation(g, id, tid)),
   };
   const content = ruleEditorInspectorContent(working, selection, inspectorHandlers);
+  const inspectorBody = <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+    {content.body}
+  </fieldset>;
   const selectedId = !!selection && (selection.kind === "group" || selection.kind === "condition" || selection.kind === "action") ? selection.id : undefined;
   const panelIssues = selectedId ? <IssueCallout issues={issuesByTargetId?.get(selectedId) ?? []} /> : undefined;
 
@@ -400,31 +375,30 @@ export function RuleEditorApp({
                         <Button
                           appearance="subtle" size="small" icon={<Edit16Regular />}
                           aria-label="Rename rule"
+                          disabled={!editable}
                           onClick={() => { cancelledRef.current = false; setNameDraft(working.rule.name ?? ""); setRenaming(true); }}
                         />
                       </>
                     )}
-                    <StatusBadge statusCode={working.rule.statusCode} />
+                    <StatusBadge statusCode={serverStatus} />
                   </div>
                 </div>
               }
               actions={
                 <div aria-busy={busy} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   {dirty && <UnsavedPill />}
-                  <Button appearance="primary" disabled={busy || !dirty} onClick={onSave}>Save</Button>
-                  <Button disabled={busy} onClick={() => confirmNavigate(onReload)}>Reload</Button>
-                  <Button disabled={busy} onClick={onValidate}>Validate</Button>
+                  <Button appearance="primary" disabled={!editable || !dirty} onClick={onSave}>Save</Button>
+                  <Button disabled={busy} onClick={() => guardNavigate(onReload)}>Reload</Button>
+                  <Button disabled={busy || !!recovery.pending || (published && dirty)} onClick={onValidate}>{dirty ? "Save & validate" : "Validate"}</Button>
                   <Button
                     appearance="primary"
-                    disabled={busy || dirty || !validationResult?.isValid}
+                    disabled={busy || !!recovery.pending || published || dirty || !validationResult?.isValid}
                     onClick={onPublish}
                   >
                     Publish
                   </Button>
-                  {/* Alongside Publish, never instead of it: re-publishing an edited Published
-                      rule is a real flow (e2e/authorToEnforce). Draft = 1 (docs/Schema.md §2.1). */}
                   <Button
-                    disabled={busy || working.rule.statusCode !== 753840000}
+                    disabled={busy || !!recovery.pending || !published}
                     onClick={() => setUnpublishOpen(true)}
                   >
                     Unpublish
@@ -432,10 +406,26 @@ export function RuleEditorApp({
                 </div>
               }
             />
+            <div aria-label="Edit history" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+              <Button size="small" disabled={!editable || !history.canUndo} onClick={() => { history.undo(); setSelection({ kind: "rule" }); }}>Undo</Button>
+              <Button size="small" disabled={!editable || !history.canRedo} onClick={() => { history.redo(); setSelection({ kind: "rule" }); }}>Redo</Button>
+              <Button size="small" disabled={busy || !dirty} onClick={() => setReviewOpen(true)}>Review changes</Button>
+            </div>
           </div>
         }
       >
         <div style={{ padding: "0 24px 24px" }}>
+          {published && <Callout intent="info" title="Published rule — read-only">
+            Unpublish to edit this rule. Its enforcement and automation will stop until you save, validate, and publish it again.
+          </Callout>}
+          {recovery.pending && <Callout intent="warning" title="Unsaved work is available from this browser tab">
+            <p>Restore your previous edits or discard the recovery copy. Restoring does not save or publish anything.</p>
+            <Button disabled={busy} onClick={restoreRecovery}>Restore edits</Button>{" "}
+            <Button disabled={busy} onClick={recovery.dismiss}>Discard recovery</Button>
+          </Callout>}
+          {recovery.unavailable && <Callout intent="warning">
+            Browser recovery is unavailable. Use Review changes to copy your edits before leaving or reloading.
+          </Callout>}
           {/* Properties strip */}
           <div style={{
             marginTop: 16, background: color.canvas, border: `1px solid ${color.line}`, borderRadius: 8,
@@ -478,28 +468,30 @@ export function RuleEditorApp({
             open={unpublishOpen}
             name={working.rule.name || "(unnamed rule)"}
             table={working.rule.tableLogicalName}
+            dirty={dirty}
             onCancel={() => setUnpublishOpen(false)}
             onConfirm={onUnpublish}
           />
+          <ReviewChangesDialog open={reviewOpen} snapshot={snapshot} working={working} onClose={() => setReviewOpen(false)} />
 
           {/* Always mounted so the aria-live status region exists before results arrive (4.1.3). */}
           <ValidationIssuesPanel issues={validationResult?.issues ?? []} />
 
           <div style={{ display: "flex", gap: 18, marginTop: 18, alignItems: "flex-start" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <fieldset disabled={!editable} style={{ display: "flex", flexDirection: "column", gap: 14, border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                 <GraphTree graph={working} selection={selection} handlers={handlers} issuesByTargetId={issuesByTargetId} />
-              </div>
+              </fieldset>
             </div>
             {wide ? (
               <InspectorShell mode="docked" header={content.header} issues={panelIssues}
                 onClose={!!selection && selection.kind !== "rule" ? closePanel : undefined}>
-                {content.body}
+                {inspectorBody}
               </InspectorShell>
             ) : (
               <InspectorShell mode="overlay" open={overlayOpen} header={content.header} issues={panelIssues}
                 onClose={closePanel}>
-                {content.body}
+                {inspectorBody}
               </InspectorShell>
             )}
           </div>

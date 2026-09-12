@@ -190,7 +190,7 @@ test("the ref source links the created row to a config node and persists { sourc
     await expect(mapDialog(frame).getByText("Ready to apply")).toBeVisible();
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const action = await actionOf(rule.ruleId);
@@ -220,7 +220,7 @@ test("the ref source links the created row to a config node and persists { sourc
 
     // Last, so a failure here is unambiguous: the payload persisted and round-tripped, and it is
     // the SERVER validator that rejected it.
-    await toolbar(reloaded).getByRole("button", { name: "Validate" }).click();
+    await toolbar(reloaded).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
     await expect(reloaded.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
   } finally {
     await deleteRuleCascade(rule.ruleId); // the UI-created action isn't tracked by the fixture
@@ -266,7 +266,7 @@ test("the node source copies a related record's column and persists { source: no
     await expect(mapDialog(frame).getByText("Ready to apply")).toBeVisible();
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     const mapping = JSON.parse(String((await actionOf(rule.ruleId)).asx_fieldmapping)) as MappingEntry[];
@@ -287,7 +287,7 @@ test("the node source copies a related record's column and persists { source: no
     await expect(reloaded.getByRole("combobox", { name: /^Column for/ })).toHaveValue(/\(sample_creditlimit\)/);
 
     await mapDialog(reloaded).getByRole("button", { name: "Cancel", exact: true }).click();
-    await toolbar(reloaded).getByRole("button", { name: "Validate" }).click();
+    await toolbar(reloaded).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
     await expect(reloaded.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
   } finally {
     await deleteRuleCascade(rule.ruleId);
@@ -349,7 +349,7 @@ test("an incomplete mapping row blocks Apply with an inline error, and completin
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
     await expect(mapDialog(frame), "with every row complete Apply must close the dialog").toBeHidden();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
+    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     // BOTH rows persisted, in list order. This is the half that proves the refusal cost nothing:

@@ -35,7 +35,7 @@ test("rename config, add child node via Add related, save; in-use node delete is
     await frame.getByText("sample_orderline").first().click();
     const nodeName = frame.getByRole("textbox", { name: "Node name" });
     await nodeName.fill("ZZ_RB_tcui_line");
-    await frame.getByRole("button", { name: "Save" }).click();
+    await frame.getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
 
     // API-verify persistence: one child node, correct type + link field, renamed root.

@@ -134,10 +134,15 @@ export function deriveGroupName(
 }
 
 export type ActionEffectKind = "block" | "warn" | "info" | "form" | "write";
+export function messageBlocksForm(a: ActionNode): boolean {
+  return a.actionType === "ShowMessage" && !!a.targetColumn;
+}
+
 export function actionEffect(a: ActionNode): { kind: ActionEffectKind; label: string } {
   switch (a.actionType) {
     case "Block": return { kind: "block", label: "Blocks save" };
     case "ShowMessage":
+      if (messageBlocksForm(a)) return { kind: "block", label: "Blocks form save" };
       return a.severity === 3
         ? { kind: "warn", label: "Error · won't block" }
         : a.severity === 2
@@ -206,8 +211,10 @@ export function actionWhatHappens(a: ActionNode): string {
       return `${when} → shows the message and prevents the save (server-enforced).`;
     case "ShowMessage": {
       const sev = SEVERITY_WORD[a.severity ?? 1] ?? "notice";
-      const where = a.targetColumn ? `inline ${sev} on "${a.targetColumn}"` : `${sev} form banner`;
-      return `${when} → ${where}; save still allowed.`;
+      if (messageBlocksForm(a)) {
+        return `${when} → inline error on "${a.targetColumn}"; blocks this form's save while shown, regardless of severity. This message does not enforce server-side validation.`;
+      }
+      return `${when} → ${sev} form banner; save still allowed.`;
     }
     case "SetVisible":
       return `${when} → sets "${a.targetColumn ?? "(field)"}" ${a.value ? "visible" : "hidden"}.`;

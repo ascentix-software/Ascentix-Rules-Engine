@@ -4,7 +4,7 @@ import type { ActionNode, ActionTypeLabel, TableConfigRef } from "../../model/ty
 import { isSingleCardinality } from "../../model/tableConfigOps";
 import { TablePicker, ColumnPicker } from "../pickers/MetadataPickers";
 import { FieldMappingControl } from "./FieldMappingDialog";
-import { actionWhatHappens, actionEffect } from "../labels";
+import { actionWhatHappens, actionEffect, messageBlocksForm } from "../labels";
 import { useChoiceLabel } from "../useSystemChoices";
 import { SYSTEM_CHOICE } from "../choiceLabels";
 import { actionTypeValue } from "../../model/enums";
@@ -166,7 +166,7 @@ export function ActionInspector({
               and "blocks the save" are the same act, whatever severity the author picks;
               say so here, next to the choice that causes it. Informational, not a
               validation issue: it never gates Save or Publish. */}
-          {action.targetColumn && (
+          {messageBlocksForm(action) && (
             <Callout intent="info" title="A message on a field also holds the save">
               While this action is firing, the message sits on the field and the record
               can't be saved until the condition stops matching. That's how model-driven
