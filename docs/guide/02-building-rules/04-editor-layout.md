@@ -21,11 +21,14 @@ and the WHEN/THEN zones that hold the rule body.
 A **breadcrumb** back to the hub, the rule's **name**, a
 **Draft**/**Published** status badge, and the header actions:
 
-- **Save**: writes changes to the server.
+- **Save**: writes draft changes to the server while any published revision stays active.
 - **Reload**: discards in-memory edits and re-fetches the rule from the
   server.
 - **Validate**: runs the rule through the validator without publishing.
-- **Publish**: validates and, if it passes, moves the rule to Published.
+- **Publish**: validates the saved draft and makes it the next published revision.
+- **View published / Back to draft**: switches between the frozen definition and the editable draft.
+- **Restore published to draft**: replaces draft changes after confirmation, without changing enforcement.
+- **Unpublish**: explicitly stops enforcement.
 
 See *Validating & Publishing* for what those checks cover.
 

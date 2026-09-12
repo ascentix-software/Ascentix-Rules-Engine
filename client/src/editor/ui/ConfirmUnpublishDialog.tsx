@@ -16,7 +16,7 @@ export function ConfirmUnpublishDialog({ open, name, table, dirty = false, onCan
         <DialogBody>
           <DialogTitle>Unpublish "{name}"?</DialogTitle>
           <DialogContent>
-            <p>All enforcement and automation from this rule on {table} will stop until you publish it again. Unpublishing returns it to Draft so you can edit it.</p>
+            <p>All enforcement and automation from this rule on {table} will stop until you publish it again. You can edit its draft without unpublishing.</p>
             {dirty && <p>Your unsaved edits will stay in this editor. Unpublishing does not save or discard them.</p>}
           </DialogContent>
           <DialogActions>

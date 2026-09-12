@@ -29,8 +29,12 @@ slug: installation
 
 Everything ships in the solution: the rule configuration tables, the plug-in
 assembly with its bootstrap registration steps, the Custom APIs, the model-driven app, the Rule Builder web resources, and the two security roles.
-The import adds no custom install steps, and there is no separate schema-deploy
-tool or step to run.
+Revision-enabled builds create their internal coordination record automatically.
+When upgrading an environment with existing published rules, an administrator must
+call `asx_InitializeRuleRevisions` until its `Remaining` output is zero before
+authoring resumes. This captures existing behavior without unpublishing any rule.
+The source deployment workflow performs this backfill automatically; a managed
+solution import alone does not run it.
 
 ## Assign roles
 

@@ -8,6 +8,11 @@ follow the codebase-design glossary and are not redefined here.
 
 - **Rule.** A published unit of behaviour on one **root table**: triggers, channels, an
   evaluation context, condition groups, actions. Lives in `asx_rule`.
+- **Draft.** The mutable normalized configuration of a rule, editable even while it is
+  Published. Repeated saves update the same draft.
+- **Published revision.** An immutable `asx_rulerevision` snapshot, including shared
+  model configuration. The rule's status enables enforcement of its published pointer;
+  saving a draft cannot change that behavior. Republish to switch to a new revision.
 - **Condition.** One test inside a condition group: FieldComparison, RowCount, RegexMatch,
   Expression (mathexpr). Reads one **node** of the rule's configuration tree and may carry a
   **node filter**.

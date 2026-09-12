@@ -20,6 +20,7 @@ trigger:
       - tests/**
       - pipelines/plugin-ci.yml
       - pipelines/Deploy-PluginAssembly.ps1
+      - pipelines/Deploy-RuleRevisions.ps1
       - pipelines/plugintypes.json
 
 pr: none
@@ -127,12 +128,15 @@ stages:
                     $token = az account get-access-token --resource $resource --query accessToken -o tsv
                     if ($LASTEXITCODE -ne 0 -or -not $token) { throw "Failed to acquire Dataverse access token" }
                     Write-Host "##vso[task.setsecret]$token"   # mask the token in logs (defense-in-depth)
+                    & "$(Build.SourcesDirectory)/pipelines/Deploy-RuleRevisions.ps1" -Phase Schema -EnvUrl $resource -AccessToken $token
                     & "$(Build.SourcesDirectory)/pipelines/Deploy-PluginAssembly.ps1" `
                       -DllPath "$(Build.SourcesDirectory)/$(pluginDll)" `
                       -EnvUrl "$(DATAVERSE_URL)" `
                       -AccessToken $token `
                       -AssemblyName "$(dataversePluginAssemblyName)" `
                       -PluginTypesManifest "$(Build.SourcesDirectory)/pipelines/plugintypes.json"
+                    & "$(Build.SourcesDirectory)/pipelines/Deploy-RuleRevisions.ps1" -Phase Register -EnvUrl $resource -AccessToken $token
+                    & "$(Build.SourcesDirectory)/pipelines/Deploy-RuleRevisions.ps1" -Phase Backfill -EnvUrl $resource -AccessToken $token
               # Queue the live-L2 verification run (single trigger path, deduped when a
               # cross-cutting merge deploys via both CI pipelines). See the template.
               - template: templates/queue-live-l2.yml

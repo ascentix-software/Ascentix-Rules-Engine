@@ -4,6 +4,7 @@ using System.Linq;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
 using Ascentix.RulesEngine.Plugin.Registration;
+using Ascentix.RulesEngine.Plugin.Publication;
 using Ascentix.RulesEngine.Schema;
 
 namespace Ascentix.RulesEngine.Plugin
@@ -33,6 +34,7 @@ namespace Ascentix.RulesEngine.Plugin
             if (localPluginContext == null) throw new ArgumentNullException(nameof(localPluginContext));
 
             var context = localPluginContext.PluginExecutionContext;
+            if (PublicationCoordinator.IsInternal(context, localPluginContext.SystemUserService)) return;
             // Registration writes system tables, so run as the system user.
             var service = localPluginContext.SystemUserService;
             var trace = localPluginContext.TracingService;

@@ -3,6 +3,8 @@ using System.Linq;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Resolution;
 using Ascentix.RulesEngine.Core.Validation;
+using Ascentix.RulesEngine.Core.Publication;
+using Ascentix.RulesEngine.Plugin.Publication;
 
 namespace Ascentix.RulesEngine.Plugin
 {
@@ -28,7 +30,9 @@ namespace Ascentix.RulesEngine.Plugin
             if (!Guid.TryParse(raw, out var ruleId))
                 throw new InvalidPluginExecutionException($"asx_ValidateRule: RuleId '{raw}' is not a valid GUID.");
 
-            var model = RuleValidationLoader.Load(service, ruleId);
+            PublicationCoordinator.Lock(service, context);
+            var snapshot = RuleSnapshot.Capture(service, ruleId);
+            var model = RuleValidationLoader.Load(new SnapshotService(service, snapshot), ruleId);
             if (model == null)
                 throw new InvalidPluginExecutionException($"asx_ValidateRule: rule '{ruleId}' was not found.");
 
@@ -46,6 +50,7 @@ namespace Ascentix.RulesEngine.Plugin
 
             context.OutputParameters["IsValid"] = combined.IsValid;
             context.OutputParameters["Issues"] = ValidationReportSerializer.Serialize(combined);
+            context.OutputParameters["DraftHash"] = snapshot.Hash();
         }
     }
 }

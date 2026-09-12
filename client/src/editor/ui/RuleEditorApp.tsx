@@ -2,6 +2,7 @@ import * as React from "react";
 import {
   Button,
   Input,
+  Dialog, DialogSurface, DialogBody, DialogTitle, DialogContent, DialogActions,
 } from "@fluentui/react-components";
 import { Edit16Regular } from "@fluentui/react-icons";
 import { AppProvider } from "./AppProvider";
@@ -44,6 +45,7 @@ import { useEditHistory } from "./useEditHistory";
 import { recoveryKey, useRuleRecovery } from "./useRuleRecovery";
 import { ReviewChangesDialog } from "./ReviewChangesDialog";
 import { reserveTempIds } from "../model/ids";
+import { loadPublishedGraph } from "../load/publishedGraph";
 
 const clone = (g: RuleGraph): RuleGraph => JSON.parse(JSON.stringify(g));
 // Deterministic-enough unique ids for batch/changeset boundaries.
@@ -97,13 +99,16 @@ export function RuleEditorApp({
   const [busy, setBusy] = React.useState(false);
   const published = serverStatus === 753840000;
   const [reviewOpen, setReviewOpen] = React.useState(false);
+  const [publishedView, setPublishedView] = React.useState<RuleGraph | null>(null);
+  const [restoreOpen, setRestoreOpen] = React.useState(false);
+  const displayed = publishedView ?? working;
   const [banner, setBanner] = React.useState<{ intent: "success" | "error" | "warning"; text: string } | null>(null);
   const [renaming, setRenaming] = React.useState(false);
   const [nameDraft, setNameDraft] = React.useState("");
   const [panelOpen, setPanelOpen] = React.useState(false);
   const [unpublishOpen, setUnpublishOpen] = React.useState(false);
   const [validationResult, setValidationResult] = React.useState<{
-    isValid: boolean; issues: ApiIssue[];
+    isValid: boolean; issues: ApiIssue[]; draftHash?: string;
   } | null>(null);
   const cancelledRef = React.useRef(false);
 
@@ -117,7 +122,7 @@ export function RuleEditorApp({
 
   const dirty = JSON.stringify(snapshot) !== JSON.stringify(working);
   const recovery = useRuleRecovery(recoveryKey(api.getClientUrl?.() ?? window.location.origin, initialGraph.rule.id), snapshot, working);
-  const editable = !published && !busy && !recovery.pending;
+  const editable = !publishedView && !busy && !recovery.pending;
   const setWorking: React.Dispatch<React.SetStateAction<RuleGraph>> = (value) => {
     if (editable) history.set(value);
   };
@@ -228,7 +233,7 @@ export function RuleEditorApp({
   }
 
   async function onValidate() {
-    if (busy || recovery.pending || (published && dirty)) return;
+    if (busy || recovery.pending || publishedView) return;
     setBusy(true);
     setBanner(null);
     try {
@@ -248,23 +253,40 @@ export function RuleEditorApp({
   }
 
   async function onPublish() {
-    if (busy || recovery.pending || published || dirty || !validationResult?.isValid) return;
+    if (busy || recovery.pending || publishedView || dirty || !validationResult?.isValid) return;
     setBusy(true);
     setBanner(null);
     try {
-      const result = await api.validateRule(working.rule.id);
-      setValidationResult(result);
-      if (!result.isValid) {
-        setBanner({ intent: "warning", text: `Cannot publish. Validation found ${result.issues.length} issue${result.issues.length === 1 ? "" : "s"}.` });
-        return;
-      }
-      await api.publishRule(working.rule.id, snapshot.rule.etag);
+      await api.publishRule(working.rule.id, snapshot.rule.etag, validationResult.draftHash);
       setServerStatus(753840000);
       await acceptFresh(await reload());
       setBanner({ intent: "success", text: "Rule published successfully." });
     } catch (e) {
       setBanner({ intent: "error", text: `Publish failed: ${formatError(e)}` });
     } finally { setBusy(false); }
+  }
+
+  async function onViewPublished() {
+    if (publishedView) { setPublishedView(null); setSelection({ kind: "rule" }); return; }
+    if (!api.readPublishedRule) return;
+    setBusy(true);
+    try {
+      setPublishedView(await loadPublishedGraph(await api.readPublishedRule(working.rule.id), working.rule.id));
+      setSelection({ kind: "rule" });
+    } catch (e) { setBanner({ intent: "error", text: `Could not load the published revision: ${formatError(e)}` }); }
+    finally { setBusy(false); }
+  }
+
+  async function onRestoreDraft() {
+    setRestoreOpen(false);
+    if (!api.restoreRuleDraft || !snapshot.rule.etag) return;
+    setBusy(true);
+    try {
+      await api.restoreRuleDraft(working.rule.id, snapshot.rule.etag);
+      await acceptFresh(await reload());
+      setBanner({ intent: "success", text: "Draft restored from the published revision. A private data-model copy was created. Published enforcement is unchanged." });
+    } catch (e) { setBanner({ intent: "error", text: `Restore failed: ${formatError(e)}. Your local edits are retained.` }); }
+    finally { setBusy(false); }
   }
 
   async function onUnpublish() {
@@ -323,7 +345,7 @@ export function RuleEditorApp({
     onUpdateTranslation: (id: string, tid: string, msg: string) => setWorking((g) => updateTranslation(g, id, tid, { message: msg })),
     onRemoveTranslation: (id: string, tid: string) => setWorking((g) => removeTranslation(g, id, tid)),
   };
-  const content = ruleEditorInspectorContent(working, selection, inspectorHandlers);
+  const content = ruleEditorInspectorContent(displayed, selection, inspectorHandlers);
   const inspectorBody = <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
     {content.body}
   </fieldset>;
@@ -345,7 +367,7 @@ export function RuleEditorApp({
             <TitleActionsRow stacked={titleStacked}
               left={
                 <div>
-                  <Eyebrow>Rule</Eyebrow>
+                  <Eyebrow>{publishedView ? "Published revision" : "Rule draft"}</Eyebrow>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 2 }}>
                     {renaming ? (
                       <Input
@@ -370,7 +392,7 @@ export function RuleEditorApp({
                     ) : (
                       <>
                         <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-.01em", color: color.ink }}>
-                          {working.rule.name || "(unnamed rule)"}
+                          {displayed.rule.name || "(unnamed rule)"}
                         </span>
                         <Button
                           appearance="subtle" size="small" icon={<Edit16Regular />}
@@ -381,6 +403,7 @@ export function RuleEditorApp({
                       </>
                     )}
                     <StatusBadge statusCode={serverStatus} />
+                    {!!working.rule.publishedVersion && <span>v{working.rule.publishedVersion}</span>}
                   </div>
                 </div>
               }
@@ -388,11 +411,11 @@ export function RuleEditorApp({
                 <div aria-busy={busy} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   {dirty && <UnsavedPill />}
                   <Button appearance="primary" disabled={!editable || !dirty} onClick={onSave}>Save</Button>
-                  <Button disabled={busy} onClick={() => guardNavigate(onReload)}>Reload</Button>
-                  <Button disabled={busy || !!recovery.pending || (published && dirty)} onClick={onValidate}>{dirty ? "Save & validate" : "Validate"}</Button>
+                  <Button disabled={busy || !!publishedView} onClick={() => guardNavigate(onReload)}>Reload</Button>
+                  <Button disabled={busy || !!recovery.pending || !!publishedView} onClick={onValidate}>{dirty ? "Save & validate" : "Validate"}</Button>
                   <Button
                     appearance="primary"
-                    disabled={busy || !!recovery.pending || published || dirty || !validationResult?.isValid}
+                    disabled={busy || !!recovery.pending || !!publishedView || dirty || !validationResult?.isValid}
                     onClick={onPublish}
                   >
                     Publish
@@ -410,13 +433,15 @@ export function RuleEditorApp({
               <Button size="small" disabled={!editable || !history.canUndo} onClick={() => { history.undo(); setSelection({ kind: "rule" }); }}>Undo</Button>
               <Button size="small" disabled={!editable || !history.canRedo} onClick={() => { history.redo(); setSelection({ kind: "rule" }); }}>Redo</Button>
               <Button size="small" disabled={busy || !dirty} onClick={() => setReviewOpen(true)}>Review changes</Button>
+              <Button size="small" disabled={busy || !working.rule.publishedRevisionId || !api.readPublishedRule} onClick={onViewPublished}>{publishedView ? "Back to draft" : "View published"}</Button>
+              <Button size="small" disabled={!editable || !working.rule.publishedRevisionId || !snapshot.rule.etag || !api.restoreRuleDraft} onClick={() => setRestoreOpen(true)}>Restore published to draft</Button>
             </div>
           </div>
         }
       >
         <div style={{ padding: "0 24px 24px" }}>
-          {published && <Callout intent="info" title="Published rule — read-only">
-            Unpublish to edit this rule. Its enforcement and automation will stop until you save, validate, and publish it again.
+          {(published || publishedView) && <Callout intent="info" title={publishedView ? "Viewing the published revision — read-only" : "The published version stays active while you edit"}>
+            {publishedView ? "This definition includes the data model captured at publication. Return to the draft to make changes." : "Save and validate your draft here. Publish replaces the live version after server validation; shared data-model changes also take effect only when this rule is republished."}
           </Callout>}
           {recovery.pending && <Callout intent="warning" title="Unsaved work is available from this browser tab">
             <p>Restore your previous edits or discard the recovery copy. Restoring does not save or publish anything.</p>
@@ -431,11 +456,11 @@ export function RuleEditorApp({
             marginTop: 16, background: color.canvas, border: `1px solid ${color.line}`, borderRadius: 8,
             padding: "10px 16px", display: "flex", alignItems: "center", flexWrap: "wrap", rowGap: 6,
           }}>
-            <PropCell first label="Table" bold value={working.rule.tableLogicalName} />
-            <PropCell label="Triggers" value={working.rule.triggers.length
-              ? working.rule.triggers.map((t) => labelFor(SYSTEM_CHOICE.triggers, t, triggerLabel(t))).join(", ") : "—"} />
-            <PropCell label="Channels" value={working.rule.channels.length
-              ? working.rule.channels.map((c) => labelFor(SYSTEM_CHOICE.channel, c, channelLabel(c))).join(", ") : "All"} />
+            <PropCell first label="Table" bold value={displayed.rule.tableLogicalName} />
+            <PropCell label="Triggers" value={displayed.rule.triggers.length
+              ? displayed.rule.triggers.map((t) => labelFor(SYSTEM_CHOICE.triggers, t, triggerLabel(t))).join(", ") : "—"} />
+            <PropCell label="Channels" value={displayed.rule.channels.length
+              ? displayed.rule.channels.map((c) => labelFor(SYSTEM_CHOICE.channel, c, channelLabel(c))).join(", ") : "All"} />
             {!wide && (
               <Button appearance="secondary" size="small" style={{ marginLeft: "auto" }}
                 onClick={() => setPanelOpen(true)}>
@@ -443,16 +468,16 @@ export function RuleEditorApp({
               </Button>
             )}
           </div>
-          {working.rule.rootTableConfigId && flattenForDisplay(working.tableConfigs, working.rule.rootTableConfigId).length > 0 && (
+          {displayed.rule.rootTableConfigId && flattenForDisplay(displayed.tableConfigs, displayed.rule.rootTableConfigId).length > 0 && (
             <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: color.inkMuted }}>Data map</span>
-              {flattenForDisplay(working.tableConfigs, working.rule.rootTableConfigId).map(({ node }, i, arr) => (
+              {flattenForDisplay(displayed.tableConfigs, displayed.rule.rootTableConfigId).map(({ node }, i, arr) => (
                 <span key={node.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <NodeTag>{node.name}</NodeTag>
                   {i < arr.length - 1 && <span style={{ color: color.line }}>▸</span>}
                 </span>
               ))}
-              <button type="button" className={styles.focusRing} onClick={() => confirmNavigate(() => navigate("tableconfig", working.rule.rootTableConfigId!))}
+              <button type="button" disabled={!!publishedView} className={styles.focusRing} onClick={() => confirmNavigate(() => navigate("tableconfig", working.rule.rootTableConfigId!))}
                 style={{ marginLeft: 6, background: "none", border: "none", padding: 0, cursor: "pointer", color: color.brandInk, fontWeight: 600, fontSize: 12.5 }}>
                 Edit data model →
               </button>
@@ -473,6 +498,11 @@ export function RuleEditorApp({
             onConfirm={onUnpublish}
           />
           <ReviewChangesDialog open={reviewOpen} snapshot={snapshot} working={working} onClose={() => setReviewOpen(false)} />
+          <Dialog open={restoreOpen} onOpenChange={(_e, d) => setRestoreOpen(d.open)}><DialogSurface><DialogBody>
+            <DialogTitle>Restore the published version to your draft?</DialogTitle>
+            <DialogContent>This replaces saved and unsaved draft changes, including its data model, with a private copy of the published revision. The published rule and other rules keep enforcing unchanged.</DialogContent>
+            <DialogActions><Button onClick={() => setRestoreOpen(false)}>Cancel</Button><Button appearance="primary" onClick={onRestoreDraft}>Restore draft</Button></DialogActions>
+          </DialogBody></DialogSurface></Dialog>
 
           {/* Always mounted so the aria-live status region exists before results arrive (4.1.3). */}
           <ValidationIssuesPanel issues={validationResult?.issues ?? []} />
@@ -480,7 +510,7 @@ export function RuleEditorApp({
           <div style={{ display: "flex", gap: 18, marginTop: 18, alignItems: "flex-start" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <fieldset disabled={!editable} style={{ display: "flex", flexDirection: "column", gap: 14, border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-                <GraphTree graph={working} selection={selection} handlers={handlers} issuesByTargetId={issuesByTargetId} />
+                <GraphTree graph={displayed} selection={selection} handlers={handlers} issuesByTargetId={issuesByTargetId} />
               </fieldset>
             </div>
             {wide ? (

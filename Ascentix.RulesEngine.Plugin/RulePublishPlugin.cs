@@ -3,14 +3,15 @@ using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Core.Resolution;
 using Ascentix.RulesEngine.Core.Validation;
+using Ascentix.RulesEngine.Core.Publication;
+using Ascentix.RulesEngine.Plugin.Publication;
+using Microsoft.Xrm.Sdk.Query;
 
 namespace Ascentix.RulesEngine.Plugin
 {
     /// <summary>
-    /// Pre-operation gate on asx_rule Update. When a rule transitions Draft→Published, runs the
-    /// shared RuleValidator and blocks the save (throws) if the rule is invalid. Register on
-    /// asx_rule Update, pre-operation synchronous, with a "PreImage" pre-image carrying statuscode.
-    /// Draft saves and non-status edits pass untouched.
+    /// Pre-operation publication on asx_rule Update. Each explicit Published status write
+    /// validates the saved draft and prepares a new immutable revision in the same transaction.
     /// </summary>
     public class RulePublishPlugin : PluginBase
     {
@@ -24,24 +25,22 @@ namespace Ascentix.RulesEngine.Plugin
             var service = localPluginContext.SystemUserService;
 
             if (!context.InputParameters.TryGetValue("Target", out var t) || !(t is Entity target)) return;
+            if (PublicationCoordinator.IsInternal(context, service)) return;
 
-            Entity preImage = null;
-            context.PreEntityImages?.TryGetValue("PreImage", out preImage);
+            if (target.GetAttributeValue<OptionSetValue>("statuscode")?.Value != (int)RuleStatus.Published) return;
 
-            // A null/absent PreImage leaves oldStatus null (treated as non-Published): if the Target
-            // transitions to Published we still validate (fail-closed): a misregistered step must not
-            // let an invalid rule publish unchecked.
-            var oldStatus = preImage?.GetAttributeValue<OptionSetValue>("statuscode")?.Value;
-            var newStatus = target.Contains("statuscode")
-                ? target.GetAttributeValue<OptionSetValue>("statuscode")?.Value
-                : oldStatus;
-
-            var published = (int)RuleStatus.Published;
-            var isPublishTransition = newStatus == published && oldStatus != published;
-            if (!isPublishTransition) return;
-
-            var model = RuleValidationLoader.Load(service, target.Id);
-            if (model == null) return; // nothing to validate
+            PublicationCoordinator.Lock(service, context);
+            // Publish only a previously saved graph; status and the expected hash are commands.
+            // Other authored attributes in the same PATCH would not yet be committed.
+            foreach (var field in target.Attributes.Keys)
+                if (field != "statuscode" && field != "statecode" && field != PublicationSchema.PublishHash &&
+                    field != PublicationSchema.DraftStamp && field != "asx_ruleid")
+                    throw new InvalidPluginExecutionException("Save draft changes before publishing.");
+            var snapshot = RuleSnapshot.Capture(service, target.Id);
+            var expected = target.GetAttributeValue<string>(PublicationSchema.PublishHash);
+            if (!string.IsNullOrEmpty(expected) && expected != snapshot.Hash())
+                throw new InvalidPluginExecutionException("The draft or its shared data model changed after validation. Reload and validate again; the published version is unchanged.");
+            var model = RuleValidationLoader.Load(new SnapshotService(service, snapshot), target.Id);
 
             var report = RuleValidator.Validate(model, new AttributeFlagsProvider(service));
             if (!report.IsValid)
@@ -61,6 +60,14 @@ namespace Ascentix.RulesEngine.Plugin
                 throw new InvalidPluginExecutionException(
                     "This rule can't be published until these problems are fixed:\n" +
                     ValidationReportSerializer.JoinErrors(secReport));
+            var header = service.Retrieve("asx_rule", target.Id, new ColumnSet(PublicationSchema.Number));
+            var version = checked(header.GetAttributeValue<int>(PublicationSchema.Number) + 1);
+            PublicationCoordinator.Internal(context, service, writer => {
+                var revision = PublicationCoordinator.Store(writer, snapshot, version, context.InitiatingUserId);
+                target[PublicationSchema.Pointer] = revision.ToEntityReference();
+                target[PublicationSchema.Number] = version;
+                target[PublicationSchema.PublishHash] = null;
+            });
         }
     }
 }

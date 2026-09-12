@@ -49,11 +49,11 @@ describe("saveRuleGraph", () => {
     expect(api.lastBody!.indexOf("asx_rules(r1)")).toBeLessThan(api.lastBody!.indexOf("asx_ruleactions"));
   });
 
-  it("refuses to save an edited published graph", async () => {
+  it("saves the draft of a published rule without changing its status", async () => {
     const snap = baseGraph(); snap.rule.statusCode = 753840000;
-    const api = fakeApi(200, "");
-    expect(await saveRuleGraph(api, snap, addAction(clone(snap)), ids)).toMatchObject({ status: "error" });
-    expect(api.lastBody).toBeUndefined();
+    const api = fakeApi(200, "HTTP/1.1 204 No Content");
+    expect(await saveRuleGraph(api, snap, addAction(clone(snap)), ids)).toMatchObject({ status: "saved" });
+    expect(api.lastBody).not.toContain("statuscode");
   });
 
   it("returns conflict on a 412 inner response", async () => {

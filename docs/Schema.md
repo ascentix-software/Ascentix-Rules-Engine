@@ -1,7 +1,9 @@
 # Ascentix Rules Engine Schema Reference
 
 Authoritative reference for the Dataverse schema, kept in sync with `Ascentix.RulesEngine.Core/Schema/SchemaNames.cs`
-and the live environment (schema is authored directly in the environment, not by a deploy tool).
+and the deployment source. Existing schema is authored in Dataverse; published-revision
+additions are provisioned by `pipelines/Deploy-RuleRevisions.ps1`. Local source does not
+establish that these additions are already installed in an environment.
 
 - **Publisher:** Ascentix · **Default prefix:** `asx` (configurable; names below use the
   default prefix and are qualified at runtime with the configured one).
@@ -45,9 +47,19 @@ Top-level rule, scoped to a table. Parent of conditions and actions.
 rules default to **Draft**. The engine enforces **only Published** rules (within the effective
 window below). `asx_isactive` is retired.
 
+The normalized rule and child records are the mutable draft. Published behavior is
+read from the immutable revision referenced by `asx_publishedrevision`, including
+schedule, channels, triggers, actions, and shared data-model definitions. Editing
+the draft does not change enforcement. Create a Draft first; publish with a separate
+status update. Changing a rule's business table is prohibited after creation.
+
 | Column | Schema name | Type | Req | Notes |
 |---|---|---|---|---|
 | Table Logical Name | `asx_tablelogicalname` | Text (100) | ✔ | Entity the rule applies to |
+| Published Revision | `asx_publishedrevision` | Lookup → `asx_rulerevision` | | Server-controlled current revision |
+| Published Version | `asx_publishedversion` | Integer | | Server-controlled monotonically increasing publication number |
+| Publish Hash | `asx_publishhash` | Text (64) | | Expected SHA-256 of the validated draft; sent with status PATCH and cleared by publication |
+| Draft Stamp | `asx_draftstamp` | Text (36) | | Server-controlled value updated by every owned graph mutation to advance header row version |
 | Triggers | `asx_triggers` | MultiSelect → `asx_triggers` | ✔ | At least one (editor-enforced) |
 | Channels | `asx_channels` | MultiSelect → `asx_channel` | | Empty ⇒ applies on all channels; gates which origin channel (Standard/Portal) a rule fires on |
 | Effective From | `asx_effectivefrom` | DateTime (UTC) | | Not enforced before this; null ⇒ open start |
@@ -232,6 +244,28 @@ back to `asx_message` then the engine default.
 > behaviour and no implementation-mode toggles.
 
 ---
+
+### 2.11 Rule Revision (`asx_rulerevision`)
+
+Organization-owned, server-managed immutable configuration. Guard steps reject
+direct writes. Deleted only with the owning rule.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_rule` | Lookup → `asx_rule` | Owning stable rule identity; restrict delete |
+| `asx_version` | Integer | Number within the rule |
+| `asx_definition` | Memo (1,000,000) | Format 1 snapshot of typed configuration rows; maximum 10,000 rows |
+| `asx_hash` | Text (64) | SHA-256 of serialized snapshot |
+| `asx_publisher` | Lookup → `systemuser` | Publishing user, or initializing administrator during legacy backfill |
+| `asx_publishedon` | DateTime | Snapshot creation time in UTC |
+
+### 2.12 Publication Lock (`asx_publicationlock`)
+
+Organization-owned coordination table with its standard `asx_name` text column.
+Synchronous configuration, validation, publication, and restoration transactions
+upsert row `7e0d7362-c0fd-44ab-a8a1-aecb70d86a79` before reading a candidate. This
+serializes configuration mutations; business-record execution does not acquire it.
+The row is created automatically when absent after a managed import.
 
 ## 3. `asx_RunRules` Custom API
 
@@ -497,6 +531,7 @@ status badge and before allowing Publish.
 |---|---|---|
 | `IsValid` | Boolean | `true` when no Error-severity issue was found |
 | `Issues` | String | JSON report (see shape below). Empty array `"issues":[]` when valid. |
+| `DraftHash` | String | SHA-256 of the complete validated draft and referenced model configuration; submit as `asx_publishhash` when publishing |
 
 ### Issues JSON shape
 
@@ -551,16 +586,17 @@ Field notes:
 
 ### Error handling
 
-`asx_ValidateRule` throws `InvalidPluginExecutionException` **only on bad input** (missing or
-non-GUID `RuleId`; rule not found).
+`asx_ValidateRule` returns rule validation issues as data. Bad input, unreadable
+configuration, transaction errors, and service faults can throw. It requires a
+synchronous transaction and the revision schema even though it never publishes.
 
 ---
 
 ### 5.1 `RulePublishPlugin` plugin step (publish gate)
 
 A **pre-operation synchronous SDK step** on `asx_rule` **Update** that enforces the same
-`RuleValidator` as a server-side gate. It blocks the **Draft → Published** transition of an
-invalid rule, so publishing via the raw form (not just the editor) is gated too.
+`RuleValidator` as a server-side gate. Every explicit Published status update
+validates and captures the saved draft, including republishing an already-active rule.
 
 **Registration details:**
 
@@ -571,12 +607,31 @@ invalid rule, so publishing via the raw form (not just the editor) is gated too.
 | Primary entity | `asx_rule` |
 | Stage | Pre-operation (20) |
 | Mode | Synchronous (0) |
+| Execution order | 20, after revision guard (1) and before registration reconciliation (30) |
 | Pre-image | `PreImage` (alias `PreImage`, `imagetype=0`, `messagepropertyname="Target"`, attributes: `statuscode`) |
 
-**Transition logic:** reads `old = PreImage["statuscode"]`, `new = Target["statuscode"] ?? old`.
-Runs the validator **only when `old != Published && new == Published`**. On an invalid rule throws
-`InvalidPluginExecutionException` with the `Error` messages joined. The platform rolls back,
-blocking the publish. Drafts, Archived transitions, and non-status edits pass untouched.
+**Publication logic:** an explicit `Target.statuscode = 753840000` captures and
+validates the saved graph, checks the optional expected hash, and reruns publisher
+privilege checks. It creates a revision and supplies the new pointer and number on
+Target. Invalid/stale publication throws, rolling back the revision, pointer, and
+registration changes. Other authored attributes must be saved before publishing.
+Non-publication draft edits retain the old active revision.
+
+### 5.2 Revision Custom APIs
+
+All are unbound POST Actions, with no additional custom processing steps, implemented
+by `Ascentix.RulesEngine.Plugin.RuleRevisionApi`.
+
+| API | Inputs | Outputs | Gate |
+|---|---|---|---|
+| `asx_ReadPublishedRule` | `RuleId` String | `Definition` String | `prvReadasx_rule` plus record Read access |
+| `asx_RestoreRuleDraft` | `RuleId`, `ExpectedVersion` Strings | None | `prvReadasx_rule` plus record Read/Write access; expected header row version |
+| `asx_InitializeRuleRevisions` | None | `Remaining` Integer | `prvWriteEntity` (customizer/admin) |
+
+Restore keeps the published pointer and status intact and clones data-model nodes
+privately. Initialize captures up to ten legacy Published rules with missing
+pointers per request and can be repeated safely. Deployment source and live
+acceptance requirements are in `docs/deployment/published-rule-revisions.md`.
 
 ---
 

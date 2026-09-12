@@ -6,6 +6,7 @@ using Ascentix.RulesEngine.Schema;
 using FakeXrmEasy;
 using Microsoft.Xrm.Sdk;
 using Xunit;
+using Ascentix.RulesEngine.Core.Publication;
 
 namespace Ascentix.RulesEngine.Tests
 {
@@ -18,6 +19,7 @@ namespace Ascentix.RulesEngine.Tests
             {
                 MessageName = "asx_ValidateRule",
                 Stage = 30,
+                IsInTransaction = true,
                 InputParameters = input,
                 OutputParameters = new ParameterCollection()
             };
@@ -26,9 +28,10 @@ namespace Ascentix.RulesEngine.Tests
         public void Empty_draft_rule_reports_invalid_with_issues()
         {
             var ruleId = Guid.NewGuid();
-            var ctx = new XrmFakedContext();
+            var ctx = new TransactionalPluginContext();
             ctx.Initialize(new List<Entity>
             {
+                new Entity(PublicationSchema.Lock, PublicationSchema.LockId),
                 new Entity(Q(SchemaNames.Rule.Entity), ruleId)
                 {
                     [Q(SchemaNames.Rule.TableLogicalName)] = "account",
@@ -37,7 +40,7 @@ namespace Ascentix.RulesEngine.Tests
             });
 
             var pctx = ApiContext(new ParameterCollection { { "RuleId", ruleId.ToString() } });
-            ctx.ExecutePluginWith<ValidateRuleApi>(pctx);
+            ctx.ExecuteTransactional<ValidateRuleApi>(pctx);
 
             Assert.False((bool)pctx.OutputParameters["IsValid"]);
             Assert.Contains("STRUCT_NO_CONDITIONS", (string)pctx.OutputParameters["Issues"]);
@@ -47,7 +50,7 @@ namespace Ascentix.RulesEngine.Tests
         public void Missing_rule_id_throws()
         {
             var ctx = new XrmFakedContext();
-            ctx.Initialize(new List<Entity>());
+            ctx.Initialize(new List<Entity> { new Entity(PublicationSchema.Lock, PublicationSchema.LockId) });
             Assert.Throws<InvalidPluginExecutionException>(() =>
                 ctx.ExecutePluginWith<ValidateRuleApi>(ApiContext(new ParameterCollection())));
         }
@@ -55,10 +58,12 @@ namespace Ascentix.RulesEngine.Tests
         [Fact]
         public void Unknown_rule_throws()
         {
-            var ctx = new XrmFakedContext();
-            ctx.Initialize(new List<Entity>());
-            Assert.Throws<InvalidPluginExecutionException>(() =>
-                ctx.ExecutePluginWith<ValidateRuleApi>(ApiContext(new ParameterCollection { { "RuleId", Guid.NewGuid().ToString() } })));
+            var ctx = new TransactionalPluginContext();
+            var missingId = Guid.NewGuid();
+            ctx.Initialize(new List<Entity> { new Entity(PublicationSchema.Lock, PublicationSchema.LockId), new Entity("asx_rule", Guid.NewGuid()) });
+            var error = Assert.Throws<InvalidPluginExecutionException>(() =>
+                ctx.ExecuteTransactional<ValidateRuleApi>(ApiContext(new ParameterCollection { { "RuleId", missingId.ToString() } })));
+            Assert.Contains(missingId.ToString(), error.Message);
         }
     }
 }

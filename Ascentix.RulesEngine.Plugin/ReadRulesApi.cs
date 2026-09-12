@@ -8,6 +8,7 @@ using Ascentix.RulesEngine.Core.Loaders;
 using Ascentix.RulesEngine.Core.Localization;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Core.Resolution;
+using Ascentix.RulesEngine.Core.Publication;
 
 namespace Ascentix.RulesEngine.Plugin
 {
@@ -42,10 +43,24 @@ namespace Ascentix.RulesEngine.Plugin
                 : RuleChannel.Standard;
             trace.Trace($"Resolved origin channel: {channel} (portal={context2?.IsPortalsClientCall ?? false}).");
 
+            var definitions = new List<string>();
+            var headers = PublishedRules.Headers(systemService, tableName);
+            foreach (var header in headers.Where(h => h.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) != null))
+            {
+                var frozen = new SnapshotService(systemService, PublishedRules.Read(systemService, header));
+                definitions.Add(SerializeRules(frozen, tableName, trigger, channel, languageId));
+            }
+            var legacy = new HashSet<Guid>(headers.Where(h => h.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) == null).Select(h => h.Id));
+            if (legacy.Count > 0) definitions.Add(SerializeRules(systemService, tableName, trigger, channel, languageId, legacy));
+            context.OutputParameters["Rules"] = RuleDefinitionSerializer.Combine(tableName, languageId, definitions);
+        }
+
+        private static string SerializeRules(IOrganizationService systemService, string tableName, RuleTrigger trigger, RuleChannel channel, int languageId, HashSet<Guid> selectedIds = null)
+        {
             var rules = new RuleLoader(systemService).LoadRules(tableName, trigger, channel);
+            if (selectedIds != null) rules = rules.Where(r => selectedIds.Contains(r.Id)).ToList();
             var nowUtc = DateTime.UtcNow;
             rules = rules.Where(r => RuleScheduleFilter.IsInEffect(r, nowUtc)).ToList();
-            trace.Trace($"asx_ReadRules: {rules.Count} in-effect {trigger} rules for '{tableName}'.");
 
             var rootGroups = new ConditionGroupMapper().MapConditionGroups(rules);
 
@@ -60,7 +75,7 @@ namespace Ascentix.RulesEngine.Plugin
                 ? new RuleActionLoader(systemService).LoadActionsByRule(rules.Select(r => r.Id))
                 : new Dictionary<Guid, List<RuleAction>>();
 
-            context.OutputParameters["Rules"] = RuleDefinitionSerializer.Serialize(
+            return RuleDefinitionSerializer.Serialize(
                 tableName, languageId, rules, rootGroups, tree, actionsByRule);
         }
 

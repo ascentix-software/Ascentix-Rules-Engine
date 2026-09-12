@@ -29,6 +29,8 @@ export function mapRuleHeader(raw: any): RuleHeader {
     name: raw.asx_name ?? "",
     tableLogicalName: raw.asx_tablelogicalname ?? "",
     statusCode: numOrNull(raw.statuscode),
+    publishedRevisionId: strOrNull(raw._asx_publishedrevision_value),
+    publishedVersion: Number(raw.asx_publishedversion ?? 0),
     etag: raw["@odata.etag"] ?? null,
     triggers: parseMultiSelect(raw.asx_triggers),
     channels: parseMultiSelect(raw.asx_channels),
