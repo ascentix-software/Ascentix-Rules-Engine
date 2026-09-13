@@ -25,6 +25,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Test authoring metadata configuration
+        shell: pwsh
+        run: ./tests/pipelines/Test-RuleAuthoringRegistration.ps1
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"

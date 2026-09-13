@@ -85,17 +85,30 @@ if ($Phase -eq 'Schema') {
         foreach ($file in Get-ChildItem -LiteralPath $viewFolder -Filter '*.xml') {
             [xml]$source = Get-Content -LiteralPath $file.FullName -Raw
             $id = ([string]$source.savedqueries.savedquery.savedqueryid).Trim('{}')
-            $view = Request GET "savedqueries($id)?`$select=fetchxml"
+            $view = Request GET "savedqueries($id)?`$select=fetchxml,layoutxml,returnedtypecode,querytype,isquickfindquery"
             [xml]$fetch = $view.fetchxml
             $entity = $fetch.SelectSingleNode("/fetch/entity[@name='$($spec[0])']")
             if (!$entity) { throw "Unexpected entity in shipped view $id" }
-            if (!$entity.SelectSingleNode("filter/condition[@attribute='$($spec[1])']")) {
-                $filter = $fetch.CreateElement('filter'); $filter.SetAttribute('type', 'and')
+            # Quick Find keeps its search filter separate from the single row-selection filter.
+            $rowFilters = @($entity.SelectNodes("filter[not(@isquickfindfields='1' or @isquickfindfields='true')]"))
+            $filter = if ($rowFilters.Count -eq 1 -and $rowFilters[0].GetAttribute('type') -ne 'or') { $rowFilters[0] } else { $null }
+            if (!$filter -or !$filter.SelectSingleNode("condition[@attribute='$($spec[1])']")) {
+                if (!$filter) {
+                    $filter = $fetch.CreateElement('filter'); $filter.SetAttribute('type', 'and')
+                    $firstFilter = $entity.SelectSingleNode('filter')
+                    if ($firstFilter) { $entity.InsertBefore($filter, $firstFilter) | Out-Null }
+                    else { $entity.AppendChild($filter) | Out-Null }
+                    foreach ($existingFilter in $rowFilters) { $filter.AppendChild($existingFilter) | Out-Null }
+                }
                 $condition = $fetch.CreateElement('condition'); $condition.SetAttribute('attribute', $spec[1])
                 if ($spec[0] -eq 'asx_rule') { $condition.SetAttribute('operator', 'null') }
                 else { $condition.SetAttribute('operator', 'ne'); $condition.SetAttribute('value', '1') }
-                $filter.AppendChild($condition) | Out-Null; $entity.AppendChild($filter) | Out-Null
-                Request PATCH "savedqueries($id)" @{ fetchxml = $fetch.OuterXml } | Out-Null
+                $filter.AppendChild($condition) | Out-Null
+                # Quick Find updates require the view definition context alongside FetchXML.
+                Request PATCH "savedqueries($id)" @{
+                    fetchxml = $fetch.OuterXml; layoutxml = $view.layoutxml; returnedtypecode = $view.returnedtypecode
+                    querytype = $view.querytype; isquickfindquery = $view.isquickfindquery
+                } | Out-Null
             }
         }
     }
