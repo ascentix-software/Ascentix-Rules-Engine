@@ -244,6 +244,8 @@ test("editing a published rule in the UI and re-publishing changes what the plug
     // until the test timeout rather than failing (measured: a 15-minute hang whose snapshot
     // showed the order form with the Block's "Business Process Error" dialog still open).
     const frame2 = await openRuleFromHub(page, appId, rule.ruleName);
+    await frame2.getByRole("button", { name: "Edit rule", exact: true }).click();
+    await expect(frame2.getByRole("button", { name: "Rename rule" })).toBeEnabled();
     await frame2.getByRole("button", { name: /^Edit condition/ }).click();
     await frame2.getByRole("textbox", { name: "Value" }).fill("200");
     await expect(frame2.getByText("Unsaved changes")).toBeVisible();

@@ -42,6 +42,19 @@ function stored(snapshot: RuleGraph, working: RuleGraph) {
 }
 
 describe("authoring lifecycle and recovery", () => {
+  it("requires a working draft to edit the last revision of an unpublished rule", async () => {
+    const graph = makeGraph(); graph.rule.statusCode = 1; graph.rule.publishedRevisionId = "revision-2";
+    const draft = clone(graph); draft.rule.id = "draft"; draft.rule.activeRuleId = graph.rule.id;
+    const openRuleDraft = vi.fn(async () => "draft");
+    const { api } = mount(graph, { openRuleDraft }, vi.fn(async () => draft));
+    expect(screen.getByRole("button", { name: "Rename rule" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Unpublish" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Edit rule" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Rename rule" })).toBeEnabled());
+    expect(openRuleDraft).toHaveBeenCalledWith(graph.rule.id);
+    expect(api.publishRule).not.toHaveBeenCalled();
+  });
+
   it("views a frozen revision read-only and returns to unsaved draft edits", async () => {
     const graph = makeGraph(); graph.rule.activeRuleId = publishedRuleId; graph.rule.statusCode = PUBLISHED;
     graph.rule.publishedRevisionId = "revision-1"; graph.rule.publishedVersion = 1;

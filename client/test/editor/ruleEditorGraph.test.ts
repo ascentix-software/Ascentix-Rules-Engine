@@ -30,3 +30,16 @@ it("reads the published definition without creating a draft when the rule is onl
   expect(api.openRuleDraft).not.toHaveBeenCalled();
   expect(graph.rule.etag).toBe('W/"12"');
 });
+
+it("loads the latest revision of an unpublished rule while keeping enforcement stopped", async () => {
+  const api = {
+    retrieveRecord: vi.fn(async () => ({ statuscode: 1, _asx_publishedrevision_value: "revision-2", "@odata.etag": 'W/"15"' })),
+    retrieveMultipleRecords: vi.fn(async () => ({ entities: [] })),
+    readPublishedRule: vi.fn(async () => publishedDefinition), openRuleDraft: vi.fn(),
+  } as unknown as WebApiPort;
+  vi.mocked(loadRuleGraph).mockResolvedValue({ rule: { id: publishedRuleId, name: "Frozen version", statusCode: 753840000 } } as any);
+  const graph = await loadRuleEditorGraph(api, publishedRuleId);
+  expect(api.readPublishedRule).toHaveBeenCalledWith(publishedRuleId);
+  expect(api.openRuleDraft).not.toHaveBeenCalled();
+  expect(graph.rule).toMatchObject({ statusCode: 1, publishedRevisionId: "revision-2", etag: 'W/"15"' });
+});

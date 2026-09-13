@@ -9,8 +9,8 @@ async function sweepSet(entitySet: string, nameField: string): Promise<void> {
   const api = createDevApi();
   // "Copy of ZZ_RB_…": the hub-duplicate e2e clones a ZZ_RB_ rule under a "Copy of "
   // name: a crash between Duplicate and its cleanup would otherwise orphan it forever.
-  const filter =
-    `startswith(${nameField},'ZZ_RB_') or startswith(${nameField},'Copy of ZZ_RB_')`;
+  const names = `startswith(${nameField},'ZZ_RB_') or startswith(${nameField},'Copy of ZZ_RB_')`;
+  const filter = entitySet === ENTITY_SET.rule ? `(${names}) and _asx_draftof_value eq null` : names;
   const r = await api.retrieveMultipleRecords(
     entitySet,
     `?$filter=${filter}&$select=${nameField}`,
@@ -18,7 +18,9 @@ async function sweepSet(entitySet: string, nameField: string): Promise<void> {
   for (const rec of r.entities) {
     const idKey = Object.keys(rec).find((k) => k.endsWith("id") && !k.startsWith("_"));
     if (!idKey) continue;
-    await deleteDevRecord(entitySet, rec[idKey] as string).catch(console.warn);
+    const deletion = deleteDevRecord(entitySet, rec[idKey] as string);
+    if (entitySet === ENTITY_SET.rule) await deletion;
+    else await deletion.catch(console.warn);
   }
 }
 
@@ -27,8 +29,8 @@ async function sweepSet(entitySet: string, nameField: string): Promise<void> {
 // after server-owned rule cleanup; orderlines before orders; orders before customers). asx_tableconfig is
 // self-referential (asx_parenttable): a few repeated passes clear it regardless of node depth,
 // since each pass deletes whatever no longer has children and a restrict-blocked delete just
-// waits for its child to be cleared on an earlier pass. Every individual delete is wrapped so one
-// restrict-order miss never aborts the rest of the sweep.
+// waits for its child to be cleared on an earlier pass. Rule cleanup failures stop the sweep;
+// model dependency-order misses can be retried on the next pass.
 export async function sweepRuleBehaviorOrphans(): Promise<void> {
   await sweepSet(ENTITY_SET.rule, "asx_name");
   await sweepSet(ENTITY_SET.action, "asx_name");

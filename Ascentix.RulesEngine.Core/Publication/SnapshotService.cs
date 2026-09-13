@@ -13,6 +13,8 @@ namespace Ascentix.RulesEngine.Core.Publication
         private readonly List<Entity> rows;
         public SnapshotService(IOrganizationService live, RuleSnapshot snapshot)
         { this.live = live; rows = snapshot.Rows.Select(r => r.ToSdk()).ToList(); }
+        internal SnapshotService(IOrganizationService live, IEnumerable<Entity> configuration)
+        { this.live = live; rows = configuration.ToList(); }
         public Entity Retrieve(string entityName, Guid id, ColumnSet columnSet)
         {
             if (!PublicationSchema.IsConfig(entityName)) return live.Retrieve(entityName, id, columnSet);
