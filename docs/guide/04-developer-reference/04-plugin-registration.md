@@ -64,7 +64,6 @@ registrations required by the published snapshot.
 ## Drift repair
 
 If steps drift out of sync with your rules (for example, if rules were edited while
-the registration plugin was temporarily disabled), deactivate and then reactivate any
-one rule on the affected table. Reconciliation is table-scoped, so that single save
-re-syncs every generated step for the whole table. To reconcile every table in one
-call instead, use `asx_SyncSteps` with `Mode = "Sync"` (see *Custom APIs*).
+the registration plugin was temporarily disabled), use `asx_SyncSteps` with
+`Mode = "Sync"` (see *Custom APIs*). This reconciles generated steps without
+unpublishing rules or changing their published definitions.

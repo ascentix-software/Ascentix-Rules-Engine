@@ -52,6 +52,9 @@ test("author → publish → edit live draft → republish preserves the active 
     const published = async () => loadPublishedGraph(await api.readPublishedRule!(ruleId), ruleId);
     expect((await published()).rule.name).toBe(firstName);
 
+    await expect(frame.getByRole("button", { name: "Rename rule" })).toBeDisabled();
+    await frame.getByRole("button", { name: "Edit rule", exact: true }).click();
+    await expect(frame.getByRole("button", { name: "Rename rule" })).toBeEnabled();
     await frame.getByRole("button", { name: "Rename rule" }).click();
     await nameBox.fill(secondName);
     await nameBox.press("Enter");

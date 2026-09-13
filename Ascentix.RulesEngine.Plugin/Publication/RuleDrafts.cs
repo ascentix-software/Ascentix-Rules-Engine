@@ -88,6 +88,11 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             return rows.SingleOrDefault();
         }
 
+        public static bool RequiresWorkingDraft(IOrganizationService service, Entity header)
+            => header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf) == null &&
+                (header.GetAttributeValue<OptionSetValue>("statuscode")?.Value == 753840000 ||
+                 header.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) != null || Find(service, header.Id) != null);
+
         public static RuleSnapshot Reidentify(RuleSnapshot source, Guid ruleId)
         {
             var copy = RuleSnapshot.Parse(source.Serialize(), source.RuleId);
@@ -107,7 +112,8 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             if (header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf) != null) return header.Id;
             var existing = Find(service, header.Id);
             if (existing != null) return existing.Id;
-            if (header.GetAttributeValue<OptionSetValue>("statuscode")?.Value != 753840000) return header.Id;
+            if (header.GetAttributeValue<OptionSetValue>("statuscode")?.Value != 753840000 &&
+                header.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) == null) return header.Id;
             var snapshot = PublishedRules.Read(service, header) ?? RuleSnapshot.Capture(service, header.Id);
             return Copy(service, context, header, snapshot, workingDraft: true);
         }

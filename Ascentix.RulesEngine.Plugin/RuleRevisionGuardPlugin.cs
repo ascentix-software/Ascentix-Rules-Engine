@@ -59,9 +59,10 @@ namespace Ascentix.RulesEngine.Plugin
                     before.GetAttributeValue<OptionSetValue>("statuscode")?.Value == 753840000 &&
                     target?.GetAttributeValue<OptionSetValue>("statuscode")?.Value == 1)
                     RuleDrafts.Open(service, context, before);
-                if (before?.GetAttributeValue<OptionSetValue>("statuscode")?.Value == 753840000 && target != null &&
-                    target.Attributes.Keys.Any(field => field.StartsWith("asx_", StringComparison.Ordinal) && field != PublicationSchema.PublishHash && field != "asx_ruleid"))
-                    throw new InvalidPluginExecutionException("Edit this rule's working draft in the Rule Builder. Its published version stays active.");
+                if (before != null && target != null &&
+                    target.Attributes.Keys.Any(field => field.StartsWith("asx_", StringComparison.Ordinal) && field != PublicationSchema.PublishHash && field != "asx_ruleid") &&
+                    RuleDrafts.RequiresWorkingDraft(service, before))
+                    throw new InvalidPluginExecutionException("Edit this rule's working draft in the Rule Builder.");
                 if (target != null && before != null && target.Contains("asx_tablelogicalname") &&
                     target.GetAttributeValue<string>("asx_tablelogicalname") != before.GetAttributeValue<string>("asx_tablelogicalname"))
                     throw new InvalidPluginExecutionException("A rule's business table cannot be changed. Create a rule for the other table.");
@@ -77,14 +78,15 @@ namespace Ascentix.RulesEngine.Plugin
             FindOwners(service, before, owners, new HashSet<Guid>());
             FindOwners(service, target, owners, new HashSet<Guid>());
             foreach (var owner in owners)
-                if (service.Retrieve("asx_rule", owner, new ColumnSet("statuscode")).GetAttributeValue<OptionSetValue>("statuscode")?.Value == 753840000)
-                    throw new InvalidPluginExecutionException("Edit this rule's working draft in the Rule Builder. Its published version stays active.");
+                if (RuleDrafts.RequiresWorkingDraft(service, service.Retrieve("asx_rule", owner,
+                    new ColumnSet("statuscode", PublicationSchema.Pointer, PublicationSchema.DraftOf))))
+                    throw new InvalidPluginExecutionException("Edit this rule's working draft in the Rule Builder.");
             if (owners.Count == 0)
             {
                 var changed = new List<Guid> { id };
                 foreach (var row in new[] { before, target }.Where(row => row != null))
                     changed.AddRange(row.Attributes.Values.OfType<EntityReference>().Select(reference => reference.Id));
-                PublicationCoordinator.PreserveSharedConfiguration(service, context, changed);
+                owners.UnionWith(PublicationCoordinator.PreserveSharedConfiguration(service, context, changed));
             }
             PublicationCoordinator.Internal(context, service, writer => {
                 foreach (var owner in owners)

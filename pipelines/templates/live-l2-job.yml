@@ -22,9 +22,7 @@ jobs:
           inlineScript: |
             node scripts/seed-dev-fixtures.mjs
             if ($LASTEXITCODE -ne 0) { throw "seed-dev-fixtures failed" }
-            npx vitest run --config vitest.config.dev.ts test-dev/ruleRevisions.dev.test.ts --reporter=default --reporter=junit --outputFile="$(Build.ArtifactStagingDirectory)/l2-lifecycle-junit.xml"
-            if ($LASTEXITCODE -ne 0) { throw "L2 rule lifecycle failed; remaining suites were not started" }
-            npx vitest run --config vitest.config.dev.ts --exclude test-dev/ruleRevisions.dev.test.ts --reporter=default --reporter=junit --outputFile="$(Build.ArtifactStagingDirectory)/l2-junit.xml"
+            npx vitest run --config vitest.config.dev.ts --reporter=default --reporter=junit --reporter=./test-dev/failFastReporter.ts --outputFile="$(Build.ArtifactStagingDirectory)/l2-junit.xml"
             if ($LASTEXITCODE -ne 0) { throw "L2 DEV contract suite failed" }
         env:
           DATAVERSE_URL: $(DATAVERSE_URL)
@@ -43,6 +41,6 @@ jobs:
         displayName: Publish L2 results (JUnit)
         inputs:
           testResultsFormat: JUnit
-          testResultsFiles: $(Build.ArtifactStagingDirectory)/l2*-junit.xml
+          testResultsFiles: $(Build.ArtifactStagingDirectory)/l2-junit.xml
           testRunTitle: L2 DEV contract
           failTaskOnFailedTests: false

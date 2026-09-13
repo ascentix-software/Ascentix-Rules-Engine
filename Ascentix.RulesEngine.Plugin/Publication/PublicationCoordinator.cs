@@ -38,14 +38,17 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             return revision;
         }
 
-        // Preserve only existing live definitions that use the shared configuration being changed.
-        public static void PreserveSharedConfiguration(IOrganizationService service, IPluginExecutionContext context, IEnumerable<Guid> changedIds)
+        // Preserve affected live definitions and return drafts whose concurrency stamps must advance.
+        public static HashSet<Guid> PreserveSharedConfiguration(IOrganizationService service, IPluginExecutionContext context, IEnumerable<Guid> changedIds)
         {
+            var drafts = new HashSet<Guid>();
             var ids = new HashSet<Guid>(changedIds.Where(id => id != Guid.Empty));
-            if (ids.Count == 0) return;
+            if (ids.Count == 0) return drafts;
             // A rule referencing a descendant also depends on the changed ancestor.
             var nodes = RuleSnapshot.QueryAll(service, new QueryExpression("asx_tableconfig") {
                 ColumnSet = new ColumnSet("asx_parenttable") });
+            // Creating an unrelated root model cannot change an existing definition.
+            if (!nodes.Any(node => ids.Contains(node.Id))) return drafts;
             bool expanded;
             do {
                 expanded = false;
@@ -54,7 +57,6 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                         expanded |= ids.Add(node.Id);
             } while (expanded);
             var query = new QueryExpression("asx_rule") { ColumnSet = new ColumnSet(true) };
-            query.Criteria.AddCondition("statuscode", ConditionOperator.Equal, 753840000);
             query.Criteria.AddCondition(PublicationSchema.Pointer, ConditionOperator.Null);
             var rules = RuleSnapshot.QueryAll(service, query);
             var authoredGraphs = RuleSnapshot.CaptureAuthoredGraphs(service, rules);
@@ -64,6 +66,11 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                 if (!authored.Rows.SelectMany(row => row.Attributes.Values).Any(value =>
                     (value.Kind == "reference" && Guid.TryParse(value.Value, out var reference) && ids.Contains(reference)) ||
                     (value.Kind == "string" && value.Value != null && ids.Any(id => value.Value.IndexOf(id.ToString(), StringComparison.OrdinalIgnoreCase) >= 0)))) continue;
+                if (rule.GetAttributeValue<OptionSetValue>("statuscode")?.Value != 753840000)
+                {
+                    drafts.Add(rule.Id);
+                    continue;
+                }
                 var snapshot = RuleSnapshot.Capture(service, rule.Id);
                 Internal(context, service, writer => {
                     var revision = Store(writer, snapshot, rule.GetAttributeValue<int>(PublicationSchema.Number), context.InitiatingUserId);
@@ -71,6 +78,7 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                         [PublicationSchema.Pointer] = revision.ToEntityReference() });
                 });
             }
+            return drafts;
         }
 
         private sealed class InternalWriter : IOrganizationService

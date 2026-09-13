@@ -58,7 +58,7 @@ namespace Ascentix.RulesEngine.Core.Engine
                     var selected = candidates.Where(r => RuleScheduleFilter.IsInEffect(r, nowUtc)).ToList();
                     if (selected.Count > 0) revisionBuckets.Add(new Bucket(RuleEvaluationContextResolver.Resolve(selected[0]), selected) { ConfigurationService = frozen });
                 }
-                // Existing rules remain live during the restartable revision backfill.
+                // Existing normalized rules remain supported until explicitly revised.
                 var legacyIds = new HashSet<Guid>(headers.Where(h => h.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) == null).Select(h => h.Id));
                 rules = legacyIds.Count == 0 ? new List<Entity>() : new RuleLoader(systemService).LoadRules(logicalName, trigger, channel).Where(r => legacyIds.Contains(r.Id)).ToList();
             }

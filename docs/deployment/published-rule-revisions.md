@@ -12,6 +12,9 @@ and their private data-model copies are excluded from the hub and shipped views.
 Saving or restoring a draft does not stop enforcement. Publishing validates the
 saved draft, captures its complete definition, and switches the original rule's
 active revision atomically. The working draft remains available for further edits.
+Unpublishing stops enforcement but keeps that working draft. A previously published
+rule whose draft was deleted reopens from its latest revision. Publishing the old
+original record directly is rejected; the Rule Builder publishes its working draft.
 
 Snapshots contain rule configuration, referenced models, filters, mappings, and
 translations. Business records, Dataverse metadata, and caller permissions remain
@@ -37,8 +40,9 @@ while models referenced elsewhere are retained.
 Configuration mutations, opening a draft, validation, publication, and restore
 acquire the same database-row lock. The lock record is created automatically on
 first use. Opening a draft is idempotent under this lock. Owned graph edits advance
-the draft ETag. Publication checks the optional validation hash, reruns validation
-and publisher privilege checks, and compares the draft's base publication version.
+the draft ETag, including changes to models that the draft uses. Publication checks
+the optional validation hash, reruns validation and publisher privilege checks,
+and compares the draft's base publication version.
 Restore checks the draft ETag and resets its base to the current publication.
 
 Server-owned writes use Dataverse's documented
@@ -75,6 +79,8 @@ Local unit tests cover stable identity, existing rules without snapshots, repeat
 open/restore, draft saves, immutable guards, selective step matching, private-model
 cleanup, and shared-model preservation without touching unrelated rules. The
 registration test covers fresh API creation and retry after partial registration.
+L2 runs the lifecycle contract first in the full suite; CI stops after a failure
+instead of repeating setup against a broken deployment. No test is excluded.
 
 Local tests cannot prove Dataverse nested-request execution, transaction rollback,
 registration propagation, or managed import behavior. Before release, run the live
