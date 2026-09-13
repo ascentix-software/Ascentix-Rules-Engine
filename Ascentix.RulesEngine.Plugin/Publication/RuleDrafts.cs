@@ -61,12 +61,18 @@ namespace Ascentix.RulesEngine.Plugin.Publication
         }
 
         public static void DeleteContents(IOrganizationService service, Guid ruleId)
+            => DeleteContents(service, service.Retrieve("asx_rule", ruleId, new ColumnSet(true)));
+
+        public static void DeleteContents(IOrganizationService service, Entity header)
         {
-            var graph = RuleSnapshot.Capture(service, ruleId, includeConfigs: false);
+            var ruleId = header.Id;
+            var graph = RuleSnapshot.Capture(service, header, includeConfigs: false);
             var models = PrivateModels(service, graph);
             DeleteChildren(service, graph);
-            service.Update(new Entity("asx_rule", ruleId) { ["asx_roottableconfig"] = null,
-                [PublicationSchema.Pointer] = null, ["statuscode"] = new OptionSetValue(1) });
+            var clear = new Entity("asx_rule", ruleId);
+            foreach (var field in new[] { "asx_roottableconfig", PublicationSchema.Pointer })
+                if (header.GetAttributeValue<EntityReference>(field) != null) clear[field] = null;
+            if (clear.Attributes.Count > 0) service.Update(clear);
             var query = new QueryExpression(PublicationSchema.Revision) { ColumnSet = new ColumnSet(false) };
             query.Criteria.AddCondition("asx_rule", ConditionOperator.Equal, ruleId);
             foreach (var revision in RuleSnapshot.QueryAll(service, query)) service.Delete(PublicationSchema.Revision, revision.Id);

@@ -56,9 +56,11 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             var query = new QueryExpression("asx_rule") { ColumnSet = new ColumnSet(true) };
             query.Criteria.AddCondition("statuscode", ConditionOperator.Equal, 753840000);
             query.Criteria.AddCondition(PublicationSchema.Pointer, ConditionOperator.Null);
-            foreach (var rule in RuleSnapshot.QueryAll(service, query))
+            var rules = RuleSnapshot.QueryAll(service, query);
+            var authoredGraphs = RuleSnapshot.CaptureAuthoredGraphs(service, rules);
+            foreach (var rule in rules)
             {
-                var authored = RuleSnapshot.Capture(service, rule.Id, includeConfigs: false);
+                var authored = authoredGraphs[rule.Id];
                 if (!authored.Rows.SelectMany(row => row.Attributes.Values).Any(value =>
                     (value.Kind == "reference" && Guid.TryParse(value.Value, out var reference) && ids.Contains(reference)) ||
                     (value.Kind == "string" && value.Value != null && ids.Any(id => value.Value.IndexOf(id.ToString(), StringComparison.OrdinalIgnoreCase) >= 0)))) continue;

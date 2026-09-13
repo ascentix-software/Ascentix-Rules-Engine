@@ -33,9 +33,9 @@ namespace Ascentix.RulesEngine.Plugin
             // Publish only a previously saved graph; status and the expected hash are commands.
             // Other authored attributes in the same PATCH would not yet be committed.
             foreach (var field in target.Attributes.Keys)
-                if (field != "statuscode" && field != "statecode" && field != PublicationSchema.PublishHash &&
+                if (field.StartsWith("asx_", StringComparison.Ordinal) && field != PublicationSchema.PublishHash &&
                     field != PublicationSchema.DraftStamp && field != "asx_ruleid")
-                    throw new InvalidPluginExecutionException("Save draft changes before publishing.");
+                    throw new InvalidPluginExecutionException("Save draft changes before publishing: " + field + ".");
             var snapshot = RuleSnapshot.Capture(service, target.Id);
             var expected = target.GetAttributeValue<string>(PublicationSchema.PublishHash);
             if (!string.IsNullOrEmpty(expected) && expected != snapshot.Hash())

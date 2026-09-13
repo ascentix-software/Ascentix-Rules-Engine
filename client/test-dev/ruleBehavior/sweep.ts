@@ -18,7 +18,9 @@ async function sweepSet(entitySet: string, nameField: string): Promise<void> {
   for (const rec of r.entities) {
     const idKey = Object.keys(rec).find((k) => k.endsWith("id") && !k.startsWith("_"));
     if (!idKey) continue;
-    await deleteDevRecord(entitySet, rec[idKey] as string).catch(console.warn);
+    const deletion = deleteDevRecord(entitySet, rec[idKey] as string);
+    if (entitySet === ENTITY_SET.rule) await deletion;
+    else await deletion.catch(console.warn);
   }
 }
 
