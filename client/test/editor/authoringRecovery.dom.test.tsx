@@ -70,7 +70,7 @@ describe("authoring lifecycle and recovery", () => {
     expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
   });
 
-  it("restoring a draft is explicit and uses its original version check", async () => {
+  it("restoring a draft is explicit without a stale-version veto", async () => {
     const graph = makeGraph(); graph.rule.statusCode = PUBLISHED; graph.rule.publishedRevisionId = "revision-1";
     graph.rule.activeRuleId = "active-rule";
     graph.rule.etag = 'W/"42"';
@@ -81,7 +81,7 @@ describe("authoring lifecycle and recovery", () => {
     expect(restoreRuleDraft).not.toHaveBeenCalled();
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Restore draft" }));
     await screen.findByText(/Draft restored from the published revision/);
-    expect(restoreRuleDraft).toHaveBeenCalledWith("r1", 'W/"42"');
+    expect(restoreRuleDraft).toHaveBeenCalledWith("r1");
     expect(api.unpublishRule).not.toHaveBeenCalled();
   });
   it("edits a draft while the published rule stays active", async () => {
@@ -132,18 +132,18 @@ describe("authoring lifecycle and recovery", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Publish" }));
     await screen.findByText("Rule published successfully.");
-    expect(api.publishRule).toHaveBeenCalledWith("r1", 'W/"2"', "validated-candidate");
+    expect(api.publishRule).toHaveBeenCalledWith("r1");
     expect(screen.getByRole("button", { name: "Rename rule" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
   });
 
-  it("keeps conflicting edits available to review and copy without reloading", async () => {
+  it("keeps edits available to review and copy after a failed save", async () => {
     const { reload } = mount(makeGraph(), { executeBatch: vi.fn(async () => ({
-      httpStatus: 200, text: 'HTTP/1.1 412 Precondition Failed\n{"error":{"message":"stale"}}',
+      httpStatus: 200, text: 'HTTP/1.1 403 Forbidden\n{"error":{"message":"Write permission denied"}}',
     })) });
     rename("My pending change");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await screen.findByText(/This rule changed elsewhere/);
+    await screen.findByText(/Save failed: Write permission denied/);
     expect(reload).not.toHaveBeenCalled();
     expect(screen.getAllByText("My pending change").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Review changes" }));
@@ -173,7 +173,7 @@ describe("authoring lifecycle and recovery", () => {
     const pending = clone(graph); pending.rule.name = "Retained edit";
     stored(graph, pending);
     const draft = clone(graph); draft.rule.statusCode = 1; draft.rule.etag = 'W/"2"';
-    const reload = vi.fn().mockResolvedValueOnce(graph).mockResolvedValueOnce(draft);
+    const reload = vi.fn().mockResolvedValueOnce(draft);
     const { api } = mount(graph, {}, reload);
     fireEvent.click(screen.getByRole("button", { name: "Restore edits" }));
     fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
@@ -188,19 +188,20 @@ describe("authoring lifecycle and recovery", () => {
     expect(recovery.working.rule.name).toBe("Retained edit");
   });
 
-  it("does not rebase older recovered edits over another author's version on unpublish", async () => {
+  it("retains older recovered edits for a later last-save-wins save", async () => {
     const baseline = makeGraph(); baseline.rule.etag = 'W/"1"';
     const pending = clone(baseline); pending.rule.name = "Older edit";
     stored(baseline, pending);
     const current = clone(baseline); current.rule.statusCode = PUBLISHED; current.rule.etag = 'W/"2"';
     const draft = clone(current); draft.rule.statusCode = 1; draft.rule.etag = 'W/"3"';
-    mount(current, {}, vi.fn().mockResolvedValueOnce(current).mockResolvedValueOnce(draft));
+    mount(current, {}, vi.fn().mockResolvedValueOnce(draft));
     fireEvent.click(screen.getByRole("button", { name: "Restore edits" }));
     fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
     const dialog = within(await screen.findByRole("dialog"));
     fireEvent.click(dialog.getByRole("button", { name: "Unpublish" }));
     await screen.findByText(/Your unsaved edits are preserved/);
     const recovery = JSON.parse(sessionStorage.getItem(recoveryKey(scope, "r1"))!);
-    expect(recovery.snapshot.rule.etag).toBe('W/"1"');
+    expect(recovery.snapshot.rule.etag).toBe('W/"3"');
+    expect(recovery.working.rule.name).toBe("Older edit");
   });
 });

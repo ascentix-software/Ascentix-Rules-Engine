@@ -6,7 +6,7 @@ import { openRuleFromHub, saveValidatePublish } from "./editorHarness";
 
 // Authoring a rule's graph in the browser: real Fluent pickers against live metadata plus the
 // $batch create path for NEW child rows (not just a rename PATCH), the validation-FAILURE
-// surfaces, and the 412 conflict banner.
+// surfaces, and last-save-wins behavior.
 
 test.describe.configure({ timeout: 180_000 });
 
@@ -77,17 +77,17 @@ test("validation failure: issues panel renders and Publish stays disabled", asyn
   }
 });
 
-test("412 conflict: concurrent API edit → 'changed elsewhere' banner, no write", async ({ page }) => {
+test("the browser save wins after another author changes the same field", async ({ page }) => {
   const appId = await resolveAppId();
   const fixture = await createRuleFixture();
   try {
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
 
-    // Someone else edits the rule while it's open (bumps the etag).
+    // Another author edits the rule while it is open.
     const apiName = `${fixture.ruleName} (api)`;
     await updateDevRecord(ENTITY_SET.rule, fixture.ruleId, { asx_name: apiName });
 
-    // Now edit and save in the browser against the stale etag.
+    // The browser save should apply the latest user intent without a version veto.
     await frame.getByRole("button", { name: "Rename rule" }).click();
     const nameBox = frame.getByRole("textbox", { name: "Rule name" });
     await nameBox.fill(`${fixture.ruleName} (ui)`);
@@ -95,12 +95,12 @@ test("412 conflict: concurrent API edit → 'changed elsewhere' banner, no write
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
     await frame.getByRole("button", { name: "Save", exact: true }).click();
 
-    await expect(frame.getByText(/This rule changed elsewhere\./)).toBeVisible({ timeout: 30_000 });
+    await expect(frame.getByText("Saved.", { exact: true })).toBeVisible({ timeout: 30_000 });
 
-    // The changeset was atomic: the API's edit survived, the browser's did not land.
+    // Read back the persisted value, independently of the success banner.
     const api = createDevApi();
     const r = await api.retrieveMultipleRecords(ENTITY_SET.rule, `?$filter=asx_ruleid eq ${fixture.ruleId}&$select=asx_name`);
-    expect(r.entities[0].asx_name).toBe(apiName);
+    expect(r.entities[0].asx_name).toBe(`${fixture.ruleName} (ui)`);
   } finally {
     await fixture.cleanup();
   }

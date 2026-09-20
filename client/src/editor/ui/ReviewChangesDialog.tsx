@@ -40,7 +40,7 @@ export function ReviewChangesDialog({ open, snapshot, working, onClose }: {
     <DialogSurface><DialogBody>
       <DialogTitle>Review pending changes</DialogTitle>
       <DialogContent>
-        <p>These changes are relative to the version you loaded. After a conflict, copy them before reloading so you can reapply them to the current version.</p>
+        <p>These changes are relative to the version you loaded. Copy them before reloading if you want to preserve them for later.</p>
         <Textarea aria-label="Pending changes" readOnly value={text} rows={12} resize="vertical" style={{ width: "100%" }} />
         <div role="status">{status}</div>
       </DialogContent>

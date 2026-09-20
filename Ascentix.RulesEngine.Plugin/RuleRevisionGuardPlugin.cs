@@ -9,21 +9,17 @@ using Ascentix.RulesEngine.Plugin.Publication;
 namespace Ascentix.RulesEngine.Plugin
 {
     // Pre-operation, order 1, on all configuration Create/Update/Delete operations.
-    // Rule Delete also runs synchronously in PostOperation to finish reclamation.
+    // Rule Delete captures ownership in PreValidation and cleans up in its transaction.
     public sealed class RuleRevisionGuardPlugin : PluginBase
     {
-        private const string DeletePlan = "Ascentix.RuleDeletePlan";
         public RuleRevisionGuardPlugin() : base(typeof(RuleRevisionGuardPlugin)) { }
         protected override void ExecuteCdsPlugin(ILocalPluginContext local)
         {
             var context = local.PluginExecutionContext;
-            if (context.Stage == 40 && context.MessageName == "Delete" && context.PrimaryEntityName == "asx_rule")
+            if (RuleDrafts.IsDeletingConfiguration(context)) return;
+            if (context.MessageName == "Delete" && context.PrimaryEntityName == "asx_rule")
             {
-                var deleted = context.InputParameters.TryGetValue("Target", out var deleteTarget) ? deleteTarget as EntityReference : null;
-                if (!context.SharedVariables.TryGetValue(DeletePlan, out var value) || !(value is Entity plan) || plan.Id != deleted?.Id)
-                    throw new InvalidPluginExecutionException("Rule deletion cleanup was not prepared. Check the rule Delete registrations.");
-                local.TracingService.Trace("Deleting asx_rule {0}: completing revision and private-model cleanup.", plan.Id);
-                PublicationCoordinator.Internal(context, local.SystemUserService, writer => RuleDrafts.CompleteDelete(writer, plan));
+                RuleDrafts.NativeDelete(local.SystemUserService, context);
                 return;
             }
             if (context.MessageName == "Associate" || context.MessageName == "Disassociate")
@@ -36,8 +32,6 @@ namespace Ascentix.RulesEngine.Plugin
                     throw new InvalidPluginExecutionException("Use record Update to change rule configuration relationships so draft and publication guards can run.");
                 return;
             }
-            if (context.PrimaryEntityName == PublicationSchema.Revision)
-                throw new InvalidPluginExecutionException("Published revisions are immutable and can only be created by publishing a rule.");
             if (!PublicationSchema.IsConfig(context.PrimaryEntityName)) return;
             if (context.MessageName == "SetState")
                 throw new InvalidPluginExecutionException("Use a rule Update to change publication status so revision validation can run.");
@@ -45,10 +39,7 @@ namespace Ascentix.RulesEngine.Plugin
             if (context.PrimaryEntityName == "asx_rule" && context.MessageName == "Create" &&
                 target?.GetAttributeValue<OptionSetValue>("statuscode")?.Value == 753840000)
                 throw new InvalidPluginExecutionException("Create and save a draft before publishing it.");
-            if (target != null && target.LogicalName == "asx_rule" && target.Attributes.Keys.Any(PublicationSchema.IsProtected))
-                throw new InvalidPluginExecutionException("Published revision metadata is managed by the server.");
             var service = local.SystemUserService;
-            PublicationCoordinator.Lock(service, context);
             Entity before = null;
             var id = target?.Id ?? (input as EntityReference)?.Id ?? Guid.Empty;
             if (context.MessageName == "Delete")
@@ -71,19 +62,12 @@ namespace Ascentix.RulesEngine.Plugin
                     target?.GetAttributeValue<OptionSetValue>("statuscode")?.Value == 1)
                     RuleDrafts.Open(service, context, before);
                 if (before != null && target != null &&
-                    target.Attributes.Keys.Any(field => field.StartsWith("asx_", StringComparison.Ordinal) && field != PublicationSchema.PublishHash && field != "asx_ruleid") &&
+                    target.Attributes.Keys.Any(field => field.StartsWith("asx_", StringComparison.Ordinal) && field != PublicationSchema.PublishHash && !PublicationSchema.IsProtected(field) && field != "asx_ruleid") &&
                     RuleDrafts.RequiresWorkingDraft(service, before))
                     throw new InvalidPluginExecutionException("Edit this rule's working draft in the Rule Builder.");
                 if (target != null && before != null && target.Contains("asx_tablelogicalname") &&
                     target.GetAttributeValue<string>("asx_tablelogicalname") != before.GetAttributeValue<string>("asx_tablelogicalname"))
                     throw new InvalidPluginExecutionException("A rule's business table cannot be changed. Create a rule for the other table.");
-                if (context.MessageName == "Delete") PublicationCoordinator.Internal(context, service, writer => {
-                    var draft = RuleDrafts.Find(service, id);
-                    if (draft != null) { RuleDrafts.DeleteContents(writer, draft); writer.Delete("asx_rule", draft.Id); }
-                    local.TracingService.Trace("Deleting asx_rule {0}: preparing owned-record cleanup without updating the delete target.", id);
-                    context.SharedVariables[DeletePlan] = RuleDrafts.PrepareDelete(writer, before);
-                });
-                if (target != null) target[PublicationSchema.DraftStamp] = Guid.NewGuid().ToString();
                 return;
             }
             var owners = new HashSet<Guid>();
@@ -98,12 +82,8 @@ namespace Ascentix.RulesEngine.Plugin
                 var changed = new List<Guid> { id };
                 foreach (var row in new[] { before, target }.Where(row => row != null))
                     changed.AddRange(row.Attributes.Values.OfType<EntityReference>().Select(reference => reference.Id));
-                owners.UnionWith(PublicationCoordinator.PreserveSharedConfiguration(service, context, changed));
+                PublicationCoordinator.PreserveSharedConfiguration(service, context, changed);
             }
-            PublicationCoordinator.Internal(context, service, writer => {
-                foreach (var owner in owners)
-                    writer.Update(new Entity("asx_rule", owner) { [PublicationSchema.DraftStamp] = Guid.NewGuid().ToString() });
-            });
         }
         private static void FindOwners(IOrganizationService service, Entity row, HashSet<Guid> owners, HashSet<Guid> seen)
         {

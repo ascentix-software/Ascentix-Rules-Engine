@@ -18,15 +18,11 @@ export interface CreateOp {
 }
 export interface UpdateOp {
   kind: "update"; entity: string; set: string; id: string;
-  // Row version of the SNAPSHOT row this update was diffed against, emitted as `If-Match` by
-  // buildBatch. null ⇒ unconditioned PATCH (last-write-wins), used only when the load surfaced
-  // no etag or the row has no snapshot baseline. Never a guessed or reconstructed value: an
-  // If-Match on an invented etag is worse than none.
+  // Loaded row metadata. buildBatch updates the latest existing row with If-Match: *;
+  // this value is not a save precondition.
   attrs: Record<string, any>; binds: Bind[]; etag: string | null;
 }
-// The optimistic-concurrency token for an update always comes from the SNAPSHOT (the version the
-// author's edits were made against), never from the working copy: the working row is a clone of
-// the snapshot row, so the two agree today, but only the snapshot is definitionally the baseline.
+// Retain the loaded row metadata when describing a diff.
 const etagOf = (prev: { etag?: string | null } | null | undefined): string | null => prev?.etag ?? null;
 export interface DeleteOp { kind: "delete"; entity: string; set: string; id: string; }
 export type Operation = CreateOp | UpdateOp | DeleteOp;
@@ -99,7 +95,7 @@ function changedAttrs(prev: Record<string, any>, next: Record<string, any>): Rec
 // the list-of-blocks model these ARE 1:1 (no split needed: each block already targets one node).
 interface PersistedFilterGroup {
   persistedId: string;
-  /** Row version carried over from the model node, for the update's If-Match (see UpdateOp.etag). */
+  /** Loaded row metadata; not used as a save precondition. */
   etag: string | null;
   op: "and" | "or";
   targetNodeId: string | null;
@@ -115,7 +111,7 @@ interface PersistedFilterGroup {
 }
 interface PersistedFilterCriterion {
   persistedId: string;
-  /** Row version carried over from the model node, for the update's If-Match (see UpdateOp.etag). */
+  /** Loaded row metadata; not used as a save precondition. */
   etag: string | null;
   groupPersistedId: string;
   // true for the EXISTS criterion itself (asx_criteriontype = 2). false for an ordinary scalar
@@ -296,9 +292,8 @@ function filterDeleteDepth(
 // ---- Reclaiming a condition's filter rows on delete ----
 // Deleting an asx_rulecondition does NOT cascade to the asx_nodefiltergroup /
 // asx_nodefiltercriterion rows it owns: `asx_rulecondition_nodefiltergroup` is a plain 1:N
-// (docs/Schema.md section 7), which is what the per-condition diff branch below relies on and why
-// e2e/devHelpers.ts's deleteRuleCascade reclaims them by hand. A rule delete must therefore emit
-// these explicitly or every filter row it owned is orphaned.
+// (docs/Schema.md section 7). Per-condition edits explicitly remove these rows here;
+// whole-rule deletion uses asx_DeleteRule, which performs the same cleanup on the server.
 //
 // Order mirrors diffRuleGraph's own filter-delete buckets exactly: scalar (non-exists) criteria
 // first (they are pure leaves nothing references), then filter GROUPS and EXISTS criteria in one

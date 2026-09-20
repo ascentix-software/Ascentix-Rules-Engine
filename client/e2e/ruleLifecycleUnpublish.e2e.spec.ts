@@ -73,8 +73,7 @@ test("unpublishing a Published blocking rule releases the form save; re-publishi
     const draftId = await api.openRuleDraft!(rule.ruleId);
     const valid = await api.validateRule(draftId);
     expect(valid.isValid).toBe(true);
-    const draft = await api.retrieveRecord(ENTITY_SET.rule, draftId, "?$select=statuscode");
-    await api.publishRule(draftId, draft["@odata.etag"], valid.draftHash);
+    await api.publishRule(draftId);
     await awaitBlockArmed(150, "unpub re-armed");
   } finally {
     await rule.cleanup();

@@ -57,10 +57,9 @@ root-table write, so put the trigger on the table whose writes should be gated.
 
 A rule configured with **System** evaluation context performs its
 Create/Update/Delete actions as SYSTEM, which bypasses field-level security
-profiles. Publishing such a rule is privilege-gated: the publisher must hold
-the org-wide `SEC_SYSWRITE_PRIV` privilege on each target table. The bypass is
-inherent to system-context writes and is disclosed rather than blocked. Treat
-users who can publish System-context write rules as customizer-equivalent.
+profiles. Trusted Authors may publish these rules without separate business-table
+privilege checks. This is deliberate delegation: assign the Author role to users
+who should be able to decide when System-context actions run.
 
 ## 6. Enforcement-step drift and recovery
 

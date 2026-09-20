@@ -91,7 +91,8 @@ export async function duplicateRule(api: EditorApi, ruleId: string): Promise<str
 // ---- Delete orchestrators ----
 
 export async function deleteRule(api: EditorApi, ruleId: string): Promise<void> {
-  await runBatch(api, [{ kind: "delete", entity: ENTITY.rule, set: ENTITY_SET.rule, id: ruleId }]);
+  if (!api.deleteRule) throw new Error("The rule-deletion service is unavailable.");
+  await api.deleteRule(ruleId);
 }
 
 export async function deleteConfig(api: EditorApi, rootId: string): Promise<void> {

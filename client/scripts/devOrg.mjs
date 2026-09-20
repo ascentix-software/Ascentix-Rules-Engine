@@ -286,13 +286,13 @@ export function devOrg(identity = "user", opts = {}) {
       const parsed = raw.Issues ? JSON.parse(raw.Issues) : { issues: [] };
       return { isValid: raw.IsValid ?? false, issues: parsed.issues ?? [], ...(raw.DraftHash ? { draftHash: raw.DraftHash } : {}) };
     },
-    async publishRule(ruleId, etag, draftHash) {
-      const r = await request("PATCH", `asx_rules(${ruleId})`, { statuscode: 753840000, ...(draftHash ? { asx_publishhash: draftHash } : {}) }, etag ? { "If-Match": etag } : {});
+    async publishRule(ruleId) {
+      const r = await request("PATCH", `asx_rules(${ruleId})`, { statuscode: 753840000 }, { "If-Match": "*" });
       if (!r.ok) throw shapeError("publishRule", r.status, r.text || undefined);
     },
     // Inverse of publishRule: back to Draft (1). See docs/Schema.md §2.1 Lifecycle.
-    async unpublishRule(ruleId, etag) {
-      const r = await request("PATCH", `asx_rules(${ruleId})`, { statuscode: 1 }, etag ? { "If-Match": etag } : {});
+    async unpublishRule(ruleId) {
+      const r = await request("PATCH", `asx_rules(${ruleId})`, { statuscode: 1 }, { "If-Match": "*" });
       if (!r.ok) throw shapeError("unpublishRule", r.status);
     },
     async readPublishedRule(ruleId) {
@@ -310,8 +310,12 @@ export function devOrg(identity = "user", opts = {}) {
       if (!r.ok) throw shapeError("copyRule", r.status, r.text);
       return r.json.NewRuleId;
     },
-    async restoreRuleDraft(ruleId, etag) {
-      const r = await request("POST", "asx_RestoreRuleDraft", { RuleId: ruleId, ExpectedVersion: etag.replace(/^W\/"|"$/g, "") });
+    async deleteRule(ruleId) {
+      const r = await request("POST", "asx_DeleteRule", { RuleId: ruleId });
+      if (!r.ok) throw shapeError("asx_DeleteRule", r.status, r.text);
+    },
+    async restoreRuleDraft(ruleId) {
+      const r = await request("POST", "asx_RestoreRuleDraft", { RuleId: ruleId });
       if (!r.ok) throw shapeError("restoreRuleDraft", r.status, r.text);
     },
   };
@@ -323,10 +327,17 @@ export function devOrg(identity = "user", opts = {}) {
     if (!r.ok) throw shapeError(`updateRecord ${entitySet}`, r.status, r.text);
   }
 
-  // DELETE; a 404 is success (self-cleaning tests).
+  // Dataverse can return 404 for a failed nested/platform operation even while
+  // the requested row survives. Only accept it after confirming that row is gone.
   async function deleteRecord(entitySet, id) {
+    if (entitySet === "asx_rules") return api.deleteRule(id);
     const r = await request("DELETE", `${entitySet}(${id})`);
-    if (!r.ok && r.status !== 404) throw shapeError(`delete ${entitySet}(${id})`, r.status, r.text);
+    if (r.ok) return;
+    if (r.status === 404) {
+      const check = await request("GET", `${entitySet}(${id})`);
+      if (check.status === 404) return;
+    }
+    throw shapeError(`delete ${entitySet}(${id})`, r.status, r.text);
   }
 
   // Report-only verdict probe. asx_RunRules never throws on a rule outcome and never writes — it

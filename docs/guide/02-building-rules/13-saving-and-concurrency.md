@@ -1,11 +1,11 @@
 ---
-title: Saving & Concurrency
+title: Saving & Recovery
 section: Building Rules
 order: 213
 slug: saving-and-concurrency
 ---
 
-# Saving & Concurrency
+# Saving & Recovery
 
 ## Dirty tracking
 
@@ -39,15 +39,12 @@ copy.
 **Review changes** shows pending operations and lets you **Copy changes** before
 reloading. If clipboard access is unavailable, select and copy the text manually.
 
-## Optimistic concurrency
+## Latest save wins
 
-Saving uses **optimistic concurrency**: if the rule was changed elsewhere
-since you loaded it, your save is rejected and you're told to reload
-before saving again. Your in-progress edits stay in memory; the server's
-copy is untouched. Use **Review changes** to copy your pending changes, reload the
-current version, and reapply the changes you still want. Recovery retains the
-original version checks; restoring an old edit does not override someone else's
-work.
+Saving updates the current records without rejecting an older loaded version.
+If two authors change the same field, the last successful save wins. Reload to see
+current server values. Restoring browser recovery follows the same behavior.
+Saving remains atomic: a failed operation rolls back the entire changeset.
 
 ## Editing a published rule
 

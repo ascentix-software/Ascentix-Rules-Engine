@@ -208,6 +208,7 @@ describe("web api", () => {
       { status: 400, body: "blocked" },
       { status: 500, body: "boom" },
       { status: 404 },
+      { status: 404 },
       { status: 404, body: "nf" },
       { status: 400, body: "bad filter" },
       { status: 500 },
@@ -221,7 +222,7 @@ describe("web api", () => {
     );
     await expect(org.updateRecord("sample_orders", "id", {})).rejects.toThrow("updateRecord sample_orders failed (400): blocked");
     await expect(org.deleteRecord("sample_orders", "id")).rejects.toThrow("delete sample_orders(id) failed (500): boom");
-    await expect(org.deleteRecord("sample_orders", "id")).resolves.toBeUndefined(); // 404 = already gone
+    await expect(org.deleteRecord("sample_orders", "id")).resolves.toBeUndefined(); // GET confirms already gone
     await expect(org.api.retrieveRecord("sample_orders", "id")).rejects.toThrow(/^retrieveRecord sample_orders failed \(404\)$/);
     await expect(org.api.retrieveMultipleRecords("sample_orders", "?$filter=x")).rejects.toThrow(
       "retrieveMultipleRecords sample_orders failed (400): bad filter",
@@ -230,6 +231,28 @@ describe("web api", () => {
     await expect(org.api.validateRule("r")).rejects.toThrow(/^asx_ValidateRule failed \(403\)$/);
     await expect(org.api.publishRule("r")).rejects.toThrow(/^publishRule failed \(400\)$/);
     await expect(org.runRules("sample_order")).rejects.toThrow("asx_RunRules failed (500): engine");
+  });
+
+  it("routes rule deletion through the transactional API and preserves failures", async () => {
+    const { fn, calls } = fakeFetch([{ status: 204 }, { status: 403, body: "denied" }]);
+    const org = devOrg("user", { ...base, fetch: fn });
+    await expect(org.deleteRecord("asx_rules", "id")).resolves.toBeUndefined();
+    await expect(org.deleteRecord("asx_rules", "id")).rejects.toThrow(/403.*denied/);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].url).toBe(`${URL}/api/data/v9.2/asx_DeleteRule`);
+    expect(calls[0].init.method).toBe("POST");
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({ RuleId: "id" });
+  });
+
+  it.each([200, 403, 500])("does not hide a DELETE 404 when the verification GET returns %s", async (status) => {
+    const { fn, calls } = fakeFetch([
+      { status: 404, body: "Platform delete failed" },
+      { status, body: status === 200 ? '{"sample_orderid":"id"}' : "Read failed" },
+    ]);
+    const org = devOrg("user", { ...base, fetch: fn });
+    await expect(org.deleteRecord("sample_orders", "id")).rejects.toThrow("delete sample_orders(id) failed (404): Platform delete failed");
+    expect(calls.map(call => call.init.method)).toEqual(["DELETE", "GET"]);
+    expect(calls[1].url).toBe(calls[0].url);
   });
 
   it("runRules: defaults Triggers to Manual, adds IncludeDiagnostics on request, parses Results + Diagnostics", async () => {

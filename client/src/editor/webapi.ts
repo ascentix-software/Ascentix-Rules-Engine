@@ -15,13 +15,14 @@ export interface WebApiPort {
   /** Call asx_ValidateRule and return the parsed verdict. */
   validateRule(ruleId: string): Promise<{ isValid: boolean; issues: ApiIssue[]; draftHash?: string }>;
   /** PATCH the rule's statuscode to Published (753840000). */
-  publishRule(ruleId: string, etag?: string | null, draftHash?: string): Promise<void>;
+  publishRule(ruleId: string): Promise<void>;
   readPublishedRule?(ruleId: string): Promise<string>;
   openRuleDraft?(ruleId: string): Promise<string>;
   copyRule?(ruleId: string): Promise<string>;
-  restoreRuleDraft?(ruleId: string, etag: string): Promise<void>;
+  deleteRule?(ruleId: string): Promise<void>;
+  restoreRuleDraft?(ruleId: string): Promise<void>;
   /** PATCH the rule's statuscode back to Draft (1), the inverse of publishRule. */
-  unpublishRule(ruleId: string, etag?: string | null): Promise<void>;
+  unpublishRule(ruleId: string): Promise<void>;
 }
 
 // A full-page web resource can reach the Client API on the window or its parent.
@@ -106,22 +107,20 @@ export function createWebApiPort(): EditorApi {
       const isValid: boolean = raw.IsValid ?? false;
       const issuesParsed = raw.Issues ? JSON.parse(raw.Issues) : { isValid, issues: [] };
       const issues: ApiIssue[] = issuesParsed.issues ?? [];
-      if (typeof raw.DraftHash !== "string") throw new Error("This installation is missing required rule-authoring components. Contact your administrator.");
       return { isValid, issues, draftHash: raw.DraftHash };
     },
     // Lifecycle status reasons (docs/Schema.md §2.1): Draft = 1, Published = 753840000.
-    publishRule: (ruleId, etag, hash) => patchStatus(base, "publishRule", ruleId, 753840000, etag, hash),
-    unpublishRule: (ruleId, etag) => patchStatus(base, "unpublishRule", ruleId, 1, etag),
+    publishRule: (ruleId) => patchStatus(base, "publishRule", ruleId, 753840000),
+    unpublishRule: (ruleId) => patchStatus(base, "unpublishRule", ruleId, 1),
     readPublishedRule: async (ruleId) => (await revisionRequest(base, "asx_ReadPublishedRule", { RuleId: ruleId })).Definition,
     openRuleDraft: async (ruleId) => (await revisionRequest(base, "asx_OpenRuleDraft", { RuleId: ruleId })).DraftId,
     copyRule: async (ruleId) => (await revisionRequest(base, "asx_CopyRule", { RuleId: ruleId })).NewRuleId,
-    restoreRuleDraft: async (ruleId, etag) => { await revisionRequest(base, "asx_RestoreRuleDraft", {
-      RuleId: ruleId, ExpectedVersion: etag.replace(/^W\/"|"$/g, ""),
-    }); },
+    deleteRule: async (ruleId) => { await revisionRequest(base, "asx_DeleteRule", { RuleId: ruleId }); },
+    restoreRuleDraft: async (ruleId) => { await revisionRequest(base, "asx_RestoreRuleDraft", { RuleId: ruleId }); },
   };
 }
 
-async function patchStatus(base: string, op: string, ruleId: string, statuscode: number, etag?: string | null, hash?: string): Promise<void> {
+async function patchStatus(base: string, op: string, ruleId: string, statuscode: number): Promise<void> {
   const res = await fetch(`${base}/api/data/${API_VERSION}/asx_rules(${ruleId})`, {
     method: "PATCH",
     credentials: "same-origin",
@@ -130,9 +129,9 @@ async function patchStatus(base: string, op: string, ruleId: string, statuscode:
       Accept: "application/json",
       "OData-MaxVersion": "4.0",
       "OData-Version": "4.0",
-      ...(etag ? { "If-Match": etag } : {}),
+      "If-Match": "*",
     },
-    body: JSON.stringify({ statuscode, ...(hash ? { asx_publishhash: hash } : {}) }),
+    body: JSON.stringify({ statuscode }),
   });
   if (!res.ok) { const raw = await res.json().catch(() => null); throw new Error(`${op} PATCH failed (${res.status}): ${raw?.error?.message ?? "Request failed"}`); }
 }

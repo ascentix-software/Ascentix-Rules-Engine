@@ -77,7 +77,6 @@ export function TableConfigApp({ initialGraph, initialUsage, api, reload }: {
       const res: SaveResult = await saveRuleGraph(api, snapshot, working, nextIds());
       if (res.status === "noop") setBanner({ intent: "success", text: "Nothing to save." });
       else if (res.status === "saved") { applyReload(await reload()); setBanner({ intent: "success", text: "Saved." }); }
-      else if (res.status === "conflict") setBanner({ intent: "warning", text: `This configuration changed elsewhere. Reload before saving. ${res.message ?? ""}` });
       else setBanner({ intent: "error", text: `Save failed: ${res.message ?? "unknown error"}` });
     } catch (e) {
       setBanner({ intent: "error", text: `Save failed: ${formatError(e)}` });

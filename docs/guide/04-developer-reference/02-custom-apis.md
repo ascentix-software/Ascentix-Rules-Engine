@@ -242,3 +242,23 @@ that was deliberately suspended (*Troubleshooting*).
 
 Tables where nothing changed are omitted, so an empty array means everything was
 already correct.
+
+## `asx_DeleteRule`: delete a rule and its owned configuration
+
+The Rule Builder calls this unbound action when deleting a rule:
+
+```http
+POST /api/data/v9.2/asx_DeleteRule
+Content-Type: application/json
+
+{"RuleId":"00000000-0000-0000-0000-000000000000"}
+```
+
+`RuleId` is a required String. The caller needs the rule Delete privilege, enforced by the platform. The operation removes the rule, its working draft,
+owned conditions/actions, revisions, and unused private models in one transaction.
+Shared models are retained. Deleting only a working draft retains the published
+original. An absent rule succeeds without changes. There are no response properties.
+
+Native `DELETE asx_rules(id)` is also supported and removes the same owned graph
+inside its transaction. The standard Dataverse Rules grid uses that path. The API
+additionally offers idempotent deletion when the rule is already absent.

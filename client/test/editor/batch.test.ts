@@ -33,14 +33,15 @@ describe("buildBatch", () => {
     expect(body.trimEnd().endsWith("--batch_B1--")).toBe(true);
   });
 
-  it("emits If-Match for an update with an etag", () => {
+  it("updates the latest existing version even when an old etag is supplied", () => {
     const ops: Operation[] = [
       { kind: "update", entity: "asx_rule", set: "asx_rules", id: "r1",
         attrs: { asx_name: "X" }, binds: [], etag: 'W/"42"' },
     ];
     const { body } = buildBatch(ops, opts);
     expect(body).toContain("PATCH https://org.crm.dynamics.com/api/data/v9.2/asx_rules(r1) HTTP/1.1");
-    expect(body).toContain('If-Match: W/"42"');
+    expect(body).toContain('If-Match: *');
+    expect(body).not.toContain('If-Match: W/"42"');
   });
 
   it("emits a DELETE request", () => {
@@ -55,14 +56,10 @@ describe("buildBatch", () => {
 describe("parseBatchOutcome", () => {
   it("treats all-2xx inner responses as ok", () => {
     const text = "--bresp\nContent-Type: application/http\n\nHTTP/1.1 204 No Content\n\n--bresp--";
-    expect(parseBatchOutcome(text)).toEqual({ ok: true, conflict: false, message: null });
+    expect(parseBatchOutcome(text)).toEqual({ ok: true, message: null });
   });
-  it("flags a 412 as a conflict", () => {
-    const text = 'HTTP/1.1 412 Precondition Failed\n\n{"error":{"message":"stale"}}';
-    expect(parseBatchOutcome(text)).toEqual({ ok: false, conflict: true, message: "stale" });
-  });
-  it("flags other 4xx/5xx as a non-conflict failure with message", () => {
-    const text = 'HTTP/1.1 400 Bad Request\n\n{"error":{"message":"bad nav"}}';
-    expect(parseBatchOutcome(text)).toEqual({ ok: false, conflict: false, message: "bad nav" });
+  it.each([400, 403, 404, 412, 500])("returns the server error for HTTP %s without inferring a version conflict", (status) => {
+    const text = `HTTP/1.1 ${status} Error\n\n{"error":{"message":"Request rejected"}}`;
+    expect(parseBatchOutcome(text)).toEqual({ ok: false, message: "Request rejected" });
   });
 });

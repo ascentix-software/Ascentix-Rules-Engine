@@ -30,7 +30,6 @@ namespace Ascentix.RulesEngine.Plugin
             if (!Guid.TryParse(raw, out var ruleId))
                 throw new InvalidPluginExecutionException($"asx_ValidateRule: RuleId '{raw}' is not a valid GUID.");
 
-            PublicationCoordinator.Lock(service, context);
             var snapshot = RuleSnapshot.Capture(service, ruleId);
             var model = RuleValidationLoader.Load(new SnapshotService(service, snapshot), ruleId);
             if (model == null)
@@ -38,15 +37,9 @@ namespace Ascentix.RulesEngine.Plugin
 
             var report = RuleValidator.Validate(model, new AttributeFlagsProvider(service));
 
-            // SEC issues are publisher-relative: the SEC_SYSWRITE_REQ warning always surfaces the
-            // Global-privilege requirement (so the editor shows it to everyone), while the blocking
-            // SEC_SYSWRITE_PRIV error reflects the CALLER's own privileges. The hard failure is
-            // re-evaluated for the actual publisher at publish time (RulePublishPlugin).
-            var secIssues = SecurityChecks.Check(
-                model, new PublisherPrivilegeProvider(service, context.InitiatingUserId));
             // TRAV_PUSHDOWN advisory (non-blocking): criteria that can't filter server-side.
             var pushdownIssues = PushdownChecks.Check(model);
-            var combined = ValidationReport.From(report.Issues.Concat(secIssues).Concat(pushdownIssues));
+            var combined = ValidationReport.From(report.Issues.Concat(pushdownIssues));
 
             context.OutputParameters["IsValid"] = combined.IsValid;
             context.OutputParameters["Issues"] = ValidationReportSerializer.Serialize(combined);

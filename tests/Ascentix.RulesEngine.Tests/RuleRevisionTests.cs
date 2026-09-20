@@ -170,14 +170,14 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
-        public void Guard_rejects_direct_revision_and_pointer_mutations()
+        public void Revision_and_pointer_access_is_left_to_platform_permissions()
         {
             var id = Guid.NewGuid(); var context = Context(Rule(id));
             foreach (var target in new[] { new Entity(PublicationSchema.Revision, Guid.NewGuid()), new Entity("asx_rule", id) { [PublicationSchema.Pointer] = new EntityReference(PublicationSchema.Revision, Guid.NewGuid()) } })
             {
                 var request = new XrmFakedPluginExecutionContext { Stage = 20, MessageName = "Update", PrimaryEntityName = target.LogicalName,
                     InputParameters = new ParameterCollection { { "Target", target } } };
-                Assert.Throws<InvalidPluginExecutionException>(() => context.ExecuteTransactional<RuleRevisionGuardPlugin>(request));
+                context.ExecuteTransactional<RuleRevisionGuardPlugin>(request);
             }
         }
 
@@ -209,7 +209,7 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
-        public void Restore_requires_write_access_and_a_current_draft_version()
+        public void Restore_requires_only_the_rule_id_after_the_API_privilege_gate()
         {
             var id = Guid.NewGuid(); var context = Context(Rule(id)); var service = context.GetOrganizationService(); var revision = Freeze(service, id);
             var draftId = OpenDraft(context, id);
@@ -217,15 +217,13 @@ namespace Ascentix.RulesEngine.Tests
             context.AddExecutionMock<RetrievePrincipalAccessRequest>(_ => new RetrievePrincipalAccessResponse {
                 Results = new ParameterCollection { { "AccessRights", rights } } });
             var request = new XrmFakedPluginExecutionContext { Stage = 30, MessageName = "asx_RestoreRuleDraft", InitiatingUserId = Guid.NewGuid(),
-                InputParameters = new ParameterCollection { { "RuleId", draftId.ToString() }, { "ExpectedVersion", "stale" } } };
-            Assert.Contains("permission to edit", Assert.Throws<InvalidPluginExecutionException>(() => context.ExecuteTransactional<RuleRevisionApi>(request)).Message);
-            rights |= AccessRights.WriteAccess;
-            Assert.Contains("changed elsewhere", Assert.Throws<InvalidPluginExecutionException>(() => context.ExecuteTransactional<RuleRevisionApi>(request)).Message);
+                InputParameters = new ParameterCollection { { "RuleId", draftId.ToString() } } };
+            context.ExecuteTransactional<RuleRevisionApi>(request);
             Assert.Equal(revision.Id, service.Retrieve("asx_rule", id, new ColumnSet(true)).GetAttributeValue<EntityReference>(PublicationSchema.Pointer).Id);
         }
 
         [Fact]
-        public void Stale_shared_model_hash_rejects_publish_and_keeps_previous_pointer()
+        public void Publication_validates_the_latest_saved_graph_without_a_stale_hash_veto()
         {
             var id = Guid.NewGuid(); var context = Context(Rule(id)); var service = context.GetOrganizationService(); var revision = Freeze(service, id);
             var draftId = OpenDraft(context, id);
@@ -235,9 +233,9 @@ namespace Ascentix.RulesEngine.Tests
             var target = new Entity("asx_rule", draftId) { ["statuscode"] = new OptionSetValue(753840000), [PublicationSchema.PublishHash] = hash };
             var request = new XrmFakedPluginExecutionContext { MessageName = "Update", Stage = 20, PrimaryEntityName = "asx_rule",
                 InputParameters = new ParameterCollection { { "Target", target } } };
-            var error = Assert.Throws<InvalidPluginExecutionException>(() => context.ExecuteTransactional<RulePublishPlugin>(request));
-            Assert.Contains("changed after validation", error.Message);
-            Assert.Equal(revision.Id, service.Retrieve("asx_rule", id, new ColumnSet(true)).GetAttributeValue<EntityReference>(PublicationSchema.Pointer).Id);
+            context.ExecuteTransactional<RulePublishPlugin>(request);
+            Assert.NotEqual(revision.Id, service.Retrieve("asx_rule", id, new ColumnSet(true)).GetAttributeValue<EntityReference>(PublicationSchema.Pointer).Id);
+            Assert.Equal("Changed after validation", Read(service, id).Rows.Single(row => row.Id == model.Id).ToSdk().GetAttributeValue<string>("asx_name"));
         }
 
         [Fact]

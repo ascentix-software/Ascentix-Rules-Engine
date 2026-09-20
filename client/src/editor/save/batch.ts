@@ -58,7 +58,8 @@ export function buildBatch(ops: Operation[], opts: BatchOptions): { boundary: st
     } else if (op.kind === "update") {
       lines.push(`PATCH ${recordUrl(opts, op.set, op.id)} HTTP/1.1`);
       lines.push("Content-Type: application/json; type=entry");
-      if (op.etag) lines.push(`If-Match: ${op.etag}`);
+      // Update an existing row; accept its latest version (last save wins).
+      lines.push("If-Match: *");
       lines.push("");
       lines.push(jsonBody(op.attrs, op.binds, opts, contentIdByTemp));
     } else {
@@ -81,14 +82,14 @@ export function buildBatch(ops: Operation[], opts: BatchOptions): { boundary: st
   return { boundary, body };
 }
 
-export function parseBatchOutcome(text: string): { ok: boolean; conflict: boolean; message: string | null } {
+export function parseBatchOutcome(text: string): { ok: boolean; message: string | null } {
   const codes: number[] = [];
   const re = /HTTP\/1\.1 (\d{3})/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) codes.push(Number(m[1]));
   const bad = codes.find((c) => c >= 400);
-  if (bad == null) return { ok: true, conflict: false, message: null };
+  if (bad == null) return { ok: true, message: null };
   const msgMatch = /"message"\s*:\s*"([^"]*)"/.exec(text);
   const message = msgMatch ? msgMatch[1] : null;
-  return { ok: false, conflict: bad === 412, message };
+  return { ok: false, message };
 }

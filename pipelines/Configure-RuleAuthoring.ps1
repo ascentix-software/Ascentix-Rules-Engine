@@ -43,14 +43,25 @@ function EnsureTable([string]$Name, [string]$Display) {
         IsActivity = $false; IsAuditEnabled = @{ Value = $false }; Attributes = @($primary)
     } | Out-Null
 }
-function EnsureLookup([string]$From, [string]$To, [string]$Name, [string]$Display) {
+function EnsureLookup([string]$From, [string]$To, [string]$Name, [string]$Display, [string]$Delete = 'Restrict') {
     $logical = $Name.ToLowerInvariant()
     $existing = Request GET "EntityDefinitions(LogicalName='$From')/Attributes?`$select=LogicalName&`$filter=LogicalName eq '$logical'"
-    if ($existing.value.Count -gt 0) { return }
+    if ($existing.value.Count -gt 0) {
+        $relations = Request GET "EntityDefinitions(LogicalName='$From')/ManyToOneRelationships?`$select=MetadataId,SchemaName,CascadeConfiguration&`$filter=ReferencingAttribute eq '$logical'"
+        foreach ($relation in $relations.value) {
+            if ($relation.CascadeConfiguration.Delete -eq $Delete) { continue }
+            $relation.CascadeConfiguration.Delete = $Delete
+            Request PUT "RelationshipDefinitions($($relation.MetadataId))" @{
+                '@odata.type' = 'Microsoft.Dynamics.CRM.OneToManyRelationshipMetadata';
+                MetadataId = $relation.MetadataId; SchemaName = $relation.SchemaName; CascadeConfiguration = $relation.CascadeConfiguration
+            } | Out-Null
+        }
+        return
+    }
     Request POST 'RelationshipDefinitions' @{
         '@odata.type' = 'Microsoft.Dynamics.CRM.OneToManyRelationshipMetadata'; SchemaName = "${From}_${logical}_revision";
         ReferencedEntity = $To; ReferencingEntity = $From; Lookup = (Field $Name 'Lookup' $Display);
-        CascadeConfiguration = @{ Assign = 'NoCascade'; Delete = 'Restrict'; Merge = 'NoCascade'; Reparent = 'NoCascade'; Share = 'NoCascade'; Unshare = 'NoCascade' }
+        CascadeConfiguration = @{ Assign = 'NoCascade'; Delete = $Delete; Merge = 'NoCascade'; Reparent = 'NoCascade'; Share = 'NoCascade'; Unshare = 'NoCascade' }
     } | Out-Null
 }
 
@@ -69,10 +80,10 @@ if ($Phase -eq 'Schema') {
     }
     $date = Field 'asx_PublishedOn' 'DateTime' 'Published on'; $date.Format = 'DateAndTime'; $date.DateTimeBehavior = @{ Value = 'UserLocal' }
     EnsureField 'asx_rulerevision' $date
-    EnsureLookup 'asx_rulerevision' 'asx_rule' 'asx_Rule' 'Rule'
+    EnsureLookup 'asx_rulerevision' 'asx_rule' 'asx_Rule' 'Rule' 'RemoveLink'
     EnsureLookup 'asx_rulerevision' 'systemuser' 'asx_Publisher' 'Publisher'
-    EnsureLookup 'asx_rule' 'asx_rulerevision' 'asx_PublishedRevision' 'Published revision'
-    EnsureLookup 'asx_rule' 'asx_rule' 'asx_DraftOf' 'Working draft of'
+    EnsureLookup 'asx_rule' 'asx_rulerevision' 'asx_PublishedRevision' 'Published revision' 'RemoveLink'
+    EnsureLookup 'asx_rule' 'asx_rule' 'asx_DraftOf' 'Working draft of' 'RemoveLink'
     $private = Field 'asx_IsPrivate' 'Boolean' 'Private rule model'
     $private.DefaultValue = $false
     $private.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.BooleanOptionSetMetadata';
@@ -149,9 +160,18 @@ function EnsureStep([string]$Table, [string]$Message, [string]$TypeId, [int]$Ran
 }
 $guard = PluginType 'RuleRevisionGuardPlugin'
 $tables = @('asx_rule','asx_conditiongroup','asx_rulecondition','asx_searchcriteriagroup','asx_searchcriterion',
-    'asx_nodefiltergroup','asx_nodefiltercriterion','asx_ruleaction','asx_localizedmessage','asx_tableconfig','asx_rulerevision')
-foreach ($table in $tables) { foreach ($message in @('Create','Update','Delete')) { EnsureStep $table $message $guard 1 } }
+    'asx_nodefiltergroup','asx_nodefiltercriterion','asx_ruleaction','asx_localizedmessage','asx_tableconfig')
+foreach ($table in $tables) { foreach ($message in @('Create','Update','Delete')) {
+    $stage = if ($table -eq 'asx_rule' -and $message -eq 'Delete') { 10 } else { 20 }
+    EnsureStep $table $message $guard 1 $stage
+} }
+# Capture before links are removed, clean owned rows inside Delete's transaction,
+# then reclaim private models after the header is gone. Shared models survive.
+EnsureStep 'asx_rule' 'Delete' $guard 1 20
 EnsureStep 'asx_rule' 'Delete' $guard 1 40
+# Revision-table access is controlled by Dataverse roles, not a plugin veto.
+$revisionGuards = Request GET "sdkmessageprocessingsteps?`$select=sdkmessageprocessingstepid&`$filter=_eventhandler_value eq $guard and sdkmessagefilterid/primaryobjecttypecode eq 'asx_rulerevision'"
+foreach ($step in $revisionGuards.value) { Request DELETE "sdkmessageprocessingsteps($($step.sdkmessageprocessingstepid))" | Out-Null }
 EnsureStep 'asx_rule' 'SetState' $guard 1
 EnsureStep '*' 'Associate' $guard 1
 EnsureStep '*' 'Disassociate' $guard 1
@@ -185,7 +205,7 @@ function EnsureParameter([string]$ApiId, [string]$Name, [int]$Type, [bool]$Outpu
     Request POST $set $body | Out-Null
 }
 $revisionType = PluginType 'RuleRevisionApi'
-$authoringApis = @('asx_ReadPublishedRule', 'asx_RestoreRuleDraft', 'asx_OpenRuleDraft', 'asx_CopyRule')
+$authoringApis = @('asx_ReadPublishedRule', 'asx_RestoreRuleDraft', 'asx_OpenRuleDraft', 'asx_CopyRule', 'asx_DeleteRule')
 $ownedApis = Request GET "customapis?`$select=customapiid,uniquename&`$filter=_plugintypeid_value eq $revisionType"
 foreach ($api in $ownedApis.value) {
     if ($api.uniquename -notin $authoringApis) { Request DELETE "customapis($($api.customapiid))" | Out-Null }
@@ -194,17 +214,24 @@ foreach ($spec in @(
     @('asx_ReadPublishedRule', 'Read the immutable configuration of the active published rule revision.'),
     @('asx_RestoreRuleDraft', 'Restore the published configuration into a draft without changing active enforcement.')
 )) {
-    $id = EnsureApi $spec[0] 'prvReadasx_rule' $spec[1]
+    $privilege = if ($spec[0] -eq 'asx_RestoreRuleDraft') { 'prvWriteasx_rule' } else { 'prvReadasx_rule' }
+    $id = EnsureApi $spec[0] $privilege $spec[1]
     EnsureParameter $id 'RuleId' 10 $false 'Identifier of the rule to read or restore.'
     if ($spec[0] -eq 'asx_ReadPublishedRule') { EnsureParameter $id 'Definition' 10 $true 'Serialized configuration of the active published rule revision.' }
-    else { EnsureParameter $id 'ExpectedVersion' 10 $false 'Expected rule row version for optimistic concurrency.' }
+    else {
+        # Upgrade the previous restore contract; version checking no longer exists.
+        $obsolete = Request GET "customapirequestparameters?`$select=customapirequestparameterid&`$filter=_customapiid_value eq $id and uniquename eq 'ExpectedVersion'"
+        foreach ($parameter in $obsolete.value) { Request DELETE "customapirequestparameters($($parameter.customapirequestparameterid))" | Out-Null }
+    }
 }
-$id = EnsureApi 'asx_OpenRuleDraft' 'prvReadasx_rule' 'Open a separate working draft while the published rule continues enforcing.'
+$id = EnsureApi 'asx_OpenRuleDraft' 'prvWriteasx_rule' 'Open a separate working draft while the published rule continues enforcing.'
 EnsureParameter $id 'RuleId' 10 $false 'Identifier of the rule to edit.'
 EnsureParameter $id 'DraftId' 10 $true 'Identifier of the existing or newly created working draft.'
 $id = EnsureApi 'asx_CopyRule' 'prvCreateasx_rule' 'Copy a rule definition and its model into a new unpublished rule.'
 EnsureParameter $id 'RuleId' 10 $false 'Identifier of the source rule.'
 EnsureParameter $id 'NewRuleId' 10 $true 'Identifier of the new unpublished rule.'
+$id = EnsureApi 'asx_DeleteRule' 'prvDeleteasx_rule' 'Delete a rule, its working draft and owned configuration in one transaction before platform cascading begins.'
+EnsureParameter $id 'RuleId' 10 $false 'Identifier of the rule or working draft to delete.'
 $validate = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq 'asx_ValidateRule'"
 if ($validate.value.Count -ne 1) { throw 'Missing asx_ValidateRule API.' }
 EnsureParameter $validate.value[0].customapiid 'DraftHash' 10 $true 'SHA-256 hash of the saved draft configuration checked by validation.'

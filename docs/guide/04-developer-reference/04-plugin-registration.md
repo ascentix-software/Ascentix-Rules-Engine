@@ -58,7 +58,10 @@ Every explicit publication, including republishing a live rule, captures the sav
 draft and its data model. Configuration guards execute first (order 1), the
 publisher next (20), and registration reconciliation last (30), all synchronously
 in pre-operation. Guards cover Create/Update/Delete of the ten configuration tables
-and revision table, plus legacy SetState on rules. Draft edits preserve the
+tables, plus legacy SetState on rules. Revision-table access uses platform permissions. Native rule Delete captures
+ownership in PreValidation and cleans up in PreOperation/PostOperation inside the
+delete transaction. Both the Rules grid and Rule Builder list support deletion.
+Draft edits preserve the
 registrations required by the published snapshot.
 
 ## Drift repair

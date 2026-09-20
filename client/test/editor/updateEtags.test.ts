@@ -7,14 +7,7 @@ import { ENTITY } from "../../src/editor/load/odata";
 import type { RuleGraph, ConditionGroupNode, ConditionNode, ActionNode, TableConfigRef } from "../../src/editor/model/types";
 import type { NodeFilterBlock } from "../../src/editor/model/nodeFilter";
 
-// Every child UPDATE used to ship `etag: null` (only the rule header carried If-Match), so two
-// authors editing different conditions/actions/nodes of the SAME rule silently last-write-wins
-// while the 412 path made the save look optimistically-concurrent. The row version is now loaded
-// onto every child model node and threaded onto its PATCH.
-//
-// The contract asserted here is deliberately narrow and honest: what the LOAD surfaced is what
-// the update carries, and nothing else. No etag is ever invented or reconstructed: a row with
-// no loaded etag still goes out unconditioned, exactly as before.
+// Row-version metadata remains available to callers, but saves use last-save-wins.
 
 const node = (id: string, over: Partial<TableConfigRef> = {}): TableConfigRef => ({
   id, name: id, tableLogicalName: "account", tableConfigType: "RootTable", parentTableConfigId: null,
@@ -104,7 +97,7 @@ describe("diffRuleGraph — child update ops carry the loaded row version (If-Ma
     const critUpdates = ops.filter((o) => o.kind === "update" && o.entity === ENTITY.nodeFilterCriterion) as any[];
     expect(critUpdates.map((o) => [o.id, o.etag]).sort()).toEqual([["fl-1", 'W/"fl"'], ["fx-1", 'W/"fx"']]);
 
-    // NOT ONE child update is left unconditioned
+    // Every loaded child retains its row-version metadata.
     expect((ops.filter((o) => o.kind === "update") as any[]).every((o) => typeof o.etag === "string")).toBe(true);
   });
 
@@ -141,7 +134,7 @@ describe("diffRuleGraph — child update ops carry the loaded row version (If-Ma
     const { body } = buildBatch(diffRuleGraph(snap, w), {
       clientUrl: "https://x.crm.dynamics.com", apiVersion: "v9.2", batchId: "b", changesetId: "c",
     });
-    expect(body).toContain('If-Match: W/"cond"');
+    expect(body).toContain('If-Match: *');
     expect(body).not.toContain('"etag"');
     expect(body).not.toContain("@odata.etag");
   });

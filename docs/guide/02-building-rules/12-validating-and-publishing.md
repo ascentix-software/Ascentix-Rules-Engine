@@ -21,9 +21,9 @@ standing in the way.
 When there are unsaved edits, the button reads **Save & validate**: it first saves
 the Draft, then validates the persisted result. On a clean rule it reads **Validate**.
 Published rules remain active while you edit and save their draft. Validate the
-draft, then **Publish** to replace the live revision. Validation checks the captured
-configuration, including shared data models. If it changes before publication,
-publication is rejected and you must validate again. See *Saving & Concurrency*.
+draft, then **Publish** to replace the live revision. Publication revalidates the current saved
+configuration, including shared data models. Changes since a previous validation
+do not block publication when the current definition is valid. See *Saving & Recovery*.
 
 ## Validation layers
 
@@ -44,9 +44,7 @@ found rather than stopping at the first one:
 
 All three layers report **errors**, which block publishing. Issues can also
 carry a **Warning** severity, which is advisory and does not block: a Row
-Count minimum that can never pass at Create (`STRUCT_ROWCOUNT_ON_CREATE`),
-and the privilege requirement stated for a gated System-context write action
-(`SEC_SYSWRITE_REQ`).
+Count minimum that can never pass at Create (`STRUCT_ROWCOUNT_ON_CREATE`).
 
 ## Reading the issues panel
 

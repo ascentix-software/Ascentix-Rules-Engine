@@ -24,7 +24,7 @@ export async function updateDevRecord(
   return devOrg("user", tokenOverride ? { tokenOverride } : {}).updateRecord(entitySet, id, data);
 }
 
-// Convenience: delete a record (for self-cleaning write tests). A 404 counts as deleted.
+// Rules use the transactional deletion API. Other DELETE 404s require a confirming GET 404.
 export async function deleteDevRecord(entitySet: string, id: string, tokenOverride?: string): Promise<void> {
   return devOrg("user", tokenOverride ? { tokenOverride } : {}).deleteRecord(entitySet, id);
 }
