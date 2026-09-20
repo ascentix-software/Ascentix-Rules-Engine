@@ -9,6 +9,35 @@ namespace Ascentix.RulesEngine.Plugin.Publication
 {
     public static class RuleDrafts
     {
+        // A Delete target can still appear in queries while Dataverse rejects SDK
+        // Retrieve/Update calls for it. Never clear that header's lookups here.
+        // Detach owned revisions instead, then reclaim them and private models in
+        // synchronous PostOperation after the header's outgoing links are gone.
+        public static Entity PrepareDelete(IOrganizationService service, Entity header)
+        {
+            var graph = RuleSnapshot.Capture(service, header, includeConfigs: false);
+            var models = PrivateModels(service, graph);
+            DeleteChildren(service, graph);
+            var query = new QueryExpression(PublicationSchema.Revision) { ColumnSet = new ColumnSet(false) };
+            query.Criteria.AddCondition("asx_rule", ConditionOperator.Equal, header.Id);
+            var revisions = RuleSnapshot.QueryAll(service, query);
+            foreach (var revision in revisions)
+                service.Update(new Entity(PublicationSchema.Revision, revision.Id) { ["asx_rule"] = null });
+            return new Entity("asx_rule", header.Id) {
+                ["revisions"] = string.Join(",", revisions.Select(row => row.Id)),
+                ["models"] = string.Join(",", models)
+            };
+        }
+
+        public static void CompleteDelete(IOrganizationService service, Entity plan)
+        {
+            foreach (var id in DeleteIds(plan, "revisions")) service.Delete(PublicationSchema.Revision, id);
+            RemoveUnusedModels(service, new HashSet<Guid>(DeleteIds(plan, "models")));
+        }
+
+        private static IEnumerable<Guid> DeleteIds(Entity plan, string field)
+            => (plan.GetAttributeValue<string>(field) ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(Guid.Parse);
+
         public static void DeleteChildren(IOrganizationService service, RuleSnapshot graph)
         {
             var remaining = graph.Rows.Where(row => row.Entity != "asx_rule" && row.Entity != "asx_tableconfig").Select(row => row.ToSdk()).ToList();
@@ -60,9 +89,8 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             } while (removed);
         }
 
-        public static void DeleteContents(IOrganizationService service, Guid ruleId)
-            => DeleteContents(service, service.Retrieve("asx_rule", ruleId, new ColumnSet(true)));
-
+        // Only for a working copy BEFORE issuing its Delete request. The in-flight
+        // Delete target must use PrepareDelete/CompleteDelete instead.
         public static void DeleteContents(IOrganizationService service, Entity header)
         {
             var ruleId = header.Id;

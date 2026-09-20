@@ -125,7 +125,7 @@ function PluginType([string]$ShortName) {
     if ($type.value.Count -ne 1) { throw "Deploy the assembly and plugin type manifest first: $ShortName" }
     $type.value[0].plugintypeid
 }
-function EnsureStep([string]$Table, [string]$Message, [string]$TypeId, [int]$Rank) {
+function EnsureStep([string]$Table, [string]$Message, [string]$TypeId, [int]$Rank, [int]$Stage = 20) {
     $messages = Request GET "sdkmessages?`$select=sdkmessageid&`$filter=name eq '$Message'"
     if ($messages.value.Count -ne 1) { throw "Message $Message was not found uniquely." }
     $messageId = $messages.value[0].sdkmessageid
@@ -137,8 +137,9 @@ function EnsureStep([string]$Table, [string]$Message, [string]$TypeId, [int]$Ran
         $filterId = $filters.value[0].sdkmessagefilterid
         $filterQuery = "_sdkmessagefilterid_value eq $filterId"
     }
-    $existing = Request GET "sdkmessageprocessingsteps?`$select=sdkmessageprocessingstepid&`$filter=_eventhandler_value eq $TypeId and _sdkmessageid_value eq $messageId and $filterQuery"
-    $body = @{ name = "Ascentix revision guard: $Table $Message"; rank = $Rank; stage = 20; mode = 0; supporteddeployment = 0;
+    $existing = Request GET "sdkmessageprocessingsteps?`$select=sdkmessageprocessingstepid&`$filter=_eventhandler_value eq $TypeId and _sdkmessageid_value eq $messageId and $filterQuery and stage eq $Stage"
+    $stepName = if ($Stage -eq 40) { "Ascentix revision cleanup: $Table $Message" } else { "Ascentix revision guard: $Table $Message" }
+    $body = @{ name = $stepName; rank = $Rank; stage = $Stage; mode = 0; supporteddeployment = 0;
         'sdkmessageid@odata.bind' = "/sdkmessages($messageId)";
         'eventhandler_plugintype@odata.bind' = "/plugintypes($TypeId)"; filteringattributes = $null; statecode = 0; statuscode = 1 }
     if ($filterId) { $body['sdkmessagefilterid@odata.bind'] = "/sdkmessagefilters($filterId)" }
@@ -150,6 +151,7 @@ $guard = PluginType 'RuleRevisionGuardPlugin'
 $tables = @('asx_rule','asx_conditiongroup','asx_rulecondition','asx_searchcriteriagroup','asx_searchcriterion',
     'asx_nodefiltergroup','asx_nodefiltercriterion','asx_ruleaction','asx_localizedmessage','asx_tableconfig','asx_rulerevision')
 foreach ($table in $tables) { foreach ($message in @('Create','Update','Delete')) { EnsureStep $table $message $guard 1 } }
+EnsureStep 'asx_rule' 'Delete' $guard 1 40
 EnsureStep 'asx_rule' 'SetState' $guard 1
 EnsureStep '*' 'Associate' $guard 1
 EnsureStep '*' 'Disassociate' $guard 1

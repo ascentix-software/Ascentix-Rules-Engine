@@ -73,6 +73,16 @@ Duplicating a published rule copies its active definition and model into a new
 unpublished rule owned by the caller. Rule deletion removes its working copy,
 owned child rows, and revision history in the server transaction.
 
+Rule deletion uses both synchronous PreOperation and PostOperation guard steps.
+PreOperation removes the working copy and owned children, detaches revision ownership,
+and carries revision/private-model IDs to PostOperation through shared variables.
+PostOperation deletes those revisions and reclaims private models after the rule's
+outgoing links are gone. Neither stage retrieves or updates the in-flight Delete
+target by ID. A cleanup failure rolls back the transaction. Deploy the assembly and
+run Register together; the post-delete step is required. L2 checks model-linked
+drafts and published rules with working copies, including owned-row removal and
+shared-model retention.
+
 ## Acceptance
 
 Local unit tests cover stable identity, existing rules without snapshots, repeated

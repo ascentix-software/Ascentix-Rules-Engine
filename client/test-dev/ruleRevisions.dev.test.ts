@@ -3,6 +3,48 @@ import { createThrowawayRule } from "../e2e/devHelpers";
 import { createDevApi, deleteDevRecord, runRules, updateDevRecord } from "./devApi";
 import { loadPublishedGraph } from "../src/editor/load/publishedGraph";
 
+it.each([false, true])("deletes a model-linked rule and its owned graph (published=%s)", async (published) => {
+  const fixture = await createThrowawayRule();
+  const api = createDevApi();
+  const owned: { set: string; id: string }[] = [];
+  const rememberGraph = async (ruleId: string) => {
+    for (const [set, key] of [["asx_conditiongroups", "asx_conditiongroupid"], ["asx_ruleactions", "asx_ruleactionid"]]) {
+      const rows = await api.retrieveMultipleRecords(set, `?$select=${key}&$filter=_asx_rule_value eq ${ruleId}`);
+      for (const row of rows.entities) {
+        owned.push({ set, id: row[key] });
+        if (set === "asx_conditiongroups") {
+          const conditions = await api.retrieveMultipleRecords("asx_ruleconditions", `?$select=asx_ruleconditionid&$filter=_asx_conditiongroup_value eq ${row[key]}`);
+          owned.push(...conditions.entities.map(c => ({ set: "asx_ruleconditions", id: c.asx_ruleconditionid })));
+        }
+      }
+    }
+  };
+  try {
+    const header = await api.retrieveRecord("asx_rules", fixture.ruleId, "?$select=_asx_roottableconfig_value");
+    const sharedModel = header._asx_roottableconfig_value;
+    await rememberGraph(fixture.ruleId);
+    if (published) {
+      const validation = await api.validateRule(fixture.ruleId);
+      await api.publishRule(fixture.ruleId, header["@odata.etag"], validation.draftHash);
+      const revisions = await api.retrieveMultipleRecords("asx_rulerevisions", `?$select=asx_rulerevisionid&$filter=_asx_rule_value eq ${fixture.ruleId}`);
+      expect(revisions.entities.length).toBeGreaterThan(0);
+      owned.push(...revisions.entities.map(r => ({ set: "asx_rulerevisions", id: r.asx_rulerevisionid })));
+      const draftId = await api.openRuleDraft!(fixture.ruleId);
+      owned.push({ set: "asx_rules", id: draftId });
+      const draft = await api.retrieveRecord("asx_rules", draftId, "?$select=_asx_roottableconfig_value");
+      owned.push({ set: "asx_tableconfigs", id: draft._asx_roottableconfig_value });
+      await rememberGraph(draftId);
+    }
+    // Exercise the product's ordinary DELETE, before the fixture cleanup can mask leftovers.
+    await deleteDevRecord("asx_rules", fixture.ruleId);
+    for (const row of [{ set: "asx_rules", id: fixture.ruleId }, ...owned])
+      await expect(api.retrieveRecord(row.set, row.id, "")).rejects.toThrow(/404/);
+    await expect(api.retrieveRecord("asx_tableconfigs", sharedModel, "?$select=asx_name")).resolves.toBeDefined();
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 it("deletes an empty draft without trying to update the record being deleted", async () => {
   const api = createDevApi();
   const id = await api.createRecord("asx_rules", {

@@ -9,12 +9,23 @@ using Ascentix.RulesEngine.Plugin.Publication;
 namespace Ascentix.RulesEngine.Plugin
 {
     // Pre-operation, order 1, on all configuration Create/Update/Delete operations.
+    // Rule Delete also runs synchronously in PostOperation to finish reclamation.
     public sealed class RuleRevisionGuardPlugin : PluginBase
     {
+        private const string DeletePlan = "Ascentix.RuleDeletePlan";
         public RuleRevisionGuardPlugin() : base(typeof(RuleRevisionGuardPlugin)) { }
         protected override void ExecuteCdsPlugin(ILocalPluginContext local)
         {
             var context = local.PluginExecutionContext;
+            if (context.Stage == 40 && context.MessageName == "Delete" && context.PrimaryEntityName == "asx_rule")
+            {
+                var deleted = context.InputParameters.TryGetValue("Target", out var deleteTarget) ? deleteTarget as EntityReference : null;
+                if (!context.SharedVariables.TryGetValue(DeletePlan, out var value) || !(value is Entity plan) || plan.Id != deleted?.Id)
+                    throw new InvalidPluginExecutionException("Rule deletion cleanup was not prepared. Check the rule Delete registrations.");
+                local.TracingService.Trace("Deleting asx_rule {0}: completing revision and private-model cleanup.", plan.Id);
+                PublicationCoordinator.Internal(context, local.SystemUserService, writer => RuleDrafts.CompleteDelete(writer, plan));
+                return;
+            }
             if (context.MessageName == "Associate" || context.MessageName == "Disassociate")
             {
                 var relationshipTarget = context.InputParameters.TryGetValue("Target", out var relationshipInput) ? relationshipInput as EntityReference : null;
@@ -68,8 +79,9 @@ namespace Ascentix.RulesEngine.Plugin
                     throw new InvalidPluginExecutionException("A rule's business table cannot be changed. Create a rule for the other table.");
                 if (context.MessageName == "Delete") PublicationCoordinator.Internal(context, service, writer => {
                     var draft = RuleDrafts.Find(service, id);
-                    if (draft != null) { RuleDrafts.DeleteContents(writer, draft.Id); writer.Delete("asx_rule", draft.Id); }
-                    RuleDrafts.DeleteContents(writer, before);
+                    if (draft != null) { RuleDrafts.DeleteContents(writer, draft); writer.Delete("asx_rule", draft.Id); }
+                    local.TracingService.Trace("Deleting asx_rule {0}: preparing owned-record cleanup without updating the delete target.", id);
+                    context.SharedVariables[DeletePlan] = RuleDrafts.PrepareDelete(writer, before);
                 });
                 if (target != null) target[PublicationSchema.DraftStamp] = Guid.NewGuid().ToString();
                 return;
