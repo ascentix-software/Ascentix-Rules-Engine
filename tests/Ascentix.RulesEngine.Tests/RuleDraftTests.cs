@@ -160,14 +160,105 @@ namespace Ascentix.RulesEngine.Tests
             var id = Guid.NewGuid(); var context = Context(Rule(id)); var service = context.GetOrganizationService();
             Freeze(service, id);
             var draft = OpenDraft(context, id);
-            context.ExecuteTransactional<RuleRevisionGuardPlugin>(new XrmFakedPluginExecutionContext {
+            A.CallTo(() => service.Retrieve("asx_rule", id, A<ColumnSet>._)).Throws(new Exception("Delete target cannot be re-read."));
+            A.CallTo(() => service.Execute(A<OrganizationRequest>.That.Matches(request =>
+                request is UpdateRequest && ((UpdateRequest)request).Target.LogicalName == "asx_rule" && ((UpdateRequest)request).Target.Id == id)))
+                .Throws(new Exception("Delete target cannot be updated."));
+            var deletion = new XrmFakedPluginExecutionContext {
                 Stage = 20, MessageName = "Delete", PrimaryEntityName = "asx_rule",
-                InputParameters = new ParameterCollection { { "Target", new EntityReference("asx_rule", id) } } });
+                InputParameters = new ParameterCollection { { "Target", new EntityReference("asx_rule", id) } } };
+            context.ExecuteTransactional<RuleRevisionGuardPlugin>(deletion);
+            var revision = Assert.Single(service.RetrieveMultiple(new QueryExpression(PublicationSchema.Revision)).Entities);
+            Assert.Null(revision.GetAttributeValue<EntityReference>("asx_rule"));
+            Assert.Empty(service.RetrieveMultiple(new QueryExpression("asx_ruleaction")).Entities);
             service.Delete("asx_rule", id);
+            deletion.Stage = 40;
+            context.ExecuteTransactional<RuleRevisionGuardPlugin>(deletion);
             Assert.Empty(service.RetrieveMultiple(new QueryExpression("asx_rule")).Entities);
             Assert.Empty(service.RetrieveMultiple(new QueryExpression("asx_ruleaction")).Entities);
             Assert.Empty(service.RetrieveMultiple(new QueryExpression(PublicationSchema.Revision)).Entities);
             Assert.Equal(Model, Assert.Single(service.RetrieveMultiple(new QueryExpression("asx_tableconfig")).Entities).Id);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Model_linked_draft_delete_never_updates_the_target_and_reclaims_only_unused_private_models(bool sharedElsewhere)
+        {
+            var id = Guid.NewGuid(); var rows = Rule(id); rows[0]["statuscode"] = new OptionSetValue(1);
+            var context = Context(rows); var service = context.GetOrganizationService();
+            service.Update(new Entity("asx_tableconfig", Model) { ["asx_isprivate"] = true });
+            if (sharedElsewhere) service.Create(new Entity("asx_rule", Guid.NewGuid()) {
+                ["asx_roottableconfig"] = new EntityReference("asx_tableconfig", Model), ["statuscode"] = new OptionSetValue(1) });
+            A.CallTo(() => service.Retrieve("asx_rule", id, A<ColumnSet>._)).Throws(new Exception("Delete target cannot be re-read."));
+            A.CallTo(() => service.Execute(A<OrganizationRequest>.That.Matches(request =>
+                request is UpdateRequest && ((UpdateRequest)request).Target.LogicalName == "asx_rule" && ((UpdateRequest)request).Target.Id == id)))
+                .Throws(new Exception("Delete target cannot be updated."));
+            var deletion = new XrmFakedPluginExecutionContext {
+                Stage = 20, MessageName = "Delete", PrimaryEntityName = "asx_rule",
+                InputParameters = new ParameterCollection { { "Target", rows[0].ToEntityReference() } } };
+            context.ExecuteTransactional<RuleRevisionGuardPlugin>(deletion);
+            Assert.Single(service.RetrieveMultiple(new QueryExpression("asx_tableconfig")).Entities);
+            service.Delete("asx_rule", id);
+            deletion.Stage = 40;
+            context.ExecuteTransactional<RuleRevisionGuardPlugin>(deletion);
+            Assert.Equal(sharedElsewhere ? 1 : 0, service.RetrieveMultiple(new QueryExpression("asx_tableconfig")).Entities.Count);
+            Assert.Empty(service.RetrieveMultiple(new QueryExpression("asx_rulecondition")).Entities);
+            Assert.Empty(service.RetrieveMultiple(new QueryExpression("asx_conditiongroup")).Entities);
+        }
+
+        [Fact]
+        public void Delete_cleanup_requires_the_preparation_from_the_same_rule()
+        {
+            var context = Context();
+            var deletion = new XrmFakedPluginExecutionContext {
+                Stage = 40, MessageName = "Delete", PrimaryEntityName = "asx_rule",
+                SharedVariables = new ParameterCollection { { "Ascentix.RuleDeletePlan", new Entity("asx_rule", Guid.NewGuid()) } },
+                InputParameters = new ParameterCollection { { "Target", new EntityReference("asx_rule", Guid.NewGuid()) } } };
+            Assert.Contains("not prepared", Assert.Throws<InvalidPluginExecutionException>(() =>
+                context.ExecuteTransactional<RuleRevisionGuardPlugin>(deletion)).Message);
+        }
+
+        [Fact]
+        public void Deleting_only_the_working_draft_preserves_the_active_published_rule()
+        {
+            var id = Guid.NewGuid(); var context = Context(Rule(id)); var service = context.GetOrganizationService();
+            var revision = Freeze(service, id);
+            var draftId = OpenDraft(context, id);
+            var activeHash = Read(service, id).Hash();
+            A.CallTo(() => service.Retrieve("asx_rule", draftId, A<ColumnSet>._)).Throws(new Exception("Delete target cannot be re-read."));
+            A.CallTo(() => service.Execute(A<OrganizationRequest>.That.Matches(request =>
+                request is UpdateRequest && ((UpdateRequest)request).Target.LogicalName == "asx_rule" && ((UpdateRequest)request).Target.Id == draftId)))
+                .Throws(new Exception("Delete target cannot be updated."));
+            var deletion = new XrmFakedPluginExecutionContext {
+                Stage = 20, MessageName = "Delete", PrimaryEntityName = "asx_rule",
+                InputParameters = new ParameterCollection { { "Target", new EntityReference("asx_rule", draftId) } } };
+            context.ExecuteTransactional<RuleRevisionGuardPlugin>(deletion);
+            service.Delete("asx_rule", draftId);
+            deletion.Stage = 40;
+            context.ExecuteTransactional<RuleRevisionGuardPlugin>(deletion);
+            Assert.Equal(id, Assert.Single(service.RetrieveMultiple(new QueryExpression("asx_rule")).Entities).Id);
+            Assert.Equal(revision.Id, Assert.Single(service.RetrieveMultiple(new QueryExpression(PublicationSchema.Revision)).Entities).Id);
+            Assert.Equal(Model, Assert.Single(service.RetrieveMultiple(new QueryExpression("asx_tableconfig")).Entities).Id);
+            Assert.Equal(activeHash, Read(service, id).Hash());
+        }
+
+        [Fact]
+        public void Post_delete_cleanup_fault_is_propagated_to_fail_the_transaction()
+        {
+            var id = Guid.NewGuid(); var context = Context(Rule(id)); var service = context.GetOrganizationService();
+            var revision = Freeze(service, id);
+            var deletion = new XrmFakedPluginExecutionContext {
+                Stage = 20, MessageName = "Delete", PrimaryEntityName = "asx_rule",
+                InputParameters = new ParameterCollection { { "Target", new EntityReference("asx_rule", id) } } };
+            context.ExecuteTransactional<RuleRevisionGuardPlugin>(deletion);
+            service.Delete("asx_rule", id);
+            A.CallTo(() => service.Execute(A<OrganizationRequest>.That.Matches(request =>
+                request is DeleteRequest && ((DeleteRequest)request).Target.Id == revision.Id)))
+                .Throws(new InvalidPluginExecutionException("Cleanup denied"));
+            deletion.Stage = 40;
+            Assert.Contains("Cleanup denied", Assert.Throws<InvalidPluginExecutionException>(() =>
+                context.ExecuteTransactional<RuleRevisionGuardPlugin>(deletion)).Message);
         }
 
         [Theory]

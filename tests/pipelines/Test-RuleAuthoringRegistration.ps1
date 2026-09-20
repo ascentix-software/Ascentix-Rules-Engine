@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $fixtureId = '11111111-1111-1111-1111-111111111111'
 $apis = @{}
 $parameters = @{}
-$state = @{ Creates = 0; FailParameterOnce = $false }
+$state = @{ Creates = 0; FailParameterOnce = $false; DeleteCleanupId = $null; CleanupCreates = 0; DeleteStages = @{} }
 
 function Assert([bool]$Condition, [string]$Message) {
     if (!$Condition) { throw $Message }
@@ -25,6 +25,9 @@ function Invoke-RestMethod {
             '^sdkmessages\?' { return @{ value = @(@{ sdkmessageid = $fixtureId }) } }
             '^sdkmessagefilters\?' { return @{ value = @(@{ sdkmessagefilterid = $fixtureId }) } }
             '^sdkmessageprocessingsteps\?' {
+                if ($path -match 'stage eq 40$') {
+                    return @{ value = @(if ($state.DeleteCleanupId) { @{ sdkmessageprocessingstepid = $state.DeleteCleanupId } }) }
+                }
                 return @{ value = @(@{ sdkmessageprocessingstepid = $fixtureId; stage = 20; mode = 0; statecode = 0 }) }
             }
             '^customapis\?.*uniquename eq ''([^'']+)''' {
@@ -40,7 +43,22 @@ function Invoke-RestMethod {
             }
         }
     }
-    if ($Method -eq 'PATCH' -and $path -match '^(sdkmessageprocessingsteps|customapis)\([\w-]+\)$') { return }
+    if ($Method -in @('POST','PATCH') -and $path -match '^sdkmessageprocessingsteps(?:\([\w-]+\))?$') {
+        $record = $Body | ConvertFrom-Json -AsHashtable
+        if ($record.name -match '^Ascentix revision (guard|cleanup): asx_rule Delete$') {
+            Assert ($record.mode -eq 0) 'Rule deletion cleanup must remain synchronous.'
+            $state.DeleteStages[[int]$record.stage] = $true
+        }
+        if ($Method -eq 'POST') {
+            Assert ($record.stage -eq 40 -and !$state.DeleteCleanupId) 'Only the missing post-delete step should be created.'
+            $state.DeleteCleanupId = [guid]::NewGuid().ToString()
+            $state.CleanupCreates++
+        } elseif ($record.stage -eq 40) {
+            Assert ($path -eq "sdkmessageprocessingsteps($($state.DeleteCleanupId))") 'Post-delete retry must not replace the pre-delete step.'
+        }
+        return
+    }
+    if ($Method -eq 'PATCH' -and $path -match '^customapis\([\w-]+\)$') { return }
     if ($Method -eq 'DELETE' -and $path -match '^customapis\(([\w-]+)\)$') {
         $id = $Matches[1]
         foreach ($name in @($apis.Keys)) { if ($apis[$name].customapiid -eq $id) { $apis.Remove($name) } }
@@ -88,6 +106,7 @@ foreach ($interrupt in @($false, $true)) {
     $apis['asx_RetiredAuthoringOperation'] = @{ customapiid = [guid]::NewGuid().ToString(); uniquename = 'asx_RetiredAuthoringOperation' }
     $parameters.Clear()
     $state.Creates = 0
+    $state.DeleteCleanupId = $null; $state.CleanupCreates = 0; $state.DeleteStages.Clear()
     $state.FailParameterOnce = $interrupt
     if ($interrupt) {
         $interrupted = $false
@@ -112,6 +131,7 @@ foreach ($interrupt in @($false, $true)) {
     }
     Register
     Assert ($state.Creates -eq 13) 'Completed deployment retry created duplicate components.'
+    Assert ($state.CleanupCreates -eq 1 -and $state.DeleteStages.Count -eq 2 -and $state.DeleteStages.ContainsKey(20) -and $state.DeleteStages.ContainsKey(40)) 'Expected separate, idempotent synchronous pre/post rule Delete steps.'
     Write-Host "PASS: API registration and idempotent retry (interrupted=$interrupt)."
 }
 
