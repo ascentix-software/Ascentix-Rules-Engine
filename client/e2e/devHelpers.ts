@@ -92,11 +92,14 @@ export async function createRuleFixture(opts: RuleFixtureOpts = {}): Promise<{ r
   const cleanup = async () => {
     for (const rule of created.filter(c => c.set === ENTITY_SET.rule)) {
       await deleteRuleCascade(rule.id);
+      for (let index = created.length - 1; index >= 0; index--) {
+        if (created[index].set !== ENTITY_SET.tableConfig) created.splice(index, 1);
+      }
     }
-    for (const c of created.reverse()) {
-      await deleteDevRecord(c.set, c.id).catch(
-        (e) => console.warn(`ZZ_P2E2E_ cleanup: failed to delete ${c.set}(${c.id}): ${e}`),
-      );
+    while (created.length) {
+      const c = created[created.length - 1];
+      await deleteDevRecord(c.set, c.id);
+      created.pop();
     }
   };
 
@@ -159,7 +162,7 @@ export async function createRuleFixture(opts: RuleFixtureOpts = {}): Promise<{ r
 
     return { ruleId, ruleName, cleanup };
   } catch (err) {
-    await cleanup();
+    await cleanup().catch(cleanupError => console.warn("Fixture cleanup failed:", cleanupError));
     throw err;
   }
 }

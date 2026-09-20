@@ -122,7 +122,7 @@ export function RuleEditorApp({
 
   const dirty = JSON.stringify(snapshot) !== JSON.stringify(working);
   const recovery = useRuleRecovery(recoveryKey(api.getClientUrl?.() ?? window.location.origin, initialGraph.rule.activeRuleId ?? initialGraph.rule.id), snapshot, working);
-  const needsDraft = published && !working.rule.activeRuleId;
+  const needsDraft = (published || !!working.rule.publishedRevisionId) && !working.rule.activeRuleId;
   const editable = !publishedView && !busy && !recovery.pending && !needsDraft;
   const setWorking: React.Dispatch<React.SetStateAction<RuleGraph>> = (value) => {
     if (editable) history.set(value);

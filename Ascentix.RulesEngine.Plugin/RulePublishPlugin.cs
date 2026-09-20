@@ -30,12 +30,16 @@ namespace Ascentix.RulesEngine.Plugin
             if (target.GetAttributeValue<OptionSetValue>("statuscode")?.Value != (int)RuleStatus.Published) return;
 
             PublicationCoordinator.Lock(service, context);
+            var header = service.Retrieve("asx_rule", target.Id, new ColumnSet(true));
+            if (header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf) == null &&
+                (header.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) != null || RuleDrafts.Find(service, header.Id) != null))
+                throw new InvalidPluginExecutionException("Publish this rule's working draft in the Rule Builder so its latest changes are used.");
             // Publish only a previously saved graph; status and the expected hash are commands.
             // Other authored attributes in the same PATCH would not yet be committed.
             foreach (var field in target.Attributes.Keys)
-                if (field != "statuscode" && field != "statecode" && field != PublicationSchema.PublishHash &&
+                if (field.StartsWith("asx_", StringComparison.Ordinal) && field != PublicationSchema.PublishHash &&
                     field != PublicationSchema.DraftStamp && field != "asx_ruleid")
-                    throw new InvalidPluginExecutionException("Save draft changes before publishing.");
+                    throw new InvalidPluginExecutionException("Save draft changes before publishing: " + field + ".");
             var snapshot = RuleSnapshot.Capture(service, target.Id);
             var expected = target.GetAttributeValue<string>(PublicationSchema.PublishHash);
             if (!string.IsNullOrEmpty(expected) && expected != snapshot.Hash())
@@ -60,7 +64,6 @@ namespace Ascentix.RulesEngine.Plugin
                 throw new InvalidPluginExecutionException(
                     "This rule can't be published until these problems are fixed:\n" +
                     ValidationReportSerializer.JoinErrors(secReport));
-            var header = service.Retrieve("asx_rule", target.Id, new ColumnSet(true));
             var source = header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf);
             if (source != null)
             {

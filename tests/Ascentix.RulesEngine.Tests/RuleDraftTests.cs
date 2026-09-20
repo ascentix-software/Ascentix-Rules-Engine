@@ -158,6 +158,7 @@ namespace Ascentix.RulesEngine.Tests
         public void Deleting_rule_removes_its_working_graph_and_retains_the_shared_model()
         {
             var id = Guid.NewGuid(); var context = Context(Rule(id)); var service = context.GetOrganizationService();
+            Freeze(service, id);
             var draft = OpenDraft(context, id);
             context.ExecuteTransactional<RuleRevisionGuardPlugin>(new XrmFakedPluginExecutionContext {
                 Stage = 20, MessageName = "Delete", PrimaryEntityName = "asx_rule",
@@ -165,7 +166,121 @@ namespace Ascentix.RulesEngine.Tests
             service.Delete("asx_rule", id);
             Assert.Empty(service.RetrieveMultiple(new QueryExpression("asx_rule")).Entities);
             Assert.Empty(service.RetrieveMultiple(new QueryExpression("asx_ruleaction")).Entities);
+            Assert.Empty(service.RetrieveMultiple(new QueryExpression(PublicationSchema.Revision)).Entities);
             Assert.Equal(Model, Assert.Single(service.RetrieveMultiple(new QueryExpression("asx_tableconfig")).Entities).Id);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Empty_rule_delete_does_not_retrieve_or_update_the_delete_target(bool image)
+        {
+            var header = new Entity("asx_rule", Guid.NewGuid()) { ["asx_name"] = "Empty", ["statuscode"] = new OptionSetValue(1) };
+            var context = Context(new System.Collections.Generic.List<Entity> { header });
+            var service = context.GetOrganizationService();
+            A.CallTo(() => service.Retrieve("asx_rule", header.Id, A<ColumnSet>._)).Throws(new Exception("Delete target cannot be re-read."));
+            context.AddExecutionMock<UpdateRequest>(_ => throw new Exception("Empty rule deletion must not issue an Update."));
+            context.ExecuteTransactional<RuleRevisionGuardPlugin>(new XrmFakedPluginExecutionContext {
+                Stage = 20, MessageName = "Delete", PrimaryEntityName = "asx_rule",
+                PreEntityImages = image ? new EntityImageCollection { { "PreImage", header } } : new EntityImageCollection(),
+                InputParameters = new ParameterCollection { { "Target", header.ToEntityReference() } } });
+        }
+
+        [Fact]
+        public void Missing_delete_target_is_left_to_the_platform_instead_of_wrapping_a_retrieve_fault()
+        {
+            var context = Context();
+            context.ExecuteTransactional<RuleRevisionGuardPlugin>(new XrmFakedPluginExecutionContext {
+                Stage = 20, MessageName = "Delete", PrimaryEntityName = "asx_rule",
+                InputParameters = new ParameterCollection { { "Target", new EntityReference("asx_rule", Guid.NewGuid()) } } });
+        }
+
+        [Fact]
+        public void Publication_accepts_platform_audit_attributes_but_still_rejects_unsaved_rule_changes()
+        {
+            var id = Guid.NewGuid(); var rows = Rule(id); rows[0]["statuscode"] = new OptionSetValue(1);
+            var context = Context(rows);
+            var patch = new Entity("asx_rule", id) { ["statuscode"] = new OptionSetValue(753840000),
+                ["modifiedon"] = DateTime.UtcNow, ["modifiedby"] = new EntityReference("systemuser", Guid.NewGuid()) };
+            var request = new XrmFakedPluginExecutionContext { Stage = 20, MessageName = "Update", PrimaryEntityName = "asx_rule",
+                InitiatingUserId = Guid.NewGuid(), InputParameters = new ParameterCollection { { "Target", patch } } };
+            context.ExecuteTransactional<RuleRevisionGuardPlugin>(request);
+            context.ExecuteTransactional<RulePublishPlugin>(request);
+            Assert.NotNull(patch.GetAttributeValue<EntityReference>(PublicationSchema.Pointer));
+            var invalid = new Entity("asx_rule", id) { ["statuscode"] = new OptionSetValue(753840000), ["asx_name"] = "Unsaved" };
+            request.InputParameters["Target"] = invalid;
+            Assert.Contains("asx_name", Assert.Throws<InvalidPluginExecutionException>(() => context.ExecuteTransactional<RulePublishPlugin>(request)).Message);
+        }
+
+        [Fact]
+        public void Batched_dependency_reads_match_individual_graphs_without_per_rule_network_queries()
+        {
+            var rules = Enumerable.Range(0, 100).Select(_ => Rule(Guid.NewGuid())).ToArray();
+            var context = Context(rules); var service = context.GetOrganizationService();
+            var expected = rules.ToDictionary(rule => rule[0].Id, rule => RuleSnapshot.Capture(service, rule[0].Id, includeConfigs: false).Serialize());
+            Fake.ClearRecordedCalls(service);
+            var actual = RuleSnapshot.CaptureAuthoredGraphs(service, rules.Select(rule => rule[0]).ToList());
+            Assert.All(actual, graph => Assert.Equal(expected[graph.Key], graph.Value.Serialize()));
+            Assert.InRange(Fake.GetCalls(service).Count(call => call.Method.Name == "RetrieveMultiple"), 1, 15);
+            Assert.DoesNotContain(Fake.GetCalls(service), call => call.Method.Name == "Retrieve");
+        }
+
+        [Fact]
+        public void Original_record_cannot_republish_stale_configuration_after_a_working_draft_exists()
+        {
+            var id = Guid.NewGuid(); var context = Context(Rule(id)); var service = context.GetOrganizationService();
+            Freeze(service, id);
+            OpenDraft(context, id);
+            var pointer = service.Retrieve("asx_rule", id, new ColumnSet(true)).GetAttributeValue<EntityReference>(PublicationSchema.Pointer).Id;
+            var target = new Entity("asx_rule", id) { ["statuscode"] = new OptionSetValue(753840000) };
+            var error = Assert.Throws<InvalidPluginExecutionException>(() => context.ExecuteTransactional<RulePublishPlugin>(
+                new XrmFakedPluginExecutionContext { Stage = 20, MessageName = "Update", PrimaryEntityName = "asx_rule",
+                    InputParameters = new ParameterCollection { { "Target", target } } }));
+            Assert.Contains("working draft", error.Message);
+            Assert.Equal(pointer, service.Retrieve("asx_rule", id, new ColumnSet(true)).GetAttributeValue<EntityReference>(PublicationSchema.Pointer).Id);
+            Assert.Single(service.RetrieveMultiple(new QueryExpression(PublicationSchema.Revision)).Entities);
+        }
+
+        [Fact]
+        public void Unpublished_original_with_a_working_draft_rejects_direct_authored_edits()
+        {
+            var id = Guid.NewGuid(); var context = Context(Rule(id)); var service = context.GetOrganizationService();
+            OpenDraft(context, id);
+            service.Update(new Entity("asx_rule", id) { ["statuscode"] = new OptionSetValue(1) });
+            var target = new Entity("asx_rule", id) { ["asx_name"] = "Stale original" };
+            var error = Assert.Throws<InvalidPluginExecutionException>(() => context.ExecuteTransactional<RuleRevisionGuardPlugin>(
+                new XrmFakedPluginExecutionContext { Stage = 20, MessageName = "Update", PrimaryEntityName = "asx_rule",
+                    InputParameters = new ParameterCollection { { "Target", target } } }));
+            Assert.Contains("working draft", error.Message);
+        }
+
+        [Fact]
+        public void Reopening_an_unpublished_rule_after_draft_deletion_uses_the_latest_revision()
+        {
+            var id = Guid.NewGuid(); var context = Context(Rule(id)); var service = context.GetOrganizationService();
+            Freeze(service, id);
+            service.Update(new Entity("asx_rule", id) { ["statuscode"] = new OptionSetValue(1), ["asx_name"] = "Old normalized header" });
+            var draftId = OpenDraft(context, id);
+            Assert.NotEqual(id, draftId);
+            Assert.Equal("Live", service.Retrieve("asx_rule", draftId, new ColumnSet(true)).GetAttributeValue<string>("asx_name"));
+            Assert.Equal(1, service.Retrieve("asx_rule", id, new ColumnSet(true)).GetAttributeValue<OptionSetValue>("statuscode").Value);
+        }
+
+        [Fact]
+        public void Private_model_edits_advance_only_the_dependent_draft_concurrency_stamp()
+        {
+            var id = Guid.NewGuid(); var other = Guid.NewGuid(); var context = Context(Rule(id), Rule(other));
+            var service = context.GetOrganizationService();
+            var draftId = OpenDraft(context, id); var otherDraft = OpenDraft(context, other);
+            var header = service.Retrieve("asx_rule", draftId, new ColumnSet(true));
+            var oldStamp = header.GetAttributeValue<string>(PublicationSchema.DraftStamp);
+            var otherStamp = service.Retrieve("asx_rule", otherDraft, new ColumnSet(true)).GetAttributeValue<string>(PublicationSchema.DraftStamp);
+            var patch = new Entity("asx_tableconfig", header.GetAttributeValue<EntityReference>("asx_roottableconfig").Id) { ["asx_name"] = "Changed elsewhere" };
+            context.ExecuteTransactional<RuleRevisionGuardPlugin>(new XrmFakedPluginExecutionContext { Stage = 20, MessageName = "Update",
+                PrimaryEntityName = patch.LogicalName, InputParameters = new ParameterCollection { { "Target", patch } } });
+            Assert.NotEqual(oldStamp, service.Retrieve("asx_rule", draftId, new ColumnSet(true)).GetAttributeValue<string>(PublicationSchema.DraftStamp));
+            Assert.Equal(otherStamp, service.Retrieve("asx_rule", otherDraft, new ColumnSet(true)).GetAttributeValue<string>(PublicationSchema.DraftStamp));
+            Assert.Empty(service.RetrieveMultiple(new QueryExpression(PublicationSchema.Revision)).Entities);
         }
 
         [Theory]

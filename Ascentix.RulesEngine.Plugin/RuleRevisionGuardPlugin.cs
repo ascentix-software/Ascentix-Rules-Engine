@@ -40,23 +40,36 @@ namespace Ascentix.RulesEngine.Plugin
             PublicationCoordinator.Lock(service, context);
             Entity before = null;
             var id = target?.Id ?? (input as EntityReference)?.Id ?? Guid.Empty;
-            if (context.MessageName != "Create") before = service.Retrieve(context.PrimaryEntityName, id, new ColumnSet(true));
+            if (context.MessageName == "Delete")
+            {
+                context.PreEntityImages?.TryGetValue("PreImage", out before);
+                if (before == null)
+                {
+                    var query = new QueryExpression(context.PrimaryEntityName) { ColumnSet = new ColumnSet(true), TopCount = 1 };
+                    query.Criteria.AddCondition(context.PrimaryEntityName + "id", ConditionOperator.Equal, id);
+                    before = service.RetrieveMultiple(query).Entities.SingleOrDefault();
+                    if (before == null) return;
+                }
+                local.TracingService.Trace("Deleting {0} {1}: loaded configuration.", context.PrimaryEntityName, id);
+            }
+            else if (context.MessageName != "Create") before = service.Retrieve(context.PrimaryEntityName, id, new ColumnSet(true));
             if (context.PrimaryEntityName == "asx_rule")
             {
                 if (before?.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) != null &&
                     before.GetAttributeValue<OptionSetValue>("statuscode")?.Value == 753840000 &&
                     target?.GetAttributeValue<OptionSetValue>("statuscode")?.Value == 1)
                     RuleDrafts.Open(service, context, before);
-                if (before?.GetAttributeValue<OptionSetValue>("statuscode")?.Value == 753840000 && target != null &&
-                    target.Attributes.Keys.Any(field => field != "statuscode" && field != "statecode" && field != PublicationSchema.PublishHash && field != "asx_ruleid"))
-                    throw new InvalidPluginExecutionException("Edit this rule's working draft in the Rule Builder. Its published version stays active.");
+                if (before != null && target != null &&
+                    target.Attributes.Keys.Any(field => field.StartsWith("asx_", StringComparison.Ordinal) && field != PublicationSchema.PublishHash && field != "asx_ruleid") &&
+                    RuleDrafts.RequiresWorkingDraft(service, before))
+                    throw new InvalidPluginExecutionException("Edit this rule's working draft in the Rule Builder.");
                 if (target != null && before != null && target.Contains("asx_tablelogicalname") &&
                     target.GetAttributeValue<string>("asx_tablelogicalname") != before.GetAttributeValue<string>("asx_tablelogicalname"))
                     throw new InvalidPluginExecutionException("A rule's business table cannot be changed. Create a rule for the other table.");
                 if (context.MessageName == "Delete") PublicationCoordinator.Internal(context, service, writer => {
                     var draft = RuleDrafts.Find(service, id);
                     if (draft != null) { RuleDrafts.DeleteContents(writer, draft.Id); writer.Delete("asx_rule", draft.Id); }
-                    RuleDrafts.DeleteContents(writer, id);
+                    RuleDrafts.DeleteContents(writer, before);
                 });
                 if (target != null) target[PublicationSchema.DraftStamp] = Guid.NewGuid().ToString();
                 return;
@@ -65,14 +78,15 @@ namespace Ascentix.RulesEngine.Plugin
             FindOwners(service, before, owners, new HashSet<Guid>());
             FindOwners(service, target, owners, new HashSet<Guid>());
             foreach (var owner in owners)
-                if (service.Retrieve("asx_rule", owner, new ColumnSet("statuscode")).GetAttributeValue<OptionSetValue>("statuscode")?.Value == 753840000)
-                    throw new InvalidPluginExecutionException("Edit this rule's working draft in the Rule Builder. Its published version stays active.");
+                if (RuleDrafts.RequiresWorkingDraft(service, service.Retrieve("asx_rule", owner,
+                    new ColumnSet("statuscode", PublicationSchema.Pointer, PublicationSchema.DraftOf))))
+                    throw new InvalidPluginExecutionException("Edit this rule's working draft in the Rule Builder.");
             if (owners.Count == 0)
             {
                 var changed = new List<Guid> { id };
                 foreach (var row in new[] { before, target }.Where(row => row != null))
                     changed.AddRange(row.Attributes.Values.OfType<EntityReference>().Select(reference => reference.Id));
-                PublicationCoordinator.PreserveSharedConfiguration(service, context, changed);
+                owners.UnionWith(PublicationCoordinator.PreserveSharedConfiguration(service, context, changed));
             }
             PublicationCoordinator.Internal(context, service, writer => {
                 foreach (var owner in owners)

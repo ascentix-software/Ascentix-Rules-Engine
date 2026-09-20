@@ -14,12 +14,16 @@ interface TrackedRecord {
 }
 
 async function deleteInReverse(created: TrackedRecord[]): Promise<void> {
-  for (const rule of created.filter(rec => rec.set === "asx_rules")) {
+  const rule = created.find(rec => rec.set === ENTITY_SET.rule);
+  if (rule) {
     await deleteDevRecord(rule.set, rule.id);
+    created.length = 0;
+    return;
   }
   while (created.length) {
-    const rec = created.pop()!;
+    const rec = created[created.length - 1];
     await deleteDevRecord(rec.set, rec.id);
+    created.pop();
   }
 }
 
@@ -100,7 +104,7 @@ export async function ensureTableConfig(): Promise<TableConfigGraph> {
     await awaitConfigsVisible([order, customer, parent, line, product, shipment]);
     return { order, customer, parent, line, product, shipment, cleanup: () => deleteInReverse(created) };
   } catch (err) {
-    await deleteInReverse(created);
+    await deleteInReverse(created).catch(cleanupError => console.warn("Fixture cleanup failed:", cleanupError));
     throw err;
   }
 }
@@ -158,7 +162,7 @@ export async function ensureLineRootedConfig(): Promise<LineRootedGraph> {
     await awaitConfigsVisible([lineRoot, order, siblings]);
     return { lineRoot, order, siblings, cleanup: () => deleteInReverse(created) };
   } catch (err) {
-    await deleteInReverse(created);
+    await deleteInReverse(created).catch(cleanupError => console.warn("Fixture cleanup failed:", cleanupError));
     throw err;
   }
 }
@@ -421,7 +425,7 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
 
     return { ruleId, ruleName, cleanup: () => deleteInReverse(created) };
   } catch (err) {
-    await deleteInReverse(created);
+    await deleteInReverse(created).catch(cleanupError => console.warn("Fixture cleanup failed:", cleanupError));
     throw err;
   }
 }

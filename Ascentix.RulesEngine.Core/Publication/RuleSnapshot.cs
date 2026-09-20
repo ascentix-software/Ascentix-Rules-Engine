@@ -127,11 +127,41 @@ namespace Ascentix.RulesEngine.Core.Publication
         }
 
         public static RuleSnapshot Capture(IOrganizationService service, Guid ruleId, bool includeConfigs = true)
+            => Capture(service, service.Retrieve("asx_rule", ruleId, new ColumnSet(true)), includeConfigs);
+
+        // Load ownership edges in batches before examining dependencies of multiple published rules.
+        public static Dictionary<Guid, RuleSnapshot> CaptureAuthoredGraphs(IOrganizationService service, List<Entity> headers)
         {
+            var rows = headers.ToDictionary(row => row.LogicalName + row.Id);
+            var pending = headers;
+            while (pending.Count > 0)
+            {
+                var next = new List<Entity>();
+                foreach (var edge in Edges)
+                {
+                    var parents = pending.Where(row => row.LogicalName == edge.Parent).Select(row => row.Id).ToArray();
+                    for (var start = 0; start < parents.Length; start += 500)
+                    {
+                        var query = new QueryExpression(edge.Child) { ColumnSet = new ColumnSet(true) };
+                        query.Criteria.AddCondition(edge.Lookup, ConditionOperator.In, parents.Skip(start).Take(500).Cast<object>().ToArray());
+                        foreach (var child in QueryAll(service, query))
+                            if (!rows.ContainsKey(child.LogicalName + child.Id))
+                            { rows.Add(child.LogicalName + child.Id, child); next.Add(child); }
+                    }
+                }
+                pending = next;
+            }
+            var cached = new SnapshotService(service, rows.Values);
+            return headers.ToDictionary(header => header.Id, header => Capture(cached, header, includeConfigs: false));
+        }
+
+        public static RuleSnapshot Capture(IOrganizationService service, Entity header, bool includeConfigs = true)
+        {
+            var ruleId = header.Id;
             var result = new RuleSnapshot { RuleId = ruleId };
             var pending = new Queue<Entity>();
             var seen = new HashSet<string>();
-            pending.Enqueue(service.Retrieve("asx_rule", ruleId, new ColumnSet(true)));
+            pending.Enqueue(header);
             if (includeConfigs)
             {
                 var candidate = Validation.RuleValidationLoader.Load(service, ruleId);

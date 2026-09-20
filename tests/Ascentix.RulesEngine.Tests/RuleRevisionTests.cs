@@ -228,9 +228,11 @@ namespace Ascentix.RulesEngine.Tests
         public void Stale_shared_model_hash_rejects_publish_and_keeps_previous_pointer()
         {
             var id = Guid.NewGuid(); var context = Context(Rule(id)); var service = context.GetOrganizationService(); var revision = Freeze(service, id);
-            var hash = RuleSnapshot.Capture(service, id).Hash();
-            service.Update(new Entity("asx_tableconfig", Model) { ["asx_name"] = "Changed after validation" });
-            var target = new Entity("asx_rule", id) { ["statuscode"] = new OptionSetValue(753840000), [PublicationSchema.PublishHash] = hash };
+            var draftId = OpenDraft(context, id);
+            var hash = RuleSnapshot.Capture(service, draftId).Hash();
+            var model = service.Retrieve("asx_rule", draftId, new ColumnSet(true)).GetAttributeValue<EntityReference>("asx_roottableconfig");
+            service.Update(new Entity("asx_tableconfig", model.Id) { ["asx_name"] = "Changed after validation" });
+            var target = new Entity("asx_rule", draftId) { ["statuscode"] = new OptionSetValue(753840000), [PublicationSchema.PublishHash] = hash };
             var request = new XrmFakedPluginExecutionContext { MessageName = "Update", Stage = 20, PrimaryEntityName = "asx_rule",
                 InputParameters = new ParameterCollection { { "Target", target } } };
             var error = Assert.Throws<InvalidPluginExecutionException>(() => context.ExecuteTransactional<RulePublishPlugin>(request));
@@ -242,12 +244,15 @@ namespace Ascentix.RulesEngine.Tests
         public void Publication_validates_and_prepares_a_new_pointer_without_unpublishing()
         {
             var id = Guid.NewGuid(); var context = Context(Rule(id)); var service = context.GetOrganizationService(); var revision = Freeze(service, id);
-            var target = new Entity("asx_rule", id) { ["statuscode"] = new OptionSetValue(753840000), [PublicationSchema.PublishHash] = RuleSnapshot.Capture(service, id).Hash() };
+            var draftId = OpenDraft(context, id);
+            var target = new Entity("asx_rule", draftId) { ["statuscode"] = new OptionSetValue(753840000), [PublicationSchema.PublishHash] = RuleSnapshot.Capture(service, draftId).Hash() };
             var request = new XrmFakedPluginExecutionContext { MessageName = "Update", Stage = 20, PrimaryEntityName = "asx_rule", InitiatingUserId = Guid.NewGuid(),
                 InputParameters = new ParameterCollection { { "Target", target } } };
             context.ExecuteTransactional<RulePublishPlugin>(request);
-            Assert.Equal(2, target.GetAttributeValue<int>(PublicationSchema.Number));
-            Assert.NotEqual(revision.Id, target.GetAttributeValue<EntityReference>(PublicationSchema.Pointer).Id);
+            var active = service.Retrieve("asx_rule", id, new ColumnSet(true));
+            Assert.Equal(2, active.GetAttributeValue<int>(PublicationSchema.Number));
+            Assert.NotEqual(revision.Id, active.GetAttributeValue<EntityReference>(PublicationSchema.Pointer).Id);
+            Assert.Equal(1, target.GetAttributeValue<OptionSetValue>("statuscode").Value);
             Assert.Equal(753840000, service.Retrieve("asx_rule", id, new ColumnSet(true)).GetAttributeValue<OptionSetValue>("statuscode").Value);
         }
 

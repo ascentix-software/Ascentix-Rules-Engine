@@ -60,3 +60,5 @@ client/tier-c-runs/
 
 # Profiling output. Reports are published with the release they measure, not committed.
 docs/perf/
+
+outputs/
