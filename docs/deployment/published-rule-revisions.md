@@ -65,7 +65,7 @@ contract. No historical migration handler is shipped.
 
 The exported managed solution must include the rule/draft fields, private-model
 field, revision and coordination tables, all guard steps, Open/Read/Restore APIs,
-the Copy API (source Read access and Create-rule privilege),
+the Copy API (source Read access and Create-rule privilege), the Delete API,
 validation hash output, views, and updated web resources. Do not hand-edit the
 unpacked `Solutions/` mirror. The release workflow regenerates it from the export.
 
@@ -73,15 +73,43 @@ Duplicating a published rule copies its active definition and model into a new
 unpublished rule owned by the caller. Rule deletion removes its working copy,
 owned child rows, and revision history in the server transaction.
 
-Rule deletion uses both synchronous PreOperation and PostOperation guard steps.
-PreOperation removes the working copy and owned children, detaches revision ownership,
-and carries revision/private-model IDs to PostOperation through shared variables.
-PostOperation deletes those revisions and reclaims private models after the rule's
-outgoing links are gone. Neither stage retrieves or updates the in-flight Delete
-target by ID. A cleanup failure rolls back the transaction. Deploy the assembly and
-run Register together; the post-delete step is required. L2 checks model-linked
-drafts and published rules with working copies, including owned-row removal and
-shared-model retention.
+Rule Builder deletion calls `asx_DeleteRule` with a string `RuleId`. This synchronous
+Custom API acquires the publication lock, checks the initiating caller's Read and
+Delete access, and removes the working copy, owned children, revision history, and
+unused private models before issuing the final rule Delete. Shared models remain.
+Deleting a working draft alone preserves its published original. An already absent
+rule is a successful no-op. Any failure rolls back the transaction.
+
+Native `DELETE asx_rules(id)` is rejected in PreValidation with instructions to use
+the Rule Builder. Integrations must call `POST asx_DeleteRule` instead. Dataverse
+can process relationship restrictions and unlink children before PreOperation;
+cleanup at that stage cannot reliably recover the original owned graph. The API
+starts the transaction before the native Delete cascade. Register retires the old
+PreOperation/PostOperation rule-delete guard steps and installs the PreValidation
+guard. Deploy the assembly, Register, and Rule Builder bundle together.
+
+L2 checks model-linked drafts and published rules with working copies, owned-row
+removal, shared-model retention, native-delete rejection, and transaction rollback.
+
+## Direct DEV iteration
+
+A pipeline run is not required for the development loop. Use the existing deployment
+scripts locally against the configured DEV environment, with a token obtained through
+`devOrg("sp")` and held only in process memory:
+
+1. Build the plugin in Release with `/p:SigningKeyFile=<release-key-path>`. Confirm
+   the assembly public-key token matches the registered release identity
+   `67f2dcfd2e8488af`; the development key cannot replace that assembly.
+2. Run `Deploy-PluginAssembly.ps1`, then `Configure-RuleAuthoring.ps1 -Phase Register`.
+3. Build the client and use `Deploy-WebResources.ps1` to publish the changed resources.
+   For a deletion-only update, a temporary manifest can select just the Rule Builder
+   bundle. Reload the browser to pick up the published resource.
+4. Inject `DATAVERSE_TOKEN` into the local runner, run `seed-dev-fixtures.mjs`, then
+   `vitest run --config vitest.config.dev.ts test-dev/ruleRevisions.dev.test.ts --retry=0`
+   from `client`. Run broader L2 and browser suites sequentially; they share fixtures.
+
+Keep assembly, registration, client, and test changes together in the PR. Direct DEV
+validation does not replace managed-install or managed-upgrade acceptance.
 
 ## Acceptance
 

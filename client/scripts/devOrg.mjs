@@ -310,6 +310,10 @@ export function devOrg(identity = "user", opts = {}) {
       if (!r.ok) throw shapeError("copyRule", r.status, r.text);
       return r.json.NewRuleId;
     },
+    async deleteRule(ruleId) {
+      const r = await request("POST", "asx_DeleteRule", { RuleId: ruleId });
+      if (!r.ok) throw shapeError("asx_DeleteRule", r.status, r.text);
+    },
     async restoreRuleDraft(ruleId, etag) {
       const r = await request("POST", "asx_RestoreRuleDraft", { RuleId: ruleId, ExpectedVersion: etag.replace(/^W\/"|"$/g, "") });
       if (!r.ok) throw shapeError("restoreRuleDraft", r.status, r.text);
@@ -323,10 +327,17 @@ export function devOrg(identity = "user", opts = {}) {
     if (!r.ok) throw shapeError(`updateRecord ${entitySet}`, r.status, r.text);
   }
 
-  // DELETE; a 404 is success (self-cleaning tests).
+  // Dataverse can return 404 for a failed nested/platform operation even while
+  // the requested row survives. Only accept it after confirming that row is gone.
   async function deleteRecord(entitySet, id) {
+    if (entitySet === "asx_rules") return api.deleteRule(id);
     const r = await request("DELETE", `${entitySet}(${id})`);
-    if (!r.ok && r.status !== 404) throw shapeError(`delete ${entitySet}(${id})`, r.status, r.text);
+    if (r.ok) return;
+    if (r.status === 404) {
+      const check = await request("GET", `${entitySet}(${id})`);
+      if (check.status === 404) return;
+    }
+    throw shapeError(`delete ${entitySet}(${id})`, r.status, r.text);
   }
 
   // Report-only verdict probe. asx_RunRules never throws on a rule outcome and never writes — it

@@ -105,7 +105,7 @@ form-library surfaces end-to-end (all `client/e2e`, local-only):
 | Surface | Proving spec |
 |---|---|
 | New-rule dialog, both data-model modes (existing config / new config+table) | `hubActions.e2e` |
-| Hub duplicate ("Copy of X"), delete-with-confirm, config in-use delete guard | `hubActions.e2e` |
+| Hub duplicate ("Copy of X"), draft/published delete-with-confirm, config in-use delete guard | `hubActions.e2e` |
 | Author condition + action fully in the UI → save → validate → publish | `authorRuleUi.e2e` |
 | Validation-failure surfaces (issues panel, Publish gating) | `authorRuleUi.e2e` |
 | Optimistic-concurrency 412 → "changed elsewhere" banner, atomic no-write | `authorRuleUi.e2e` |
@@ -187,7 +187,9 @@ the four pins that were skipped pending that deploy are now un-skipped and green
 
 **F4 — closed.** The rule editor now has an **Unpublish** action beside Publish, enabled only for a Published rule and guarded by a confirm dialog that names the consequence; `webapi.ts` gained `unpublishRule`. Publish deliberately REMAINS available while Published, because re-publishing an edited rule is a real flow (`authorToEnforce.e2e`). The "unpublish releases enforcement" manual check is now performable inside the Rule Builder. Pinned by `unpublishUi.e2e` (skipped until the affordance deploys). The enforcement half of the contract was already proven by `ruleLifecycleUnpublish.e2e`.
 
-Also still open (found by the same pass, not yet fixed): `ruleDeleteOps` emits no node-filter deletes (`save/operations.ts`), so deleting a rule through the UI likely orphans its filter rows; and every child update op ships `etag: null` (`save/diff.ts`), so concurrent edits to conditions/actions/nodes last-write-wins while `authorRuleUi`'s 412 test makes the save look protected.
+The earlier whole-rule deletion gap is covered by the transactional `asx_DeleteRule` API: `ruleRevisions.dev.test.ts` checks owned-row removal, nested node filters, localized messages, published working drafts, shared-model retention, native-delete rejection, and transaction rollback. `hubActions.e2e` exercises both draft and published deletion through the confirmation dialog.
+
+The earlier audit also noted that every child update op ships `etag: null` (`save/diff.ts`), so concurrent edits to conditions/actions/nodes last-write-wins while `authorRuleUi`'s 412 test makes the save look protected.
 
 Defects found by the earlier e2e expansion. All three are **fixed and live-proven** against
 DEV after the deploy that carries the fixes (editor bundle first, then the plugin assembly);

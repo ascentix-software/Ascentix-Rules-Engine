@@ -26,10 +26,12 @@ Plus one publish-gate step: `RulePublishPlugin` on `asx_rule` Update, `PreImage`
 Add the assembly and these seven steps (with the pre-images) to the unmanaged solution.
 The revision deployment also adds synchronous pre-operation guards on Create/Update/Delete
 for all ten configuration tables and `asx_rulerevision`, plus `asx_rule` SetState.
+The `asx_rule` Delete guard runs in PreValidation and directs callers to the
+transactional `asx_DeleteRule` API, which cleans up the owned graph before Delete.
 Global Associate/Disassociate guards reject configuration relationship changes
 through those messages; use record Update so lifecycle/version checks run.
 Execution order is guard 1 → publisher 20 → registration 30. No filtering attributes
-on these steps. Add all guards and the four authoring APIs to the managed package.
+on these steps. Add all guards and the five authoring APIs to the managed package.
 
 `pipelines/Configure-RuleAuthoring.ps1` provisions additive metadata and registrations;
 `pipelines/plugin-ci.yml` orders Schema, assembly deployment, and Register.

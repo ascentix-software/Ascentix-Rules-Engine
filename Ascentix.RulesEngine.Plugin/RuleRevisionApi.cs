@@ -17,10 +17,15 @@ namespace Ascentix.RulesEngine.Plugin
         {
             var context = local.PluginExecutionContext;
             var service = local.SystemUserService;
-            if (context.MessageName != "asx_OpenRuleDraft" && context.MessageName != "asx_ReadPublishedRule" && context.MessageName != "asx_RestoreRuleDraft" && context.MessageName != "asx_CopyRule")
+            if (context.MessageName != "asx_OpenRuleDraft" && context.MessageName != "asx_ReadPublishedRule" && context.MessageName != "asx_RestoreRuleDraft" && context.MessageName != "asx_CopyRule" && context.MessageName != "asx_DeleteRule")
                 throw new InvalidPluginExecutionException("Unknown rule authoring operation.");
             if (!context.InputParameters.TryGetValue("RuleId", out var raw) || !Guid.TryParse(raw as string, out var ruleId))
                 throw new InvalidPluginExecutionException("RuleId is required.");
+            if (context.MessageName == "asx_DeleteRule")
+            {
+                Delete(local, ruleId);
+                return;
+            }
             var header = service.Retrieve("asx_rule", ruleId, new ColumnSet(true));
             var original = header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf) ?? header.ToEntityReference();
             var access = (RetrievePrincipalAccessResponse)service.Execute(new RetrievePrincipalAccessRequest {
@@ -64,6 +69,34 @@ namespace Ascentix.RulesEngine.Plugin
                 writer.Update(new Entity("asx_rule", header.Id) {
                     [PublicationSchema.DraftBaseVersion] = active.GetAttributeValue<int>(PublicationSchema.Number) });
             });
+        }
+
+        private static void Delete(ILocalPluginContext local, Guid ruleId)
+        {
+            var context = local.PluginExecutionContext;
+            var service = local.SystemUserService;
+            PublicationCoordinator.Lock(service, context);
+            var query = new QueryExpression("asx_rule") { ColumnSet = new ColumnSet(true), TopCount = 1 };
+            query.Criteria.AddCondition("asx_ruleid", ConditionOperator.Equal, ruleId);
+            var header = service.RetrieveMultiple(query).Entities.SingleOrDefault();
+            if (header == null) return; // Idempotent, only after a successful absence query.
+            var original = header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf) ?? header.ToEntityReference();
+            foreach (var target in new[] { original, header.ToEntityReference() }.GroupBy(reference => reference.Id).Select(group => group.First()))
+            {
+                var access = (RetrievePrincipalAccessResponse)service.Execute(new RetrievePrincipalAccessRequest {
+                    Principal = new EntityReference("systemuser", context.InitiatingUserId), Target = target });
+                if ((access.AccessRights & (AccessRights.ReadAccess | AccessRights.DeleteAccess)) != (AccessRights.ReadAccess | AccessRights.DeleteAccess))
+                    throw new InvalidPluginExecutionException("You do not have permission to delete this rule.");
+            }
+            // This transaction begins before Dataverse's Delete cascade. All owned
+            // links are still available and restrictive lookups can be cleared safely.
+            PublicationCoordinator.Internal(context, service, writer => {
+                var draft = RuleDrafts.Find(service, ruleId);
+                if (draft != null) { RuleDrafts.DeleteContents(writer, draft); writer.Delete("asx_rule", draft.Id); }
+                RuleDrafts.DeleteContents(writer, header);
+            });
+            // Reconcile once against the final state; customer plugins remain enabled.
+            PublicationCoordinator.Internal(context, service, writer => writer.Delete("asx_rule", ruleId), reconcile: true);
         }
 
         public static void Restore(IOrganizationService service, Entity header, RuleSnapshot published)

@@ -19,6 +19,7 @@ export interface WebApiPort {
   readPublishedRule?(ruleId: string): Promise<string>;
   openRuleDraft?(ruleId: string): Promise<string>;
   copyRule?(ruleId: string): Promise<string>;
+  deleteRule?(ruleId: string): Promise<void>;
   restoreRuleDraft?(ruleId: string, etag: string): Promise<void>;
   /** PATCH the rule's statuscode back to Draft (1), the inverse of publishRule. */
   unpublishRule(ruleId: string, etag?: string | null): Promise<void>;
@@ -115,6 +116,7 @@ export function createWebApiPort(): EditorApi {
     readPublishedRule: async (ruleId) => (await revisionRequest(base, "asx_ReadPublishedRule", { RuleId: ruleId })).Definition,
     openRuleDraft: async (ruleId) => (await revisionRequest(base, "asx_OpenRuleDraft", { RuleId: ruleId })).DraftId,
     copyRule: async (ruleId) => (await revisionRequest(base, "asx_CopyRule", { RuleId: ruleId })).NewRuleId,
+    deleteRule: async (ruleId) => { await revisionRequest(base, "asx_DeleteRule", { RuleId: ruleId }); },
     restoreRuleDraft: async (ruleId, etag) => { await revisionRequest(base, "asx_RestoreRuleDraft", {
       RuleId: ruleId, ExpectedVersion: etag.replace(/^W\/"|"$/g, ""),
     }); },

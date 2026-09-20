@@ -1,6 +1,8 @@
 import { expect, it } from "vitest";
 import { createThrowawayRule } from "../e2e/devHelpers";
 import { createDevApi, deleteDevRecord, runRules, updateDevRecord } from "./devApi";
+import { parseBatchOutcome } from "../src/editor/save/batch";
+import { devOrg } from "./devOrg";
 import { loadPublishedGraph } from "../src/editor/load/publishedGraph";
 
 it.each([false, true])("deletes a model-linked rule and its owned graph (published=%s)", async (published) => {
@@ -35,7 +37,7 @@ it.each([false, true])("deletes a model-linked rule and its owned graph (publish
       owned.push({ set: "asx_tableconfigs", id: draft._asx_roottableconfig_value });
       await rememberGraph(draftId);
     }
-    // Exercise the product's ordinary DELETE, before the fixture cleanup can mask leftovers.
+    // Exercise the product's transactional deletion API before cleanup can mask leftovers.
     await deleteDevRecord("asx_rules", fixture.ruleId);
     for (const row of [{ set: "asx_rules", id: fixture.ruleId }, ...owned])
       await expect(api.retrieveRecord(row.set, row.id, "")).rejects.toThrow(/404/);
@@ -45,13 +47,96 @@ it.each([false, true])("deletes a model-linked rule and its owned graph (publish
   }
 });
 
-it("deletes an empty draft without trying to update the record being deleted", async () => {
+it("deletes nested node filters and localized messages owned by an incomplete draft", async () => {
+  const fixture = await createThrowawayRule();
+  const api = createDevApi();
+  const owned: { set: string; id: string }[] = [];
+  const create = async (set: string, data: Record<string, unknown>) => {
+    const id = await api.createRecord(set, data);
+    owned.push({ set, id });
+    return id;
+  };
+  try {
+    const groups = await api.retrieveMultipleRecords("asx_conditiongroups", `?$filter=_asx_rule_value eq ${fixture.ruleId}`);
+    const groupId = groups.entities[0].asx_conditiongroupid;
+    const conditions = await api.retrieveMultipleRecords("asx_ruleconditions", `?$filter=_asx_conditiongroup_value eq ${groupId}`);
+    const actions = await api.retrieveMultipleRecords("asx_ruleactions", `?$filter=_asx_rule_value eq ${fixture.ruleId}`);
+    const filter = await create("asx_nodefiltergroups", {
+      "asx_RuleCondition@odata.bind": `/asx_ruleconditions(${conditions.entities[0].asx_ruleconditionid})`,
+      "asx_conditiongroup@odata.bind": `/asx_conditiongroups(${groupId})`, asx_logicaloperator: 1,
+    });
+    const exists = await create("asx_nodefiltercriterions", {
+      "asx_filtergroup@odata.bind": `/asx_nodefiltergroups(${filter})`, asx_criteriontype: 2,
+    });
+    const nested = await create("asx_nodefiltergroups", {
+      "asx_owningcriterion@odata.bind": `/asx_nodefiltercriterions(${exists})`, asx_logicaloperator: 1,
+    });
+    await create("asx_nodefiltercriterions", {
+      "asx_filtergroup@odata.bind": `/asx_nodefiltergroups(${nested})`, asx_fieldname: "name", asx_operator: "eq", asx_value: "draft",
+    });
+    await create("asx_localizedmessages", {
+      "asx_RuleAction@odata.bind": `/asx_ruleactions(${actions.entities[0].asx_ruleactionid})`,
+      asx_languagecode: 1033, asx_message: "Draft translation",
+    });
+    await deleteDevRecord("asx_rules", fixture.ruleId);
+    for (const row of owned) await expect(api.retrieveRecord(row.set, row.id, "")).rejects.toThrow(/404/);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+it("deletes an empty draft through the transactional deletion API", async () => {
   const api = createDevApi();
   const id = await api.createRecord("asx_rules", {
     asx_name: "ZZ_RB_empty_draft_" + Date.now(), asx_tablelogicalname: "account", asx_triggers: "3",
   });
   await deleteDevRecord("asx_rules", id);
   await expect(api.retrieveRecord("asx_rules", id, "?$select=asx_name")).rejects.toThrow(/404/);
+});
+
+it("rejects native deletion and rolls back API deletion when the enclosing transaction fails", async () => {
+  const fixture = await createThrowawayRule();
+  const api = createDevApi();
+  try {
+    const header = await api.retrieveRecord("asx_rules", fixture.ruleId, "");
+    const validation = await api.validateRule(fixture.ruleId);
+    await api.publishRule(fixture.ruleId, header["@odata.etag"], validation.draftHash);
+    const draftId = await api.openRuleDraft!(fixture.ruleId);
+    const before = await api.readPublishedRule!(fixture.ruleId);
+    const groups = await api.retrieveMultipleRecords("asx_conditiongroups", `?$filter=_asx_rule_value eq ${fixture.ruleId}`);
+    const native = await devOrg("user").request("DELETE", `asx_rules(${fixture.ruleId})`);
+    expect(native.ok).toBe(false);
+    expect(native.text).toContain("Delete this rule from the Rule Builder");
+    expect(await api.readPublishedRule!(fixture.ruleId)).toBe(before);
+
+    const boundary = "batch_delete_rollback";
+    const changeset = "changeset_delete_rollback";
+    const base = `${api.getClientUrl()}/api/data/v9.2`;
+    const body = [
+      `--${boundary}`, `Content-Type: multipart/mixed; boundary=${changeset}`, "",
+      `--${changeset}`, "Content-Type: application/http", "Content-Transfer-Encoding: binary", "Content-ID: 1", "",
+      `POST ${base}/asx_DeleteRule HTTP/1.1`, "Content-Type: application/json", "", JSON.stringify({ RuleId: fixture.ruleId }),
+      `--${changeset}`, "Content-Type: application/http", "Content-Transfer-Encoding: binary", "Content-ID: 2", "",
+      `PATCH ${base}/asx_rules(00000000-0000-0000-0000-000000000001) HTTP/1.1`,
+      "Content-Type: application/json", "If-Match: *", "", JSON.stringify({ asx_name: "ZZ_RB_forced_rollback" }),
+      `--${changeset}--`, `--${boundary}--`, "",
+    ].join("\r\n");
+    const response = await api.executeBatch(boundary, body);
+    // Without continue-on-error, Dataverse returns the failing changeset status.
+    expect(response.httpStatus, response.text).toBe(404);
+    expect(response.text).toContain("Content-ID: 2");
+    expect(response.text).toContain("00000000-0000-0000-0000-000000000001");
+    expect(parseBatchOutcome(response.text).ok).toBe(false);
+    expect(response.text).toMatch(/Does Not Exist|does not exist|not found/i);
+    expect(await api.readPublishedRule!(fixture.ruleId)).toBe(before);
+    await expect(api.retrieveRecord("asx_rules", draftId, "")).resolves.toBeDefined();
+    for (const group of groups.entities) {
+      const row = await api.retrieveRecord("asx_conditiongroups", group.asx_conditiongroupid, "");
+      expect(row._asx_rule_value).toBe(fixture.ruleId);
+    }
+  } finally {
+    await fixture.cleanup();
+  }
 });
 
 it("keeps execution on the published revision through invalid edits and stale publication", async () => {

@@ -150,8 +150,14 @@ function EnsureStep([string]$Table, [string]$Message, [string]$TypeId, [int]$Ran
 $guard = PluginType 'RuleRevisionGuardPlugin'
 $tables = @('asx_rule','asx_conditiongroup','asx_rulecondition','asx_searchcriteriagroup','asx_searchcriterion',
     'asx_nodefiltergroup','asx_nodefiltercriterion','asx_ruleaction','asx_localizedmessage','asx_tableconfig','asx_rulerevision')
-foreach ($table in $tables) { foreach ($message in @('Create','Update','Delete')) { EnsureStep $table $message $guard 1 } }
-EnsureStep 'asx_rule' 'Delete' $guard 1 40
+foreach ($table in $tables) { foreach ($message in @('Create','Update','Delete')) {
+    $stage = if ($table -eq 'asx_rule' -and $message -eq 'Delete') { 10 } else { 20 }
+    EnsureStep $table $message $guard 1 $stage
+} }
+# Retire the old cleanup steps: cascades run before PreOperation. Raw rule Delete
+# must be rejected in PreValidation and handled by the transactional authoring API.
+$oldDeleteSteps = Request GET "sdkmessageprocessingsteps?`$select=sdkmessageprocessingstepid&`$filter=_eventhandler_value eq $guard and sdkmessageid/name eq 'Delete' and sdkmessagefilterid/primaryobjecttypecode eq 'asx_rule' and stage ne 10"
+foreach ($step in $oldDeleteSteps.value) { Request DELETE "sdkmessageprocessingsteps($($step.sdkmessageprocessingstepid))" | Out-Null }
 EnsureStep 'asx_rule' 'SetState' $guard 1
 EnsureStep '*' 'Associate' $guard 1
 EnsureStep '*' 'Disassociate' $guard 1
@@ -185,7 +191,7 @@ function EnsureParameter([string]$ApiId, [string]$Name, [int]$Type, [bool]$Outpu
     Request POST $set $body | Out-Null
 }
 $revisionType = PluginType 'RuleRevisionApi'
-$authoringApis = @('asx_ReadPublishedRule', 'asx_RestoreRuleDraft', 'asx_OpenRuleDraft', 'asx_CopyRule')
+$authoringApis = @('asx_ReadPublishedRule', 'asx_RestoreRuleDraft', 'asx_OpenRuleDraft', 'asx_CopyRule', 'asx_DeleteRule')
 $ownedApis = Request GET "customapis?`$select=customapiid,uniquename&`$filter=_plugintypeid_value eq $revisionType"
 foreach ($api in $ownedApis.value) {
     if ($api.uniquename -notin $authoringApis) { Request DELETE "customapis($($api.customapiid))" | Out-Null }
@@ -205,6 +211,8 @@ EnsureParameter $id 'DraftId' 10 $true 'Identifier of the existing or newly crea
 $id = EnsureApi 'asx_CopyRule' 'prvCreateasx_rule' 'Copy a rule definition and its model into a new unpublished rule.'
 EnsureParameter $id 'RuleId' 10 $false 'Identifier of the source rule.'
 EnsureParameter $id 'NewRuleId' 10 $true 'Identifier of the new unpublished rule.'
+$id = EnsureApi 'asx_DeleteRule' 'prvDeleteasx_rule' 'Delete a rule, its working draft and owned configuration in one transaction before platform cascading begins.'
+EnsureParameter $id 'RuleId' 10 $false 'Identifier of the rule or working draft to delete.'
 $validate = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq 'asx_ValidateRule'"
 if ($validate.value.Count -ne 1) { throw 'Missing asx_ValidateRule API.' }
 EnsureParameter $validate.value[0].customapiid 'DraftHash' 10 $true 'SHA-256 hash of the saved draft configuration checked by validation.'

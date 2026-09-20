@@ -296,9 +296,8 @@ function filterDeleteDepth(
 // ---- Reclaiming a condition's filter rows on delete ----
 // Deleting an asx_rulecondition does NOT cascade to the asx_nodefiltergroup /
 // asx_nodefiltercriterion rows it owns: `asx_rulecondition_nodefiltergroup` is a plain 1:N
-// (docs/Schema.md section 7), which is what the per-condition diff branch below relies on and why
-// e2e/devHelpers.ts's deleteRuleCascade reclaims them by hand. A rule delete must therefore emit
-// these explicitly or every filter row it owned is orphaned.
+// (docs/Schema.md section 7). Per-condition edits explicitly remove these rows here;
+// whole-rule deletion uses asx_DeleteRule, which performs the same cleanup on the server.
 //
 // Order mirrors diffRuleGraph's own filter-delete buckets exactly: scalar (non-exists) criteria
 // first (they are pure leaves nothing references), then filter GROUPS and EXISTS criteria in one

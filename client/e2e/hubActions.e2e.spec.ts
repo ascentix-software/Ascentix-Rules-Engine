@@ -105,10 +105,19 @@ test("duplicate rule → 'Copy of X' opens in the editor", async ({ page }) => {
   }
 });
 
-test("delete rule via the confirm dialog removes it", async ({ page }) => {
+for (const published of [false, true]) {
+test(`delete rule via the confirm dialog removes it (published=${published})`, async ({ page }) => {
   const appId = await resolveAppId();
   const fixture = await createRuleFixture({ namePrefix: "ZZ_RB_del" });
   try {
+    const api = createDevApi();
+    let draftId: string | undefined;
+    if (published) {
+      const header = await api.retrieveRecord(ENTITY_SET.rule, fixture.ruleId, "");
+      const validation = await api.validateRule(fixture.ruleId);
+      await api.publishRule(fixture.ruleId, header["@odata.etag"], validation.draftHash);
+      draftId = await api.openRuleDraft!(fixture.ruleId);
+    }
     const frame = await openHub(page, appId);
     await frame.getByPlaceholder("Search rules").fill(fixture.ruleName);
     const row = hubRow(frame, fixture.ruleName);
@@ -123,11 +132,14 @@ test("delete rule via the confirm dialog removes it", async ({ page }) => {
     // Row disappears from the still-filtered list, and the server row is gone.
     await expect(frame.getByText(fixture.ruleName, { exact: true })).toHaveCount(0, { timeout: 30_000 });
     expect(await findIdByName(ENTITY_SET.rule, "asx_name", "asx_ruleid", fixture.ruleName)).toBeNull();
+    if (draftId) await expect(api.retrieveRecord(ENTITY_SET.rule, draftId, "")).rejects.toThrow(/404/);
   } finally {
     // The UI delete normally handled it; the fixture cleanup is the crash backstop.
     await fixture.cleanup().catch(() => {});
   }
 });
+
+}
 
 test("config delete is disabled while a rule uses it", async ({ page }) => {
   const appId = await resolveAppId();

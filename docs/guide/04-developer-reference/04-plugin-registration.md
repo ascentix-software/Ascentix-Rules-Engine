@@ -58,7 +58,9 @@ Every explicit publication, including republishing a live rule, captures the sav
 draft and its data model. Configuration guards execute first (order 1), the
 publisher next (20), and registration reconciliation last (30), all synchronously
 in pre-operation. Guards cover Create/Update/Delete of the ten configuration tables
-and revision table, plus legacy SetState on rules. Draft edits preserve the
+and revision table, plus legacy SetState on rules. The rule Delete guard instead
+runs in PreValidation; deletion uses `asx_DeleteRule` so cleanup starts before
+Dataverse processes relationships. Draft edits preserve the
 registrations required by the published snapshot.
 
 ## Drift repair

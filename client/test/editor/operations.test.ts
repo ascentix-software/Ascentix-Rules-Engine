@@ -19,7 +19,6 @@ describe("configDeleteOps", () => {
 
 import { createConfig, createRule, duplicateConfig, duplicateRule } from "../../src/editor/save/operations";
 import type { EditorApi } from "../../src/editor/webapi";
-import { ENTITY } from "../../src/editor/load/odata";
 
 function fakeApi(over: Partial<EditorApi> = {}): EditorApi & { created: { entity: string; data: any }[] } {
   const created: { entity: string; data: any }[] = [];
@@ -102,20 +101,11 @@ describe("duplicateRule", () => {
 import { deleteRule, deleteConfig } from "../../src/editor/save/operations";
 
 describe("deleteRule / deleteConfig", () => {
-  it("deleteRule batches deletes including the rule", async () => {
-    let body = "";
-    const api = fakeApi({
-      retrieveRecord: async (_e: string, id: string) => ({ asx_ruleid: id, asx_name: "R", asx_tablelogicalname: "account",
-        statuscode: 1, asx_triggers: "1", _asx_roottableconfig_value: "root1" }),
-      retrieveMultipleRecords: async (entity: string) => entity === ENTITY.tableConfig
-        ? { entities: [{ asx_tableconfigid: "root1", asx_name: "Root", asx_tablelogicalname: "account", asx_tableconfigtype: 1 }] }
-        : { entities: [] },
-      executeBatch: async (_b: string, b: string) => { body = b; return { httpStatus: 200, text: "HTTP/1.1 204 No Content" }; },
-    });
+  it("deleteRule calls the transactional deletion API", async () => {
+    const deleted: string[] = [];
+    const api = fakeApi({ deleteRule: async (id: string) => { deleted.push(id); } });
     await deleteRule(api, "rule1");
-    expect(body).toContain("DELETE");
-    expect(body).toContain("asx_rules(rule1)");
-    expect((body.match(/DELETE /g) ?? []).length).toBe(1);
+    expect(deleted).toEqual(["rule1"]);
   });
   it("deleteConfig throws when the batch fails", async () => {
     const api = fakeApi({

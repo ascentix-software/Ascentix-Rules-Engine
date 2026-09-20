@@ -64,7 +64,7 @@ export interface OrgHandle {
   /** The editor's own port (EditorApi) over this identity; errors are "<op> <set> failed (<status>): <body>". */
   api: EditorApi;
   updateRecord(entitySet: string, id: string, data: Record<string, unknown>): Promise<void>;
-  /** 404 counts as deleted. */
+  /** Rules use asx_DeleteRule; other DELETE 404s require a confirming GET 404. */
   deleteRecord(entitySet: string, id: string): Promise<void>;
   runRules(tableName: string, opts?: RunRulesOptions): Promise<RunRulesResult>;
 }

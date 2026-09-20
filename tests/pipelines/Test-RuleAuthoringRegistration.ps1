@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $fixtureId = '11111111-1111-1111-1111-111111111111'
 $apis = @{}
 $parameters = @{}
-$state = @{ Creates = 0; FailParameterOnce = $false; DeleteCleanupId = $null; CleanupCreates = 0; DeleteStages = @{} }
+$state = @{ Creates = 0; FailParameterOnce = $false; DeleteGuardId = $null; GuardCreates = 0; DeleteStages = @{}; Retired = @{} }
 
 function Assert([bool]$Condition, [string]$Message) {
     if (!$Condition) { throw $Message }
@@ -25,8 +25,9 @@ function Invoke-RestMethod {
             '^sdkmessages\?' { return @{ value = @(@{ sdkmessageid = $fixtureId }) } }
             '^sdkmessagefilters\?' { return @{ value = @(@{ sdkmessagefilterid = $fixtureId }) } }
             '^sdkmessageprocessingsteps\?' {
-                if ($path -match 'stage eq 40$') {
-                    return @{ value = @(if ($state.DeleteCleanupId) { @{ sdkmessageprocessingstepid = $state.DeleteCleanupId } }) }
+                if ($path -match 'stage ne 10$') { return @{ value = @($state.Retired.Values) } }
+                if ($path -match 'stage eq 10$') {
+                    return @{ value = @(if ($state.DeleteGuardId) { @{ sdkmessageprocessingstepid = $state.DeleteGuardId } }) }
                 }
                 return @{ value = @(@{ sdkmessageprocessingstepid = $fixtureId; stage = 20; mode = 0; statecode = 0 }) }
             }
@@ -50,13 +51,17 @@ function Invoke-RestMethod {
             $state.DeleteStages[[int]$record.stage] = $true
         }
         if ($Method -eq 'POST') {
-            Assert ($record.stage -eq 40 -and !$state.DeleteCleanupId) 'Only the missing post-delete step should be created.'
-            $state.DeleteCleanupId = [guid]::NewGuid().ToString()
-            $state.CleanupCreates++
-        } elseif ($record.stage -eq 40) {
-            Assert ($path -eq "sdkmessageprocessingsteps($($state.DeleteCleanupId))") 'Post-delete retry must not replace the pre-delete step.'
+            Assert ($record.stage -eq 10 -and !$state.DeleteGuardId) 'Only the missing prevalidation guard should be created.'
+            $state.DeleteGuardId = [guid]::NewGuid().ToString()
+            $state.GuardCreates++
+        } elseif ($record.stage -eq 10) {
+            Assert ($path -eq "sdkmessageprocessingsteps($($state.DeleteGuardId))") 'Prevalidation retry must update the same step.'
         }
         return
+    }
+    if ($Method -eq 'DELETE' -and $path -match '^sdkmessageprocessingsteps\(([\w-]+)\)$') {
+        Assert ($state.Retired.ContainsKey($Matches[1])) 'Only obsolete rule Delete steps may be removed.'
+        $state.Retired.Remove($Matches[1]); return
     }
     if ($Method -eq 'PATCH' -and $path -match '^customapis\([\w-]+\)$') { return }
     if ($Method -eq 'DELETE' -and $path -match '^customapis\(([\w-]+)\)$') {
@@ -106,7 +111,8 @@ foreach ($interrupt in @($false, $true)) {
     $apis['asx_RetiredAuthoringOperation'] = @{ customapiid = [guid]::NewGuid().ToString(); uniquename = 'asx_RetiredAuthoringOperation' }
     $parameters.Clear()
     $state.Creates = 0
-    $state.DeleteCleanupId = $null; $state.CleanupCreates = 0; $state.DeleteStages.Clear()
+    $state.DeleteGuardId = $null; $state.GuardCreates = 0; $state.DeleteStages.Clear(); $state.Retired.Clear()
+    foreach ($stage in @(20,40)) { $id = [guid]::NewGuid().ToString(); $state.Retired[$id] = @{ sdkmessageprocessingstepid = $id; stage = $stage } }
     $state.FailParameterOnce = $interrupt
     if ($interrupt) {
         $interrupted = $false
@@ -118,20 +124,21 @@ foreach ($interrupt in @($false, $true)) {
         Assert ($apis.Count -eq 2 -and $parameters.Count -eq 0) 'Unexpected partial-deployment state.'
     }
     Register
-    Assert ($apis.Count -eq 5 -and $parameters.Count -eq 9) 'Expected four new APIs and nine parameters/properties.'
-    Assert ($state.Creates -eq 13) 'Expected exactly thirteen successful creates.'
+    Assert ($apis.Count -eq 6 -and $parameters.Count -eq 10) 'Expected five new APIs and ten parameters/properties.'
+    Assert ($state.Creates -eq 15) 'Expected exactly fifteen successful creates.'
     foreach ($spec in @(
         @('asx_ReadPublishedRule', 'RuleId', 10), @('asx_ReadPublishedRule', 'Definition', 10),
         @('asx_RestoreRuleDraft', 'RuleId', 10), @('asx_RestoreRuleDraft', 'ExpectedVersion', 10),
-        @('asx_OpenRuleDraft', 'RuleId', 10), @('asx_OpenRuleDraft', 'DraftId', 10), @('asx_CopyRule', 'RuleId', 10), @('asx_CopyRule', 'NewRuleId', 10), @('asx_ValidateRule', 'DraftHash', 10)
+        @('asx_OpenRuleDraft', 'RuleId', 10), @('asx_OpenRuleDraft', 'DraftId', 10), @('asx_CopyRule', 'RuleId', 10), @('asx_CopyRule', 'NewRuleId', 10), @('asx_DeleteRule', 'RuleId', 10), @('asx_ValidateRule', 'DraftHash', 10)
     )) {
         $binding = "/customapis($($apis[$spec[0]].customapiid))"
         $match = @($parameters.Values | Where-Object { $_.uniquename -eq $spec[1] -and $_['CustomAPIId@odata.bind'] -eq $binding })
         Assert ($match.Count -eq 1 -and $match[0].type -eq $spec[2]) "Incorrect contract for $($spec[0]).$($spec[1])."
     }
     Register
-    Assert ($state.Creates -eq 13) 'Completed deployment retry created duplicate components.'
-    Assert ($state.CleanupCreates -eq 1 -and $state.DeleteStages.Count -eq 2 -and $state.DeleteStages.ContainsKey(20) -and $state.DeleteStages.ContainsKey(40)) 'Expected separate, idempotent synchronous pre/post rule Delete steps.'
+    Assert ($state.Creates -eq 15) 'Completed deployment retry created duplicate components.'
+    Assert ($state.GuardCreates -eq 1 -and $state.DeleteStages.Count -eq 1 -and $state.DeleteStages.ContainsKey(10) -and $state.Retired.Count -eq 0) 'Expected one prevalidation guard and removal of both old Delete steps.'
+    Assert ($apis['asx_DeleteRule'].executeprivilegename -eq 'prvDeleteasx_rule') 'Delete API must require the table Delete privilege.'
     Write-Host "PASS: API registration and idempotent retry (interrupted=$interrupt)."
 }
 
