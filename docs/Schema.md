@@ -47,7 +47,7 @@ Top-level rule, scoped to a table. Parent of conditions and actions.
 rules default to **Draft**. The engine enforces **only Published** rules (within the effective
 window below). `asx_isactive` is retired.
 
-Published rules retain their normalized graph or use an immutable revision referenced
+Published rules retain their normalized graph or use a saved revision referenced
 by `asx_publishedrevision`. **Edit rule** creates or reopens a separate normalized
 working copy linked by `asx_draftof`; it does not modify the original graph.
 Publishing a working copy switches the original rule's active snapshot and advances
@@ -57,12 +57,12 @@ prohibited after creation. Existing rules require no initialization operation.
 | Column | Schema name | Type | Req | Notes |
 |---|---|---|---|---|
 | Table Logical Name | `asx_tablelogicalname` | Text (100) | ✔ | Entity the rule applies to |
-| Published Revision | `asx_publishedrevision` | Lookup → `asx_rulerevision` | | Server-controlled current revision |
-| Published Version | `asx_publishedversion` | Integer | | Server-controlled monotonically increasing publication number |
-| Publish Hash | `asx_publishhash` | Text (64) | | Expected SHA-256 of the validated draft; sent with status PATCH and cleared by publication |
-| Working Draft Of | `asx_draftof` | Lookup → `asx_rule` | | Server-controlled stable identity for a separate working copy |
+| Published Revision | `asx_publishedrevision` | Lookup → `asx_rulerevision` | | Current active revision |
+| Published Version | `asx_publishedversion` | Integer | | Publication number advanced on publish |
+| Publish Hash | `asx_publishhash` | Text (64) | | Retired validation token; no longer sent or checked |
+| Working Draft Of | `asx_draftof` | Lookup → `asx_rule` | | Stable identity for a separate working copy |
 | Draft Base Version | `asx_draftbaseversion` | Integer | | Active publication version on which this draft is based |
-| Draft Stamp | `asx_draftstamp` | Text (36) | | Server-controlled value updated by every owned graph mutation to advance header row version |
+| Draft Stamp | `asx_draftstamp` | Text (36) | | Retired concurrency stamp; no longer advanced or checked |
 | Triggers | `asx_triggers` | MultiSelect → `asx_triggers` | ✔ | At least one (editor-enforced) |
 | Channels | `asx_channels` | MultiSelect → `asx_channel` | | Empty ⇒ applies on all channels; gates which origin channel (Standard/Portal) a rule fires on |
 | Effective From | `asx_effectivefrom` | DateTime (UTC) | | Not enforced before this; null ⇒ open start |
@@ -250,12 +250,12 @@ back to `asx_message` then the engine default.
 
 ### 2.11 Rule Revision (`asx_rulerevision`)
 
-Organization-owned, server-managed immutable configuration. Guard steps reject
-direct writes. Deleted only with the owning rule.
+Organization-owned saved configuration. Direct access uses Dataverse role privileges.
+The authoring workflow creates revisions on publication and deletes them with the owning rule.
 
 | Column | Type | Notes |
 |---|---|---|
-| `asx_rule` | Lookup → `asx_rule` | Owning stable rule identity; restrict delete |
+| `asx_rule` | Lookup → `asx_rule` | Owning stable rule identity; RemoveLink supports transactional rule cleanup |
 | `asx_version` | Integer | Number within the rule |
 | `asx_definition` | Memo (1,000,000) | Format 1 snapshot of typed configuration rows; maximum 10,000 rows |
 | `asx_hash` | Text (64) | SHA-256 of serialized snapshot |
@@ -264,11 +264,8 @@ direct writes. Deleted only with the owning rule.
 
 ### 2.12 Publication Lock (`asx_publicationlock`)
 
-Organization-owned coordination table with its standard `asx_name` text column.
-Synchronous configuration, validation, publication, and restoration transactions
-upsert row `7e0d7362-c0fd-44ab-a8a1-aecb70d86a79` before reading a candidate. This
-serializes configuration mutations; business-record execution does not acquire it.
-The row is created automatically when absent after a managed import.
+Retired coordination table. The current runtime does not read, write, or acquire
+this lock; existing schema components do not affect authoring behavior.
 
 ## 3. `asx_RunRules` Custom API
 
@@ -534,7 +531,7 @@ status badge and before allowing Publish.
 |---|---|---|
 | `IsValid` | Boolean | `true` when no Error-severity issue was found |
 | `Issues` | String | JSON report (see shape below). Empty array `"issues":[]` when valid. |
-| `DraftHash` | String | SHA-256 of the complete validated draft and referenced model configuration; submit as `asx_publishhash` when publishing |
+| `DraftHash` | String | SHA-256 of the complete validated draft and referenced model configuration; publication independently validates the latest saved definition |
 
 ### Issues JSON shape
 
@@ -561,8 +558,8 @@ status badge and before allowing Publish.
 Field notes:
 
 - `severity` is a string enum name, either `"Error"` or `"Warning"`. Only `Error` blocks publishing
-  (`ValidationReport.IsValid` ignores warnings). Two checks emit `Warning`: `STRUCT_ROWCOUNT_ON_CREATE`
-  and `SEC_SYSWRITE_REQ`.
+  (`ValidationReport.IsValid` ignores warnings). Warnings include `STRUCT_ROWCOUNT_ON_CREATE`
+  and `TRAV_PUSHDOWN`.
 - `code` is a stable machine token the editor maps to inline UI. Vocabulary: `STRUCT_NO_CONDITIONS`,
   `STRUCT_NO_ACTIONS`, `STRUCT_EMPTY_GROUP`, `STRUCT_MISSING_FIELD`, `STRUCT_INVALID_REGEX`,
   `STRUCT_ROWCOUNT_RANGE`, `STRUCT_NODE_NOT_IN_TREE` (Error: a condition's `asx_tableconfig`
@@ -572,13 +569,8 @@ Field notes:
   `META_COLUMN_NOT_READABLE`, `META_COLUMN_NOT_CREATABLE`, `META_COLUMN_NOT_UPDATABLE`,
   `META_OPERATOR_TYPE_MISMATCH`, `STRUCT_ROWCOUNT_ON_CREATE` (Warning: a min-rows Row Count on
   a structurally-empty-at-create collection combined with the On Create trigger can never pass
-  during Create), plus the **publisher-relative** `SEC_*` family:
-  `SEC_SYSWRITE_PRIV` (Error: a System-context rule with write actions requires the publishing
-  user to hold the matching privilege at Global depth on each target table) and
-  `SEC_SYSWRITE_REQ` (Warning: informational statement of that requirement, always emitted for
-  gated actions regardless of the caller's own privileges). Unlike the rule-intrinsic families,
-  `SEC_*` results depend on *who asks*: `asx_ValidateRule` evaluates them for the caller; the
-  authoritative check runs against the actual publisher at publish time (see `docs/Security.md`).
+  during Create). Trusted Authors may publish System-context writes without holding
+  privileges on the target business tables; see `docs/Security.md`.
 - `kind` is a string enum name: `"Rule"`, `"Group"`, `"Condition"`, or `"Action"`.
 - `field` is the logical-name fragment of the column the issue targets; omitted (`null`) when the
   issue targets the entity as a whole rather than a specific field.
@@ -590,8 +582,8 @@ Field notes:
 ### Error handling
 
 `asx_ValidateRule` returns rule validation issues as data. Bad input, unreadable
-configuration, transaction errors, and service faults can throw. It requires a
-synchronous transaction and the revision schema even though it never publishes.
+configuration and service faults can throw. Validation does not acquire a
+coordination lock or change publication state.
 
 ---
 
@@ -614,9 +606,8 @@ validates and captures the saved draft, including republishing an already-active
 | Pre-image | `PreImage` (alias `PreImage`, `imagetype=0`, `messagepropertyname="Target"`, attributes: `statuscode`) |
 
 **Publication logic:** an explicit `Target.statuscode = 753840000` captures and
-validates the saved graph, checks the optional expected hash, and reruns publisher
-privilege checks. It creates a revision and supplies the new pointer and number on
-Target. Invalid/stale publication throws, rolling back the revision, pointer, and
+validates the latest saved graph. It creates a revision and supplies the new pointer and number on
+Target. Invalid publication throws, rolling back the revision, pointer, and
 registration changes. Other authored attributes must be saved before publishing.
 Non-publication draft edits retain the old active revision.
 
@@ -627,13 +618,14 @@ by `Ascentix.RulesEngine.Plugin.RuleRevisionApi`.
 
 | API | Inputs | Outputs | Gate |
 |---|---|---|---|
-| `asx_ReadPublishedRule` | `RuleId` String | `Definition` String | `prvReadasx_rule` plus record Read access |
-| `asx_RestoreRuleDraft` | `RuleId`, `ExpectedVersion` Strings | None | `prvReadasx_rule` plus record Read/Write access; expected header row version |
-| `asx_OpenRuleDraft` | `RuleId` String | `DraftId` String | `prvReadasx_rule` plus record Read/Write access |
-| `asx_CopyRule` | `RuleId` String | `NewRuleId` String | `prvCreateasx_rule` plus source record Read access |
+| `asx_ReadPublishedRule` | `RuleId` String | `Definition` String | `prvReadasx_rule` |
+| `asx_RestoreRuleDraft` | `RuleId` String | None | `prvWriteasx_rule` |
+| `asx_OpenRuleDraft` | `RuleId` String | `DraftId` String | `prvWriteasx_rule` |
+| `asx_CopyRule` | `RuleId` String | `NewRuleId` String | `prvCreateasx_rule` |
+| `asx_DeleteRule` | `RuleId` String | None | `prvDeleteasx_rule` |
 
 Open creates or reuses one working copy while the original stays active. Restore
-accepts the working-copy ID and ETag, preserves active enforcement, and reclaims
+accepts the working-copy ID, preserves active enforcement, and reclaims
 unused private models. Read resolves either ID to the stable published rule.
 `asx_tableconfig.asx_isprivate` is a Boolean, default false, identifying cloned
 working models excluded from shared-model lists. The installation and acceptance

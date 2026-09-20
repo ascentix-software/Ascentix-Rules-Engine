@@ -9,6 +9,77 @@ namespace Ascentix.RulesEngine.Plugin.Publication
 {
     public static class RuleDrafts
     {
+        public static bool IsDeletingConfiguration(IPluginExecutionContext context)
+        {
+            // Platform RemoveLink updates run inside the parent Delete. These rows
+            // are already in its server-captured cleanup plan; don't stamp or protect
+            // them as independent edits. Shared models are never in this plan.
+            var target = context.InputParameters.TryGetValue("Target", out var value) ? value as Entity : null;
+            if (target == null || context.MessageName != "Update") return false;
+            for (var parent = context.ParentContext; parent != null; parent = parent.ParentContext)
+            {
+                if (parent.MessageName != "Delete" || parent.PrimaryEntityName != "asx_rule" ||
+                    !(parent.InputParameters["Target"] is EntityReference rule)) continue;
+                var key = "Ascentix.Delete." + rule.Id;
+                if (parent.SharedVariables.TryGetValue(key + ".graph", out var json) &&
+                    RuleSnapshot.Parse((string)json, rule.Id).Rows.Any(row => row.Entity == target.LogicalName && row.Id == target.Id)) return true;
+                if (parent.SharedVariables.TryGetValue(key + ".revisions", out var revisions) &&
+                    ((EntityReferenceCollection)revisions).Any(row => row.LogicalName == target.LogicalName && row.Id == target.Id)) return true;
+            }
+            return false;
+        }
+
+        // Dataverse removes ownership links before PreOperation. Capture them without
+        // writing in PreValidation; all cleanup stays in the native Delete transaction.
+        public static void NativeDelete(IOrganizationService service, IPluginExecutionContext context)
+        {
+            var id = ((EntityReference)context.InputParameters["Target"]).Id;
+            var key = "Ascentix.Delete." + id;
+            if (context.Stage == 10)
+            {
+                var header = service.Retrieve("asx_rule", id, new ColumnSet(true));
+                var headers = new List<Entity> { header };
+                var draft = Find(service, id);
+                if (draft != null) headers.Add(draft);
+                var graph = new RuleSnapshot { RuleId = id };
+                foreach (var owner in headers) graph.Rows.AddRange(RuleSnapshot.Capture(service, owner, false).Rows);
+                graph.Rows = graph.Rows.GroupBy(row => row.Entity + row.Id).Select(group => group.First()).ToList();
+                var revisions = new QueryExpression(PublicationSchema.Revision) { ColumnSet = new ColumnSet(false) };
+                revisions.Criteria.AddCondition("asx_rule", ConditionOperator.In, headers.Select(row => (object)row.Id).ToArray());
+                context.SharedVariables[key + ".graph"] = graph.Serialize();
+                context.SharedVariables[key + ".headers"] = new EntityCollection(headers);
+                context.SharedVariables[key + ".revisions"] = new EntityReferenceCollection(
+                    RuleSnapshot.QueryAll(service, revisions).Select(row => row.ToEntityReference()).ToList());
+                context.SharedVariables[key + ".models"] = string.Join(",", PrivateModels(service, graph));
+                return;
+            }
+            object Read(string suffix)
+            {
+                // PreValidation variables are carried by ParentContext in the later stages.
+                for (var current = context; current != null; current = current.ParentContext)
+                    if (current.SharedVariables.TryGetValue(key + suffix, out var value)) return value;
+                throw new InvalidPluginExecutionException("Rule deletion registration is incomplete. Deploy the rule authoring steps.");
+            }
+            if (context.Stage == 20)
+            {
+                var headers = ((EntityCollection)Read(".headers")).Entities;
+                PublicationCoordinator.Internal(context, service, writer => {
+                    DeleteChildren(writer, RuleSnapshot.Parse((string)Read(".graph"), id));
+                    foreach (var draft in headers.Where(header => header.Id != id)) writer.Delete("asx_rule", draft.Id);
+                });
+            }
+            else if (context.Stage == 40)
+            {
+                var models = new HashSet<Guid>(((string)Read(".models")).Split(',').Where(value => value.Length > 0).Select(Guid.Parse));
+                PublicationCoordinator.Internal(context, service, writer => {
+                    // Delete revisions after the header so RemoveLink cannot issue
+                    // an Update against its in-flight published-revision pointer.
+                    foreach (var revision in (EntityReferenceCollection)Read(".revisions")) writer.Delete(revision.LogicalName, revision.Id);
+                    RemoveUnusedModels(writer, models);
+                });
+            }
+        }
+
         public static void DeleteChildren(IOrganizationService service, RuleSnapshot graph)
         {
             var remaining = graph.Rows.Where(row => row.Entity != "asx_rule" && row.Entity != "asx_tableconfig").Select(row => row.ToSdk()).ToList();
@@ -147,7 +218,6 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                         row[PublicationSchema.DraftOf] = header.ToEntityReference();
                         row[PublicationSchema.DraftBaseVersion] = header.GetAttributeValue<int>(PublicationSchema.Number);
                     } else row["asx_name"] = "Copy of " + row.GetAttributeValue<string>("asx_name");
-                    row[PublicationSchema.DraftStamp] = Guid.NewGuid().ToString();
                 }
                 if (source.Entity == "asx_tableconfig") row["asx_isprivate"] = true;
                 row["ownerid"] = header.GetAttributeValue<EntityReference>("ownerid") ?? new EntityReference("systemuser", context.InitiatingUserId);

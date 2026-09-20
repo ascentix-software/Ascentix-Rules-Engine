@@ -113,9 +113,8 @@ test(`delete rule via the confirm dialog removes it (published=${published})`, a
     const api = createDevApi();
     let draftId: string | undefined;
     if (published) {
-      const header = await api.retrieveRecord(ENTITY_SET.rule, fixture.ruleId, "");
-      const validation = await api.validateRule(fixture.ruleId);
-      await api.publishRule(fixture.ruleId, header["@odata.etag"], validation.draftHash);
+      expect((await api.validateRule(fixture.ruleId)).isValid).toBe(true);
+      await api.publishRule(fixture.ruleId);
       draftId = await api.openRuleDraft!(fixture.ruleId);
     }
     const frame = await openHub(page, appId);

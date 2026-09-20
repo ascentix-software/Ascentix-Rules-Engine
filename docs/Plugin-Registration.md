@@ -8,8 +8,8 @@ implementations:
 - **`RuleRegistrationPlugin`**: keeps those generated steps in sync with rule config.
 - **`RulePublishPlugin`**: validates and snapshots every publication, including replacing
   an active revision. See `docs/Schema.md` §5.1.
-- **`RuleRevisionGuardPlugin`**: serializes configuration edits, advances draft versions,
-  and protects immutable revision data and publication pointers.
+- **`RuleRevisionGuardPlugin`**: enforces the working-draft workflow and removes
+  owned configuration during native rule deletion.
 
 ## Shipped (bootstrap) steps: register once, ship in the solution
 
@@ -25,11 +25,12 @@ Plus one publish-gate step: `RulePublishPlugin` on `asx_rule` Update, `PreImage`
 
 Add the assembly and these seven steps (with the pre-images) to the unmanaged solution.
 The revision deployment also adds synchronous pre-operation guards on Create/Update/Delete
-for all ten configuration tables and `asx_rulerevision`, plus `asx_rule` SetState.
-The `asx_rule` Delete guard runs in PreValidation and directs callers to the
-transactional `asx_DeleteRule` API, which cleans up the owned graph before Delete.
+for all ten configuration tables, plus `asx_rule` SetState. Revision-table access uses platform permissions.
+The `asx_rule` Delete handler captures ownership in PreValidation, removes owned
+children in PreOperation, and reclaims revisions/private models in PostOperation.
+Native grid deletion and the Rule Builder's `asx_DeleteRule` API are both supported.
 Global Associate/Disassociate guards reject configuration relationship changes
-through those messages; use record Update so lifecycle/version checks run.
+through those messages; use record Update so workflow checks run.
 Execution order is guard 1 → publisher 20 → registration 30. No filtering attributes
 on these steps. Add all guards and the five authoring APIs to the managed package.
 

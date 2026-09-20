@@ -44,8 +44,8 @@ test("Edit rule opens a working draft and publishes it without stopping the acti
   const header = () => api.retrieveRecord(ENTITY_SET.rule, fixture.ruleId, "?$select=asx_name,statuscode,asx_publishedversion");
   const published = async () => loadPublishedGraph(await api.readPublishedRule!(fixture.ruleId), fixture.ruleId);
   try {
-    const valid = await api.validateRule(fixture.ruleId);
-    await api.publishRule(fixture.ruleId, (await header())["@odata.etag"], valid.draftHash);
+    expect((await api.validateRule(fixture.ruleId)).isValid).toBe(true);
+    await api.publishRule(fixture.ruleId);
     const frame = await openRuleFromHub(page, await resolveAppId(), fixture.ruleName);
     await expect(frame.getByRole("button", { name: "Rename rule" })).toBeDisabled();
     await frame.getByRole("button", { name: "Edit rule", exact: true }).click();

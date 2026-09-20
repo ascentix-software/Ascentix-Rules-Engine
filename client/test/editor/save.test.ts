@@ -45,8 +45,8 @@ describe("saveRuleGraph", () => {
     const res = await saveRuleGraph(api, snap, addAction(clone(snap)), ids);
     expect(res).toEqual({ status: "saved" });
     expect(api.lastBody).toContain("asx_ruleactions");
-    expect(api.lastBody).toContain('If-Match: W/"1"');
-    expect(api.lastBody!.indexOf("asx_rules(r1)")).toBeLessThan(api.lastBody!.indexOf("asx_ruleactions"));
+    expect(api.lastBody).not.toContain("PATCH ");
+    expect(api.lastBody).toContain("asx_rule@odata.bind");
   });
 
   it("saves the draft of a published rule without changing its status", async () => {

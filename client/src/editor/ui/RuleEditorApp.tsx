@@ -258,7 +258,7 @@ export function RuleEditorApp({
     setBusy(true);
     setBanner(null);
     try {
-      await api.publishRule(working.rule.id, snapshot.rule.etag, validationResult.draftHash);
+      await api.publishRule(working.rule.id);
       setServerStatus(753840000);
       await acceptFresh(await reload());
       setBanner({ intent: "success", text: "Rule published successfully." });
@@ -292,10 +292,10 @@ export function RuleEditorApp({
 
   async function onRestoreDraft() {
     setRestoreOpen(false);
-    if (!api.restoreRuleDraft || !snapshot.rule.etag) return;
+    if (!api.restoreRuleDraft) return;
     setBusy(true);
     try {
-      await api.restoreRuleDraft(working.rule.id, snapshot.rule.etag);
+      await api.restoreRuleDraft(working.rule.id);
       await acceptFresh(await reload());
       setBanner({ intent: "success", text: "Draft restored from the published revision. A private data-model copy was created. Published enforcement is unchanged." });
     } catch (e) { setBanner({ intent: "error", text: `Restore failed: ${formatError(e)}. Your local edits are retained.` }); }
@@ -309,14 +309,11 @@ export function RuleEditorApp({
     setBanner(null);
     const pending = clone(workingRef.current);
     try {
-      const before = await reload();
-      await api.unpublishRule(working.rule.activeRuleId ?? working.rule.id, before.rule.activeEtag ?? before.rule.etag);
+      await api.unpublishRule(working.rule.activeRuleId ?? working.rule.id);
       const fresh = await reload();
       setServerStatus(fresh.rule.statusCode);
       if (dirty) {
-        // Only advance the baseline ETag when the pre-unpublish version was ours.
-        // Older recovered edits retain their stale version and still conflict on save.
-        const etag = snapshot.rule.etag === before.rule.etag ? fresh.rule.etag : snapshot.rule.etag;
+        const etag = fresh.rule.etag;
         setSnapshot({ ...snapshot, rule: { ...snapshot.rule, statusCode: 1, etag } });
         history.reset({ ...pending, rule: { ...pending.rule, statusCode: 1, etag } });
       } else {
@@ -448,7 +445,7 @@ export function RuleEditorApp({
               <Button size="small" disabled={!editable || !history.canRedo} onClick={() => { history.redo(); setSelection({ kind: "rule" }); }}>Redo</Button>
               <Button size="small" disabled={busy || !dirty} onClick={() => setReviewOpen(true)}>Review changes</Button>
               <Button size="small" disabled={busy || (!published && !working.rule.publishedRevisionId) || !api.readPublishedRule} onClick={onViewPublished}>{publishedView ? "Back to draft" : "View published"}</Button>
-              <Button size="small" disabled={!editable || !working.rule.activeRuleId || !snapshot.rule.etag || !api.restoreRuleDraft} onClick={() => setRestoreOpen(true)}>Restore published to draft</Button>
+              <Button size="small" disabled={!editable || !working.rule.activeRuleId || !api.restoreRuleDraft} onClick={() => setRestoreOpen(true)}>Restore published to draft</Button>
             </div>
           </div>
         }

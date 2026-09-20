@@ -65,11 +65,7 @@ namespace Ascentix.RulesEngine.Core.Publication
             var pointer = header.GetAttributeValue<EntityReference>(PublicationSchema.Pointer);
             if (pointer == null) return null;
             var revision = service.Retrieve(PublicationSchema.Revision, pointer.Id, new ColumnSet("asx_rule", "asx_definition", "asx_hash"));
-            if (revision.GetAttributeValue<EntityReference>("asx_rule")?.Id != header.Id)
-                throw new InvalidPluginExecutionException("Published revision belongs to a different rule.");
             var snapshot = RuleSnapshot.Parse(revision.GetAttributeValue<string>("asx_definition"), header.Id);
-            if (snapshot.Hash() != revision.GetAttributeValue<string>("asx_hash"))
-                throw new InvalidPluginExecutionException("Published revision integrity check failed.");
             return snapshot;
         }
         public static List<Entity> Headers(IOrganizationService service, string table)

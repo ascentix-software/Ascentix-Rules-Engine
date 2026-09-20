@@ -254,12 +254,11 @@ Content-Type: application/json
 {"RuleId":"00000000-0000-0000-0000-000000000000"}
 ```
 
-`RuleId` is a required String. The caller needs the rule Delete privilege and Read
-and Delete access to the target rule. For a working draft, access is also checked
-against its original rule. The operation removes the rule, its working draft,
+`RuleId` is a required String. The caller needs the rule Delete privilege, enforced by the platform. The operation removes the rule, its working draft,
 owned conditions/actions, revisions, and unused private models in one transaction.
 Shared models are retained. Deleting only a working draft retains the published
 original. An absent rule succeeds without changes. There are no response properties.
 
-Native `DELETE asx_rules(id)` is blocked. Integrations must use this action so
-Dataverse cannot unlink children before the cleanup operation captures them.
+Native `DELETE asx_rules(id)` is also supported and removes the same owned graph
+inside its transaction. The standard Dataverse Rules grid uses that path. The API
+additionally offers idempotent deletion when the rule is already absent.

@@ -286,13 +286,13 @@ export function devOrg(identity = "user", opts = {}) {
       const parsed = raw.Issues ? JSON.parse(raw.Issues) : { issues: [] };
       return { isValid: raw.IsValid ?? false, issues: parsed.issues ?? [], ...(raw.DraftHash ? { draftHash: raw.DraftHash } : {}) };
     },
-    async publishRule(ruleId, etag, draftHash) {
-      const r = await request("PATCH", `asx_rules(${ruleId})`, { statuscode: 753840000, ...(draftHash ? { asx_publishhash: draftHash } : {}) }, etag ? { "If-Match": etag } : {});
+    async publishRule(ruleId) {
+      const r = await request("PATCH", `asx_rules(${ruleId})`, { statuscode: 753840000 }, { "If-Match": "*" });
       if (!r.ok) throw shapeError("publishRule", r.status, r.text || undefined);
     },
     // Inverse of publishRule: back to Draft (1). See docs/Schema.md §2.1 Lifecycle.
-    async unpublishRule(ruleId, etag) {
-      const r = await request("PATCH", `asx_rules(${ruleId})`, { statuscode: 1 }, etag ? { "If-Match": etag } : {});
+    async unpublishRule(ruleId) {
+      const r = await request("PATCH", `asx_rules(${ruleId})`, { statuscode: 1 }, { "If-Match": "*" });
       if (!r.ok) throw shapeError("unpublishRule", r.status);
     },
     async readPublishedRule(ruleId) {
@@ -314,8 +314,8 @@ export function devOrg(identity = "user", opts = {}) {
       const r = await request("POST", "asx_DeleteRule", { RuleId: ruleId });
       if (!r.ok) throw shapeError("asx_DeleteRule", r.status, r.text);
     },
-    async restoreRuleDraft(ruleId, etag) {
-      const r = await request("POST", "asx_RestoreRuleDraft", { RuleId: ruleId, ExpectedVersion: etag.replace(/^W\/"|"$/g, "") });
+    async restoreRuleDraft(ruleId) {
+      const r = await request("POST", "asx_RestoreRuleDraft", { RuleId: ruleId });
       if (!r.ok) throw shapeError("restoreRuleDraft", r.status, r.text);
     },
   };

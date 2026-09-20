@@ -89,7 +89,7 @@ describe("RuleEditorApp Unpublish", () => {
 
     expect(await screen.findByText(/Rule unpublished/i)).toBeInTheDocument();
     expect(unpublishRule).toHaveBeenCalledOnce();
-    expect(unpublishRule).toHaveBeenCalledWith("r1", null);
+    expect(unpublishRule).toHaveBeenCalledWith("r1");
     // The reload ran: the badge now reflects the persisted Draft status.
     expect(screen.getByText("Draft")).toBeInTheDocument();
   });

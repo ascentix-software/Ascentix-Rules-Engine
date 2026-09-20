@@ -187,9 +187,9 @@ the four pins that were skipped pending that deploy are now un-skipped and green
 
 **F4 — closed.** The rule editor now has an **Unpublish** action beside Publish, enabled only for a Published rule and guarded by a confirm dialog that names the consequence; `webapi.ts` gained `unpublishRule`. Publish deliberately REMAINS available while Published, because re-publishing an edited rule is a real flow (`authorToEnforce.e2e`). The "unpublish releases enforcement" manual check is now performable inside the Rule Builder. Pinned by `unpublishUi.e2e` (skipped until the affordance deploys). The enforcement half of the contract was already proven by `ruleLifecycleUnpublish.e2e`.
 
-The earlier whole-rule deletion gap is covered by the transactional `asx_DeleteRule` API: `ruleRevisions.dev.test.ts` checks owned-row removal, nested node filters, localized messages, published working drafts, shared-model retention, native-delete rejection, and transaction rollback. `hubActions.e2e` exercises both draft and published deletion through the confirmation dialog.
+The earlier whole-rule deletion gap is covered by the transactional `asx_DeleteRule` API: `ruleRevisions.dev.test.ts` checks owned-row removal, nested node filters, localized messages, published working drafts, shared-model retention, native deletion, and transaction rollback. `hubActions.e2e` exercises both draft and published deletion through the confirmation dialog.
 
-The earlier audit also noted that every child update op ships `etag: null` (`save/diff.ts`), so concurrent edits to conditions/actions/nodes last-write-wins while `authorRuleUi`'s 412 test makes the save look protected.
+Authoring now intentionally uses last-save-wins. PATCH requests use `If-Match: *` so a deleted row is not recreated; they do not compare loaded row versions. `authorRuleUi` checks the persisted result after another author changes the same field.
 
 Defects found by the earlier e2e expansion. All three are **fixed and live-proven** against
 DEV after the deploy that carries the fixes (editor bundle first, then the plugin assembly);
@@ -300,18 +300,11 @@ resolved has since been removed from the Beta Limitations page.
 
 ## Open cells (deferred, not silently dropped)
 
-- ~~SEC publish gate live proof~~ — **RESOLVED: `escalationGuard` (test-dev) green
-  vs DEV post-deploy, all four legs** — (a) Author-only SP blocked with the Global-privilege
-  message; (b) full-privilege principal publishes the same shape; (c) User-context rule
-  publishes for the Author SP; (d) `SEC_SYSWRITE_REQ` surfaces to a privileged caller as a
-  non-blocking warning. Run: 4 passed, 31.2s (post-deploy of the Create-mask fix). The suite's
-  first two live runs each caught a real engine bug the 848-test unit suite could not see:
-  (1) `privilegeobjecttypecodes.objecttypecode` is an **Int32 object type code** live — the
-  string-name join threw server-side and the gate fail-closed against every publisher, admins
-  included; (2) `privilege.accessright` uses the privilege table's **own bit values (Create=32)**,
-  not the SDK `AccessRights` enum (32768) — the two enums agree on every bit except Create,
-  which is why only Create-right gating was broken. Both regressions now fail in units
-  (`PublisherPrivilegeProviderTests` seeds the live-observed shapes verbatim).
+- **Trusted-author System writes** � `escalationGuard` (test-dev) now proves that
+  the Author-only principal can publish System-context writes without business-table
+  privileges, that privileged publication and User-context publication also work,
+  and that validation reports definition issues without publisher-privilege checks.
+  The previous SEC gate and its privilege-resolution implementation were removed.
 
 - **Portal firing** — untestable via the Web API (`IsPortalsClientCall` can't be set); the portal
   branch of `OriginResolver` is unit-tested; Portal-only *exclusion* is proven live (pass C).

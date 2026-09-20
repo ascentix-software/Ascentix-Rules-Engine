@@ -58,7 +58,8 @@ export function buildBatch(ops: Operation[], opts: BatchOptions): { boundary: st
     } else if (op.kind === "update") {
       lines.push(`PATCH ${recordUrl(opts, op.set, op.id)} HTTP/1.1`);
       lines.push("Content-Type: application/json; type=entry");
-      if (op.etag) lines.push(`If-Match: ${op.etag}`);
+      // Update an existing row; accept its latest version (last save wins).
+      lines.push("If-Match: *");
       lines.push("");
       lines.push(jsonBody(op.attrs, op.binds, opts, contentIdByTemp));
     } else {

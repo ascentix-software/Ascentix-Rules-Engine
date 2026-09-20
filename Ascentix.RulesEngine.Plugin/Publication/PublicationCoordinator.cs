@@ -18,13 +18,6 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             action(new InternalWriter(service, reconcile));
         }
 
-        public static void Lock(IOrganizationService service, IPluginExecutionContext context)
-        {
-            if (!context.IsInTransaction) throw new InvalidPluginExecutionException("Rule changes require a synchronous database transaction.");
-            service.Execute(new UpsertRequest { Target = new Entity(PublicationSchema.Lock, PublicationSchema.LockId) {
-                ["asx_name"] = Guid.NewGuid().ToString() } });
-        }
-
         public static Entity Store(IOrganizationService service, RuleSnapshot snapshot, int version, Guid publisher)
         {
             var json = snapshot.Serialize();
@@ -38,17 +31,16 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             return revision;
         }
 
-        // Preserve affected live definitions and return drafts whose concurrency stamps must advance.
-        public static HashSet<Guid> PreserveSharedConfiguration(IOrganizationService service, IPluginExecutionContext context, IEnumerable<Guid> changedIds)
+        // Preserve existing live definitions before their shared configuration changes.
+        public static void PreserveSharedConfiguration(IOrganizationService service, IPluginExecutionContext context, IEnumerable<Guid> changedIds)
         {
-            var drafts = new HashSet<Guid>();
             var ids = new HashSet<Guid>(changedIds.Where(id => id != Guid.Empty));
-            if (ids.Count == 0) return drafts;
+            if (ids.Count == 0) return;
             // A rule referencing a descendant also depends on the changed ancestor.
             var nodes = RuleSnapshot.QueryAll(service, new QueryExpression("asx_tableconfig") {
                 ColumnSet = new ColumnSet("asx_parenttable") });
             // Creating an unrelated root model cannot change an existing definition.
-            if (!nodes.Any(node => ids.Contains(node.Id))) return drafts;
+            if (!nodes.Any(node => ids.Contains(node.Id))) return;
             bool expanded;
             do {
                 expanded = false;
@@ -68,7 +60,6 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                     (value.Kind == "string" && value.Value != null && ids.Any(id => value.Value.IndexOf(id.ToString(), StringComparison.OrdinalIgnoreCase) >= 0)))) continue;
                 if (rule.GetAttributeValue<OptionSetValue>("statuscode")?.Value != 753840000)
                 {
-                    drafts.Add(rule.Id);
                     continue;
                 }
                 var snapshot = RuleSnapshot.Capture(service, rule.Id);
@@ -78,7 +69,7 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                         [PublicationSchema.Pointer] = revision.ToEntityReference() });
                 });
             }
-            return drafts;
+            return;
         }
 
         private sealed class InternalWriter : IOrganizationService
@@ -101,7 +92,9 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                 query.Criteria.AddCondition("statecode", ConditionOperator.Equal, 0);
                 var type = query.AddLink("plugintype", "eventhandler", "plugintypeid");
                 var names = new List<object> { typeof(RuleRevisionGuardPlugin).FullName, typeof(RulePublishPlugin).FullName };
-                if (!reconcile) names.Add(typeof(RuleRegistrationPlugin).FullName);
+                // Native rule deletion has three cleanup stages. Let registration
+                // reconcile each header so bypass stays within Dataverse's limit of 3.
+                if (!reconcile && !(message == "Delete" && table == "asx_rule")) names.Add(typeof(RuleRegistrationPlugin).FullName);
                 type.LinkCriteria.AddCondition("typename", ConditionOperator.In, names.ToArray());
                 var assembly = type.AddLink("pluginassembly", "pluginassemblyid", "pluginassemblyid");
                 var identity = typeof(PublicationCoordinator).Assembly.GetName();

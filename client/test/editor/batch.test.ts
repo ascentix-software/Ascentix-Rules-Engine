@@ -33,14 +33,14 @@ describe("buildBatch", () => {
     expect(body.trimEnd().endsWith("--batch_B1--")).toBe(true);
   });
 
-  it("emits If-Match for an update with an etag", () => {
+  it("updates the latest existing version even when an old etag is supplied", () => {
     const ops: Operation[] = [
       { kind: "update", entity: "asx_rule", set: "asx_rules", id: "r1",
         attrs: { asx_name: "X" }, binds: [], etag: 'W/"42"' },
     ];
     const { body } = buildBatch(ops, opts);
     expect(body).toContain("PATCH https://org.crm.dynamics.com/api/data/v9.2/asx_rules(r1) HTTP/1.1");
-    expect(body).toContain('If-Match: W/"42"');
+    expect(body).toContain('If-Match: *');
   });
 
   it("emits a DELETE request", () => {

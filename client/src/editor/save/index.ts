@@ -2,7 +2,6 @@ import type { RuleGraph } from "../model/types";
 import type { BatchApi } from "../webapi";
 import { diffRuleGraph } from "./diff";
 import { buildBatch, parseBatchOutcome } from "./batch";
-import { ENTITY, ENTITY_SET } from "../load/odata";
 
 export type SaveResult =
   | { status: "noop" }
@@ -19,12 +18,6 @@ export async function saveRuleGraph(
 ): Promise<SaveResult> {
   const ops = diffRuleGraph(snapshot, working);
   if (ops.length === 0) return { status: "noop" };
-  // A guarded header write makes a concurrent publication reject the whole changeset,
-  // including saves that only change conditions, actions, or translations.
-  if (snapshot.rule.etag && !ops.some((op) => op.entity === ENTITY.rule)) {
-    ops.unshift({ kind: "update", entity: ENTITY.rule, set: ENTITY_SET.rule,
-      id: snapshot.rule.id, attrs: { asx_name: snapshot.rule.name }, binds: [], etag: snapshot.rule.etag });
-  }
 
   const { boundary, body } = buildBatch(ops, {
     clientUrl: api.getClientUrl(),

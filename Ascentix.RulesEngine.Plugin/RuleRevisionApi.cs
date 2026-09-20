@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Microsoft.Crm.Sdk.Messages;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
 using Ascentix.RulesEngine.Core.Publication;
@@ -28,16 +27,6 @@ namespace Ascentix.RulesEngine.Plugin
             }
             var header = service.Retrieve("asx_rule", ruleId, new ColumnSet(true));
             var original = header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf) ?? header.ToEntityReference();
-            var access = (RetrievePrincipalAccessResponse)service.Execute(new RetrievePrincipalAccessRequest {
-                Principal = new EntityReference("systemuser", context.InitiatingUserId), Target = original });
-            if ((access.AccessRights & AccessRights.ReadAccess) == 0)
-                throw new InvalidPluginExecutionException("You do not have permission to read this rule.");
-            if (context.MessageName != "asx_ReadPublishedRule")
-            {
-                if (context.MessageName != "asx_CopyRule" && (access.AccessRights & AccessRights.WriteAccess) == 0)
-                    throw new InvalidPluginExecutionException("You do not have permission to edit this rule.");
-                PublicationCoordinator.Lock(service, context);
-            }
             header = service.Retrieve("asx_rule", ruleId, new ColumnSet(true));
             var active = original.Id == ruleId ? header : service.Retrieve("asx_rule", original.Id, new ColumnSet(true));
             if (context.MessageName == "asx_CopyRule") {
@@ -60,10 +49,6 @@ namespace Ascentix.RulesEngine.Plugin
             if (context.MessageName != "asx_RestoreRuleDraft") throw new InvalidPluginExecutionException("Unknown revision operation.");
             if (header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf) == null)
                 throw new InvalidPluginExecutionException("Open the working draft before discarding its changes.");
-            var expected = context.InputParameters.TryGetValue("ExpectedVersion", out var version) ? version as string : null;
-            var current = header.RowVersion ?? Convert.ToString(header.GetAttributeValue<long>("versionnumber"));
-            if (string.IsNullOrEmpty(expected) || expected != current)
-                throw new InvalidPluginExecutionException("This rule changed elsewhere. Reload before discarding its draft.");
             PublicationCoordinator.Internal(context, service, writer => {
                 Restore(writer, header, RuleDrafts.Reidentify(snapshot, header.Id));
                 writer.Update(new Entity("asx_rule", header.Id) {
@@ -75,19 +60,10 @@ namespace Ascentix.RulesEngine.Plugin
         {
             var context = local.PluginExecutionContext;
             var service = local.SystemUserService;
-            PublicationCoordinator.Lock(service, context);
             var query = new QueryExpression("asx_rule") { ColumnSet = new ColumnSet(true), TopCount = 1 };
             query.Criteria.AddCondition("asx_ruleid", ConditionOperator.Equal, ruleId);
             var header = service.RetrieveMultiple(query).Entities.SingleOrDefault();
             if (header == null) return; // Idempotent, only after a successful absence query.
-            var original = header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf) ?? header.ToEntityReference();
-            foreach (var target in new[] { original, header.ToEntityReference() }.GroupBy(reference => reference.Id).Select(group => group.First()))
-            {
-                var access = (RetrievePrincipalAccessResponse)service.Execute(new RetrievePrincipalAccessRequest {
-                    Principal = new EntityReference("systemuser", context.InitiatingUserId), Target = target });
-                if ((access.AccessRights & (AccessRights.ReadAccess | AccessRights.DeleteAccess)) != (AccessRights.ReadAccess | AccessRights.DeleteAccess))
-                    throw new InvalidPluginExecutionException("You do not have permission to delete this rule.");
-            }
             // This transaction begins before Dataverse's Delete cascade. All owned
             // links are still available and restrictive lookups can be cleared safely.
             PublicationCoordinator.Internal(context, service, writer => {
@@ -135,7 +111,6 @@ namespace Ascentix.RulesEngine.Plugin
             patch.Attributes.Remove("statuscode");
             foreach (var field in current.Rows.Single(r => r.Entity == "asx_rule").Attributes.Keys)
                 if (field != "statuscode" && !patch.Contains(field)) patch[field] = null;
-            patch[PublicationSchema.DraftStamp] = Guid.NewGuid().ToString();
             service.Update(patch);
             RuleDrafts.RemoveUnusedModels(service, models);
         }

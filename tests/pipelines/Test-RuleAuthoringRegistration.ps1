@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $fixtureId = '11111111-1111-1111-1111-111111111111'
 $apis = @{}
 $parameters = @{}
-$state = @{ Creates = 0; FailParameterOnce = $false; DeleteGuardId = $null; GuardCreates = 0; DeleteStages = @{}; Retired = @{} }
+$state = @{ Creates = 0; FailParameterOnce = $false; DeleteGuardId = $null; GuardCreates = 0; DeleteStages = @{}; RevisionGuard = $true }
 
 function Assert([bool]$Condition, [string]$Message) {
     if (!$Condition) { throw $Message }
@@ -25,7 +25,7 @@ function Invoke-RestMethod {
             '^sdkmessages\?' { return @{ value = @(@{ sdkmessageid = $fixtureId }) } }
             '^sdkmessagefilters\?' { return @{ value = @(@{ sdkmessagefilterid = $fixtureId }) } }
             '^sdkmessageprocessingsteps\?' {
-                if ($path -match 'stage ne 10$') { return @{ value = @($state.Retired.Values) } }
+                if ($path -match "primaryobjecttypecode eq 'asx_rulerevision'") { return @{ value = @(if ($state.RevisionGuard) { @{ sdkmessageprocessingstepid = '22222222-2222-2222-2222-222222222222' } }) } }
                 if ($path -match 'stage eq 10$') {
                     return @{ value = @(if ($state.DeleteGuardId) { @{ sdkmessageprocessingstepid = $state.DeleteGuardId } }) }
                 }
@@ -59,11 +59,15 @@ function Invoke-RestMethod {
         }
         return
     }
-    if ($Method -eq 'DELETE' -and $path -match '^sdkmessageprocessingsteps\(([\w-]+)\)$') {
-        Assert ($state.Retired.ContainsKey($Matches[1])) 'Only obsolete rule Delete steps may be removed.'
-        $state.Retired.Remove($Matches[1]); return
-    }
+    if ($Method -eq 'DELETE' -and $path -eq 'sdkmessageprocessingsteps(22222222-2222-2222-2222-222222222222)') { $state.RevisionGuard = $false; return }
     if ($Method -eq 'PATCH' -and $path -match '^customapis\([\w-]+\)$') { return }
+    if ($Method -eq 'DELETE' -and $path -match '^customapirequestparameters\(([\w-]+)\)$') {
+        $id = $Matches[1]
+        $keys = @($parameters.Keys | Where-Object { $parameters[$_].customapirequestparameterid -eq $id })
+        Assert ($keys.Count -eq 1) 'Attempted to remove an unknown API parameter.'
+        $parameters.Remove($keys[0])
+        return
+    }
     if ($Method -eq 'DELETE' -and $path -match '^customapis\(([\w-]+)\)$') {
         $id = $Matches[1]
         foreach ($name in @($apis.Keys)) { if ($apis[$name].customapiid -eq $id) { $apis.Remove($name) } }
@@ -91,7 +95,7 @@ function Invoke-RestMethod {
             $key = "$path/$apiId/$($record.uniquename)"
             Assert (!$parameters.ContainsKey($key)) 'Duplicate parameter create on retry.'
             if ($path -eq 'customapirequestparameters') {
-                Assert ($record.ContainsKey('isoptional') -and !$record.isoptional) 'Request parameter must be required.'
+                Assert ($record.isoptional -eq $false) 'Authoring inputs must be required.'
             }
             $parameters[$key] = $record
         }
@@ -110,9 +114,8 @@ foreach ($interrupt in @($false, $true)) {
     $apis['asx_ValidateRule'] = @{ customapiid = $fixtureId; uniquename = 'asx_ValidateRule' }
     $apis['asx_RetiredAuthoringOperation'] = @{ customapiid = [guid]::NewGuid().ToString(); uniquename = 'asx_RetiredAuthoringOperation' }
     $parameters.Clear()
-    $state.Creates = 0
-    $state.DeleteGuardId = $null; $state.GuardCreates = 0; $state.DeleteStages.Clear(); $state.Retired.Clear()
-    foreach ($stage in @(20,40)) { $id = [guid]::NewGuid().ToString(); $state.Retired[$id] = @{ sdkmessageprocessingstepid = $id; stage = $stage } }
+    $state.Creates = 0; $state.RevisionGuard = $true
+    $state.DeleteGuardId = $null; $state.GuardCreates = 0; $state.DeleteStages.Clear()
     $state.FailParameterOnce = $interrupt
     if ($interrupt) {
         $interrupted = $false
@@ -124,20 +127,33 @@ foreach ($interrupt in @($false, $true)) {
         Assert ($apis.Count -eq 2 -and $parameters.Count -eq 0) 'Unexpected partial-deployment state.'
     }
     Register
-    Assert ($apis.Count -eq 6 -and $parameters.Count -eq 10) 'Expected five new APIs and ten parameters/properties.'
-    Assert ($state.Creates -eq 15) 'Expected exactly fifteen successful creates.'
+    Assert ($apis.Count -eq 6 -and $parameters.Count -eq 9) 'Expected five new APIs and nine parameters/properties.'
+    Assert ($state.Creates -eq 14) 'Expected exactly fourteen successful creates.'
     foreach ($spec in @(
         @('asx_ReadPublishedRule', 'RuleId', 10), @('asx_ReadPublishedRule', 'Definition', 10),
-        @('asx_RestoreRuleDraft', 'RuleId', 10), @('asx_RestoreRuleDraft', 'ExpectedVersion', 10),
+        @('asx_RestoreRuleDraft', 'RuleId', 10),
         @('asx_OpenRuleDraft', 'RuleId', 10), @('asx_OpenRuleDraft', 'DraftId', 10), @('asx_CopyRule', 'RuleId', 10), @('asx_CopyRule', 'NewRuleId', 10), @('asx_DeleteRule', 'RuleId', 10), @('asx_ValidateRule', 'DraftHash', 10)
     )) {
         $binding = "/customapis($($apis[$spec[0]].customapiid))"
         $match = @($parameters.Values | Where-Object { $_.uniquename -eq $spec[1] -and $_['CustomAPIId@odata.bind'] -eq $binding })
         Assert ($match.Count -eq 1 -and $match[0].type -eq $spec[2]) "Incorrect contract for $($spec[0]).$($spec[1])."
     }
+    # Simulate upgrading the old restore contract. A same-named input on another
+    # API must survive, and rerunning registration must not recreate the old input.
+    $restoreVersionKey = "customapirequestparameters/$($apis['asx_RestoreRuleDraft'].customapiid)/ExpectedVersion"
+    $otherVersionKey = "customapirequestparameters/$fixtureId/ExpectedVersion"
+    $parameters[$restoreVersionKey] = @{ uniquename = 'ExpectedVersion'; customapirequestparameterid = [guid]::NewGuid().ToString() }
+    $parameters[$otherVersionKey] = @{ uniquename = 'ExpectedVersion'; customapirequestparameterid = [guid]::NewGuid().ToString() }
     Register
-    Assert ($state.Creates -eq 15) 'Completed deployment retry created duplicate components.'
-    Assert ($state.GuardCreates -eq 1 -and $state.DeleteStages.Count -eq 1 -and $state.DeleteStages.ContainsKey(10) -and $state.Retired.Count -eq 0) 'Expected one prevalidation guard and removal of both old Delete steps.'
+    Assert (!$parameters.ContainsKey($restoreVersionKey)) 'Restore must not retain its obsolete version input.'
+    Assert ($parameters.ContainsKey($otherVersionKey)) 'Registration removed another API parameter.'
+    $parameters.Remove($otherVersionKey)
+    Register
+    Assert ($parameters.Count -eq 9 -and $state.Creates -eq 14) 'Completed deployment retry changed the API contract.'
+    Assert ($state.GuardCreates -eq 1 -and $state.DeleteStages.Count -eq 3 -and $state.DeleteStages.ContainsKey(10) -and $state.DeleteStages.ContainsKey(20) -and $state.DeleteStages.ContainsKey(40)) 'Expected capture in PreValidation and transactional cleanup in PreOperation/PostOperation.'
+    Assert (!$state.RevisionGuard) 'Revision-table plugin vetoes must be removed.'
+    Assert ($apis['asx_OpenRuleDraft'].executeprivilegename -eq 'prvWriteasx_rule') 'Opening a draft requires the platform Write privilege.'
+    Assert ($apis['asx_RestoreRuleDraft'].executeprivilegename -eq 'prvWriteasx_rule') 'Restoring a draft requires the platform Write privilege.'
     Assert ($apis['asx_DeleteRule'].executeprivilegename -eq 'prvDeleteasx_rule') 'Delete API must require the table Delete privilege.'
     Write-Host "PASS: API registration and idempotent retry (interrupted=$interrupt)."
 }
@@ -147,6 +163,7 @@ foreach ($interrupt in @($false, $true)) {
     $viewContexts = @{}
     $fields = @{}
     $tables = @{}
+    $relationships = @{}
     $schemaState = @{ Writes = 0; FailViewOnce = $false }
     function Invoke-RestMethod {
         param($Method, $Uri, $Headers, $ContentType, $Body)
@@ -159,6 +176,9 @@ foreach ($interrupt in @($false, $true)) {
                 }
                 "^EntityDefinitions\(LogicalName='([^']+)'\)/Attributes\?.*LogicalName eq '([^']+)'" {
                     return @{ value = @(if ($fields.ContainsKey("$($Matches[1])/$($Matches[2])")) { @{ LogicalName = $Matches[2] } }) }
+                }
+                "^EntityDefinitions\(LogicalName='([^']+)'\)/ManyToOneRelationships\?.*ReferencingAttribute eq '([^']+)'" {
+                    return @{ value = @($relationships.Values | Where-Object { $_.ReferencingEntity -eq $Matches[1] -and $_.ReferencingAttribute -eq $Matches[2] }) }
                 }
                 '^savedqueries\(([\w-]+)\)' {
                     return $viewContexts[$Matches[1]] + @{ fetchxml = $views[$Matches[1]] }
@@ -185,11 +205,20 @@ foreach ($interrupt in @($false, $true)) {
                     $key = "$($record.ReferencingEntity)/$($record.Lookup.SchemaName.ToLowerInvariant())"
                     Assert (!$fields.ContainsKey($key)) 'Duplicate lookup creation.'
                     $fields[$key] = $record.Lookup
+                    $record.MetadataId = [guid]::NewGuid().ToString()
+                    $record.ReferencingAttribute = $record.Lookup.SchemaName.ToLowerInvariant()
+                    $relationships[$record.MetadataId] = $record
                     $schemaState.Writes++
                     return
                 }
                 '^PublishXml$' { return }
             }
+        }
+        if ($Method -eq 'PUT' -and $path -match '^RelationshipDefinitions\(([\w-]+)\)$') {
+            Assert ($relationships.ContainsKey($Matches[1])) 'Unknown relationship update.'
+            $relationships[$Matches[1]].CascadeConfiguration = $record.CascadeConfiguration
+            $schemaState.Writes++
+            return
         }
         if ($Method -eq 'PATCH' -and $path -match '^savedqueries\(([\w-]+)\)$') {
             $id = $Matches[1]
@@ -222,7 +251,7 @@ foreach ($interrupt in @($false, $true)) {
         throw "Unexpected schema request: $Method $path"
     }
     foreach ($interrupt in @($false, $true)) {
-        $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear()
+        $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear(); $relationships.Clear()
         $schemaState.Writes = 0; $schemaState.FailViewOnce = $interrupt
         foreach ($table in @('asx_rule', 'asx_tableconfig')) {
             $folder = Join-Path $PSScriptRoot "../../Solutions/AscentixRulesEngine/AscentixRulesEngine_unmanaged/Entities/$table/SavedQueries"
@@ -251,6 +280,18 @@ foreach ($interrupt in @($false, $true)) {
         $writes = $schemaState.Writes
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
         Assert ($schemaState.Writes -eq $writes) 'Schema retry changed already configured metadata.'
+        # Upgrade the previous restrictive lifecycle relationships without changing
+        # publisher ownership or any non-delete cascade setting.
+        foreach ($relation in $relationships.Values) { $relation.CascadeConfiguration.Delete = 'Restrict' }
+        & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
+        Assert ($schemaState.Writes -eq $writes + 3) 'Expected exactly three relationship upgrades.'
+        foreach ($relation in $relationships.Values) {
+            $expected = if ($relation.ReferencingAttribute -eq 'asx_publisher') { 'Restrict' } else { 'RemoveLink' }
+            Assert ($relation.CascadeConfiguration.Delete -eq $expected) 'Incorrect native delete relationship behavior.'
+            Assert ($relation.CascadeConfiguration.Assign -eq 'NoCascade') 'Unrelated cascade setting changed.'
+        }
+        & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
+        Assert ($schemaState.Writes -eq $writes + 3) 'Relationship upgrade is not idempotent.'
         Write-Host "PASS: schema and shipped views, filter preservation, idempotent retry (interrupted=$interrupt)."
     }
 }
