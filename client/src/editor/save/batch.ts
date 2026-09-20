@@ -82,14 +82,14 @@ export function buildBatch(ops: Operation[], opts: BatchOptions): { boundary: st
   return { boundary, body };
 }
 
-export function parseBatchOutcome(text: string): { ok: boolean; conflict: boolean; message: string | null } {
+export function parseBatchOutcome(text: string): { ok: boolean; message: string | null } {
   const codes: number[] = [];
   const re = /HTTP\/1\.1 (\d{3})/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) codes.push(Number(m[1]));
   const bad = codes.find((c) => c >= 400);
-  if (bad == null) return { ok: true, conflict: false, message: null };
+  if (bad == null) return { ok: true, message: null };
   const msgMatch = /"message"\s*:\s*"([^"]*)"/.exec(text);
   const message = msgMatch ? msgMatch[1] : null;
-  return { ok: false, conflict: bad === 412, message };
+  return { ok: false, message };
 }

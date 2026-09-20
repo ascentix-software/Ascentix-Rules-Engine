@@ -183,9 +183,9 @@ it("keeps published execution through invalid drafts and accepts latest saved pu
     expect(await messages()).toContain(liveMessage);
 
     const draftId = await api.openRuleDraft!(fixture.ruleId);
-    const concurrentDraftId = await api.openRuleDraft!(fixture.ruleId);
+    const reopenedDraftId = await api.openRuleDraft!(fixture.ruleId);
     expect(draftId).not.toBe(fixture.ruleId);
-    expect(concurrentDraftId).toBe(draftId);
+    expect(reopenedDraftId).toBe(draftId);
     const draftHeader = () => api.retrieveRecord("asx_rules", draftId, "?$select=statuscode,_asx_roottableconfig_value");
     const actions = await api.retrieveMultipleRecords("asx_ruleactions", `?$select=asx_ruleactionid&$filter=_asx_rule_value eq ${draftId}`);
     const actionId = actions.entities[0].asx_ruleactionid;

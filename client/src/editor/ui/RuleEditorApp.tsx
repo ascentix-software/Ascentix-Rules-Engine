@@ -198,10 +198,6 @@ export function RuleEditorApp({
   }
 
   function reportSaveFailure(result: SaveResult): boolean {
-    if (result.status === "conflict") {
-      setBanner({ intent: "warning", text: "This rule changed elsewhere. Your edits are still here. Review and copy your changes before reloading the current version." });
-      return true;
-    }
     if (result.status === "error") {
       setBanner({ intent: "error", text: `Save failed: ${result.message ?? "unknown error"}` });
       return true;

@@ -137,13 +137,13 @@ describe("authoring lifecycle and recovery", () => {
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
   });
 
-  it("keeps conflicting edits available to review and copy without reloading", async () => {
+  it("keeps edits available to review and copy after a failed save", async () => {
     const { reload } = mount(makeGraph(), { executeBatch: vi.fn(async () => ({
-      httpStatus: 200, text: 'HTTP/1.1 412 Precondition Failed\n{"error":{"message":"stale"}}',
+      httpStatus: 200, text: 'HTTP/1.1 403 Forbidden\n{"error":{"message":"Write permission denied"}}',
     })) });
     rename("My pending change");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await screen.findByText(/This rule changed elsewhere/);
+    await screen.findByText(/Save failed: Write permission denied/);
     expect(reload).not.toHaveBeenCalled();
     expect(screen.getAllByText("My pending change").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Review changes" }));

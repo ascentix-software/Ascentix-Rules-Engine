@@ -6,7 +6,6 @@ import { buildBatch, parseBatchOutcome } from "./batch";
 export type SaveResult =
   | { status: "noop" }
   | { status: "saved" }
-  | { status: "conflict"; message: string | null }
   | { status: "error"; message: string | null };
 
 export interface SaveIds { batchId: string; changesetId: string; }
@@ -29,6 +28,5 @@ export async function saveRuleGraph(
   const { httpStatus, text } = await api.executeBatch(boundary, body);
   const outcome = parseBatchOutcome(text);
   if (outcome.ok && httpStatus < 400) return { status: "saved" };
-  if (outcome.conflict) return { status: "conflict", message: outcome.message };
   return { status: "error", message: outcome.message };
 }

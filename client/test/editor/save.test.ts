@@ -56,11 +56,12 @@ describe("saveRuleGraph", () => {
     expect(api.lastBody).not.toContain("statuscode");
   });
 
-  it("returns conflict on a 412 inner response", async () => {
+  it("reports a missing row as a save error without recreating it", async () => {
     const snap = baseGraph();
-    const api = fakeApi(200, 'HTTP/1.1 412 Precondition Failed\n{"error":{"message":"stale"}}');
+    const api = fakeApi(200, 'HTTP/1.1 404 Not Found\n{"error":{"message":"Record no longer exists"}}');
     const res = await saveRuleGraph(api, snap, setRuleName(clone(snap), "X"), ids);
-    expect(res).toEqual({ status: "conflict", message: "stale" });
+    expect(res).toEqual({ status: "error", message: "Record no longer exists" });
+    expect(api.lastBody).toContain('If-Match: *');
   });
 
   it("returns error on other inner failures", async () => {

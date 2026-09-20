@@ -77,7 +77,7 @@ test("validation failure: issues panel renders and Publish stays disabled", asyn
   }
 });
 
-test("412 conflict: concurrent API edit → 'changed elsewhere' banner, no write", async ({ page }) => {
+test("the browser save wins after another author changes the same field", async ({ page }) => {
   const appId = await resolveAppId();
   const fixture = await createRuleFixture();
   try {
