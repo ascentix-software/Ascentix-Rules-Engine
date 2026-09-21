@@ -95,7 +95,7 @@ test("Unpublish is offered only for a Published rule, confirms, and persists Dra
     const dialog = frame.getByRole("dialog");
     await expect(dialog).toContainText(`Unpublish "${rule.ruleName}"?`);
     // The consequence is named, not just "are you sure?".
-    await expect(dialog).toContainText("no longer be blocked");
+    await expect(dialog).toContainText("All enforcement and automation from this rule on sample_order will stop until you publish it again.");
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toBeHidden();
     expect(await statusOf(rule.ruleId)).toBe(PUBLISHED);
