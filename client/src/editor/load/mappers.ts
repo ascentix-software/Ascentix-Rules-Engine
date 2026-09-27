@@ -2,6 +2,7 @@ import type { RuleHeader, ConditionNode, ActionNode, TableConfigRef, LocalizedMe
 import type { NodeFilterBlock, NodeFilterGroupModel, NodeFilterLeaf, NodeFilterNode } from "../model/nodeFilter";
 import { newTempId } from "../model/ids";
 import { conditionTypeLabel, actionTypeLabel, tableConfigTypeLabel, parseMultiSelect } from "../model/enums";
+import { parseExpressionFilters } from "../model/expressionFilters";
 import { LOOKUP, NAV } from "./odata";
 
 // Row version, threaded through the model to save/diff so a child PATCH can carry `If-Match`.
@@ -37,6 +38,7 @@ export function mapRuleHeader(raw: any): RuleHeader {
     effectiveFrom: strOrNull(raw.asx_effectivefrom),
     effectiveTo: strOrNull(raw.asx_effectiveto),
     evaluationContext: numOrNull(raw.asx_evaluationcontext),
+    evaluationTimeZone: strOrNull(raw.asx_evaluationtimezone),
     rootTableConfigId: strOrNull(raw[LOOKUP.ruleOfTableConfig]),
     triggerColumns: parseStringArray(raw.asx_triggercolumns),
   };
@@ -58,6 +60,7 @@ export function mapConditionRecord(raw: any): ConditionNode {
     minExpectedRows: numOrNull(raw.asx_minexpectedrows),
     maxExpectedRows: numOrNull(raw.asx_maxexpectedrows),
     expression: strOrNull(raw.asx_conditionexpression),
+    expressionFilters: parseExpressionFilters(raw.asx_expressionfilters),
   };
 }
 

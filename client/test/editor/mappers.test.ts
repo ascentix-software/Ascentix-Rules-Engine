@@ -19,9 +19,15 @@ describe("record mappers", () => {
       effectiveFrom: null,
       effectiveTo: null,
       evaluationContext: 1,
+      evaluationTimeZone: null,
       rootTableConfigId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
       triggerColumns: ["sample_lineamount"],
     });
+  });
+
+  it("maps the rule's time zone", () => {
+    expect(mapRuleHeader({ ...rawRule, asx_evaluationtimezone: "Eastern Standard Time" }).evaluationTimeZone)
+      .toBe("Eastern Standard Time");
   });
 
   it("defaults triggerColumns to [] when asx_triggercolumns is blank/absent", () => {

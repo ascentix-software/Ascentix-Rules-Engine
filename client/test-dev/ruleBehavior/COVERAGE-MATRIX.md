@@ -14,7 +14,7 @@ engine's Create/Update/Delete is observed on the row; **client form** = the form
 Suites: `ruleBehaviorBlock`, `formActions` + `formLibrary{Smoke,State,Notify}`,
 `ruleBehaviorWrite`, `ruleBehaviorAggregate`, `ruleBehaviorDateTemplate`,
 `ruleBehaviorTraversal`, `ruleBehaviorExists`, `ruleBehaviorInFlight`, `ruleBehaviorMultiTree`,
-`ruleBehaviorChannel` +
+`ruleBehaviorChannel`, `ruleBehaviorRelativeDate` +
 `channelFormSave.e2e`, `ruleBehaviorMatrix`, `ruleBehaviorRunRules` (report-only).
 
 ## Action type × enforcement path
@@ -37,6 +37,7 @@ Suites: `ruleBehaviorBlock`, `formActions` + `formLibrary{Smoke,State,Notify}`,
 | RowCount (2) | counts (optionally filtered) child rows vs min/max | `ruleBehaviorBlock`, `ruleBehaviorAggregate`, `ruleBehaviorTraversal` |
 | RegexMatch (3) | tests a column against a pattern | `ruleBehaviorAggregate` |
 | Expression/aggregate (4) | sum/avg/min/max/count + arithmetic vs a value | `ruleBehaviorAggregate`, `ruleBehaviorMatrix` empty-edge |
+| Calculation aggregate filter (asx_expressionfilters) | an aggregate in the expression is restricted to rows matching its own filter (`filter:<key>`), incl. a relative-date criterion | `ruleBehaviorRelativeDate.dev.test.ts` |
 
 ## Comparison operator (1–10)
 
@@ -63,6 +64,7 @@ Suites: `ruleBehaviorBlock`, `formActions` + `formLibrary{Smoke,State,Notify}`,
 |---|---|
 | Comparison criterion (self + ancestor, value-from-record) | `ruleBehaviorTraversal` |
 | EXISTS criterion (min/max + sub-filter over a sibling collection) | `ruleBehaviorExists` — validator fix `95c2684` |
+| DateExpression (value source 4), pushed to the Dataverse query | `ruleBehaviorRelativeDate.dev.test.ts` |
 
 ## Trigger
 
@@ -300,7 +302,7 @@ resolved has since been removed from the Beta Limitations page.
 
 ## Open cells (deferred, not silently dropped)
 
-- **Trusted-author System writes** � `escalationGuard` (test-dev) now proves that
+- **Trusted-author System writes** � `escalationGuard` (test-dev) now proves that
   the Author-only principal can publish System-context writes without business-table
   privileges, that privileged publication and User-context publication also work,
   and that validation reports definition issues without publisher-privilege checks.

@@ -54,6 +54,8 @@ namespace Ascentix.RulesEngine.Core.Actions
                 foreach (var crit in group.Criteria)
                 {
                     if (crit.ComparisonValueNodeId.HasValue) yield return crit.ComparisonValueNodeId.Value;
+                    if (crit.ValueSource == ComparisonValueSource.DateExpression && DateExprSpec.TryGetAnchorNode(crit.Value, out var anchor))
+                        yield return anchor;
                     if (crit.Kind == CriterionKind.Exists)
                     {
                         if (crit.CollectionNodeId.HasValue) yield return crit.CollectionNodeId.Value;

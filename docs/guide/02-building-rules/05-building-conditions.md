@@ -124,6 +124,13 @@ child collection), **the condition is not satisfied** and the comparison
 does not fire. The same holds if the right-hand side value is missing or
 null.
 
+### Filtering what a total counts
+
+Each aggregate in a Calculation can have its own filter. Select **Only rows where…** next to the
+aggregate to choose which rows it includes, for example only open opportunities, or only those
+closed in the last 12 months. Two aggregates over the same table can use different filters, so
+`sum(won) / sum(all)` works as a ratio.
+
 ## The condition inspector
 
 Selecting a condition opens its inspector. Two of its fields are documented

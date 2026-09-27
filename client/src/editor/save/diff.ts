@@ -7,6 +7,7 @@ import { isNewId } from "../model/ids";
 import { flattenGroups, flattenConditions } from "../model/tree";
 import { logicalOperatorValue, conditionTypeValue, actionTypeValue, encodeMultiSelect, tableConfigTypeValue } from "../model/enums";
 import { operatorToFetchOp } from "../ui/pickers/recordFilter";
+import { serializeExpressionFilters } from "../model/expressionFilters";
 import { isLeafComplete } from "../model/nodeFilter";
 import { ENTITY, ENTITY_SET, BIND_NAV } from "../load/odata";
 
@@ -58,6 +59,7 @@ function conditionAttrs(c: ConditionNode): Record<string, any> {
     asx_minexpectedrows: c.minExpectedRows,
     asx_maxexpectedrows: c.maxExpectedRows,
     asx_conditionexpression: c.expression ?? null,
+    asx_expressionfilters: serializeExpressionFilters(c.expressionFilters),
   };
 }
 function localizedAttrs(m: { languageCode: number; message: string }): Record<string, any> {
@@ -362,6 +364,7 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
     asx_effectivefrom: r.effectiveFrom,
     asx_effectiveto: r.effectiveTo,
     asx_evaluationcontext: r.evaluationContext,
+    asx_evaluationtimezone: r.evaluationTimeZone ?? null,
     asx_triggercolumns: r.triggerColumns.length ? JSON.stringify(r.triggerColumns) : null,
   });
   const ruleChanged = changedAttrs(ruleAttrs(snapshot.rule), ruleAttrs(working.rule));

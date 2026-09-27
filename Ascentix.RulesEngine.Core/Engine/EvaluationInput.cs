@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Actions;
+using Ascentix.RulesEngine.Core.Evaluation;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Core.Resolution;
@@ -50,7 +51,8 @@ namespace Ascentix.RulesEngine.Core.Engine
             DateTime utcNow,
             IAttributeMetadataProvider metadata,
             IOptionLabelProvider labels,
-            RuleTrigger trigger)
+            RuleTrigger trigger,
+            IReadOnlyDictionary<Guid, DateSemantics> datesByRule = null)
         {
             RuleIds = ruleIds ?? throw new ArgumentNullException(nameof(ruleIds));
             RootGroups = rootGroups ?? throw new ArgumentNullException(nameof(rootGroups));
@@ -65,6 +67,7 @@ namespace Ascentix.RulesEngine.Core.Engine
             Metadata = metadata;
             Labels = labels;
             Trigger = trigger;
+            DatesByRule = datesByRule ?? new Dictionary<Guid, DateSemantics>();
         }
 
         /// <summary>Rule ids in loader order, the order rules evaluate in.</summary>
@@ -106,5 +109,8 @@ namespace Ascentix.RulesEngine.Core.Engine
 
         /// <summary>Provenance: which trigger gathered this input.</summary>
         public RuleTrigger Trigger { get; }
+
+        /// <summary>Per-rule date semantics (column behavior + the rule's time zone).</summary>
+        public IReadOnlyDictionary<Guid, DateSemantics> DatesByRule { get; }
     }
 }

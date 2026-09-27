@@ -42,6 +42,35 @@ namespace Ascentix.RulesEngine.Core.Evaluation
             _tree = tree;
         }
 
+        private DateSemantics _dates;
+
+        /// <summary>The evaluating rule's date semantics; null keeps the scalar comparison.
+        /// Forwarded to the value resolver, which reads date-expression anchors by their column's
+        /// behavior.</summary>
+        public DateSemantics Dates
+        {
+            get => _dates;
+            set
+            {
+                _dates = value;
+                if (_valueResolver != null) _valueResolver.Dates = value;
+            }
+        }
+
+        private static ComparisonOperator? ToComparison(string op)
+        {
+            switch (op)
+            {
+                case "eq": return ComparisonOperator.Equals;
+                case "ne": return ComparisonOperator.NotEquals;
+                case "gt": return ComparisonOperator.GreaterThan;
+                case "ge": return ComparisonOperator.GreaterThanOrEqual;
+                case "lt": return ComparisonOperator.LessThan;
+                case "le": return ComparisonOperator.LessThanOrEqual;
+                default: return null;
+            }
+        }
+
         /// <summary>Back-compat overload for callers that never evaluate an Exists criterion
         /// (currentNodeId is only consulted by CriterionKind.Exists).</summary>
         public bool EvaluateFilterGroup(NodeFilterGroup filterGroup, List<Entity> records) =>
@@ -96,7 +125,18 @@ namespace Ascentix.RulesEngine.Core.Evaluation
                 return EvaluateMultiSelectCriterion(record, criterion);
 
             var fieldValue = _resolver.ResolveFieldValue(record, criterion.FieldName);
-            var rhs = ResolveRhs(record, criterion);
+            var valueless = criterion.Operator == "null" || criterion.Operator == "not-null";
+            var rhs = valueless && criterion.ValueSource == ComparisonValueSource.DateExpression
+                ? null
+                : ResolveRhs(record, criterion);
+            // A row-anchored date expression whose anchor is null on this row has no comparand:
+            // the row does not match (SQL-null semantics), it does not fail the save.
+            if (!valueless && rhs == null && criterion.ValueSource == ComparisonValueSource.DateExpression)
+                return false;
+
+            if (Dates != null && ToComparison(criterion.Operator) is ComparisonOperator dateOp
+                && Dates.Compare(record, criterion.FieldName, dateOp, rhs) is bool dated)
+                return dated;
 
             switch (criterion.Operator)
             {
@@ -165,6 +205,15 @@ namespace Ascentix.RulesEngine.Core.Evaluation
 
         private string ResolveRhs(Entity record, NodeFilterCriterion criterion)
         {
+            if (criterion.ValueSource == ComparisonValueSource.DateExpression)
+            {
+                if (_valueResolver == null)
+                    throw new InvalidPluginExecutionException(
+                        "Node filter criterion uses a DateExpression value source but no ComparisonValueResolver " +
+                        "was supplied to the NodeFilterEvaluator.");
+                return _valueResolver.ResolveFilterDateExpression(criterion.Value, record, "node filter");
+            }
+
             if (criterion.ValueSource != ComparisonValueSource.FieldReference)
                 return criterion.Value;
 

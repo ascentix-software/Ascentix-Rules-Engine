@@ -186,9 +186,8 @@ export function rewriteAggregate(
 export function MathExprEditor({ value, ruleTable, tableConfigs, onChange, filters, onFiltersChange }: {
   value: string; ruleTable: string; tableConfigs: Record<string, TableConfigRef>;
   onChange(expression: string): void;
-  // Optional: the field-mapping mathexpr editor passes these to enable the "Filters on
-  // aggregates" section below. The Expression-condition editor (ConditionInspector) omits
-  // them (no filters sidecar there), so the section simply doesn't render.
+  // Optional: pass both to enable the "Filters on aggregates" section (field-mapping mathexpr
+  // entries and Calculation conditions).
   filters?: Record<string, NodeFilterGroupModel>;
   onFiltersChange?(next: Record<string, NodeFilterGroupModel>): void;
 }) {
@@ -374,24 +373,29 @@ const UNIT_LABELS: Record<DateUnit, string> = {
   minutes: "Minutes", hours: "Hours", days: "Days", weeks: "Weeks", months: "Months", years: "Years",
 };
 
-export function DateExprEditor({ value, ruleTable, tableConfigs, onChange }: {
+// `rowScoped` is the node-filter reading: an anchor with no node is the filtered row (`ruleTable`
+// is then the filtered table), so the rule's root record is offered as an explicit node instead.
+export function DateExprEditor({ value, ruleTable, tableConfigs, onChange, rowScoped = false }: {
   value: DateExprValue; ruleTable: string; tableConfigs: Record<string, TableConfigRef>;
   onChange(patch: Partial<DateExprValue>): void;
+  rowScoped?: boolean;
 }) {
-  const nodes = savedNodes(tableConfigs).filter((tc) => tc.tableConfigType !== "RootTable" && isSingleCardinality(tableConfigs, tc.id));
+  const nodes = savedNodes(tableConfigs).filter((tc) =>
+    (rowScoped || tc.tableConfigType !== "RootTable") && isSingleCardinality(tableConfigs, tc.id));
+  const rowPrefix = rowScoped ? "This row → " : "";
   const cols = useColumns([ruleTable, ...nodes.map((n) => n.tableLogicalName)]);
 
   const dateCols = (table: string) =>
     (cols[table] ?? []).filter((c) => columnKind(c.attributeType) === "datetime");
 
-  // Anchor option encoding: "now" | "root.<col>" | "<nodeId>.<col>"
+  // Anchor option encoding: "now" | "@self.<col>" (no node) | "<nodeId>.<col>"; "@self" cannot collide with a node id
   const anchorValue = value.anchorKind === "field"
-    ? `${value.anchorNode ?? "root"}.${value.anchorColumn ?? ""}`
+    ? `${value.anchorNode ?? "@self"}.${value.anchorColumn ?? ""}`
     : value.anchorKind === "now" ? "now" : "";
 
   const anchorText = value.anchorKind === "now" ? "When the rule runs"
     : value.anchorKind === "field"
-      ? `${value.anchorNode ? `${tableConfigs[value.anchorNode]?.name ?? "?"} → ` : ""}${
+      ? `${value.anchorNode ? `${tableConfigs[value.anchorNode]?.name ?? "?"} → ` : rowPrefix}${
           value.anchorColumn ?? ""}`
       : "";
 
@@ -401,7 +405,7 @@ export function DateExprEditor({ value, ruleTable, tableConfigs, onChange }: {
     const nodePart = v.slice(0, dot);
     onChange({
       anchorKind: "field",
-      anchorNode: nodePart === "root" ? null : nodePart,
+      anchorNode: nodePart === "@self" ? null : nodePart,
       anchorColumn: v.slice(dot + 1),
     });
   };
@@ -415,8 +419,8 @@ export function DateExprEditor({ value, ruleTable, tableConfigs, onChange }: {
           onOptionSelect={(_e, d) => d.optionValue && selectAnchor(d.optionValue)}>
           <Option value="now">When the rule runs</Option>
           {dateCols(ruleTable).map((c) => (
-            <Option key={`root.${c.logicalName}`} value={`root.${c.logicalName}`}>
-              {c.displayName}
+            <Option key={`@self.${c.logicalName}`} value={`@self.${c.logicalName}`}>
+              {`${rowPrefix}${c.displayName}`}
             </Option>
           ))}
           {nodes.flatMap((n) => dateCols(n.tableLogicalName).map((c) => (

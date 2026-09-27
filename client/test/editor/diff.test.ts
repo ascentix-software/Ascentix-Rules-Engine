@@ -203,6 +203,13 @@ describe("diffRuleGraph — rule fields", () => {
     const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_rule") as any;
     expect(op.attrs.asx_triggercolumns).toBeNull();
   });
+
+  it("saves the rule's time zone", () => {
+    const snap = baseGraph();
+    const w = patchRule(clone(snap), { evaluationTimeZone: "Eastern Standard Time" });
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_rule") as any;
+    expect(op.attrs.asx_evaluationtimezone).toBe("Eastern Standard Time");
+  });
 });
 
 describe("diffRuleGraph — localized messages", () => {

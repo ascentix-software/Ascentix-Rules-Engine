@@ -42,12 +42,17 @@ namespace Ascentix.RulesEngine.Core.Engine
 
                 using (diag?.Time("evaluate"))
                 {
-                    var conditionEval = new ConditionEvaluator(cache, tree, resolver, input.Labels, input.UtcNow)
+                    // On Create the root is the record being inserted: its createdon/modifiedon
+                    // read the evaluation instant (see NewRecordStamp).
+                    var stamp = input.Trigger == RuleTrigger.OnCreate ? new NewRecordStamp(root, input.UtcNow) : null;
+                    var conditionEval = new ConditionEvaluator(cache, tree, resolver, input.Labels, input.UtcNow, stamp)
                     { Pushdown = input.Pushdown };
                     var groupEval = new ConditionGroupEvaluator(conditionEval);
 
                     foreach (var ruleId in input.RuleIds)
                     {
+                        conditionEval.Dates = input.DatesByRule.TryGetValue(ruleId, out var dates) ? dates : null;
+
                         var ruleRootGroups = input.RootGroups.Where(g => g.RuleId == ruleId).ToList();
 
                         var executionGroups = ruleRootGroups.Where(g => g.IsExecutionCondition).ToList();

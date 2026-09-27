@@ -38,11 +38,11 @@ namespace Ascentix.RulesEngine.Core.Execution
         /// an anchor node resolving to &gt;1 record also throws (strict cardinality).</summary>
         public static DateTime Evaluate(DateExprSpec spec, Entity root, QueryResultCache cache,
             TableConfigTree tree, IFieldValueResolver resolver, DateTime utcNow,
-            string errorContext)
+            string errorContext, NewRecordStamp stamp = null)
         {
             var anchor = spec.AnchorKind == "now"
                 ? utcNow
-                : ResolveFieldAnchor(spec, root, cache, tree, resolver, errorContext);
+                : ResolveFieldAnchor(spec, root, cache, tree, resolver, errorContext, stamp);
             return DateMath.Apply(anchor, spec.Op, spec.Amount, spec.Unit);
         }
 
@@ -52,7 +52,8 @@ namespace Ascentix.RulesEngine.Core.Execution
         /// resolving to &gt;1 record silently takes the first record: lenient, matching the
         /// pre-refactor write-side behavior (no cardinality throw here).</summary>
         public static bool TryEvaluateFromRaw(DateExprSpec spec, Entity root, QueryResultCache cache,
-            TableConfigTree tree, DateTime utcNow, string errorContext, out DateTime result)
+            TableConfigTree tree, DateTime utcNow, string errorContext, out DateTime result,
+            NewRecordStamp stamp = null)
         {
             if (spec.AnchorKind == "now")
             {
@@ -63,6 +64,7 @@ namespace Ascentix.RulesEngine.Core.Execution
             var record = ResolveAnchorRecord(spec, root, cache, tree, strictCardinality: false, errorContext);
             var raw = ReadRaw(record, spec.AnchorColumn);
             if (raw is AliasedValue aliased) raw = aliased.Value;
+            raw = NewRecordStamp.Fill(stamp, record, spec.AnchorColumn, raw);
             if (raw == null)
             {
                 result = default;
@@ -77,10 +79,12 @@ namespace Ascentix.RulesEngine.Core.Execution
         }
 
         private static DateTime ResolveFieldAnchor(DateExprSpec spec, Entity root, QueryResultCache cache,
-            TableConfigTree tree, IFieldValueResolver resolver, string errorContext)
+            TableConfigTree tree, IFieldValueResolver resolver, string errorContext, NewRecordStamp stamp)
         {
             var record = ResolveAnchorRecord(spec, root, cache, tree, strictCardinality: true, errorContext);
             var raw = record == null ? null : resolver.ResolveFieldValue(record, spec.AnchorColumn);
+            if (string.IsNullOrEmpty(raw) && NewRecordStamp.Fill(stamp, record, spec.AnchorColumn, null) is DateTime stamped)
+                return stamped;
             if (string.IsNullOrEmpty(raw) ||
                 !DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var anchor))
                 throw new InvalidPluginExecutionException(

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Runtime.Serialization.Json;
+using System.Text;
 using System.Xml.Linq;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Models;
@@ -34,6 +36,29 @@ namespace Ascentix.RulesEngine.Core.Actions
             }
 
             return result;
+        }
+
+        /// <summary>Parses a standalone filters map (a Calculation condition's
+        /// asx_expressionfilters). Null or blank ⇒ empty map. Malformed JSON throws, prefixed
+        /// with <paramref name="context"/>.</summary>
+        public static Dictionary<string, NodeFilterGroup> ParseJson(string json, string context)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return new Dictionary<string, NodeFilterGroup>();
+
+            XElement root;
+            try
+            {
+                using (var reader = JsonReaderWriterFactory.CreateJsonReader(
+                    Encoding.UTF8.GetBytes(json), System.Xml.XmlDictionaryReaderQuotas.Max))
+                {
+                    root = XElement.Load(reader);
+                }
+            }
+            catch (System.Xml.XmlException ex)
+            {
+                throw new InvalidPluginExecutionException($"{context} are not valid JSON.", ex);
+            }
+            return Parse(root);
         }
 
         private static NodeFilterGroup ParseGroup(XElement groupElement, string filterKey)

@@ -287,5 +287,94 @@ namespace Ascentix.RulesEngine.Tests
             var condition = RuleSnapshot.Capture(service, id).Rows.Single(r => r.Entity == "asx_rulecondition").ToSdk();
             Assert.Equal(Model.ToString(), condition.GetAttributeValue<string>("asx_comparisonvalue"));
         }
+
+        // ─── Node GUIDs inside relative-date filters (asx_value / asx_expressionfilters / mapping filters) ──
+
+        private static string AnchorOn(Guid node) =>
+            "{\"anchor\":{\"kind\":\"field\",\"node\":\"" + node + "\",\"column\":\"createdon\"},\"op\":\"add\",\"amount\":30,\"unit\":\"days\"}";
+
+        // One filter map: a FieldReference leaf (valueNodeId), a date-expression leaf whose anchor
+        // node sits inside the JSON-string `value`, a literal leaf whose `value` is a GUID-shaped
+        // string (must NOT be remapped), and an EXISTS (collectionNodeId).
+        private static string FilterMap(Guid node) =>
+            "{\"f1\":{\"kind\":\"group\",\"op\":\"and\",\"rules\":["
+            + "{\"kind\":\"rule\",\"column\":\"name\",\"operator\":1,\"valueSource\":2,\"valueNodeId\":\"" + node + "\",\"valueColumn\":\"name\"},"
+            + "{\"kind\":\"rule\",\"column\":\"createdon\",\"operator\":6,\"valueSource\":4,\"value\":\"" + AnchorOn(node).Replace("\"", "\\\"") + "\"},"
+            + "{\"kind\":\"rule\",\"column\":\"name\",\"operator\":1,\"valueSource\":1,\"value\":\"" + node + "\"},"
+            + "{\"kind\":\"exists\",\"collectionNodeId\":\"" + node + "\",\"minCount\":1,\"sub\":{\"kind\":\"group\",\"op\":\"and\",\"rules\":[]}}"
+            + "]}}";
+
+        private static void AssertFilterMapRemapped(Dictionary<string, NodeFilterGroup> filters, Guid model)
+        {
+            var rules = filters["f1"].Criteria;
+            Assert.Equal(model, rules[0].ComparisonValueNodeId);
+            Assert.True(DateExprSpec.TryGetAnchorNode(rules[1].Value, out var anchor));
+            Assert.Equal(model, anchor);
+            Assert.Equal(Model.ToString(), rules[2].Value);   // a literal value is never remapped
+            Assert.Equal(model, rules[3].CollectionNodeId);
+        }
+
+        private static List<Entity> RuleWithDateFilters(Guid id)
+        {
+            var rows = Rule(id);
+            var condition = rows[2];
+            condition["asx_expressionfilters"] = FilterMap(Model);
+            var filterGroup = RefRow("asx_nodefiltergroup", Guid.NewGuid(), "asx_conditiongroup", "asx_conditiongroup", rows[1].Id);
+            filterGroup["asx_rulecondition"] = condition.ToEntityReference();
+            filterGroup["asx_tableconfignode"] = new EntityReference("asx_tableconfig", Model);
+            filterGroup["asx_logicaloperator"] = new OptionSetValue(1);
+            var dated = RefRow("asx_nodefiltercriterion", Guid.NewGuid(), "asx_filtergroup", "asx_nodefiltergroup", filterGroup.Id);
+            dated["asx_fieldname"] = "createdon"; dated["asx_operator"] = "le";
+            dated["asx_comparisonvaluesource"] = new OptionSetValue(4); dated["asx_value"] = AnchorOn(Model);
+            var literal = RefRow("asx_nodefiltercriterion", Guid.NewGuid(), "asx_filtergroup", "asx_nodefiltergroup", filterGroup.Id);
+            literal["asx_fieldname"] = "name"; literal["asx_operator"] = "eq";
+            literal["asx_comparisonvaluesource"] = new OptionSetValue(1); literal["asx_value"] = Model.ToString();
+            rows[3]["asx_fieldmapping"] = "[{\"target\":\"description\",\"source\":\"mathexpr\",\"expression\":\"sum(node:" + Model + ".revenue filter:f1)\","
+                + "\"filters\":" + FilterMap(Model) + "}]";
+            rows.Add(filterGroup); rows.Add(dated); rows.Add(literal);
+            return rows;
+        }
+
+        private static void AssertDateFiltersRemapped(IOrganizationService service, Guid ruleId)
+        {
+            var model = service.Retrieve("asx_rule", ruleId, new ColumnSet(true)).GetAttributeValue<EntityReference>("asx_roottableconfig").Id;
+            Assert.NotEqual(Model, model);
+            var snapshot = RuleSnapshot.Capture(service, ruleId).Rows.Select(r => r.ToSdk()).ToList();
+
+            // (a) asx_nodefiltercriterion.asx_value when the source is DateExpression (4) only.
+            var criteria = snapshot.Where(r => r.LogicalName == "asx_nodefiltercriterion").ToList();
+            var dated = criteria.Single(r => r.GetAttributeValue<OptionSetValue>("asx_comparisonvaluesource").Value == 4);
+            Assert.True(DateExprSpec.TryGetAnchorNode(dated.GetAttributeValue<string>("asx_value"), out var anchor));
+            Assert.Equal(model, anchor);
+            var literal = criteria.Single(r => r.GetAttributeValue<OptionSetValue>("asx_comparisonvaluesource").Value == 1);
+            Assert.Equal(Model.ToString(), literal.GetAttributeValue<string>("asx_value"));
+
+            // (b) asx_rulecondition.asx_expressionfilters.
+            var condition = snapshot.Single(r => r.LogicalName == "asx_rulecondition");
+            AssertFilterMapRemapped(Ascentix.RulesEngine.Core.Actions.AggregateFilterParser.ParseJson(
+                condition.GetAttributeValue<string>("asx_expressionfilters"), "test"), model);
+
+            // (c) date anchors inside field-mapping `filters` leaves (plus the existing node ids).
+            var action = snapshot.Single(r => r.LogicalName == "asx_ruleaction");
+            var entry = Ascentix.RulesEngine.Core.Actions.FieldMappingParser.Parse(action.GetAttributeValue<string>("asx_fieldmapping")).Single();
+            AssertFilterMapRemapped(entry.Filters, model);
+        }
+
+        [Fact]
+        public void Restore_remaps_node_ids_inside_date_expression_filters()
+        {
+            var id = Guid.NewGuid(); var context = Context(RuleWithDateFilters(id)); var service = context.GetOrganizationService(); Freeze(service, id);
+            RuleRevisionApi.Restore(service, service.Retrieve("asx_rule", id, new ColumnSet(true)), Read(service, id));
+            AssertDateFiltersRemapped(service, id);
+        }
+
+        [Fact]
+        public void Opening_a_working_draft_remaps_node_ids_inside_date_expression_filters()
+        {
+            var id = Guid.NewGuid(); var context = Context(RuleWithDateFilters(id)); var service = context.GetOrganizationService(); Freeze(service, id);
+            var draftId = OpenDraft(context, id);
+            Assert.NotEqual(id, draftId);
+            AssertDateFiltersRemapped(service, draftId);
+        }
     }
 }

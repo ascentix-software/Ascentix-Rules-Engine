@@ -30,12 +30,13 @@ namespace Ascentix.RulesEngine.Core.Evaluation
             TableConfigTree tree,
             IFieldValueResolver resolver,
             IOptionLabelProvider labels = null,
-            DateTime utcNow = default)
+            DateTime utcNow = default,
+            NewRecordStamp stamp = null)
         {
             _cache = cache;
             _tree = tree ?? TableConfigTree.Empty;
             _resolver = resolver;
-            _valueResolver = new ComparisonValueResolver(cache, _tree, resolver, labels, utcNow);
+            _valueResolver = new ComparisonValueResolver(cache, _tree, resolver, labels, utcNow, stamp);
             _filterEvaluator = new NodeFilterEvaluator(resolver, _valueResolver, cache, _tree);
             _criteriaEvaluator = new SearchCriteriaEvaluator(resolver);
         }
@@ -43,6 +44,21 @@ namespace Ascentix.RulesEngine.Core.Evaluation
         /// <summary>Optional pushdown decisions: which cache variant each condition reads.
         /// Null keeps every read on the unfiltered entries.</summary>
         public Ascentix.RulesEngine.Core.Execution.PushdownPlan Pushdown { get; set; }
+
+        private DateSemantics _dates;
+
+        /// <summary>The evaluating rule's date semantics, set by the bucket evaluator before each
+        /// rule; forwarded to the node-filter evaluator. Null keeps the scalar comparison.</summary>
+        public DateSemantics Dates
+        {
+            get => _dates;
+            set
+            {
+                _dates = value;
+                _filterEvaluator.Dates = value;
+                _valueResolver.Dates = value;
+            }
+        }
 
         public ConditionEvaluationResult EvaluateCondition(
             RuleCondition condition,
@@ -196,9 +212,12 @@ namespace Ascentix.RulesEngine.Core.Evaluation
             var ctx = $"condition {condition.Id}";
             var ast = Ascentix.RulesEngine.Core.Execution.MathExpr.Parse(condition.Expression, ctx);
 
+            var filters = Ascentix.RulesEngine.Core.Actions.AggregateFilterParser.ParseJson(
+                condition.ExpressionFilters, $"Expression filters for {ctx}");
+
             bool passed = false;
             if (Ascentix.RulesEngine.Core.Execution.MathExprEvaluator.TryEvaluate(
-                    ast, root, _cache, _tree, ctx, out var lhs)
+                    ast, root, _cache, _tree, ctx, filters, _filterEvaluator, out var lhs)
                 && condition.ComparisonOperator.HasValue)
             {
                 var rhsRaw = _valueResolver.Resolve(condition, root, root); // lhsRecord = root for same-record RHS
@@ -245,6 +264,8 @@ namespace Ascentix.RulesEngine.Core.Evaluation
             // Multi-select optionsets
             if (record[column] is OptionSetValueCollection)
                 return EvaluateMultiSelectComparison(record, column, op, expectedValue);
+
+            if (_dates != null && _dates.Compare(record, column, op, expectedValue) is bool dated) return dated;
 
             return ValueComparer.CompareScalar(_resolver.ResolveFieldValue(record, column), op, expectedValue);
         }

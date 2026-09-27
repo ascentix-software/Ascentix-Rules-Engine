@@ -36,19 +36,29 @@ namespace Ascentix.RulesEngine.Core.Execution
         private readonly QueryResultCache _cache;
         private readonly TableConfigTree _tree;
         private readonly Ascentix.RulesEngine.Core.Diagnostics.RunDiagnostics _diagnostics;
+        private readonly DateTime _utcNow;
+        private readonly bool _rootIsNew;
+        private NewRecordStamp _stamp;
         private string _rootTable;
         private InFlightBatch _inFlight;
 
+        /// <param name="utcNow">The run's evaluation instant (date placeholders anchored on "now"
+        /// never reach here; it feeds <see cref="NewRecordStamp"/>).</param>
+        /// <param name="rootIsNew">True on Create: the root's createdon/modifiedon bind to utcNow.</param>
         public QueryExecutor(
             IOrganizationService service,
             QueryResultCache cache,
             TableConfigTree tree,
-            Ascentix.RulesEngine.Core.Diagnostics.RunDiagnostics diagnostics = null)
+            Ascentix.RulesEngine.Core.Diagnostics.RunDiagnostics diagnostics = null,
+            DateTime utcNow = default,
+            bool rootIsNew = false)
         {
             _service = service;
             _cache = cache;
             _tree = tree ?? TableConfigTree.Empty;
             _diagnostics = diagnostics;
+            _utcNow = utcNow;
+            _rootIsNew = rootIsNew;
         }
 
         public void Execute(Entity triggeringRecord, QueryExecutionPlan plan)
@@ -78,24 +88,37 @@ namespace Ascentix.RulesEngine.Core.Execution
                 _cache.Store(root.Id, new List<Entity> { triggeringRecord });
             _rootTable = triggeringTable ?? roots[0].TableLogicalName;
 
+            _stamp = _rootIsNew ? new NewRecordStamp(triggeringRecord, _utcNow) : null;
+
+            // Two phases. Every unfiltered fetch first, level by level: they scope every child
+            // fetch (parent ids) and they are what a date placeholder binds from. Then every
+            // pushed variant, each scoped by its parent's unfiltered ids. An anchor record is
+            // therefore always loaded before any variant binds, whatever the relative depth of
+            // the anchor and the filtered node, and no ordering cycle can exist.
             foreach (var level in plan.Levels)
-            {
                 foreach (var entry in level)
-                {
-                    switch (entry.Node.ConfigType)
-                    {
-                        case TableConfigType.LookupTable:
-                            ExecuteLookupNode(entry);
-                            break;
-                        case TableConfigType.ChildTable:
-                            ExecuteChildTableNode(entry);
-                            break;
-                    }
-                }
+                    if (entry.DemandsUnfiltered) ExecuteNode(entry, null);
+
+            foreach (var level in plan.Levels)
+                foreach (var entry in level)
+                    foreach (var variant in entry.Variants ?? Enumerable.Empty<NodeQueryVariant>())
+                        if (variant != null && !string.IsNullOrEmpty(variant.Key)) ExecuteNode(entry, variant);
+        }
+
+        private void ExecuteNode(ExecutionPlanEntry entry, NodeQueryVariant variant)
+        {
+            switch (entry.Node.ConfigType)
+            {
+                case TableConfigType.LookupTable:
+                    ExecuteLookupNode(entry, variant);
+                    break;
+                case TableConfigType.ChildTable:
+                    ExecuteChildTableNode(entry, variant);
+                    break;
             }
         }
 
-        private void ExecuteLookupNode(ExecutionPlanEntry entry)
+        private void ExecuteLookupNode(ExecutionPlanEntry entry, NodeQueryVariant variant)
         {
             var parentResults = _cache.Get(Guid.Parse(entry.ParentCacheKey));
 
@@ -116,27 +139,25 @@ namespace Ascentix.RulesEngine.Core.Execution
                     $"LookupTable node '{entry.Node.TableLogicalName}' (id {entry.Node.Id}) is missing " +
                     "asx_lookuptargetidattribute, which is required to batch-load lookup targets.");
 
-            foreach (var variant in DemandedFetches(entry))
+            if (targetIds.Count == 0)
             {
-                if (targetIds.Count == 0)
-                {
-                    StoreVariant(entry, variant, new List<Entity>());
-                    continue;
-                }
-
-                var resolved = new List<Entity>();
-                foreach (var chunk in Chunk(targetIds, LookupChunkSize))
-                {
-                    var fetchXml = BuildLookupFetch(entry.Node.TableLogicalName, idAttr, chunk, variant?.FilterFetchXml);
-                    var results = _service.RetrieveMultiple(new FetchExpression(fetchXml));
-                    _diagnostics?.RecordRetrieveMultiple(entry.Node.Id, entry.Node.TableLogicalName, results.Entities.Count);
-                    resolved.AddRange(results.Entities);
-                    EnforceCap(entry.Node, resolved.Count);
-                }
-
-                InFlightReconciler.Apply(resolved, entry.Node, _inFlight, targetIds);
-                StoreVariant(entry, variant, resolved);
+                StoreVariant(entry, variant, new List<Entity>());
+                return;
             }
+
+            var filterXml = FilterXml(variant);
+            var resolved = new List<Entity>();
+            foreach (var chunk in Chunk(targetIds, LookupChunkSize))
+            {
+                var fetchXml = BuildLookupFetch(entry.Node.TableLogicalName, idAttr, chunk, filterXml);
+                var results = _service.RetrieveMultiple(new FetchExpression(fetchXml));
+                _diagnostics?.RecordRetrieveMultiple(entry.Node.Id, entry.Node.TableLogicalName, results.Entities.Count);
+                resolved.AddRange(results.Entities);
+                EnforceCap(entry.Node, resolved.Count);
+            }
+
+            InFlightReconciler.Apply(resolved, entry.Node, _inFlight, targetIds);
+            StoreVariant(entry, variant, resolved);
         }
 
         private static string BuildLookupFetch(string entity, string idAttribute, IList<Guid> ids, string pushedFilterXml)
@@ -162,41 +183,38 @@ namespace Ascentix.RulesEngine.Core.Execution
                 yield return source.Skip(i).Take(size).ToList();
         }
 
-        private void ExecuteChildTableNode(ExecutionPlanEntry entry)
+        private void ExecuteChildTableNode(ExecutionPlanEntry entry, NodeQueryVariant variant)
         {
             var parentIds = _cache.GetIds(Guid.Parse(entry.ParentCacheKey)).ToList();
-
-            foreach (var variant in DemandedFetches(entry))
+            if (!parentIds.Any())
             {
-                if (!parentIds.Any())
-                {
-                    StoreVariant(entry, variant, new List<Entity>());
-                    continue;
-                }
-
-                var all = new List<Entity>();
-                foreach (var chunk in Chunk(parentIds, ChildChunkSize))
-                {
-                    var page = 1;
-                    string cookie = null;
-                    while (true)
-                    {
-                        var fetchXml = BuildChildTableFetch(entry.Node, chunk, page, cookie, variant?.FilterFetchXml, PageSize, entry.Columns);
-                        var results = _service.RetrieveMultiple(new FetchExpression(fetchXml));
-                        _diagnostics?.RecordRetrieveMultiple(entry.Node.Id, entry.Node.TableLogicalName, results.Entities.Count);
-                        all.AddRange(results.Entities);
-                        EnforceCap(entry.Node, all.Count);
-                        if (!results.MoreRecords) break;
-                        page++;
-                        cookie = results.PagingCookie;
-                    }
-                }
-
-                // After every chunk/page, so the record is matched against the whole result and
-                // the parent scope is the full set the fetch covered, not one chunk of it.
-                InFlightReconciler.Apply(all, entry.Node, _inFlight, parentIds);
-                StoreVariant(entry, variant, all);
+                StoreVariant(entry, variant, new List<Entity>());
+                return;
             }
+
+            var filterXml = FilterXml(variant);
+            var all = new List<Entity>();
+            foreach (var chunk in Chunk(parentIds, ChildChunkSize))
+            {
+                var page = 1;
+                string cookie = null;
+                while (true)
+                {
+                    var fetchXml = BuildChildTableFetch(entry.Node, chunk, page, cookie, filterXml, PageSize, entry.Columns);
+                    var results = _service.RetrieveMultiple(new FetchExpression(fetchXml));
+                    _diagnostics?.RecordRetrieveMultiple(entry.Node.Id, entry.Node.TableLogicalName, results.Entities.Count);
+                    all.AddRange(results.Entities);
+                    EnforceCap(entry.Node, all.Count);
+                    if (!results.MoreRecords) break;
+                    page++;
+                    cookie = results.PagingCookie;
+                }
+            }
+
+            // After every chunk/page, so the record is matched against the whole result and
+            // the parent scope is the full set the fetch covered, not one chunk of it.
+            InFlightReconciler.Apply(all, entry.Node, _inFlight, parentIds);
+            StoreVariant(entry, variant, all);
         }
 
         private static string BuildChildTableFetch(TableConfig node, IList<Guid> parentIds, int page, string cookie, string pushedFilterXml, int pageSize = PageSize, HashSet<string> columns = null)
@@ -225,13 +243,34 @@ namespace Ascentix.RulesEngine.Core.Execution
                 </fetch>";
         }
 
-        /// <summary>The fetches this entry demands, in execution order: the unfiltered fetch
-        /// (null variant) unless the planner proved it unconsumed, then each pushed variant.</summary>
-        private static IEnumerable<NodeQueryVariant> DemandedFetches(ExecutionPlanEntry entry)
+        /// <summary>The pushed filter for this fetch: none for the unfiltered fetch; the stored
+        /// fragment for a plain variant; for a variant with date placeholders, the filter bound
+        /// to this root. A placeholder that cannot bind (anchor record or value missing, or out of
+        /// the calendar) relaxes to no constraint (<see cref="PushedFilter.Bind"/>): the variant
+        /// keeps its other pushed criteria, or is fetched without a pushed filter when none is
+        /// left. Either way a superset, re-filtered in memory.</summary>
+        private string FilterXml(NodeQueryVariant variant)
         {
-            if (entry.DemandsUnfiltered) yield return null;
-            foreach (var v in entry.Variants ?? Enumerable.Empty<NodeQueryVariant>())
-                if (v != null && !string.IsNullOrEmpty(v.Key)) yield return v;
+            if (variant == null) return null;
+            if (variant.Filter == null || !variant.Filter.HasBindings) return variant.FilterFetchXml;
+            return variant.Filter.Bind(BindDate)?.ToFetchXml();
+        }
+
+        private string BindDate(DateBinding binding)
+        {
+            if (!DateExprSpec.TryParse(binding.Payload, out var spec) || !spec.AnchorNode.HasValue) return null;
+            if (!_cache.Has(spec.AnchorNode.Value)) return null;
+            try
+            {
+                if (!DateExprEvaluator.TryEvaluateFromRaw(spec, null, _cache, _tree, _utcNow,
+                        "pushed date filter", out var value, _stamp))
+                    return null;
+                return binding.Format(value);
+            }
+            // A non-date anchor column is reported by the in-memory filter; an interval that
+            // leaves the calendar is reported at publish (STRUCT_INVALID_DATEEXPR).
+            catch (InvalidPluginExecutionException) { return null; }
+            catch (ArgumentOutOfRangeException) { return null; }
         }
 
         private void StoreVariant(ExecutionPlanEntry entry, NodeQueryVariant variant, List<Entity> rows)

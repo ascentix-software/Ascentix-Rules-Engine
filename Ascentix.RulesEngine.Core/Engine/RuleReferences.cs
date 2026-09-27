@@ -27,6 +27,9 @@ namespace Ascentix.RulesEngine.Core.Engine
         /// <summary>A condition Expression aggregate operand (sum/avg/min/max/count over a node);
         /// <see cref="NodeReference.FilterKey"/> carries its <c>filter:</c> key when present.</summary>
         MathExprAggregateNodes,
+        /// <summary>A node referenced inside a Calculation condition's aggregate filter (value
+        /// nodes, date-expression anchors, EXISTS collections and their sub-filters).</summary>
+        ExpressionFilterNodes,
         /// <summary>A node-filter group's target node (top-level and nested groups).</summary>
         FilterTargetNodes,
         /// <summary>A node-filter criterion's RHS value node (outside EXISTS sub-filters).</summary>
@@ -116,6 +119,7 @@ namespace Ascentix.RulesEngine.Core.Engine
             ReferenceKind.DateExprAnchors,
             ReferenceKind.MathExprScalarNodes,
             ReferenceKind.MathExprAggregateNodes,
+            ReferenceKind.ExpressionFilterNodes,
             ReferenceKind.MessageNodes,
         };
 
@@ -314,11 +318,20 @@ namespace Ascentix.RulesEngine.Core.Engine
                         Add(r.node, ReferenceKind.MathExprScalarNodes, c.Id);
                         AddColumn(r.node, r.column);
                     }
-                    foreach (var ag in MathExpr.AggregateNodes(ast))
+                    var aggregates = MathExpr.AggregateNodes(ast).ToList();
+                    foreach (var ag in aggregates)
                     {
                         Add(ag.Node, ReferenceKind.MathExprAggregateNodes, c.Id, filterKey: ag.FilterKey);
                         AddColumn(ag.Node, ag.Column);
                     }
+
+                    Dictionary<string, NodeFilterGroup> filters = null;
+                    try { filters = AggregateFilterParser.ParseJson(c.ExpressionFilters, $"Condition {c.Id}"); }
+                    catch (InvalidPluginExecutionException) { /* StructuralChecks reports it */ }
+                    foreach (var group in (filters ?? new Dictionary<string, NodeFilterGroup>()).Values)
+                        foreach (var id in FieldMappingReferences.FilterCriterionNodeIds(group))
+                            Add(id, ReferenceKind.ExpressionFilterNodes, c.Id);
+                    AddAggregateFilterColumns(filters, aggregates);
                 }
             }
 
@@ -335,8 +348,9 @@ namespace Ascentix.RulesEngine.Core.Engine
             {
                 AddColumn(target, crit.FieldName);
                 Add(crit.ComparisonValueNodeId, ReferenceKind.FilterValueNodes, f.RuleConditionId);
-                if (crit.ValueSource == ComparisonValueSource.FieldReference)
-                    AddColumn(crit.ComparisonValueNodeId ?? target, crit.ComparisonValueColumn);
+                AddCriterionValueColumn(crit, target);
+                if (crit.ValueSource == ComparisonValueSource.DateExpression && DateExprSpec.TryGetAnchorNode(crit.Value, out var anchor))
+                    Add(anchor, ReferenceKind.FilterValueNodes, f.RuleConditionId);
                 if (crit.Kind == CriterionKind.Exists)
                     AddExists(crit, f.RuleConditionId);
             }
@@ -353,11 +367,66 @@ namespace Ascentix.RulesEngine.Core.Engine
                 {
                     AddColumn(crit.CollectionNodeId, sc.FieldName);
                     Add(sc.ComparisonValueNodeId, ReferenceKind.SubFilterNodes, conditionId);
-                    if (sc.ValueSource == ComparisonValueSource.FieldReference)
-                        AddColumn(sc.ComparisonValueNodeId ?? crit.CollectionNodeId, sc.ComparisonValueColumn);
+                    AddCriterionValueColumn(sc, crit.CollectionNodeId);
+                    if (sc.ValueSource == ComparisonValueSource.DateExpression && DateExprSpec.TryGetAnchorNode(sc.Value, out var anchor))
+                        Add(anchor, ReferenceKind.SubFilterNodes, conditionId);
                     if (sc.Kind == CriterionKind.Exists)
                         AddExists(sc, conditionId);
                 }
+        }
+
+        // The column a criterion's RHS reads beyond its own field: a FieldReference value column or
+        // a DateExpression field anchor. A null node on either means the FILTERED ROW (not the
+        // root, as it does for a condition's anchor), so it resolves to filteredNode; with no
+        // filtered node known it contributes nothing, since a null node in _columns means root.
+        private void AddCriterionValueColumn(NodeFilterCriterion crit, Guid? filteredNode)
+        {
+            Guid? node;
+            string column;
+            if (crit.ValueSource == ComparisonValueSource.FieldReference)
+            {
+                node = crit.ComparisonValueNodeId ?? filteredNode;
+                column = crit.ComparisonValueColumn;
+            }
+            else if (crit.ValueSource == ComparisonValueSource.DateExpression
+                     && DateExprSpec.TryParse(crit.Value, out var spec) && spec.AnchorKind == "field")
+            {
+                node = spec.AnchorNode ?? filteredNode;
+                column = spec.AnchorColumn;
+            }
+            else return;
+            if (node.HasValue) AddColumn(node, column);
+        }
+
+        // Aggregate filters (Calculation conditions and field-mapping mathexprs) filter the rows of
+        // the aggregate(s) naming their key; every column a criterion reads is recorded against that
+        // node (or its EXISTS collection), so a root-side RHS or anchor reaches the root ColumnSet.
+        private void AddAggregateFilterColumns(Dictionary<string, NodeFilterGroup> filters, List<AggregateNode> aggregates)
+        {
+            if (filters == null) return;
+            foreach (var kv in filters)
+            {
+                var nodes = aggregates.Where(ag => ag.FilterKey == kv.Key).Select(ag => (Guid?)ag.Node).Distinct().ToList();
+                if (nodes.Count == 0) nodes.Add(null); // unused key: explicit-node references only
+                foreach (var node in nodes) AddFilterTreeColumns(kv.Value, node);
+            }
+        }
+
+        private void AddFilterTreeColumns(NodeFilterGroup group, Guid? filteredNode)
+        {
+            if (group == null) return;
+            foreach (var crit in group.Criteria ?? new List<NodeFilterCriterion>())
+            {
+                if (crit.Kind == CriterionKind.Exists)
+                {
+                    AddFilterTreeColumns(crit.SubFilter, crit.CollectionNodeId);
+                    continue;
+                }
+                if (filteredNode.HasValue) AddColumn(filteredNode, crit.FieldName);
+                AddCriterionValueColumn(crit, filteredNode);
+            }
+            foreach (var child in group.ChildGroups ?? new List<NodeFilterGroup>())
+                AddFilterTreeColumns(child, filteredNode);
         }
 
         private void AddAction(RuleAction a, Func<RuleAction, List<FieldMappingEntry>> parseMapping)
@@ -380,15 +449,19 @@ namespace Ascentix.RulesEngine.Core.Engine
                     {
                         foreach (var id in FieldMappingReferences.SingleCardinalityNodeIds(entry))
                             Add(id, ReferenceKind.MappingSourceNodes, actionId: a.Id);
-                        foreach (var ag in FieldMappingReferences.AggregateNodes(entry))
+                        var aggregates = FieldMappingReferences.AggregateNodes(entry).ToList();
+                        foreach (var ag in aggregates)
                             Add(ag.Node, ReferenceKind.MappingAggregateNodes, actionId: a.Id, filterKey: ag.FilterKey);
                         if (entry.Filters != null)
                             foreach (var group in entry.Filters.Values)
                                 foreach (var id in FieldMappingReferences.FilterCriterionNodeIds(group))
                                     Add(id, ReferenceKind.MappingFilterNodes, actionId: a.Id);
                         if (copiesRoot)
+                        {
                             foreach (var col in FieldMappingReferences.RootColumns(entry))
                                 AddColumn(null, col);
+                            AddAggregateFilterColumns(entry.Filters, aggregates);
+                        }
                     }
                     catch (InvalidPluginExecutionException) { /* malformed template/expression: evaluation reports it */ }
                 }

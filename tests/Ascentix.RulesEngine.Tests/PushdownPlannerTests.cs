@@ -4,6 +4,7 @@ using System.Linq;
 using Ascentix.RulesEngine.Core.Engine;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
+using Ascentix.RulesEngine.Core.Resolution;
 using Xunit;
 
 namespace Ascentix.RulesEngine.Tests
@@ -15,11 +16,13 @@ namespace Ascentix.RulesEngine.Tests
         private static readonly Guid RootId = Guid.NewGuid();
         private static readonly Guid ChildId = Guid.NewGuid();
         private static readonly Guid SiblingId = Guid.NewGuid();
+        private static readonly Guid LookupId = Guid.NewGuid();
 
         private static TableConfigTree Configs() => TestTree.Tree(
             new TableConfig { Id = RootId, TableLogicalName = "account", ConfigType = TableConfigType.RootTable },
             new TableConfig { Id = ChildId, TableLogicalName = "contact", ConfigType = TableConfigType.ChildTable, ChildLinkField = "parentcustomerid", ParentTableId = RootId },
-            new TableConfig { Id = SiblingId, TableLogicalName = "task", ConfigType = TableConfigType.ChildTable, ChildLinkField = "regardingobjectid", ParentTableId = RootId }
+            new TableConfig { Id = SiblingId, TableLogicalName = "task", ConfigType = TableConfigType.ChildTable, ChildLinkField = "regardingobjectid", ParentTableId = RootId },
+            new TableConfig { Id = LookupId, TableLogicalName = "systemuser", ConfigType = TableConfigType.LookupTable, ParentTableId = RootId, LookupColumnLogicalName = "ownerid", LookupTargetIdAttribute = "systemuserid" }
         );
 
         private static QueryExecutionPlan Plan(params Guid[] nodeIds)
@@ -48,6 +51,79 @@ namespace Ascentix.RulesEngine.Tests
                 LogicalOperator = LogicalOperator.And,
                 Criteria = { new NodeFilterCriterion { FieldName = field, Operator = op, Value = value } },
             };
+
+        private static NodeFilterGroup DateFilter(Guid target, Guid conditionId, string op, Guid anchorNode)
+            => new NodeFilterGroup
+            {
+                TableConfigNodeId = target,
+                RuleConditionId = conditionId,
+                LogicalOperator = LogicalOperator.And,
+                Criteria =
+                {
+                    new NodeFilterCriterion
+                    {
+                        Kind = CriterionKind.Comparison, FieldName = "createdon", Operator = op,
+                        ValueSource = ComparisonValueSource.DateExpression,
+                        Value = "{\"anchor\":{\"kind\":\"field\",\"node\":\"" + anchorNode + "\",\"column\":\"createdon\"},\"op\":\"add\",\"amount\":30,\"unit\":\"days\"}",
+                    },
+                },
+            };
+
+        [Fact]
+        public void Root_anchored_date_filter_gets_a_bound_variant()
+        {
+            var c = Cond(ChildId);
+            var plan = Plan(ChildId);
+            var result = PushdownPlanner.Apply(plan, Configs(),
+                new List<ConditionGroup> { Group(c, DateFilter(ChildId, c.Id, "gt", RootId)) }, null);
+
+            var entry = plan.Levels[0][0];
+            var variant = Assert.Single(entry.Variants);
+            Assert.True(variant.Filter.HasBindings);
+            Assert.Null(variant.FilterFetchXml);           // serialized per root, after binding
+            Assert.False(entry.DemandsUnfiltered);
+            Assert.Equal(variant.Key, result.ConditionVariantKeys[c.Id]);
+        }
+
+        [Fact]
+        public void Anchor_node_with_its_own_pushed_variant_is_still_fetched_unfiltered()
+        {
+            var c = Cond(ChildId);
+            var onLookup = Cond(LookupId);
+            var plan = Plan(ChildId, LookupId);
+            PushdownPlanner.Apply(plan, Configs(), new List<ConditionGroup>
+            {
+                Group(c, DateFilter(ChildId, c.Id, "gt", LookupId)),
+                Group(onLookup, SelfFilter(LookupId, onLookup.Id)),
+            }, null);
+
+            var lookup = plan.Levels[0].Single(e => e.Node.Id == LookupId);
+            Assert.Single(lookup.Variants);
+            Assert.True(lookup.DemandsUnfiltered);         // the child's placeholder binds from this entry
+        }
+
+        [Fact]
+        public void Anchor_on_the_filtered_node_stays_in_memory()
+        {
+            var onLookup = Cond(LookupId);
+            var plan = Plan(LookupId);
+            var result = PushdownPlanner.Apply(plan, Configs(),
+                new List<ConditionGroup> { Group(onLookup, DateFilter(LookupId, onLookup.Id, "gt", LookupId)) }, null);
+
+            Assert.Empty(plan.Levels[0][0].Variants);
+            Assert.Empty(result.ConditionVariantKeys);
+        }
+
+        [Fact]
+        public void Only_single_records_outside_the_filtered_branch_can_bind()
+        {
+            var t = Configs();
+            Assert.True(PushdownPlanner.CanBindAnchor(t, ChildId, RootId));
+            Assert.True(PushdownPlanner.CanBindAnchor(t, ChildId, LookupId));
+            Assert.False(PushdownPlanner.CanBindAnchor(t, LookupId, LookupId));   // the filtered node itself
+            Assert.False(PushdownPlanner.CanBindAnchor(t, ChildId, SiblingId));   // a collection, not one record
+            Assert.False(PushdownPlanner.CanBindAnchor(t, ChildId, Guid.NewGuid()));
+        }
 
         [Fact]
         public void Fully_pushed_leaf_condition_skips_unfiltered_and_gets_variant()
@@ -146,6 +222,79 @@ namespace Ascentix.RulesEngine.Tests
             Assert.False(plan.Levels[0][0].DemandsUnfiltered);
             Assert.Contains("statecode", plan.Levels[0][0].Variants.Single().FilterFetchXml);
             Assert.True(result.ConditionVariantKeys.ContainsKey(c.Id));
+        }
+
+        // ── exact date values (A3) ─────────────────────────────────────────────────────────
+
+        private sealed class Kinds : IDateColumnKindProvider
+        {
+            private readonly string _table, _column;
+            private readonly DateColumnKind _kind;
+            public Kinds(string table, string column, DateColumnKind kind) { _table = table; _column = column; _kind = kind; }
+            public DateColumnKind? GetDateKind(string table, string column) =>
+                table == _table && column == _column ? _kind : (DateColumnKind?)null;
+        }
+
+        [Fact]
+        public void Known_column_behavior_pushes_an_exact_value_in_the_rules_zone()
+        {
+            var ruleId = Guid.NewGuid();
+            var c = Cond(ChildId);
+            var group = Group(c, SelfFilter(ChildId, c.Id, field: "sample_seen", op: "eq", value: "2026-09-01"));
+            group.RuleId = ruleId;
+            var plan = Plan(ChildId);
+            PushdownPlanner.Apply(plan, Configs(), new List<ConditionGroup> { group }, null, null, null,
+                new Kinds("contact", "sample_seen", DateColumnKind.Instant),
+                new Dictionary<Guid, TimeZoneInfo> { [ruleId] = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time") });
+
+            Assert.Contains("operator='eq' value='2026-09-01T04:00:00Z'", plan.Levels[0][0].Variants.Single().FilterFetchXml);
+        }
+
+        private sealed class TableKinds : IDateColumnKindProvider
+        {
+            private readonly (string table, string column, DateColumnKind kind)[] _kinds;
+            public TableKinds(params (string table, string column, DateColumnKind kind)[] kinds) { _kinds = kinds; }
+            public DateColumnKind? GetDateKind(string table, string column) =>
+                _kinds.Where(k => k.table == table && k.column == column).Select(k => (DateColumnKind?)k.kind).FirstOrDefault();
+        }
+
+        [Fact]
+        public void Placeholders_carry_the_anchor_columns_behavior()
+        {
+            var ruleId = Guid.NewGuid();
+            var c = Cond(ChildId);
+            var filter = SelfFilter(ChildId, c.Id, field: "sample_seen", op: "ge", value: null);
+            filter.Criteria[0].ValueSource = ComparisonValueSource.DateExpression;
+            filter.Criteria[0].Value = "{\"anchor\":{\"kind\":\"field\",\"node\":\"" + RootId + "\",\"column\":\"sample_due\"},\"op\":\"add\",\"amount\":1,\"unit\":\"days\"}";
+            var group = Group(c, filter);
+            group.RuleId = ruleId;
+            var plan = Plan(ChildId);
+            PushdownPlanner.Apply(plan, Configs(), new List<ConditionGroup> { group }, null, null, null,
+                new TableKinds(("contact", "sample_seen", DateColumnKind.Instant), ("account", "sample_due", DateColumnKind.CalendarDate)),
+                new Dictionary<Guid, TimeZoneInfo> { [ruleId] = TimeZoneInfo.Utc });
+
+            var binding = plan.Levels[0][0].Variants.Single().Filter.Children.Single().Conditions.Single().Binding;
+            Assert.Equal(DateColumnKind.CalendarDate, binding.AnchorKind);
+        }
+
+        [Fact]
+        public void Search_criteria_dates_keep_the_widened_fallback()
+        {
+            // RowCount search criteria compare in memory as text (SearchCriteriaEvaluator), not
+            // by column behavior: `ne 2026-09-01` keeps every row there, so an exact `ne` would
+            // drop rows memory keeps. Search criteria keep the A2 fallback (eq/ne in memory).
+            var c = Cond(ChildId);
+            c.SearchCriteriaGroups.Add(new SearchCriteriaGroup
+            {
+                LogicalOperator = LogicalOperator.And,
+                Criteria = { new SearchCriterion { FieldName = "birthdate", Operator = "ne", Value = "2026-09-01" } },
+            });
+            var plan = Plan(ChildId);
+            var result = PushdownPlanner.Apply(plan, Configs(), new List<ConditionGroup> { Group(c) }, null, null, null,
+                new Kinds("contact", "birthdate", DateColumnKind.CalendarDate));
+
+            Assert.True(plan.Levels[0][0].DemandsUnfiltered);
+            Assert.Empty(result.ConditionVariantKeys);
         }
 
         [Fact]

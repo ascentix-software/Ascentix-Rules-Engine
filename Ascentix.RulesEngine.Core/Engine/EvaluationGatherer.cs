@@ -32,7 +32,9 @@ namespace Ascentix.RulesEngine.Core.Engine
             int languageId,
             List<Entity> rules,
             RuleEvaluationContext bucketContext,
-            RunDiagnostics diag)
+            DateTime utcNow,
+            RunDiagnostics diag,
+            AttributeMetadataProvider metadata = null)
         {
             List<ConditionGroup> rootGroups;
             List<RuleCondition> flatConditions;
@@ -69,6 +71,19 @@ namespace Ascentix.RulesEngine.Core.Engine
                 tree = refs.NodesToLoad.Count > 0
                     ? new TableConfigLoader(systemService).LoadConfigs(refs.NodesToLoad.Cast<object>().ToArray(), refs.OptionalNodes)
                     : TableConfigTree.Empty;
+
+            // Lazy and service-backed: one RetrieveEntityRequest per distinct table, on first
+            // ask. The runner shares one provider across every bucket of a run (null ⇒ one for
+            // this bucket). Not pre-warmed: the evaluator only sees the interfaces. The planner
+            // reads date behaviors from it too (exact date pushdown).
+            metadata = metadata ?? new AttributeMetadataProvider(systemService);
+
+            // Per-rule date semantics: column behavior from metadata (read lazily, per table, on
+            // the first date comparison) and the rule's time zone. An unknown zone fails the
+            // save with a named error; publish rejects it first (STRUCT_INVALID_TIMEZONE).
+            var datesByRule = rules.ToDictionary(r => r.Id,
+                r => new DateSemantics(metadata, EvaluationZone.Resolve(EvaluationZone.SettingOf(r))));
+
             QueryExecutionPlan plan;
             PushdownPlan pushdownPlan;
             HashSet<string> rootColumns;
@@ -78,7 +93,8 @@ namespace Ascentix.RulesEngine.Core.Engine
                 // Pushdown is unconditional: one supported behavior, no mode switch. The
                 // in-memory evaluator remains the single semantic authority: pushdown only ever
                 // reduces rows, and the full original filter re-applies over what comes back.
-                pushdownPlan = PushdownPlanner.Apply(plan, tree, rootGroups, refs.HardReaders, refs.FilterDerivedNodes);
+                pushdownPlan = PushdownPlanner.Apply(plan, tree, rootGroups, refs.HardReaders, refs.FilterDerivedNodes, utcNow,
+                    metadata, datesByRule.ToDictionary(kv => kv.Key, kv => kv.Value.Zone));
 
                 // Column pruning: an unpruneable node is one whose consumers the
                 // collector cannot enumerate: a missed column reads as silently-null, so
@@ -113,12 +129,6 @@ namespace Ascentix.RulesEngine.Core.Engine
             var rootAllColumns = buildMode == RootBuildMode.RetrieveAndOverlay
                 && selfNodes.Any(e => e.Columns == null && e.Variants != null && e.Variants.Count > 0);
 
-            // Lazy and service-backed: one RetrieveEntityRequest per distinct table, on first
-            // ask, for the lifetime of this bucket. Not pre-warmed: the evaluator only sees the
-            // interfaces.
-            var metadata = new AttributeMetadataProvider(systemService);
-            var utcNow = DateTime.UtcNow;
-
             List<Entity> roots;
             using (diag.Time("rootBuild"))
                 roots = RootEntityBuilder.Build(traversalService, logicalName, inputs, rootColumns, buildMode, rootAllColumns);
@@ -131,7 +141,8 @@ namespace Ascentix.RulesEngine.Core.Engine
                 var cache = new QueryResultCache(tree);
                 if (tree.Count > 0)
                     using (diag.Time("queryExecute"))
-                        new QueryExecutor(traversalService, cache, tree, diag).Execute(root, plan, inFlight);
+                        new QueryExecutor(traversalService, cache, tree, diag, utcNow, trigger == RuleTrigger.OnCreate)
+                            .Execute(root, plan, inFlight);
                 records.Add(new EvaluationInput.EvaluationRecord(i, root, cache));
             }
 
@@ -148,7 +159,8 @@ namespace Ascentix.RulesEngine.Core.Engine
                 utcNow: utcNow,
                 metadata: metadata,
                 labels: metadata,
-                trigger: trigger);
+                trigger: trigger,
+                datesByRule: datesByRule);
         }
 
         // The pending row change, as the traversal must see it. Built from the whole input set,

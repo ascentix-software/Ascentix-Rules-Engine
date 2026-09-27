@@ -605,5 +605,195 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Empty(refs.HardReaders);
             Assert.True(refs.IsRootOnly(Tree()));
         }
+
+        [Fact]
+        public void Filter_date_expression_node_anchor_is_loaded_and_filter_derived()
+        {
+            var payload = "{\"anchor\":{\"kind\":\"field\",\"node\":\"" + LookupId + "\",\"column\":\"birthdate\"},\"op\":\"add\",\"amount\":1,\"unit\":\"days\"}";
+            var cond = new RuleCondition { Id = Guid.NewGuid(), TableConfigNodeId = ChildId, ConditionType = ConditionType.RowCount, MinExpectedRows = 1 };
+            var group = Group(cond);
+            group.NodeFilterGroups = new List<NodeFilterGroup>
+            {
+                new NodeFilterGroup
+                {
+                    TableConfigNodeId = ChildId, RuleConditionId = cond.Id, LogicalOperator = LogicalOperator.And,
+                    Criteria = new List<NodeFilterCriterion>
+                    {
+                        new NodeFilterCriterion { FieldName = "scheduledend", Operator = "lt", ValueSource = ComparisonValueSource.DateExpression, Value = payload },
+                    },
+                },
+            };
+
+            var refs = Refs(group);
+
+            Assert.Contains(LookupId, refs.NodesToLoad);
+            Assert.Contains(LookupId, refs.FilterDerivedNodes);
+        }
+
+        [Fact]
+        public void Filter_date_expression_now_anchor_adds_no_node()
+        {
+            var cond = new RuleCondition { Id = Guid.NewGuid(), TableConfigNodeId = ChildId, ConditionType = ConditionType.RowCount, MinExpectedRows = 1 };
+            var group = Group(cond);
+            group.NodeFilterGroups = new List<NodeFilterGroup>
+            {
+                new NodeFilterGroup
+                {
+                    TableConfigNodeId = ChildId, RuleConditionId = cond.Id, LogicalOperator = LogicalOperator.And,
+                    Criteria = new List<NodeFilterCriterion>
+                    {
+                        new NodeFilterCriterion { FieldName = "scheduledend", Operator = "ge", ValueSource = ComparisonValueSource.DateExpression,
+                            Value = "{\"anchor\":{\"kind\":\"now\"},\"op\":\"subtract\",\"amount\":1,\"unit\":\"days\"}" },
+                    },
+                },
+            };
+
+            Assert.DoesNotContain(LookupId, Refs(group).NodesToLoad);
+        }
+
+        [Fact]
+        public void Expression_filter_nodes_are_hard_readers()
+        {
+            var cond = new RuleCondition
+            {
+                Id = Guid.NewGuid(), TableConfigNodeId = RootId, ConditionType = ConditionType.Expression,
+                Expression = $"sum(node:{ChildId}.amount filter:f1)",
+                ExpressionFilters = "{\"f1\":{\"kind\":\"group\",\"op\":\"and\",\"rules\":[{\"kind\":\"exists\",\"collectionNodeId\":\"" + SiblingId + "\",\"minCount\":1,\"sub\":{\"kind\":\"group\",\"op\":\"and\",\"rules\":[]}}]}}",
+                ComparisonOperator = ComparisonOperator.GreaterThan, ComparisonValue = "0",
+            };
+            var refs = Refs(Group(cond));
+
+            Assert.Contains(SiblingId, refs.NodesToLoad);
+            Assert.Contains(SiblingId, refs.HardReaders);
+        }
+
+        // ─── Filter date-expression anchors and aggregate-filter RHS columns on the root ──
+
+        private static string AnchorPayload(Guid? node, string column) =>
+            "{\"anchor\":{\"kind\":\"field\",\"node\":" + (node.HasValue ? "\"" + node + "\"" : "null")
+            + ",\"column\":\"" + column + "\"},\"op\":\"add\",\"amount\":30,\"unit\":\"days\"}";
+
+        private static NodeFilterCriterion DateCrit(string field, string payload) => new NodeFilterCriterion
+        { FieldName = field, Operator = "le", ValueSource = ComparisonValueSource.DateExpression, Value = payload };
+
+        [Fact]
+        public void RootColumns_includes_a_condition_filter_anchor_on_the_root_node()
+        {
+            // "a task created within 30 days of the account's own date" (account = root, Update).
+            var cond = new RuleCondition { Id = Guid.NewGuid(), TableConfigNodeId = ChildId, ConditionType = ConditionType.RowCount, MinExpectedRows = 1 };
+            var group = Group(cond);
+            group.NodeFilterGroups.Add(new NodeFilterGroup
+            {
+                TableConfigNodeId = ChildId, RuleConditionId = cond.Id,
+                Criteria = { DateCrit("createdon", AnchorPayload(RootId, "sample_orderdate")) },
+            });
+
+            var cols = Refs(group).RootColumns(Tree());
+
+            Assert.Contains("sample_orderdate", cols);
+            Assert.DoesNotContain("createdon", cols); // the child's own field
+        }
+
+        [Fact]
+        public void RootColumns_includes_a_row_anchor_on_a_filter_that_targets_the_root()
+        {
+            var cond = RootCond();
+            var group = Group(cond);
+            group.NodeFilterGroups.Add(new NodeFilterGroup
+            {
+                TableConfigNodeId = RootId, RuleConditionId = cond.Id,
+                Criteria = { DateCrit("sample_duedate", AnchorPayload(null, "sample_startdate")) },
+            });
+
+            var cols = Refs(group).RootColumns(Tree());
+
+            Assert.Contains("sample_duedate", cols);
+            Assert.Contains("sample_startdate", cols);
+        }
+
+        [Fact]
+        public void RootColumns_includes_an_exists_sub_filter_anchor_on_the_root_node_but_not_a_row_anchor()
+        {
+            var cond = RootCond();
+            var group = Group(cond);
+            group.NodeFilterGroups.Add(new NodeFilterGroup
+            {
+                TableConfigNodeId = RootId, RuleConditionId = cond.Id,
+                Criteria =
+                {
+                    new NodeFilterCriterion
+                    {
+                        Kind = CriterionKind.Exists, CollectionNodeId = SiblingId, MinCount = 1,
+                        SubFilter = new NodeFilterGroup
+                        {
+                            Criteria =
+                            {
+                                DateCrit("sample_shipdate", AnchorPayload(RootId, "sample_orderdate")),
+                                DateCrit("sample_shipdate", AnchorPayload(null, "sample_promisedate")),
+                            },
+                        },
+                    },
+                },
+            });
+
+            var cols = Refs(group).RootColumns(Tree());
+
+            Assert.Contains("sample_orderdate", cols);
+            Assert.DoesNotContain("sample_promisedate", cols); // row anchor reads the shipment row
+        }
+
+        private static RuleCondition Calculation(string filtersJson) => new RuleCondition
+        {
+            Id = Guid.NewGuid(), TableConfigNodeId = RootId, ConditionType = ConditionType.Expression,
+            Expression = $"sum(node:{ChildId}.amount filter:f1)",
+            ExpressionFilters = filtersJson,
+            ComparisonOperator = ComparisonOperator.GreaterThan, ComparisonValue = "0",
+        };
+
+        [Fact]
+        public void RootColumns_includes_a_calculation_filter_anchor_on_the_root_node()
+        {
+            var value = AnchorPayload(RootId, "sample_orderdate").Replace("\"", "\\\"");
+            var json = "{\"f1\":{\"kind\":\"group\",\"op\":\"and\",\"rules\":[{\"kind\":\"rule\",\"column\":\"createdon\",\"operator\":6,"
+                     + "\"valueSource\":4,\"value\":\"" + value + "\"}]}}";
+
+            var cols = Refs(Group(Calculation(json))).RootColumns(Tree());
+
+            Assert.Contains("sample_orderdate", cols);
+            Assert.DoesNotContain("createdon", cols); // the aggregated child's own field
+        }
+
+        [Fact]
+        public void RootColumns_includes_a_calculation_filter_root_field_reference()
+        {
+            var json = "{\"f1\":{\"kind\":\"group\",\"op\":\"and\",\"rules\":[{\"kind\":\"rule\",\"column\":\"amount\",\"operator\":3,"
+                     + "\"valueSource\":2,\"valueNodeId\":\"" + RootId + "\",\"valueColumn\":\"creditlimit\"}]}}";
+
+            var cols = Refs(Group(Calculation(json))).RootColumns(Tree());
+
+            Assert.Contains("creditlimit", cols);
+            Assert.DoesNotContain("amount", cols);
+        }
+
+        [Fact]
+        public void RootColumns_includes_a_mapping_filter_anchor_on_the_root_node()
+        {
+            var update = Active(ActionType.UpdateRecord);
+            update.TargetNodeId = RootId;
+            update.FieldMapping = "parsed-by-delegate";
+            var entry = new Ascentix.RulesEngine.Core.Actions.FieldMappingEntry
+            {
+                Target = "sample_total", Source = "mathexpr", Expression = $"sum(node:{ChildId}.amount filter:f1)",
+                Filters = new Dictionary<string, NodeFilterGroup>
+                {
+                    ["f1"] = new NodeFilterGroup { Criteria = { DateCrit("createdon", AnchorPayload(RootId, "sample_orderdate")) } },
+                },
+            };
+
+            var cols = RuleReferences.Compute(Groups(Group(RootCond())), new[] { update },
+                _ => new List<Ascentix.RulesEngine.Core.Actions.FieldMappingEntry> { entry }).RootColumns(Tree());
+
+            Assert.Contains("sample_orderdate", cols);
+        }
     }
 }

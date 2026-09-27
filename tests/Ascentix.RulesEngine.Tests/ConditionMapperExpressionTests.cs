@@ -60,5 +60,50 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(ConditionType.Expression, condition.ConditionType);
             Assert.Equal(expression, condition.Expression);
         }
+
+        [Fact]
+        public void Maps_expression_filters_raw_json()
+        {
+            var ruleId = Guid.NewGuid();
+            var rootCfgId = Guid.NewGuid();
+            var grpId = Guid.NewGuid();
+            const string filters = "{\"f1\":{\"kind\":\"group\",\"op\":\"and\",\"rules\":[]}}";
+
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(new List<Entity>
+            {
+                new Entity(Q(SchemaNames.TableConfig.Entity), rootCfgId)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "account",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.RootTable),
+                },
+                new Entity(Q(SchemaNames.Rule.Entity), ruleId)
+                {
+                    [Q(SchemaNames.Rule.TableLogicalName)] = "account",
+                    ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
+                    [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
+                        new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnUpdate) }),
+                },
+                new Entity(Q(SchemaNames.ConditionGroup.Entity), grpId)
+                {
+                    [Q(SchemaNames.ConditionGroup.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
+                    [Q(SchemaNames.ConditionGroup.LogicalOperator)] = new OptionSetValue((int)LogicalOperator.And),
+                    [Q(SchemaNames.ConditionGroup.IsExecutionCondition)] = false,
+                },
+                new Entity(Q(SchemaNames.RuleCondition.Entity), Guid.NewGuid())
+                {
+                    [Q(SchemaNames.RuleCondition.ConditionGroup)] = new EntityReference(Q(SchemaNames.ConditionGroup.Entity), grpId),
+                    [Q(SchemaNames.RuleCondition.TableConfig)] = new EntityReference(Q(SchemaNames.TableConfig.Entity), rootCfgId),
+                    [Q(SchemaNames.RuleCondition.ConditionType)] = new OptionSetValue((int)ConditionType.Expression),
+                    [Q(SchemaNames.RuleCondition.ConditionExpression)] = "sum(node:abc123.amount filter:f1)",
+                    [Q(SchemaNames.RuleCondition.ExpressionFilters)] = filters,
+                },
+            });
+
+            var rules = new RuleLoader(ctx.GetOrganizationService()).LoadRules("account");
+            var condition = new ConditionGroupMapper().MapConditionGroups(rules).Single().Conditions.Single();
+
+            Assert.Equal(filters, condition.ExpressionFilters);
+        }
     }
 }

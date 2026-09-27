@@ -39,4 +39,33 @@ describe("RuleInspector", () => {
     mount();
     expect(await screen.findByRole("combobox", { name: "Evaluation context" })).toHaveTextContent("User");
   });
+
+  it("defaults the time zone to UTC", async () => {
+    mount();
+    expect(await screen.findByRole("combobox", { name: "Time zone for dates" })).toHaveTextContent("UTC (default)");
+  });
+
+  it("patches the chosen time zone id", async () => {
+    const { onPatch } = mount();
+    fireEvent.click(await screen.findByRole("combobox", { name: "Time zone for dates" }));
+    fireEvent.click(await screen.findByRole("option", { name: "(GMT-05:00) Eastern Time (US & Canada)" }));
+    expect(onPatch).toHaveBeenCalledWith({ evaluationTimeZone: "Eastern Standard Time" });
+  });
+
+  it("clears the time zone back to UTC", async () => {
+    const { onPatch } = mount({ evaluationTimeZone: "Eastern Standard Time" });
+    fireEvent.click(await screen.findByRole("combobox", { name: "Time zone for dates" }));
+    fireEvent.click(await screen.findByRole("option", { name: "UTC (default)" }));
+    expect(onPatch).toHaveBeenCalledWith({ evaluationTimeZone: null });
+  });
+
+  it("says the zone also reads a date without a time zone against a User Local column", async () => {
+    mount();
+    expect(await screen.findByText(/a date without a time zone .*is read in this zone/i)).toBeInTheDocument();
+  });
+
+  it("keeps an id outside the list visible", async () => {
+    mount({ evaluationTimeZone: "Samoa Standard Time" });
+    expect(await screen.findByRole("combobox", { name: "Time zone for dates" })).toHaveTextContent("Samoa Standard Time");
+  });
 });

@@ -43,7 +43,7 @@ export const NAV = {
 
 export const RULE_SELECT =
   "asx_ruleid,asx_name,asx_tablelogicalname,statuscode,_asx_publishedrevision_value,asx_publishedversion,_asx_draftof_value," +
-  "asx_triggers,asx_channels,asx_effectivefrom,asx_effectiveto,asx_evaluationcontext,asx_triggercolumns," +
+  "asx_triggers,asx_channels,asx_effectivefrom,asx_effectiveto,asx_evaluationcontext,asx_evaluationtimezone,asx_triggercolumns," +
   LOOKUP.ruleOfTableConfig;
 export const GROUP_SELECT =
   "asx_conditiongroupid,asx_name,asx_logicaloperator,asx_isexecutioncondition," +
@@ -51,7 +51,7 @@ export const GROUP_SELECT =
 export const CONDITION_SELECT =
   "asx_ruleconditionid,asx_name,asx_conditiontype,asx_comparisoncolumn," +
   "asx_comparisonoperator,asx_comparisonvaluesource,asx_comparisonvalue," +
-  "asx_comparisonvaluecolumn,asx_minexpectedrows,asx_maxexpectedrows,asx_conditionexpression," +
+  "asx_comparisonvaluecolumn,asx_minexpectedrows,asx_maxexpectedrows,asx_conditionexpression,asx_expressionfilters," +
   LOOKUP.conditionTableConfig + "," + LOOKUP.comparisonValueNode;
 export const ACTION_SELECT =
   "asx_ruleactionid,asx_name,asx_order,asx_actiontype,asx_fireon," +
