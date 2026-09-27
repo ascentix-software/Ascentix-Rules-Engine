@@ -179,6 +179,7 @@ export interface ConditionCfg {
   minRows?: number; // RowCount asx_minexpectedrows
   maxRows?: number; // RowCount asx_maxexpectedrows
   expression?: string; // Expression (Calculation, type 4): asx_conditionexpression (mathexpr LHS)
+  expressionFilters?: string; // Expression (Calculation): asx_expressionfilters JSON map
   nodeFilter?: {
     // "Only consider records where…": one flat AND asx_nodefiltergroup on targetNodeId.
     targetNodeId: string; // asx_tableconfignode, the node whose rows are filtered
@@ -186,7 +187,7 @@ export interface ConditionCfg {
       fieldName?: string;
       operator?: string; // TEXT token: eq/ne/gt/ge/lt/le/like/not-like/null/not-null/contains/not-contains
       value?: string; // literal RHS
-      valueSource?: number; // 1 Literal (default) | 2 FieldReference
+      valueSource?: number; // 1 Literal (default) | 2 FieldReference | 4 DateExpression (JSON in value)
       valueColumn?: string; // FieldReference RHS column
       valueNodeId?: string; // FieldReference RHS node (asx_comparisonvaluenode); omit ⇒ same record
       exists?: {
@@ -226,6 +227,7 @@ export interface RuleConfig {
   requireValid?: boolean; // default true; false skips the asx_ValidateRule gate (e2e invalid-rule fixtures)
   settleProbe?: () => Promise<boolean>; // post-publish enforcement settle (see awaitEnforcement)
   evaluationContext?: number; // asx_evaluationcontext: 1 User (default) | 2 System
+  evaluationTimeZone?: string; // asx_evaluationtimezone: Windows time zone id (blank = UTC)
 }
 
 // Enforcement settle: repeat a sacrificial violating probe until the block is observed (the
@@ -265,6 +267,7 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
       // Multi-select choice: Web API wants a comma-separated string of the int values. Empty ⇒ omit ⇒ all channels.
       ...(cfg.channels && cfg.channels.length ? { asx_channels: cfg.channels.join(",") } : {}),
       ...(cfg.evaluationContext ? { asx_evaluationcontext: cfg.evaluationContext } : {}),
+      ...(cfg.evaluationTimeZone ? { asx_evaluationtimezone: cfg.evaluationTimeZone } : {}),
       [`${BIND_NAV.ruleRootTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${cfg.rootNodeId})`,
     });
     created.push({ set: ENTITY_SET.rule, id: ruleId });
@@ -311,6 +314,7 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
       } else if (c.conditionType === 4) {
         // Expression (Calculation): mathexpr LHS vs a literal numeric RHS.
         data.asx_conditionexpression = c.expression;
+        if (c.expressionFilters) data.asx_expressionfilters = c.expressionFilters;
         data.asx_comparisonoperator = c.operator;
         data.asx_comparisonvaluesource = 1; // Literal RHS
         data.asx_comparisonvalue = c.literal;
@@ -365,6 +369,9 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
               critData.asx_comparisonvaluecolumn = crit.valueColumn;
               if (crit.valueNodeId)
                 critData[`${BIND_NAV.filterCriterionValueNode}@odata.bind`] = `/${ENTITY_SET.tableConfig}(${crit.valueNodeId})`;
+            } else if (crit.valueSource === 4) {
+              critData.asx_comparisonvaluesource = 4; // DateExpression
+              critData.asx_value = crit.value;
             } else {
               critData.asx_value = crit.value;
             }

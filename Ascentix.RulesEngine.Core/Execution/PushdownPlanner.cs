@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Ascentix.RulesEngine.Core.Models;
+using Ascentix.RulesEngine.Core.Resolution;
 
 namespace Ascentix.RulesEngine.Core.Execution
 {
@@ -42,21 +43,25 @@ namespace Ascentix.RulesEngine.Core.Execution
         /// the filter, because that read is served by the condition's pushed variant. The planner's
         /// own walk below classifies each occurrence; this set is the safety net that keeps the proof
         /// and the reference set in agreement if either gains a kind.</param>
+        /// <param name="utcNow">The run's evaluation instant, for "now"-anchored date filters.</param>
+        /// <param name="kinds">Date column behaviors (metadata). Null ⇒ unknown: date values push
+        /// widened, ranges only.</param>
+        /// <param name="zonesByRule">Each rule's evaluation time zone (null ⇒ UTC for every rule).
+        /// A rule missing from a supplied map has no date semantics in memory, so its date values
+        /// push as if the behavior were unknown.</param>
         public static PushdownPlan Apply(
             QueryExecutionPlan plan,
             TableConfigTree tree,
             List<ConditionGroup> rootGroups,
             IEnumerable<Guid> hardReaderNodeIds,
-            IEnumerable<Guid> filterDerivedNodeIds)
+            IEnumerable<Guid> filterDerivedNodeIds,
+            DateTime? utcNow = null,
+            IDateColumnKindProvider kinds = null,
+            IReadOnlyDictionary<Guid, TimeZoneInfo> zonesByRule = null)
         {
             var result = new PushdownPlan();
             var demand = new HashSet<Guid>(hardReaderNodeIds ?? Enumerable.Empty<Guid>());
             var variantsByNode = new Dictionary<Guid, Dictionary<string, NodeQueryVariant>>();
-
-            // Substring operators stay in memory until per-column metadata reaches the planner:
-            // `contains` on a multi-select column means value-overlap, not text substring, and
-            // pushing the wrong translation would narrow. Refusal is always sound.
-            var translator = new PushdownTranslator(pushSubstringOperators: false);
 
             // Ownership-independent demand over EVERY filter occurrence the rule reaches (the
             // runner plans from all of them, whoever owns them), so the plan and the proof agree
@@ -95,20 +100,16 @@ namespace Ascentix.RulesEngine.Core.Execution
                     if (condition.ComparisonValueNodeId.HasValue)
                         demand.Add(condition.ComparisonValueNodeId.Value);
 
-                    var selfFilters = (group.NodeFilterGroups ?? new List<NodeFilterGroup>())
-                        .Where(f => f.RuleConditionId == null || f.RuleConditionId == condition.Id)
-                        .Where(f => f.TableConfigNodeId == condition.TableConfigNodeId)
-                        .ToList();
-                    var searchGroups = condition.SearchCriteriaGroups ?? new List<SearchCriteriaGroup>();
-
-                    if (selfFilters.Count == 0 && searchGroups.Count == 0)
+                    // A rule missing from a supplied zone map has no date semantics in memory, so
+                    // its date values push as if the behavior were unknown.
+                    TimeZoneInfo zone = TimeZoneInfo.Utc;
+                    var knownZone = zonesByRule == null || zonesByRule.TryGetValue(group.RuleId, out zone);
+                    var translated = TranslateCondition(group, condition, tree, utcNow, knownZone ? kinds : null, zone);
+                    if (translated == null)
                     {
                         demand.Add(condition.TableConfigNodeId); // plain unfiltered consumer
                         continue;
                     }
-
-                    var combined = Combine(selfFilters, searchGroups);
-                    var translated = translator.Translate(combined);
                     if (translated.Pushed == null)
                     {
                         demand.Add(condition.TableConfigNodeId); // nothing pushed: legacy path
@@ -126,7 +127,11 @@ namespace Ascentix.RulesEngine.Core.Execution
                         variantsByNode[condition.TableConfigNodeId] = byKey = new Dictionary<string, NodeQueryVariant>();
                     if (!byKey.ContainsKey(key))
                         byKey[key] = new NodeQueryVariant
-                        { Key = key, FilterFetchXml = translated.Pushed.ToFetchXml() };
+                        {
+                            Key = key,
+                            Filter = translated.Pushed,
+                            FilterFetchXml = translated.Pushed.HasBindings ? null : translated.Pushed.ToFetchXml(),
+                        };
                     // Partial pushdown does NOT demand unfiltered: the variant is a superset and
                     // ApplyNodeFilters re-runs the full original filter over it.
                 }
@@ -153,6 +158,71 @@ namespace Ascentix.RulesEngine.Core.Execution
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// What the runtime pushes for one condition: its self filters (the group's filters on the
+        /// condition's own node, owned by it or by no condition) and its search criteria. Shared
+        /// by the planner and PushdownChecks, so the TRAV_PUSHDOWN warning fires exactly when a
+        /// criterion stays in memory (spec §3.5). Substring operators stay in memory until
+        /// per-column metadata reaches the planner (`contains` on a multi-select column means
+        /// value-overlap). Anchored date expressions bind per root when the anchor is a single
+        /// record outside this condition's branch. With <paramref name="kinds"/> (column
+        /// behaviors) the self filters' date values push exactly in <paramref name="zone"/>, and a
+        /// column metadata says is not a date takes no date path; null ⇒ unknown behavior (date
+        /// values push widened, ranges only). Null when the condition has nothing to translate.
+        /// </summary>
+        public static PushdownResult TranslateCondition(ConditionGroup group, RuleCondition condition,
+            TableConfigTree tree, DateTime? utcNow, IDateColumnKindProvider kinds, TimeZoneInfo zone)
+        {
+            var selfFilters = (group.NodeFilterGroups ?? new List<NodeFilterGroup>())
+                .Where(f => f.RuleConditionId == null || f.RuleConditionId == condition.Id)
+                .Where(f => f.TableConfigNodeId == condition.TableConfigNodeId)
+                .ToList();
+            var searchGroups = condition.SearchCriteriaGroups ?? new List<SearchCriteriaGroup>();
+            if (selfFilters.Count == 0 && searchGroups.Count == 0) return null;
+
+            var nodeId = condition.TableConfigNodeId;
+            var table = tree != null && tree.TryGetNode(nodeId, out var filtered) ? filtered.TableLogicalName : null;
+            Func<string, DateColumnKind?> dateKindOf = null;
+            Func<Guid, string, DateColumnKind?> anchorKindOf = null;
+            if (kinds != null && table != null)
+            {
+                dateKindOf = column => kinds.GetDateKind(table, column);
+                anchorKindOf = (anchor, column) =>
+                    tree.TryGetNode(anchor, out var anchorNode) ? kinds.GetDateKind(anchorNode.TableLogicalName, column) : null;
+            }
+            return Translate(selfFilters, searchGroups, utcNow,
+                anchor => CanBindAnchor(tree, nodeId, anchor), dateKindOf, zone, anchorKindOf);
+        }
+
+        /// <summary>Translates one AND-rooted tree of every self filter and every search-criteria
+        /// group (each a conjunct, matching in-memory semantics, where each is applied
+        /// independently). Self filters compare dates in memory by column behavior (DateSemantics),
+        /// so they take the exact date values. Search criteria compare as text in memory
+        /// (SearchCriteriaEvaluator): `ne 2026-09-01` keeps every row there, so an exact value
+        /// could drop rows it keeps, and they keep the unknown-behavior fallback. Translating the
+        /// two halves apart and concatenating their conjuncts gives the same tree as translating
+        /// the combined root: an AND root with only child groups pushes each child it can.</summary>
+        private static PushdownResult Translate(List<NodeFilterGroup> selfFilters, List<SearchCriteriaGroup> searchGroups,
+            DateTime? utcNow, Func<Guid, bool> canBindAnchor, Func<string, DateColumnKind?> dateKindOf, TimeZoneInfo zone,
+            Func<Guid, string, DateColumnKind?> anchorKindOf)
+        {
+            var filters = new PushdownTranslator(pushSubstringOperators: false, utcNow: utcNow,
+                canBindAnchor: canBindAnchor, dateKindOf: dateKindOf, zone: zone, anchorKindOf: anchorKindOf)
+                .Translate(Combine(selfFilters, new List<SearchCriteriaGroup>()));
+            var criteria = new PushdownTranslator(pushSubstringOperators: false, utcNow: utcNow,
+                canBindAnchor: canBindAnchor)
+                .Translate(Combine(new List<NodeFilterGroup>(), searchGroups));
+
+            var pushed = new PushedFilter { Op = LogicalOperator.And };
+            if (filters.Pushed != null) pushed.Children.AddRange(filters.Pushed.Children);
+            if (criteria.Pushed != null) pushed.Children.AddRange(criteria.Pushed.Children);
+            return new PushdownResult
+            {
+                Pushed = pushed.IsEmpty ? null : pushed,
+                HasResidual = filters.HasResidual || criteria.HasResidual,
+            };
         }
 
         /// <summary>One AND-rooted tree: every self filter and every search-criteria group is a
@@ -201,14 +271,31 @@ namespace Ascentix.RulesEngine.Core.Execution
             }
         }
 
-        // Every node a filter group's own criteria read: RHS value nodes, EXISTS collections, and
-        // (recursively) everything an EXISTS sub-filter reads. Child groups are reached by the
-        // caller's FlattenFilterGroups walk, so only this group's criteria are visited here.
+        /// <summary>Whether a date expression filtering <paramref name="filteredNodeId"/> may bind
+        /// per root to <paramref name="anchorNodeId"/>'s record: the anchor must be one record per
+        /// root (the root, or a lookup chain from it) and must not be the filtered node or below
+        /// it. The executor fetches every unfiltered entry before any variant, so such an anchor is
+        /// always loaded when the variant binds. Shared with PushdownChecks so the publish warning
+        /// and the runtime agree.</summary>
+        public static bool CanBindAnchor(TableConfigTree tree, Guid filteredNodeId, Guid anchorNodeId) =>
+            tree != null
+            && tree.Contains(anchorNodeId)
+            && tree.TrySingleCardinality(anchorNodeId)
+            && !tree.IsSelfOrAncestor(filteredNodeId, anchorNodeId);
+
+        // Every node a filter group's own criteria read: RHS value nodes, date-expression anchor nodes,
+        // EXISTS collections, and (recursively) everything an EXISTS sub-filter reads. Child groups
+        // are reached by the caller's FlattenFilterGroups walk, so only this group's criteria are visited here.
         private static IEnumerable<Guid> CriterionNodeIds(NodeFilterGroup g)
         {
             foreach (var crit in g.Criteria ?? new List<NodeFilterCriterion>())
             {
                 if (crit.ComparisonValueNodeId.HasValue) yield return crit.ComparisonValueNodeId.Value;
+                // A date anchor is read from the node's UNFILTERED entry (in memory, and when a
+                // placeholder binds), so it must be demanded even when the node has its own variant.
+                if (crit.ValueSource == ComparisonValueSource.DateExpression
+                    && DateExprSpec.TryGetAnchorNode(crit.Value, out var anchor))
+                    yield return anchor;
                 if (crit.Kind != CriterionKind.Exists) continue;
                 if (crit.CollectionNodeId.HasValue) yield return crit.CollectionNodeId.Value;
                 foreach (var sub in FlattenFilterGroups(crit.SubFilter == null ? null : new[] { crit.SubFilter }))

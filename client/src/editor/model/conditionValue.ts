@@ -48,3 +48,10 @@ export function dateExprToComparisonValue(d: DateExprValue): string {
     op: d.op, amount: d.amount, unit: d.unit,
   });
 }
+
+/** A date expression the engine can evaluate: op, amount and unit set, and a column when
+ * anchored on a field. */
+export function isDateExprComplete(d: DateExprValue): boolean {
+  if (!d.anchorKind || !d.op || !d.amount || !d.unit) return false;
+  return d.anchorKind === "now" || !!d.anchorColumn;
+}

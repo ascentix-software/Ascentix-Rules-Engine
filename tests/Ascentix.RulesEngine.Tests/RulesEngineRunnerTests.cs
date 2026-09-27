@@ -7,6 +7,7 @@ using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Schema;
 using FakeXrmEasy;
 using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Metadata;
 using Xunit;
 
 namespace Ascentix.RulesEngine.Tests
@@ -105,6 +106,113 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(0, outcome.FailedRuleCount);
             Assert.Empty(outcome.Records.Single().FiredActions);
             Assert.Equal(overlay.Id, outcome.Records.Single().RecordId);
+        }
+
+        // Adds "lastusedincampaign >= now - 1 day" to a seeded rule's condition group.
+        private static void AddDateCondition(List<Entity> seed)
+        {
+            var groupId = seed.Single(e => e.LogicalName == Q(SchemaNames.ConditionGroup.Entity)).Id;
+            var cfgId = seed.Single(e => e.LogicalName == Q(SchemaNames.TableConfig.Entity)).Id;
+            seed.Add(new Entity(Q(SchemaNames.RuleCondition.Entity), Guid.NewGuid())
+            {
+                [Q(SchemaNames.RuleCondition.ConditionGroup)] = new EntityReference(Q(SchemaNames.ConditionGroup.Entity), groupId),
+                [Q(SchemaNames.RuleCondition.TableConfig)] = new EntityReference(Q(SchemaNames.TableConfig.Entity), cfgId),
+                [Q(SchemaNames.RuleCondition.ConditionType)] = new OptionSetValue((int)ConditionType.FieldComparison),
+                [Q(SchemaNames.RuleCondition.ComparisonColumn)] = "lastusedincampaign",
+                [Q(SchemaNames.RuleCondition.ComparisonOperator)] = new OptionSetValue((int)ComparisonOperator.GreaterThanOrEqual),
+                [Q(SchemaNames.RuleCondition.ComparisonValueSource)] = new OptionSetValue((int)ComparisonValueSource.DateExpression),
+                [Q(SchemaNames.RuleCondition.ComparisonValue)] = "{\"anchor\":{\"kind\":\"now\"},\"op\":\"subtract\",\"amount\":1,\"unit\":\"days\"}",
+            });
+        }
+
+        // The rule's date semantics read the column's behavior from metadata on the first date
+        // comparison (see DateSemantics/AttributeMetadataProvider); "account" must be registered
+        // so lastusedincampaign resolves to its (default) Instant kind.
+        private static void InitializeAccountMetadata(XrmFakedContext ctx)
+        {
+            var accountMetadata = new EntityMetadata { LogicalName = "account" };
+            typeof(EntityMetadata).GetProperty("Attributes").SetValue(accountMetadata, new AttributeMetadata[]
+            {
+                new StringAttributeMetadata { LogicalName = "name" },
+                new DateTimeAttributeMetadata { LogicalName = "lastusedincampaign" },
+            });
+            ctx.InitializeMetadata(new List<EntityMetadata> { accountMetadata });
+        }
+
+        /// <summary>Counts RetrieveEntity requests per table on the way to the faked service.</summary>
+        private sealed class MetadataCountingService : IOrganizationService
+        {
+            private readonly IOrganizationService _inner;
+            public readonly Dictionary<string, int> Retrieves = new Dictionary<string, int>();
+            public MetadataCountingService(IOrganizationService inner) { _inner = inner; }
+
+            public OrganizationResponse Execute(OrganizationRequest request)
+            {
+                if (request is Microsoft.Xrm.Sdk.Messages.RetrieveEntityRequest r)
+                    Retrieves[r.LogicalName] = (Retrieves.TryGetValue(r.LogicalName, out var n) ? n : 0) + 1;
+                return _inner.Execute(request);
+            }
+            public Guid Create(Entity entity) => _inner.Create(entity);
+            public Entity Retrieve(string entityName, Guid id, Microsoft.Xrm.Sdk.Query.ColumnSet columnSet) => _inner.Retrieve(entityName, id, columnSet);
+            public void Update(Entity entity) => _inner.Update(entity);
+            public void Delete(string entityName, Guid id) => _inner.Delete(entityName, id);
+            public void Associate(string entityName, Guid entityId, Relationship relationship, EntityReferenceCollection relatedEntities) => _inner.Associate(entityName, entityId, relationship, relatedEntities);
+            public void Disassociate(string entityName, Guid entityId, Relationship relationship, EntityReferenceCollection relatedEntities) => _inner.Disassociate(entityName, entityId, relationship, relatedEntities);
+            public EntityCollection RetrieveMultiple(Microsoft.Xrm.Sdk.Query.QueryBase query) => _inner.RetrieveMultiple(query);
+        }
+
+        [Fact]
+        public void Buckets_of_one_run_share_one_metadata_read_per_table()
+        {
+            // Two rules in different evaluation contexts are two buckets; both compare a date
+            // on account. Metadata is per table, not per rule: one RetrieveEntity for the run.
+            var user = Seed(RuleEvaluationContext.User);
+            var system = Seed(RuleEvaluationContext.System);
+            AddDateCondition(user);
+            AddDateCondition(system);
+            var ctx = new XrmFakedContext();
+            InitializeAccountMetadata(ctx);
+            ctx.Initialize(user.Concat(system));
+            var overlay = new Entity("account", Guid.NewGuid())
+            {
+                ["name"] = "Valid",
+                ["lastusedincampaign"] = new DateTime(2026, 9, 26, 0, 0, 0, DateTimeKind.Utc),
+            };
+            var service = new MetadataCountingService(ctx.GetOrganizationService());
+
+            var outcome = new RulesEngineRunner().Run(
+                service, service, "account",
+                new List<RootInput> { new RootInput { Id = overlay.Id, Overlay = overlay } },
+                RuleTrigger.Manual, RuleChannel.Standard, 1033, RootBuildMode.UseTarget,
+                new XrmFakedTracingService(), new DateTime(2026, 9, 26, 12, 0, 0, DateTimeKind.Utc));
+
+            Assert.True(outcome.IsValid);
+            Assert.Equal(1, service.Retrieves["account"]);
+        }
+
+        [Fact]
+        public void Run_evaluates_date_expressions_at_the_supplied_instant()
+        {
+            // name must be "Valid" (seeded) AND lastusedincampaign >= now - 1 day.
+            var seed = Seed();
+            AddDateCondition(seed);
+            var ctx = new XrmFakedContext();
+            InitializeAccountMetadata(ctx);
+            ctx.Initialize(seed);
+            var overlay = new Entity("account", Guid.NewGuid())
+            {
+                ["name"] = "Valid",
+                ["lastusedincampaign"] = new DateTime(2026, 9, 26, 0, 0, 0, DateTimeKind.Utc),
+            };
+            var service = ctx.GetOrganizationService();
+            RuleEvaluationOutcome RunAt(DateTime utcNow) => new RulesEngineRunner().Run(
+                service, service, "account",
+                new List<RootInput> { new RootInput { Id = overlay.Id, Overlay = overlay } },
+                RuleTrigger.Manual, RuleChannel.Standard, 1033, RootBuildMode.UseTarget,
+                new XrmFakedTracingService(), utcNow);
+
+            Assert.True(RunAt(new DateTime(2026, 9, 26, 12, 0, 0, DateTimeKind.Utc)).IsValid);
+            Assert.False(RunAt(new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Utc)).IsValid);
         }
     }
 }

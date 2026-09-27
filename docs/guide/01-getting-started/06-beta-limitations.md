@@ -46,6 +46,31 @@ well-filtered rule works fine against multi-million-row tables as long as the
 rows the rule needs stay under the cap. The cap is fixed during the beta and is
 not configurable.
 
+Some filter criteria are applied in the Dataverse query; the rest are applied
+after the rows are loaded, and those rows count toward the cap. Applied in the
+query:
+
+- **Is Null** and **Is Not Null**.
+- **Equals** a literal value (for a date, see below).
+- **Not Equals** and the before/after operators (**Greater Than**,
+  **Less Than** and their "or equal" forms) against a literal number.
+- In a collection filter on a date column, every one of those operators (Equals and Not Equals
+  included) against a literal date, "now" ± an interval, or a date on the rule's own record or
+  a record it looks up (± an interval) — that anchor record must be outside the filtered
+  collection's own branch; an anchor inside it stays in memory.
+- In a Row Count condition's own search criteria, the before/after operators against a
+  literal date. Equals and Not Equals on a date there are applied after loading.
+
+Everything else is applied after loading, including **Contains** and
+**Does Not Contain**, **Not Equals** and before/after on text, a value that reads as a date
+(such as `2026-09-01`) compared with a column that is not a date in a collection filter, a comparison with another
+column of the same row or
+with a field reference, and an OR group that contains any of these. When a rule has
+criteria that stay out of the query, publishing it shows a `TRAV_PUSHDOWN`
+warning: that warning is the per-rule signal to check against the cap. It reads each column's
+date behavior and the rule's time zone the way the save does, so it appears exactly when a
+criterion stays out of the query.
+
 ## 4. Related-record changes don't re-fire rules
 
 Rules evaluate when the **root table** of the rule is written. Editing a

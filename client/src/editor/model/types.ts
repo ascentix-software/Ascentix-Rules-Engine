@@ -20,6 +20,8 @@ export interface RuleHeader {
   effectiveFrom: string | null;
   effectiveTo: string | null;
   evaluationContext: number | null;
+  /** Windows time zone id for date comparisons (asx_evaluationtimezone); null/absent = UTC. */
+  evaluationTimeZone?: string | null;
   rootTableConfigId: string | null;
   /** Root-table column logical names that fire OnUpdate evaluation (asx_triggercolumns, JSON array). */
   triggerColumns: string[];
@@ -52,6 +54,8 @@ export interface ConditionNode {
    * validation.ts can hint on a blank/unparseable expression.
    */
   expression?: string | null;
+  /** Expression condition only: aggregate filters keyed by `filter:<key>` (asx_expressionfilters). */
+  expressionFilters?: import("./expressionFilters").ExpressionFilters | null;
   /** Per-condition node filter ("Only consider records where…"); a list of single-target
    *  top-level filter groups (engine-accurate, per nodeFilter.ts); null ⇒ no filter. */
   filter?: import("./nodeFilter").NodeFilterBlock[] | null;

@@ -234,5 +234,22 @@ namespace Ascentix.RulesEngine.Tests
             // aggregate columns are child-node columns (fetched wholesale by traversal), not root columns
             Assert.Empty(FieldMappingReferences.RootColumns(entry));
         }
+
+        [Fact]
+        public void Filter_criterion_node_ids_include_a_date_expression_node_anchor()
+        {
+            var anchor = Guid.NewGuid();
+            var group = new NodeFilterGroup
+            {
+                LogicalOperator = LogicalOperator.And,
+                Criteria = new List<NodeFilterCriterion>
+                {
+                    new NodeFilterCriterion { FieldName = "closedon", Operator = "ge", ValueSource = ComparisonValueSource.DateExpression,
+                        Value = "{\"anchor\":{\"kind\":\"field\",\"node\":\"" + anchor + "\",\"column\":\"d\"},\"op\":\"add\",\"amount\":1,\"unit\":\"days\"}" },
+                },
+            };
+
+            Assert.Contains(anchor, FieldMappingReferences.FilterCriterionNodeIds(group));
+        }
     }
 }

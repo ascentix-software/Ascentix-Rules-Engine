@@ -295,5 +295,204 @@ namespace Ascentix.RulesEngine.Tests
             var issues = new MetadataChecks().Check(model, flags).ToList();
             Assert.DoesNotContain(issues, i => i.Code == "META_TRIGGER_COLUMN_NOT_FOUND");
         }
+
+        [Fact]
+        public void Date_expression_on_non_date_filter_column_is_flagged()
+        {
+            var nodeId = Guid.NewGuid();
+            var configs = new Dictionary<Guid, TableConfig> { [nodeId] = new TableConfig { Id = nodeId, ConfigType = TableConfigType.RootTable, TableLogicalName = "account" } };
+            var cond = new RuleCondition { Id = Guid.NewGuid(), ConditionType = ConditionType.FieldComparison, TableConfigNodeId = nodeId, ComparisonColumn = "name", ComparisonOperator = ComparisonOperator.IsNotNull };
+            var model = ModelWithCondition(cond, configs);
+            model.Groups.First().NodeFilterGroups = new List<NodeFilterGroup>
+            {
+                new NodeFilterGroup
+                {
+                    TableConfigNodeId = nodeId, LogicalOperator = LogicalOperator.And,
+                    Criteria = new List<NodeFilterCriterion>
+                    {
+                        new NodeFilterCriterion { FieldName = "name", Operator = "ge", ValueSource = ComparisonValueSource.DateExpression,
+                            Value = "{\"anchor\":{\"kind\":\"now\"},\"op\":\"subtract\",\"amount\":1,\"unit\":\"days\"}" },
+                    },
+                },
+            };
+            var flags = new FakeFlags { Tables = { "account" } };
+            flags.Cols["account.name"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.String };
+
+            var issues = new MetadataChecks().Check(model, flags).ToList();
+            Assert.Single(issues, i => i.Code == "META_FILTER_OPERATOR_TYPE_MISMATCH");
+        }
+
+        [Fact]
+        public void Date_expression_with_valueless_operator_on_non_date_column_is_not_flagged()
+        {
+            var nodeId = Guid.NewGuid();
+            var configs = new Dictionary<Guid, TableConfig> { [nodeId] = new TableConfig { Id = nodeId, ConfigType = TableConfigType.RootTable, TableLogicalName = "account" } };
+            var cond = new RuleCondition { Id = Guid.NewGuid(), ConditionType = ConditionType.FieldComparison, TableConfigNodeId = nodeId, ComparisonColumn = "name", ComparisonOperator = ComparisonOperator.IsNotNull };
+            var model = ModelWithCondition(cond, configs);
+            model.Groups.First().NodeFilterGroups = new List<NodeFilterGroup>
+            {
+                new NodeFilterGroup
+                {
+                    TableConfigNodeId = nodeId, LogicalOperator = LogicalOperator.And,
+                    Criteria = new List<NodeFilterCriterion>
+                    {
+                        new NodeFilterCriterion { FieldName = "name", Operator = "null", ValueSource = ComparisonValueSource.DateExpression, Value = null },
+                    },
+                },
+            };
+            var flags = new FakeFlags { Tables = { "account" } };
+            flags.Cols["account.name"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.String };
+
+            var issues = new MetadataChecks().Check(model, flags).ToList();
+            Assert.DoesNotContain(issues, i => i.Code == "META_FILTER_OPERATOR_TYPE_MISMATCH");
+        }
+
+        [Fact]
+        public void Date_expression_row_anchor_column_must_exist()
+        {
+            var nodeId = Guid.NewGuid();
+            var configs = new Dictionary<Guid, TableConfig> { [nodeId] = new TableConfig { Id = nodeId, ConfigType = TableConfigType.RootTable, TableLogicalName = "account" } };
+            var cond = new RuleCondition { Id = Guid.NewGuid(), ConditionType = ConditionType.FieldComparison, TableConfigNodeId = nodeId, ComparisonColumn = "name", ComparisonOperator = ComparisonOperator.IsNotNull };
+            var model = ModelWithCondition(cond, configs);
+            model.Groups.First().NodeFilterGroups = new List<NodeFilterGroup>
+            {
+                new NodeFilterGroup
+                {
+                    TableConfigNodeId = nodeId, LogicalOperator = LogicalOperator.And,
+                    Criteria = new List<NodeFilterCriterion>
+                    {
+                        new NodeFilterCriterion { FieldName = "createdon", Operator = "le", ValueSource = ComparisonValueSource.DateExpression,
+                            Value = "{\"anchor\":{\"kind\":\"field\",\"node\":null,\"column\":\"ghostdate\"},\"op\":\"add\",\"amount\":1,\"unit\":\"days\"}" },
+                    },
+                },
+            };
+            var flags = new FakeFlags { Tables = { "account" } };
+            flags.Cols["account.createdon"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.DateTime };
+
+            Assert.Contains(new MetadataChecks().Check(model, flags), i => i.Code == "META_FILTER_VALUE_COLUMN_NOT_FOUND");
+        }
+
+        [Fact]
+        public void Expression_condition_filter_column_is_checked_against_the_aggregate_table()
+        {
+            var rootId = Guid.NewGuid();
+            var childId = Guid.NewGuid();
+            var configs = new Dictionary<Guid, TableConfig>
+            {
+                [rootId] = new TableConfig { Id = rootId, ConfigType = TableConfigType.RootTable, TableLogicalName = "account" },
+                [childId] = new TableConfig { Id = childId, ConfigType = TableConfigType.ChildTable, TableLogicalName = "opportunity", ParentTableId = rootId, ChildLinkField = "parentaccountid" },
+            };
+            var cond = new RuleCondition
+            {
+                Id = Guid.NewGuid(), ConditionType = ConditionType.Expression, TableConfigNodeId = rootId,
+                Expression = $"sum(node:{childId}.estimatedvalue filter:f1)",
+                ExpressionFilters = "{\"f1\":{\"kind\":\"group\",\"op\":\"and\",\"rules\":[{\"kind\":\"rule\",\"column\":\"ghost\",\"operator\":1,\"valueSource\":1,\"value\":\"0\"}]}}",
+                ComparisonOperator = ComparisonOperator.GreaterThan, ComparisonValue = "1",
+            };
+            var flags = new FakeFlags { Tables = { "account", "opportunity" } };
+            flags.Cols["opportunity.estimatedvalue"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.Money };
+
+            Assert.Contains(new MetadataChecks().Check(ModelWithCondition(cond, configs), flags), i => i.Code == "META_FILTER_COLUMN_NOT_FOUND");
+        }
+
+        // ─── A filter date-expression anchor on a node missing from the tree ──────────
+
+        private static readonly Guid GhostNode = Guid.NewGuid();
+
+        private static string GhostAnchor =>
+            "{\"anchor\":{\"kind\":\"field\",\"node\":\"" + GhostNode + "\",\"column\":\"createdon\"},\"op\":\"add\",\"amount\":1,\"unit\":\"days\"}";
+
+        private static NodeFilterCriterion GhostDateCrit() => new NodeFilterCriterion
+        { FieldName = "createdon", Operator = "le", ValueSource = ComparisonValueSource.DateExpression, Value = GhostAnchor };
+
+        private static string GhostFilterMap =>
+            "{\"f1\":{\"kind\":\"group\",\"op\":\"and\",\"rules\":[{\"kind\":\"rule\",\"column\":\"createdon\",\"operator\":6,"
+            + "\"valueSource\":4,\"value\":\"" + GhostAnchor.Replace("\"", "\\\"") + "\"}]}}";
+
+        private static (Dictionary<Guid, TableConfig> configs, Guid rootId, Guid childId, FakeFlags flags) AnchorFixture()
+        {
+            var rootId = Guid.NewGuid();
+            var childId = Guid.NewGuid();
+            var configs = new Dictionary<Guid, TableConfig>
+            {
+                [rootId] = new TableConfig { Id = rootId, ConfigType = TableConfigType.RootTable, TableLogicalName = "account" },
+                [childId] = new TableConfig { Id = childId, ConfigType = TableConfigType.ChildTable, TableLogicalName = "opportunity", ParentTableId = rootId, ChildLinkField = "parentaccountid" },
+            };
+            var flags = new FakeFlags { Tables = { "account", "opportunity" } };
+            flags.Cols["account.name"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.String };
+            flags.Cols["account.createdon"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.DateTime };
+            flags.Cols["opportunity.createdon"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.DateTime };
+            flags.Cols["opportunity.estimatedvalue"] = new AttributeFlags { IsValidForRead = true, IsValidForUpdate = true, Type = AttributeTypeCode.Money };
+            flags.Cols["account.revenue"] = new AttributeFlags { IsValidForRead = true, IsValidForUpdate = true, IsValidForCreate = true, Type = AttributeTypeCode.Money };
+            return (configs, rootId, childId, flags);
+        }
+
+        private static RuleCondition NameNotNull(Guid rootId) => new RuleCondition
+        { Id = Guid.NewGuid(), ConditionType = ConditionType.FieldComparison, TableConfigNodeId = rootId, ComparisonColumn = "name", ComparisonOperator = ComparisonOperator.IsNotNull };
+
+        [Fact]
+        public void Missing_anchor_node_in_a_condition_filter_is_node_not_found()
+        {
+            var (configs, rootId, _, flags) = AnchorFixture();
+            var model = ModelWithCondition(NameNotNull(rootId), configs);
+            model.Groups.First().NodeFilterGroups = new List<NodeFilterGroup>
+            { new NodeFilterGroup { TableConfigNodeId = rootId, LogicalOperator = LogicalOperator.And, Criteria = new List<NodeFilterCriterion> { GhostDateCrit() } } };
+
+            Assert.Single(RuleValidator.Validate(model, flags).Issues, i => i.Code == "TRAV_NODE_NOT_FOUND");
+        }
+
+        [Fact]
+        public void Missing_anchor_node_in_an_exists_sub_filter_is_node_not_found()
+        {
+            var (configs, rootId, childId, flags) = AnchorFixture();
+            var model = ModelWithCondition(NameNotNull(rootId), configs);
+            model.Groups.First().NodeFilterGroups = new List<NodeFilterGroup>
+            {
+                new NodeFilterGroup
+                {
+                    TableConfigNodeId = rootId, LogicalOperator = LogicalOperator.And,
+                    Criteria = new List<NodeFilterCriterion>
+                    {
+                        new NodeFilterCriterion
+                        {
+                            Kind = CriterionKind.Exists, CollectionNodeId = childId, MinCount = 1,
+                            SubFilter = new NodeFilterGroup { LogicalOperator = LogicalOperator.And, Criteria = new List<NodeFilterCriterion> { GhostDateCrit() } },
+                        },
+                    },
+                },
+            };
+
+            Assert.Single(RuleValidator.Validate(model, flags).Issues, i => i.Code == "TRAV_NODE_NOT_FOUND");
+        }
+
+        [Fact]
+        public void Missing_anchor_node_in_a_calculation_filter_is_node_not_found()
+        {
+            var (configs, rootId, childId, flags) = AnchorFixture();
+            var cond = new RuleCondition
+            {
+                Id = Guid.NewGuid(), ConditionType = ConditionType.Expression, TableConfigNodeId = rootId,
+                Expression = $"sum(node:{childId}.estimatedvalue filter:f1)", ExpressionFilters = GhostFilterMap,
+                ComparisonOperator = ComparisonOperator.GreaterThan, ComparisonValue = "1",
+            };
+
+            Assert.Single(RuleValidator.Validate(ModelWithCondition(cond, configs), flags).Issues, i => i.Code == "TRAV_NODE_NOT_FOUND");
+        }
+
+        [Fact]
+        public void Missing_anchor_node_in_a_mapping_filter_is_node_not_found()
+        {
+            var (configs, rootId, childId, flags) = AnchorFixture();
+            var grp = new ConditionGroup { Id = Guid.NewGuid(), Conditions = new List<RuleCondition> { NameNotNull(rootId) }, ChildGroups = new List<ConditionGroup>() };
+            var action = new RuleAction
+            {
+                Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId,
+                FieldMapping = "[{\"target\":\"revenue\",\"source\":\"mathexpr\",\"expression\":\"sum(node:" + childId + ".estimatedvalue filter:f1)\","
+                    + "\"filters\":" + GhostFilterMap + "}]",
+            };
+            var model = new RuleForValidation { RuleId = Guid.NewGuid(), PrimaryTable = "account", Groups = new List<ConditionGroup> { grp }, Configs = TestTree.RawTree(configs), Actions = new List<RuleAction> { action } };
+
+            Assert.Single(RuleValidator.Validate(model, flags).Issues, i => i.Code == "TRAV_NODE_NOT_FOUND");
+        }
     }
 }

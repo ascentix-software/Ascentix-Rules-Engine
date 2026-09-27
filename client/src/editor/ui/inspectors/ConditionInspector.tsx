@@ -320,7 +320,9 @@ export function ConditionInspector({
         <>
           <Field label="Expression">
             <MathExprEditor value={condition.expression ?? ""} ruleTable={ruleTable} tableConfigs={tableConfigs}
-              onChange={(expression) => onPatch({ expression })} />
+              onChange={(expression) => onPatch({ expression })}
+              filters={condition.expressionFilters ?? {}}
+              onFiltersChange={(next) => onPatch({ expressionFilters: Object.keys(next).length ? next : null })} />
           </Field>
           <Field label="Operator">
             <Dropdown

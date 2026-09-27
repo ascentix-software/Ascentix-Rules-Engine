@@ -68,6 +68,7 @@ prohibited after creation. Existing rules require no initialization operation.
 | Effective From | `asx_effectivefrom` | DateTime (UTC) | | Not enforced before this; null ⇒ open start |
 | Effective To | `asx_effectiveto` | DateTime (UTC) | | Not enforced after this; null ⇒ open end |
 | Evaluation Context | `asx_evaluationcontext` | Choice → `asx_evaluationcontext` | | Selects whether the rule's business-data traversal evaluates in the caller's context (`User` = 1, default) or as system (`System` = 2); default User preserves caller-visibility behavior |
+| Evaluation Time Zone | `asx_evaluationtimezone` | Text (100) | | Windows time zone id (e.g. `Eastern Standard Time`) that decides the calendar day and wall-clock time of an instant when a Date Only or Time Zone Independent column is compared, and the instant a value without an offset (a literal such as `2026-09-01`, or a Date Only / Time Zone Independent anchor) means when a User Local column is compared; blank ⇒ UTC |
 | Root Table Config | `asx_roottableconfig` | Lookup → `asx_tableconfig` | ✔ | The rule's root node; the rule's table-config tree (shareable across rules) hangs off it via `asx_parenttable`. The editor loads the whole tree from here. |
 | Trigger Columns | `asx_triggercolumns` | Multiline (4000) | | JSON array of **root-table** column logical names (`["sample_lineamount"]`). **OnUpdate only**: unioned into the update step's filtering attributes alongside condition columns, so the rule also fires when one of these changes (e.g. an action depends on a column no condition references). Blank ⇒ none. |
 
@@ -114,6 +115,7 @@ A single check within a group.
 | Comparison Value Node | `asx_comparisonvaluenode` | Lookup → `asx_tableconfig` | | FieldReference RHS node; blank ⇒ same record |
 | Comparison Value Column | `asx_comparisonvaluecolumn` | Text (100) | | FieldReference RHS column |
 | Condition Expression | `asx_conditionexpression` | Multiline (4000) | | **Calculation (Expression = 4) only**: the LHS `mathexpr` formula (may aggregate child collections + do arithmetic); compared by a numeric operator to the RHS (which reuses the comparison-value fields) |
+| Expression Filters | `asx_expressionfilters` | Multiline (100,000) | | **Calculation only**: aggregate filters map `{ "<key>": <criteria-tree> }` for `filter:<key>` tokens in the expression; same format as a field-mapping mathexpr entry's `filters` |
 
 > **Condition types.** `FieldComparison` uses column/operator/value(-source). `RowCount` (ChildTable
 > node only) uses min/max + search criteria. `RegexMatch` tests `asx_comparisoncolumn` against the
@@ -166,7 +168,7 @@ AND/OR filters scoped to a condition group, targeting any node in the tree. Self
 | Field Name | `asx_fieldname` | Text (100) | ✔ | |
 | Operator | `asx_operator` | Text (20) | ✔ | See operator list above; supports `eq`, `ne`, `like`, `not-like`, `null`, `not-null`, `contains`, `not-contains`, `gt`, `ge`, `lt`, `le` |
 | Value | `asx_value` | Text (4000) | | |
-| Comparison Value Source | `asx_comparisonvaluesource` | Choice → `asx_comparisonvaluesource` | | Blank ⇒ Literal; FieldReference compares against another field |
+| Comparison Value Source | `asx_comparisonvaluesource` | Choice → `asx_comparisonvaluesource` | | Blank ⇒ Literal; FieldReference compares against another field; **DateExpression** (4) holds a dateexpr JSON payload in `asx_value` (a field anchor with no node reads the filtered row; a null anchor, on the row or on the related record, makes the criterion false) |
 | Comparison Value Node | `asx_comparisonvaluenode` | Lookup → `asx_tableconfig` | | FieldReference RHS node; blank ⇒ same record |
 | Comparison Value Column | `asx_comparisonvaluecolumn` | Text (100) | | FieldReference RHS column |
 
@@ -569,8 +571,9 @@ Field notes:
   `META_COLUMN_NOT_READABLE`, `META_COLUMN_NOT_CREATABLE`, `META_COLUMN_NOT_UPDATABLE`,
   `META_OPERATOR_TYPE_MISMATCH`, `STRUCT_ROWCOUNT_ON_CREATE` (Warning: a min-rows Row Count on
   a structurally-empty-at-create collection combined with the On Create trigger can never pass
-  during Create). Trusted Authors may publish System-context writes without holding
-  privileges on the target business tables; see `docs/Security.md`.
+  during Create), `STRUCT_INVALID_DATEEXPR`, `STRUCT_EXPR_FILTER_MISSING`,
+  `STRUCT_INVALID_EXPRESSION_FILTERS`, `STRUCT_INVALID_TIMEZONE`. Trusted Authors may publish System-context writes without
+  holding privileges on the target business tables; see `docs/Security.md`.
 - `kind` is a string enum name: `"Rule"`, `"Group"`, `"Condition"`, or `"Action"`.
 - `field` is the logical-name fragment of the column the issue targets; omitted (`null`) when the
   issue targets the entity as a whole rather than a specific field.
@@ -722,7 +725,7 @@ the fixture also stands up on an org whose base language is not English.
 | `sample_customer` | `sample_email`, `sample_phone`, `sample_postalcode`, `sample_creditlimit` (Money), `sample_segments` (multi-select) | `sample_parentcustomerid` → `sample_customer` (`sample_customer_sample_customer`) |
 | `sample_product` | `sample_unitprice` (Money), `sample_category` (choice), `sample_discontinued` (Yes/No) | None |
 | `sample_order` | `sample_ordertotal` (Money), `sample_status` (choice), `sample_orderdate`, `sample_isexpedited` (Yes/No), `sample_ordertags` (multi-select), `sample_contactemail`, `sample_contactphone`, `sample_shippingpostalcode`, `sample_approvalnotes` (Memo), `sample_handlinginstructions` (Memo) | `sample_customerid` → `sample_customer` (`sample_customer_sample_order`) |
-| `sample_orderline` | `sample_quantity` (Whole Number), `sample_lineamount` (Money), **`sample_notes`** (String 200, the pushdown-volume shape flag written by `client/scripts/seed-volume-fixture.mjs`; SchemaName is lowercase) | `sample_orderid` → `sample_order` (`sample_order_sample_orderline`), `sample_productid` → `sample_product` (`sample_product_sample_orderline`) |
+| `sample_orderline` | `sample_quantity` (Whole Number), `sample_lineamount` (Money), **`sample_notes`** (String 200, the pushdown-volume shape flag written by `client/scripts/seed-volume-fixture.mjs`; SchemaName is lowercase), `sample_duedate` (Date Only behavior), `sample_localtime` (date and time, Time Zone Independent behavior) | `sample_orderid` → `sample_order` (`sample_order_sample_orderline`), `sample_productid` → `sample_product` (`sample_product_sample_orderline`) |
 | **`sample_shipment`** | `sample_isexpedited` (Yes/No), `sample_shipamount` (Money); PK `sample_name` is String **100** | `sample_orderid` → `sample_order` (`sample_order_sample_shipment`, Delete = RemoveLink) |
 
 `sample_order` therefore has **two child collections**, `sample_orderline` and `sample_shipment`,

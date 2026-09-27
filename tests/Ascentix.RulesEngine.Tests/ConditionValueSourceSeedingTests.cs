@@ -140,6 +140,14 @@ namespace Ascentix.RulesEngine.Tests
                         new StringAttributeMetadata { LogicalName = "lastname" },
                         new DateTimeAttributeMetadata { LogicalName = "anchordate" },
                     },
+                    // The rule's date semantics read a column's behavior from metadata on the
+                    // first date comparison (DateSemantics); "mydate" must resolve to its
+                    // (default) Instant kind, matching the instant comparison this test pins.
+                    ["account"] = new AttributeMetadata[]
+                    {
+                        new StringAttributeMetadata { LogicalName = "name" },
+                        new DateTimeAttributeMetadata { LogicalName = "mydate" },
+                    },
                 });
             return new RulesEngineRunner().Run(
                 systemService: service, userService: service, logicalName: "account",

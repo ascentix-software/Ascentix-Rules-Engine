@@ -3,8 +3,7 @@ using System;
 namespace Ascentix.RulesEngine.Core.Models
 {
     /// <summary>A single node-filter criterion. Operator tokens: eq, ne, gt, ge, lt, le,
-    /// like, not-like, contains, not-contains, null, not-null. Value-source RHS added in the
-    /// value-from-record task.</summary>
+    /// like, not-like, contains, not-contains, null, not-null. Value source: Literal (Value), FieldReference (ComparisonValueNodeId/Column), or DateExpression (dateexpr JSON in Value; a field anchor with no node reads the filtered row).</summary>
     public class NodeFilterCriterion
     {
         public CriterionKind Kind { get; set; } = CriterionKind.Comparison;

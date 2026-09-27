@@ -1,4 +1,5 @@
 import { newTempId } from "./ids";
+import { dateExprFromComparisonValue, isDateExprComplete } from "./conditionValue";
 
 // Client mirror of the engine NodeFilterGroup/NodeFilterCriterion tree. Operator codes match
 // the C# ComparisonOperator enum via recordFilter.ts's operatorToFetchOp table. Every node carries
@@ -15,7 +16,7 @@ export type NodeFilterLeaf = {
   etag?: string | null;
   column: string | null;
   operator: number | null;        // ComparisonOperator code (1..10)
-  valueSource: number;            // 1 = Literal, 2 = FieldReference
+  valueSource: number;            // 1 = Literal, 2 = FieldReference, 4 = DateExpression (dateexpr JSON in value)
   value: string | null;
   valueNodeId: string | null;
   valueColumn: string | null;
@@ -66,7 +67,9 @@ const VALUELESS = new Set([9, 10]); // IsNull / IsNotNull
 export function isLeafComplete(l: NodeFilterLeaf): boolean {
   if (!l.column || l.operator == null) return false;
   if (VALUELESS.has(l.operator)) return true;
-  return l.valueSource === 2 ? !!(l.valueNodeId || l.valueColumn) : l.value != null && l.value !== "";
+  if (l.valueSource === 2) return !!(l.valueNodeId || l.valueColumn);
+  if (l.valueSource === 4) return isDateExprComplete(dateExprFromComparisonValue(l.value));
+  return l.value != null && l.value !== "";
 }
 // "Complete" for an exists node just means it targets a collection. Count bounds and the
 // sub-filter are optional refinements (an exists node with no bounds still means "at least one").

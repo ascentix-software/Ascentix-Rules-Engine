@@ -17,12 +17,15 @@ import {
 } from "../../model/nodeFilter";
 import { CountModeFields } from "./countMode";
 import { color } from "../tokens";
+import { DateExprEditor } from "../valueExpressions";
+import { dateExprFromComparisonValue, dateExprToComparisonValue } from "../../model/conditionValue";
 
 // Node-filter builder: a nested AND/OR tree over ONE target table's columns (the target itself
 // is chosen one level up, per-block, by ConditionInspector). Modeled on RecordFilterBuilder
-// (which keeps its flat Add buttons), but with a grouped spine and a single Add menu. Its leaf value cell supports Literal OR From-record (a
-// single-cardinality node + column), matching the engine's NodeFilterCriterion. Filters do not
-// support Template/DateExpr value sources.
+// (which keeps its flat Add buttons), but with a grouped spine and a single Add menu. Its leaf
+// value cell supports Literal, From-record (a single-cardinality node + column), and, for date
+// columns, Date expression (anchor ± interval, where an anchor with no node is the filtered
+// row), matching the engine's NodeFilterCriterion. Filters do not support Template values.
 //
 // Grouped spine: the root frame is plain (no rail); a nested group rides the execution indigo
 // rail/tint and an exists block rides the validation teal rail/tint. GroupShell below reuses
@@ -102,6 +105,8 @@ function RuleRow({ table, tableConfigs, tcList, rule, kindOf, onChange, onRemove
   const ops = kind ? allowedOperators(kind) : Object.keys(OP_LABEL).map(Number);
   const showValue = rule.operator != null && !VALUELESS.has(rule.operator);
   const fromRecord = showValue && rule.valueSource === 2;
+  const dateExpr = showValue && rule.valueSource === 4;
+  const SOURCE_LABEL: Record<number, string> = { 1: "Literal", 2: "From record", 4: "Date expression" };
   // "From record" may only reference a single-cardinality node (root or a lookup-chain node),
   // never a child (one-to-many) collection, mirroring the engine's NodeCardinality.EnsureSingle.
   const nodeOptions = tcList.filter((tc) => isSingleCardinality(tableConfigs, tc.id));
@@ -111,7 +116,7 @@ function RuleRow({ table, tableConfigs, tcList, rule, kindOf, onChange, onRemove
       <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
         <div style={{ flex: "1 1 0", minWidth: 0 }}>
           <ColumnPicker table={table} context="read" value={rule.column} ariaLabel="Filter column"
-            onChange={(v) => onChange({ ...rule, column: v || null, operator: null, value: null, valueNodeId: null, valueColumn: null })} />
+            onChange={(v) => onChange({ ...rule, column: v || null, operator: null, valueSource: 1, value: null, valueNodeId: null, valueColumn: null })} />
         </div>
         <Dropdown aria-label="Filter operator" style={{ minWidth: 0, flex: "0 0 150px" }}
           value={rule.operator != null ? OP_LABEL[rule.operator] : ""}
@@ -121,16 +126,17 @@ function RuleRow({ table, tableConfigs, tcList, rule, kindOf, onChange, onRemove
         </Dropdown>
         {showValue && (
           <div style={{ display: "flex", gap: 8, flex: "1 1 0", minWidth: 0 }}>
-            <Dropdown aria-label="Filter value source" style={{ minWidth: 0, flex: fromRecord ? "1 1 0" : "0 0 118px" }}
-              value={rule.valueSource === 2 ? "From record" : "Literal"}
+            <Dropdown aria-label="Filter value source" style={{ minWidth: 0, flex: fromRecord || dateExpr ? "1 1 0" : "0 0 118px" }}
+              value={SOURCE_LABEL[rule.valueSource ?? 1] ?? "Literal"}
               selectedOptions={[String(rule.valueSource ?? 1)]}
               onOptionSelect={(_e, d) => d.optionValue && onChange({
                 ...rule, valueSource: Number(d.optionValue), value: null, valueNodeId: null, valueColumn: null,
               })}>
               <Option value="1">Literal</Option>
               <Option value="2">From record</Option>
+              {kind === "datetime" && <Option value="4">Date expression</Option>}
             </Dropdown>
-            {!fromRecord && (
+            {!fromRecord && !dateExpr && (
               <ValueEditor table={table} column={rule.column} value={rule.value} ariaLabel="Filter value"
                 onChange={(v) => onChange({ ...rule, value: v })} />
             )}
@@ -152,6 +158,14 @@ function RuleRow({ table, tableConfigs, tcList, rule, kindOf, onChange, onRemove
             <ColumnPicker table={valueTable} context="read" value={rule.valueColumn} ariaLabel="Filter value column"
               onChange={(v) => onChange({ ...rule, valueColumn: v || null })} />
           </div>
+        </div>
+      )}
+      {dateExpr && (
+        <div data-testid="nf-dateexpr-subrow" style={{ marginTop: 6 }}>
+          <DateExprEditor value={dateExprFromComparisonValue(rule.value)} ruleTable={table} tableConfigs={tableConfigs} rowScoped
+            onChange={(patch) => onChange({
+              ...rule, value: dateExprToComparisonValue({ ...dateExprFromComparisonValue(rule.value), ...patch }),
+            })} />
         </div>
       )}
     </div>

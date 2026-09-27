@@ -49,6 +49,7 @@ namespace Ascentix.RulesEngine.Schema
             public const string EffectiveFrom = "effectivefrom";
             public const string EffectiveTo = "effectiveto";
             public const string EvaluationContext = "evaluationcontext";
+            public const string EvaluationTimeZone = "evaluationtimezone"; // Windows time zone id for date comparisons; blank = UTC
             public const string RootTableConfig = "roottableconfig";       // lookup → tableconfig (root node of the rule's shareable tree)
             public const string TriggerColumns = "triggercolumns";        // JSON array of root-table column logical names that fire OnUpdate
             public const string PublishedRevision = "publishedrevision";
@@ -111,6 +112,7 @@ namespace Ascentix.RulesEngine.Schema
             public const string ComparisonValueNode = "comparisonvaluenode";   // lookup → tableconfig
             public const string ComparisonValueColumn = "comparisonvaluecolumn";
             public const string ConditionExpression = "conditionexpression";   // Expression condition: LHS mathexpr
+            public const string ExpressionFilters = "expressionfilters";         // Expression condition: aggregate filters map (JSON)
         }
 
         public static class SearchCriteriaGroup

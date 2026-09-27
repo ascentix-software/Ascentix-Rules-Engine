@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Metadata;
 using Ascentix.RulesEngine.Core.Actions;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
@@ -22,6 +23,7 @@ namespace Ascentix.RulesEngine.Core.Validation
                 if (c.ConditionType == ConditionType.Expression)
                 {
                     CheckExpressionCondition(c, model, issues);
+                    CheckExpressionConditionFilters(c, model, metadata, issues);
                     continue;
                 }
 
@@ -86,18 +88,29 @@ namespace Ascentix.RulesEngine.Core.Validation
                     continue;
                 }
 
+                AttributeFlags flags = null;
                 if (targetTable != null && !string.IsNullOrWhiteSpace(crit.FieldName))
                 {
-                    var flags = metadata.GetFlags(targetTable, crit.FieldName);
+                    flags = metadata.GetFlags(targetTable, crit.FieldName);
                     if (flags == null)
                         issues.Add(ValidationIssue.Error("META_FILTER_COLUMN_NOT_FOUND",
                             $"Filter column '{crit.FieldName}' does not exist on '{targetTable}'.", target));
-                    else if (TryMapFilterOperator(crit.Operator, out var op)
+                    // A DateExpression value skips the generic ordering-operator/type check:
+                    // CheckFilterDateExpression below owns the date-column requirement with a
+                    // clearer, date-specific message, and running both would double-report the
+                    // same non-date column under META_FILTER_OPERATOR_TYPE_MISMATCH.
+                    else if (crit.ValueSource != ComparisonValueSource.DateExpression
+                             && TryMapFilterOperator(crit.Operator, out var op)
                              && IsOrderingOperator(op)
                              && !ComparisonOperatorSupport.IsAllowed(flags.Type, op))
                         issues.Add(ValidationIssue.Error("META_FILTER_OPERATOR_TYPE_MISMATCH",
                             $"Filter operator '{crit.Operator}' is not valid for column type '{flags.Type}'.", target));
                 }
+                // "null"/"not-null" consult no date value, mirroring StructuralChecks' valueless
+                // guard on STRUCT_INVALID_DATEEXPR.
+                if (crit.ValueSource == ComparisonValueSource.DateExpression
+                    && crit.Operator != "null" && crit.Operator != "not-null")
+                    CheckFilterDateExpression(crit, targetTable, flags, metadata, model, target, issues);
                 if (crit.ValueSource == ComparisonValueSource.FieldReference && crit.ComparisonValueNodeId.HasValue)
                 {
                     var vt = TableForNode(model, crit.ComparisonValueNodeId.Value);
@@ -107,6 +120,54 @@ namespace Ascentix.RulesEngine.Core.Validation
                             $"Filter value column '{crit.ComparisonValueColumn}' does not exist on '{vt}'.", target));
                 }
             }
+        }
+
+        // A filter date expression compares a date column with anchor ± interval. The compared
+        // column must be a date; a field anchor must name a date column on the filtered row (no
+        // node) or on a single-cardinality node. A payload that does not parse is
+        // StructuralChecks' STRUCT_INVALID_DATEEXPR.
+        private static void CheckFilterDateExpression(NodeFilterCriterion crit, string targetTable, AttributeFlags flags,
+            IAttributeFlagsProvider metadata, RuleForValidation model, IssueTarget target, List<ValidationIssue> issues)
+        {
+            if (flags != null && flags.Type != AttributeTypeCode.DateTime)
+                issues.Add(ValidationIssue.Error("META_FILTER_OPERATOR_TYPE_MISMATCH",
+                    $"A date expression can only be compared with a date column; '{crit.FieldName}' is '{flags.Type}'.", target));
+
+            if (!DateExprSpec.TryParse(crit.Value, out var spec) || spec.AnchorKind != "field") return;
+
+            string anchorTable;
+            if (spec.AnchorNode.HasValue)
+            {
+                // TraversalChecks has no walk over filter payloads (node filters, EXISTS sub-filters,
+                // aggregate filters), so the anchor's existence is reported here, the one check
+                // every one of those surfaces reaches.
+                if (!model.Configs.Contains(spec.AnchorNode.Value))
+                {
+                    issues.Add(ValidationIssue.Error("TRAV_NODE_NOT_FOUND",
+                        "Filter date expression anchor node does not exist in the configuration.", target));
+                    return;
+                }
+                if (!model.Configs.TrySingleCardinality(spec.AnchorNode.Value))
+                {
+                    issues.Add(ValidationIssue.Error("TRAV_NOT_SINGLE_CARDINALITY",
+                        "A filter date expression anchor must be on a single-cardinality node.", target));
+                    return;
+                }
+                anchorTable = TableForNode(model, spec.AnchorNode.Value);
+            }
+            else
+            {
+                anchorTable = targetTable;
+            }
+            if (anchorTable == null) return;
+
+            var anchorFlags = metadata.GetFlags(anchorTable, spec.AnchorColumn);
+            if (anchorFlags == null)
+                issues.Add(ValidationIssue.Error("META_FILTER_VALUE_COLUMN_NOT_FOUND",
+                    $"Date expression anchor column '{spec.AnchorColumn}' does not exist on '{anchorTable}'.", target));
+            else if (anchorFlags.Type != AttributeTypeCode.DateTime)
+                issues.Add(ValidationIssue.Error("META_FILTER_OPERATOR_TYPE_MISMATCH",
+                    $"Date expression anchor column '{spec.AnchorColumn}' is not a date column.", target));
         }
 
         // An Exists criterion has no scalar column/operator of its own. Instead its SubFilter is
@@ -166,52 +227,62 @@ namespace Ascentix.RulesEngine.Core.Validation
                 try { ast = MathExpr.Parse(entry.Expression, $"asx_fieldmapping mathexpr for target '{entry.Target}'"); }
                 catch (InvalidPluginExecutionException) { continue; } // structural layer owns the parse error
 
-                var aggregatesByKey = MathExpr.AggregateNodes(ast)
-                    .Where(ag => ag.FilterKey != null)
-                    .GroupBy(ag => ag.FilterKey)
-                    .ToDictionary(g => g.Key, g => g.ToList());
+                CheckAggregateFilterMap(model, ast, entry.Filters, target, metadata, issues);
+            }
+        }
 
-                foreach (var kvp in entry.Filters)
+        // The aggregate-filter checks shared by field-mapping mathexpr entries and Calculation
+        // conditions: every filter key's criteria are validated against each aggregate table that
+        // uses it, with table-independent checks run once per key (see the comments inside).
+        private static void CheckAggregateFilterMap(RuleForValidation model, MathExprNode ast,
+            IReadOnlyDictionary<string, NodeFilterGroup> filters, IssueTarget target,
+            IAttributeFlagsProvider metadata, List<ValidationIssue> issues)
+        {
+            var aggregatesByKey = MathExpr.AggregateNodes(ast)
+                .Where(ag => ag.FilterKey != null)
+                .GroupBy(ag => ag.FilterKey)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            foreach (var kvp in filters)
+            {
+                // Orphan/missing filter keys are already rejected by FieldMappingParser.Parse
+                // (caught above); this guard is defensive only.
+                if (!aggregatesByKey.TryGetValue(kvp.Key, out var aggs)) continue;
+
+                var flatGroups = FlattenFilterGroups(new[] { kvp.Value }).ToList();
+
+                // Value-node cardinality, Exists collection-node validity, and Exists-criterion
+                // checks (count-range + recursive sub-filter, via CheckAggregateFilterExistsCriteria)
+                // depend only on the filter group + model, not on which aggregate/table is being
+                // checked, so run them once per filter key, not once per distinct table, or a filter
+                // key shared across aggregates on different tables would emit the same issue once
+                // per table.
+                foreach (var flatGroup in flatGroups)
                 {
-                    // Orphan/missing filter keys are already rejected by FieldMappingParser.Parse
-                    // (caught above); this guard is defensive only.
-                    if (!aggregatesByKey.TryGetValue(kvp.Key, out var aggs)) continue;
+                    CheckAggregateFilterValueNodeCardinality(model, flatGroup, target, issues);
+                    CheckAggregateFilterExistsCollectionNodes(model, flatGroup, target, issues);
+                    CheckAggregateFilterExistsCriteria(model, flatGroup, metadata, target, issues);
+                }
 
-                    var flatGroups = FlattenFilterGroups(new[] { kvp.Value }).ToList();
+                // A single filter key may be shared by multiple aggregates (e.g.
+                // sum(node:A.col filter:f1) + sum(node:B.col filter:f1)). At eval time the
+                // same filter group is applied independently to each aggregate's node rows,
+                // so every referencing aggregate's node table must be validated, not just
+                // the first. Dedupe by (table, filter-group) so the common single-aggregate
+                // case doesn't produce duplicate issues. CheckFilterCriteria's Comparison-criteria
+                // checks ARE table-dependent (checks columns/operators against aggTable), so they
+                // stay in this loop; skipExists suppresses its Exists handling, which was hoisted
+                // above.
+                var checkedTables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var agg in aggs)
+                {
+                    var aggTable = TableForNode(model, agg.Node);
+                    if (aggTable == null) continue; // traversal layer owns a missing/invalid aggregate node
+                    if (!checkedTables.Add(aggTable)) continue; // already validated this table for this filter
 
-                    // Value-node cardinality, Exists collection-node validity, and Exists-criterion
-                    // checks (count-range + recursive sub-filter, via CheckAggregateFilterExistsCriteria)
-                    // depend only on the filter group + model, not on which aggregate/table is being
-                    // checked, so run them once per filter key, not once per distinct table, or a filter
-                    // key shared across aggregates on different tables would emit the same issue once
-                    // per table.
                     foreach (var flatGroup in flatGroups)
                     {
-                        CheckAggregateFilterValueNodeCardinality(model, flatGroup, target, issues);
-                        CheckAggregateFilterExistsCollectionNodes(model, flatGroup, target, issues);
-                        CheckAggregateFilterExistsCriteria(model, flatGroup, metadata, target, issues);
-                    }
-
-                    // A single filter key may be shared by multiple aggregates (e.g.
-                    // sum(node:A.col filter:f1) + sum(node:B.col filter:f1)). At eval time the
-                    // same filter group is applied independently to each aggregate's node rows,
-                    // so every referencing aggregate's node table must be validated, not just
-                    // the first. Dedupe by (table, filter-group) so the common single-aggregate
-                    // case doesn't produce duplicate issues. CheckFilterCriteria's Comparison-criteria
-                    // checks ARE table-dependent (checks columns/operators against aggTable), so they
-                    // stay in this loop; skipExists suppresses its Exists handling, which was hoisted
-                    // above.
-                    var checkedTables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var agg in aggs)
-                    {
-                        var aggTable = TableForNode(model, agg.Node);
-                        if (aggTable == null) continue; // traversal layer owns a missing/invalid aggregate node
-                        if (!checkedTables.Add(aggTable)) continue; // already validated this table for this filter
-
-                        foreach (var flatGroup in flatGroups)
-                        {
-                            CheckFilterCriteria(flatGroup, aggTable, metadata, model, target, issues, skipExists: true);
-                        }
+                        CheckFilterCriteria(flatGroup, aggTable, metadata, model, target, issues, skipExists: true);
                     }
                 }
             }
@@ -375,6 +446,24 @@ namespace Ascentix.RulesEngine.Core.Validation
                         $"Aggregate targets node '{node.TableLogicalName}' which is not a many-cardinality (child) collection.",
                         IssueTarget.Condition(c.Id, "Expression")));
             }
+        }
+
+        // A Calculation condition's own filter:<key> map (asx_expressionfilters), reusing the
+        // same shared CheckAggregateFilterMap as field-mapping mathexpr entries. Parse errors are
+        // StructuralChecks' concern (STRUCT_INVALID_EXPRESSION_FILTERS / STRUCT_EXPR_FILTER_MISSING).
+        private static void CheckExpressionConditionFilters(RuleCondition c, RuleForValidation model,
+            IAttributeFlagsProvider metadata, List<ValidationIssue> issues)
+        {
+            if (string.IsNullOrWhiteSpace(c.Expression) || string.IsNullOrWhiteSpace(c.ExpressionFilters)) return;
+            MathExprNode ast;
+            Dictionary<string, NodeFilterGroup> filters;
+            try
+            {
+                ast = MathExpr.Parse(c.Expression, "Expression");
+                filters = AggregateFilterParser.ParseJson(c.ExpressionFilters, "Expression filters");
+            }
+            catch (InvalidPluginExecutionException) { return; } // StructuralChecks reports parse errors
+            CheckAggregateFilterMap(model, ast, filters, IssueTarget.Condition(c.Id, "ExpressionFilters"), metadata, issues);
         }
 
         private static IEnumerable<AggregateNode> ExtractAggregateNodes(MathExprNode ast)

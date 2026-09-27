@@ -58,6 +58,26 @@ namespace Ascentix.RulesEngine.Core.Execution
             return ParseFrom(root, "Date expression");
         }
 
+        /// <summary>Non-throwing <see cref="Parse"/> for reference walks and validation: false when
+        /// the payload is empty or malformed (evaluation reports the real error).</summary>
+        internal static bool TryParse(string json, out DateExprSpec spec)
+        {
+            spec = default;
+            if (string.IsNullOrWhiteSpace(json)) return false;
+            try { spec = Parse(json); return true; }
+            catch (InvalidPluginExecutionException) { return false; }
+        }
+
+        /// <summary>The node a field-anchored payload reads, when it names one. False for "now",
+        /// row/root anchors, and payloads that do not parse.</summary>
+        internal static bool TryGetAnchorNode(string json, out Guid node)
+        {
+            node = Guid.Empty;
+            if (!TryParse(json, out var spec) || spec.AnchorKind != "field" || !spec.AnchorNode.HasValue) return false;
+            node = spec.AnchorNode.Value;
+            return true;
+        }
+
         /// <summary>Parses an already-loaded XElement fragment (the dateexpr sub-object of one
         /// asx_fieldmapping entry). Shared with <see cref="Parse"/> so both call sites validate
         /// the same shape identically; errorContext is prepended to every failure message.</summary>

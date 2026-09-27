@@ -35,10 +35,12 @@ namespace Ascentix.RulesEngine.Plugin
             if (model == null)
                 throw new InvalidPluginExecutionException($"asx_ValidateRule: rule '{ruleId}' was not found.");
 
-            var report = RuleValidator.Validate(model, new AttributeFlagsProvider(service));
+            var metadata = new AttributeFlagsProvider(service);
+            var report = RuleValidator.Validate(model, metadata);
 
-            // TRAV_PUSHDOWN advisory (non-blocking): criteria that can't filter server-side.
-            var pushdownIssues = PushdownChecks.Check(model);
+            // TRAV_PUSHDOWN advisory (non-blocking): criteria that can't filter server-side,
+            // judged with the column behaviors the runtime planner reads.
+            var pushdownIssues = PushdownChecks.Check(model, metadata);
             var combined = ValidationReport.From(report.Issues.Concat(pushdownIssues));
 
             context.OutputParameters["IsValid"] = combined.IsValid;

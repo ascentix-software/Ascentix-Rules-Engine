@@ -26,6 +26,11 @@ namespace Ascentix.RulesEngine.Core.Validation
             if (activeActions.Count == 0)
                 issues.Add(ValidationIssue.Error("STRUCT_NO_ACTIONS", "Rule has no active actions.", IssueTarget.Rule(model.RuleId)));
 
+            var zone = EvaluationZone.SettingOf(model.RuleEntity);
+            if (!EvaluationZone.TryResolve(zone, out _))
+                issues.Add(ValidationIssue.Error("STRUCT_INVALID_TIMEZONE",
+                    $"The rule's time zone '{zone}' is not a known time zone.", IssueTarget.Rule(model.RuleId)));
+
             CheckRowCountAtCreate(model, issues);
 
             foreach (var g in model.AllGroups())
@@ -99,11 +104,30 @@ namespace Ascentix.RulesEngine.Core.Validation
                     if (string.IsNullOrWhiteSpace(crit.Operator))
                         issues.Add(ValidationIssue.Error("STRUCT_MISSING_FIELD",
                             "Filter comparison criterion requires an operator.", target));
+
+                    var valueless = crit.Operator == "null" || crit.Operator == "not-null";
+                    if (crit.ValueSource == ComparisonValueSource.DateExpression && !valueless)
+                    {
+                        if (!DateExprSpec.TryParse(crit.Value, out var spec))
+                            issues.Add(ValidationIssue.Error("STRUCT_INVALID_DATEEXPR",
+                                "Filter date expression is missing or malformed.", target));
+                        else if (!AppliesWithinCalendar(spec))
+                            issues.Add(ValidationIssue.Error("STRUCT_INVALID_DATEEXPR",
+                                $"Filter date expression interval ({spec.Amount} {spec.Unit}) is out of the supported date range.", target));
+                    }
                 }
             }
 
             foreach (var child in group.ChildGroups ?? Enumerable.Empty<NodeFilterGroup>())
                 CheckFilterGroup(child, target, issues, insideExistsSubFilter);
+        }
+
+        // An interval so large that applying it to now leaves DateTime's range would throw at
+        // evaluation (and in the pushdown planner), failing every save; report it at publish.
+        private static bool AppliesWithinCalendar(DateExprSpec spec)
+        {
+            try { DateMath.Apply(DateTime.UtcNow, spec.Op, spec.Amount, spec.Unit); return true; }
+            catch (ArgumentOutOfRangeException) { return false; }
         }
 
         // Aggregate filters (a mathexpr field-mapping entry's `filters` map) have no owning
@@ -201,15 +225,23 @@ namespace Ascentix.RulesEngine.Core.Validation
                         try
                         {
                             var ast = MathExpr.Parse(c.Expression, "Expression");
-                            if (MathExpr.AggregateNodes(ast).Any(a => !string.IsNullOrEmpty(a.FilterKey)))
+                            var filterKeys = MathExpr.AggregateNodes(ast)
+                                .Select(a => a.FilterKey).Where(k => !string.IsNullOrEmpty(k)).Distinct().ToList();
+                            Dictionary<string, NodeFilterGroup> filters = null;
+                            try { filters = AggregateFilterParser.ParseJson(c.ExpressionFilters, "Expression filters"); }
+                            catch (InvalidPluginExecutionException)
                             {
-                                // Aggregate filters (filter:<key>) resolve against a field-mapping's
-                                // filters sidecar. Condition Expressions have no such map -
-                                // ConditionEvaluator calls the no-filters TryEvaluate overload, so this
-                                // would throw at runtime every time. Flag it here instead.
-                                issues.Add(ValidationIssue.Error("STRUCT_EXPR_FILTER_UNSUPPORTED",
-                                    "Aggregate filters (filter:<key>) are only supported in field mappings, not in condition expressions.",
-                                    IssueTarget.Condition(c.Id, "Expression")));
+                                issues.Add(ValidationIssue.Error("STRUCT_INVALID_EXPRESSION_FILTERS",
+                                    "Expression filters are not valid.", IssueTarget.Condition(c.Id, "ExpressionFilters")));
+                            }
+                            if (filters != null)
+                            {
+                                foreach (var key in filterKeys.Where(k => !filters.ContainsKey(k)))
+                                    issues.Add(ValidationIssue.Error("STRUCT_EXPR_FILTER_MISSING",
+                                        $"The expression uses filter '{key}', which is not defined.",
+                                        IssueTarget.Condition(c.Id, "ExpressionFilters")));
+                                foreach (var group in filters.Values)
+                                    CheckFilterGroup(group, IssueTarget.Condition(c.Id, "ExpressionFilters"), issues, insideExistsSubFilter: false);
                             }
                         }
                         catch (InvalidPluginExecutionException)

@@ -43,7 +43,7 @@ button appears at the end of the band to bring it up as an overlay.
 
 > The properties inspector also exposes settings that don't fit in the
 > resting band: **Fire on change of these columns** (trigger columns),
-> **Effective from** / **Effective to**, and **Evaluation context**. See
+> **Effective from** / **Effective to**, **Evaluation context**, and **Time zone for dates**. See
 > *Creating a New Rule* for trigger columns and *Evaluation Context* for
 > what evaluation context controls.
 

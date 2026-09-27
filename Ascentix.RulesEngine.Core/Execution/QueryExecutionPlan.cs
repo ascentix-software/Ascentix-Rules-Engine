@@ -16,7 +16,12 @@ namespace Ascentix.RulesEngine.Core.Execution
         /// <summary>Cache-variant identity (PushedFilter.CanonicalKey()).</summary>
         public string Key { get; set; }
 
-        /// <summary>The pushed predicate as a FetchXML &lt;filter&gt; fragment
+        /// <summary>The pushed predicate. When it holds date placeholders
+        /// (<see cref="PushedFilter.HasBindings"/>) the executor binds and serializes it per root,
+        /// and <see cref="FilterFetchXml"/> is null.</summary>
+        public PushedFilter Filter { get; set; }
+
+        /// <summary>The pushed predicate as a FetchXML &lt;filter&gt; fragment when it has no date placeholders
         /// (PushedFilter.ToFetchXml()), nested inside the fetch's link filter.</summary>
         public string FilterFetchXml { get; set; }
     }

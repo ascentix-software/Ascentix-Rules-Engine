@@ -1,9 +1,11 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
+using Ascentix.RulesEngine.Core.Resolution;
 
 namespace Ascentix.RulesEngine.Core.Engine
 {
@@ -30,6 +32,22 @@ namespace Ascentix.RulesEngine.Core.Engine
             int languageId,
             RootBuildMode buildMode,
             ITracingService trace)
+            => Run(systemService, userService, logicalName, inputs, trigger, channel, languageId, buildMode, trace,
+                DateTime.UtcNow);
+
+        /// <summary>Evaluates every bucket at <paramref name="utcNow"/>, so all rules in one run
+        /// agree on "now" (date expressions, pushed date literals).</summary>
+        internal RuleEvaluationOutcome Run(
+            IOrganizationService systemService,
+            IOrganizationService userService,
+            string logicalName,
+            IList<RootInput> inputs,
+            RuleTrigger trigger,
+            RuleChannel channel,
+            int languageId,
+            RootBuildMode buildMode,
+            ITracingService trace,
+            DateTime utcNow)
         {
             var diag = new RunDiagnostics();
             var overall = Stopwatch.StartNew();
@@ -37,12 +55,19 @@ namespace Ascentix.RulesEngine.Core.Engine
             var fired = new List<FiredActionResult>[inputs.Count];
             for (var i = 0; i < inputs.Count; i++) fired[i] = new List<FiredActionResult>();
 
+            // Table metadata (column types, option labels, date behaviors) is the same for every
+            // bucket, and RuleBuckets makes one bucket per published revision: one provider per run
+            // keeps it at one RetrieveEntity per table, however many rules compare dates. It reads
+            // through systemService (a revision's configuration service passes metadata requests
+            // straight through to it).
+            var metadata = new AttributeMetadataProvider(systemService);
+
             foreach (var bucket in RuleBuckets.Load(systemService, logicalName, trigger, channel, diag, trace))
             {
                 var traversalService = bucket.Context == RuleEvaluationContext.User ? userService : systemService;
                 var input = EvaluationGatherer.ForBucket(
                     bucket.ConfigurationService ?? systemService, traversalService, logicalName, inputs, buildMode, trigger, languageId,
-                    bucket.Rules, bucket.Context, diag);
+                    bucket.Rules, bucket.Context, utcNow, diag, metadata);
                 var verdict = BucketEvaluator.Evaluate(input, trace, diag);
                 for (var k = 0; k < input.Records.Count; k++)
                     fired[input.Records[k].Index].AddRange(verdict.FiredByRecord[k]);

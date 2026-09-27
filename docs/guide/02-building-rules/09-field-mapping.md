@@ -167,7 +167,12 @@ Criteria support the same operators as condition filters:
 
 A criterion compares against a **literal value** or **reads from another
 record** (for example, a line's amount against the order's maximum
-threshold). The filter's **Add** menu also offers a **Related-rows filter**,
+threshold). On a date column it can also compare against a **Date
+expression**: a point in time relative to when the rule runs ("now minus 30
+days") or to another date, such as the row's own estimated close date or the
+order's date plus a few days. A row whose anchor date is empty simply doesn't
+match. See *Filtering a Condition's Child Records* → *Comparison values*.
+The filter's **Add** menu also offers a **Related-rows filter**,
 the existence check that tests whether a *different* related collection has
 a matching count of rows: only sum lines whose order also has an expedited
 shipment, for instance. See *Filtering a Condition's Child Records* → *Has

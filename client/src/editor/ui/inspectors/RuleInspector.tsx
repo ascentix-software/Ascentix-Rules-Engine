@@ -1,6 +1,7 @@
 import { Dropdown, Option, Input, Field, Badge } from "@fluentui/react-components";
 import type { RuleHeader } from "../../model/types";
 import { TRIGGER_OPTIONS, CHANNEL_OPTIONS, EVALUATION_CONTEXT_OPTIONS, triggerLabel, channelLabel } from "../../model/enums";
+import { TIME_ZONE_OPTIONS, UTC_OPTION, timeZoneLabel } from "../../model/timeZones";
 import { MultiColumnPicker } from "../pickers/MetadataPickers";
 import { EffectiveWindowFields } from "./EffectiveWindowFields";
 
@@ -58,6 +59,19 @@ export function RuleInspector({
           selectedOptions={[String(rule.evaluationContext ?? 1)]}
           onOptionSelect={(_e, d) => onPatch({ evaluationContext: Number(d.optionValue) })}>
           {EVALUATION_CONTEXT_OPTIONS.map((o) => <Option key={o.value} value={String(o.value)}>{o.label}</Option>)}
+        </Dropdown>
+      </Field>
+
+      <Field label="Time zone for dates"
+        hint="Decides which day it is when a Date Only or Time Zone Independent column is compared. User Local dates are exact instants; a date without a time zone compared with one (such as 2026-09-01, or a Date Only anchor) is read in this zone.">
+        <Dropdown
+          value={timeZoneLabel(rule.evaluationTimeZone)}
+          selectedOptions={[rule.evaluationTimeZone || UTC_OPTION]}
+          onOptionSelect={(_e, d) => onPatch({ evaluationTimeZone: !d.optionValue || d.optionValue === UTC_OPTION ? null : d.optionValue })}>
+          {TIME_ZONE_OPTIONS.map((o) => <Option key={o.id || UTC_OPTION} value={o.id || UTC_OPTION}>{o.label}</Option>)}
+          {rule.evaluationTimeZone && !TIME_ZONE_OPTIONS.some((o) => o.id === rule.evaluationTimeZone) && (
+            <Option value={rule.evaluationTimeZone}>{rule.evaluationTimeZone}</Option>
+          )}
         </Dropdown>
       </Field>
     </div>

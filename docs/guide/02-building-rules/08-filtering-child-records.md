@@ -54,7 +54,7 @@ conditions:
 
 The editor only offers operators that make sense for the column's data type.
 
-## Comparison values: literal or field reference
+## Comparison values
 
 Each criterion's comparison value can be:
 
@@ -62,6 +62,28 @@ Each criterion's comparison value can be:
 - **Field reference**: read from a related record's column through a
   lookup-chain or single-record reference. For example, compare a line item's
   date against the order's due date.
+
+For a date column you can also choose **Date expression**: a point in time relative to when the
+rule runs ("now minus 90 days"), or to another date ("the row's estimated close date plus 2
+days"). A date on the row itself is read from each row being filtered. If that date is empty on a
+row, the row simply doesn't match. The same applies when the date comes from a related record that is missing or has no date. For a window such as "in the next 120 days", add two
+conditions: on or after now, and on or before now plus 120 days.
+
+A date comparison (Equals, Not Equals, and the before/after operators) with a literal date or
+a date expression based on when the rule runs, or on a date of the rule's own record or a
+record it looks up, is applied in the Dataverse query. A date expression based on a date on the
+same row is applied after the rows are loaded.
+
+### Which day it is
+
+Date columns come in three kinds. **User Local** dates are exact moments, compared exactly.
+**Date Only** dates are calendar dates: "on or after yesterday" means any time yesterday.
+**Time Zone Independent** dates are clock times with no time zone. To compare those two kinds
+with "when the rule runs", the rule needs to know which day and which clock time it is: set
+**Time zone for dates** in the rule's properties. The default is UTC, so a rule used in Eastern
+Canada moves to the next day at 8 pm (7 pm in winter) unless its time zone is set. The same
+setting reads a date without a time zone against a User Local column: "Created On on or after
+2026-09-01", or a Date Only anchor date, means midnight in the rule's time zone.
 
 ## Examples
 
