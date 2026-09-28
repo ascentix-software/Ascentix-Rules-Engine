@@ -288,7 +288,7 @@ User-owned. One row per **Run now** execution of an On demand rule, created by t
 | `asx_changed` | Integer (min 0) | Running total of records with at least one write applied |
 | `asx_blocked` | Integer (min 0) | Running total of records that fired a Block action |
 | `asx_failed` | Integer (min 0) | Running total of records that errored |
-| `asx_skipped` | Integer (min 0) | Running total of records that did not pass the execution conditions (All records scope only) |
+| `asx_skipped` | Integer (min 0) | Running total of records that did not pass the execution conditions |
 | `asx_failures` | Memo (100,000) | JSON array of the first 50 `{recordId, kind: "Blocked"\|"Failed", message}` |
 | `asx_bookmark` | Memo (20,000) | Paging cookie and page number (All records), or the next index (Given records) |
 | `asx_ruleversions` | Memo (4,000) | JSON array of the published revision ids used across pages |
@@ -733,8 +733,8 @@ so every page starts fresh at plug-in depth 1.
 | Parameter | Type | Optional | Notes |
 |---|---|---|---|
 | `RunId` | Guid | No | The Rule Run to process |
-| `FailedRecordId` | Guid | Yes | Optional; behavior defined by the run-page processor |
-| `FailedMessage` | String | Yes | Optional; behavior defined by the run-page processor |
+| `FailedRecordId` | Guid | Yes | The record named by the previous call's `record-failed` error (see **Failed writes**): counted Failed once and skipped while the page is re-processed |
+| `FailedMessage` | String | Yes | The message from that error, stored in `asx_failures`; default `"The write failed."` |
 
 ### Response parameters
 
@@ -753,17 +753,30 @@ so every page starts fresh at plug-in depth 1.
 - If the run is not Queued or Running (already terminal), returns `Done = true` with the current
   status and does nothing.
 - **Page budget:** stops after 500 records or 90 seconds of processing, whichever comes first.
-- **Record selection:** an **All records** run pushes down execution-condition filters via
-  FetchXML (the existing pushdown rules), ordered by primary id and paged with a stored cookie; a
-  record that doesn't pass the in-memory execution-condition check counts as Skipped. A **Given
-  records** run walks the stored ids in order from the bookmark index; a missing record counts as
-  Failed.
-- **Per record:** the same evaluation as `asx_ApplyRules`. A Block counts Blocked (no writes); an
-  exception counts Failed and the page carries on; all writes for a record run as one
-  `ExecuteTransactionRequest` (commit or roll back together) — at least one write counts Changed,
-  none counts Evaluated only.
+- **Record selection:** an **All records** run reads the rule's table ordered by primary id, a page
+  at a time, with the page number, paging cookie and offset kept in the bookmark. A **Given
+  records** run walks the stored ids in order from the bookmark index. Records are evaluated in
+  chunks of 100; a record that no longer exists counts as Failed (`"Record not found."`).
+- **Per record:** the same evaluation as `asx_ApplyRules`. A record that doesn't pass the rule's
+  execution conditions counts Skipped; a Block counts Blocked (no writes, recorded in
+  `asx_failures`); otherwise its writes are applied — at least one write counts Changed, none
+  counts Evaluated only.
+- **Failed writes:** a write that throws fails the whole call with
+  `asx_ProcessRunPage:record-failed:<record guid>:<message>`, so the platform rolls the page back
+  (no writes and no run update from that call are kept). The caller then calls again with
+  `FailedRecordId = <record guid>` and `FailedMessage = <message>`: the record is counted Evaluated
+  and Failed once, added to the bookmark's skip list, and the same page is re-processed without
+  it. A repeated report of a record already in the skip list is not counted again.
+- **Safety stop:** after 100 records, if every record so far failed, the run is set to Failed.
+- **Rule no longer runnable:** if the rule is no longer published with the On demand trigger, the
+  run is set to Failed with the failure `"The rule is no longer published with the On demand
+  trigger."`.
+- **Completion:** when the last page is consumed the run is Completed, or Completed with failures
+  if anything was Blocked or Failed, and `asx_finishedon` is set.
 - **After each page:** saves the counts, the bookmark, `asx_lastpageon`, the rule versions used
-  (`asx_ruleversions`), and the first 50 failures (`asx_failures`).
+  (`asx_ruleversions`), and the first 50 failures (`asx_failures`). A Queued run becomes Running
+  on its first page. If the run was Cancelled while the page ran, the counts are saved but the
+  status stays Cancelled and `Done` is true.
 - **Evaluation context:** User-context rules run as the caller (the driver's identity); System-
   context rules run as the system service.
 
