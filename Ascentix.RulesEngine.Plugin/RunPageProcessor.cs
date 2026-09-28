@@ -97,20 +97,21 @@ namespace Ascentix.RulesEngine.Plugin
         public RunPageResult Process(Guid runId, Guid? failedRecordId, string failedMessage)
         {
             var start = _utcNow();
-            var run = _system.Retrieve(Q(SchemaNames.RuleRun.Entity), runId, new ColumnSet(true));
-            var row = new RunRow
-            {
-                Status = (RuleRunStatus)(run.GetAttributeValue<OptionSetValue>(Q(SchemaNames.RuleRun.Status))?.Value ?? (int)RuleRunStatus.Queued),
-                Evaluated = run.GetAttributeValue<int>(Q(SchemaNames.RuleRun.Evaluated)),
-                Changed = run.GetAttributeValue<int>(Q(SchemaNames.RuleRun.Changed)),
-                Blocked = run.GetAttributeValue<int>(Q(SchemaNames.RuleRun.Blocked)),
-                Failed = run.GetAttributeValue<int>(Q(SchemaNames.RuleRun.Failed)),
-                Skipped = run.GetAttributeValue<int>(Q(SchemaNames.RuleRun.Skipped)),
-            };
+            var entity = Q(SchemaNames.RuleRun.Entity);
+            var run = _system.Retrieve(entity, runId, new ColumnSet(true));
+            var row = Load(run);
 
             // A terminal run (completed, failed or cancelled) is reported as it stands.
-            if (row.Status != RuleRunStatus.Queued && row.Status != RuleRunStatus.Running)
-                return row.ToResult(done: true);
+            if (!IsActive(row.Status)) return row.ToResult(done: true);
+
+            // Lock the run row before reading its state: the update's row lock holds until this
+            // page's transaction ends, so a second driver on the same run (another tab, a resumed
+            // dialog) waits here and then reads the state this page saved instead of re-running
+            // the same bookmark, and a cancel waits for the page rather than racing its save.
+            _system.Update(new Entity(entity, runId) { [Q(SchemaNames.RuleRun.LastPageOn)] = _utcNow() });
+            run = _system.Retrieve(entity, runId, new ColumnSet(true));
+            row = Load(run);
+            if (!IsActive(row.Status)) return row.ToResult(done: true);
 
             var ids = RunState.ParseRecordIds(run.GetAttributeValue<string>(Q(SchemaNames.RuleRun.RecordIds)));
             row.Bookmark = RunState.ParseBookmark(run.GetAttributeValue<string>(Q(SchemaNames.RuleRun.Bookmark)));
@@ -296,6 +297,19 @@ namespace Ascentix.RulesEngine.Plugin
         }
 
         private bool OverBudget(DateTime start) => _utcNow() - start >= _limits.Budget;
+
+        private static bool IsActive(RuleRunStatus status) =>
+            status == RuleRunStatus.Queued || status == RuleRunStatus.Running;
+
+        private static RunRow Load(Entity run) => new RunRow
+        {
+            Status = (RuleRunStatus)(run.GetAttributeValue<OptionSetValue>(Q(SchemaNames.RuleRun.Status))?.Value ?? (int)RuleRunStatus.Queued),
+            Evaluated = run.GetAttributeValue<int>(Q(SchemaNames.RuleRun.Evaluated)),
+            Changed = run.GetAttributeValue<int>(Q(SchemaNames.RuleRun.Changed)),
+            Blocked = run.GetAttributeValue<int>(Q(SchemaNames.RuleRun.Blocked)),
+            Failed = run.GetAttributeValue<int>(Q(SchemaNames.RuleRun.Failed)),
+            Skipped = run.GetAttributeValue<int>(Q(SchemaNames.RuleRun.Skipped)),
+        };
 
         // Failure messages are capped so 50 of them always fit asx_failures (Memo 100,000).
         private static RunFailure Failure(Guid recordId, string kind, string message) =>

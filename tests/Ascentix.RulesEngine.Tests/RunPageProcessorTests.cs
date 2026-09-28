@@ -695,6 +695,64 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void A_page_locks_the_run_row_with_an_update_before_reading_its_state()
+        {
+            // Two drivers on one run serialize on this update's row lock (it holds until the page's
+            // transaction ends), and a cancel waits for the page instead of racing its save.
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz3 });
+            var runEntity = Q(SchemaNames.RuleRun.Entity);
+            var calls = new List<string>();
+            Entity lockUpdate = null;
+            var proxy = new ProxyService(_service)
+            {
+                OnRetrieve = (entity, id, columns) => { if (entity == runEntity) calls.Add("Retrieve"); },
+                OnUpdate = entity =>
+                {
+                    if (entity.LogicalName != runEntity) return;
+                    calls.Add("Update");
+                    if (lockUpdate == null) lockUpdate = entity;
+                },
+                OnExecute = request =>
+                {
+                    if (request is RetrieveRequest r && r.Target.LogicalName == runEntity) calls.Add("Retrieve");
+                    if (request is UpdateRequest u && u.Target.LogicalName == runEntity) calls.Add("Update");
+                },
+            };
+
+            Processor(service: proxy).Process(runId, null, null);
+
+            Assert.True(calls.Count >= 3);
+            Assert.Equal("Retrieve", calls[0]);   // the status check
+            Assert.Equal("Update", calls[1]);     // the row lock, before the bookmark is read
+            Assert.Equal("Retrieve", calls[2]);   // the state the page works from
+            Assert.Equal(new[] { Q(SchemaNames.RuleRun.LastPageOn) }, lockUpdate.Attributes.Keys.ToArray());
+        }
+
+        [Fact]
+        public void A_run_that_finished_before_the_lock_is_reported_as_it_stands()
+        {
+            // Another driver completed the run between this call's status check and its lock.
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1 });
+            var runEntity = Q(SchemaNames.RuleRun.Entity);
+            var proxy = new ProxyService(_service)
+            {
+                OnUpdate = entity =>
+                {
+                    if (entity.LogicalName == runEntity && entity.Contains(Q(SchemaNames.RuleRun.LastPageOn))
+                        && !entity.Contains(Q(SchemaNames.RuleRun.Status)))
+                        _service.Update(new Entity(runEntity, runId) { [Q(SchemaNames.RuleRun.Status)] = new OptionSetValue((int)RuleRunStatus.Completed) });
+                },
+            };
+
+            var result = Processor(service: proxy).Process(runId, null, null);
+
+            Assert.True(result.Done);
+            Assert.Equal(RuleRunStatus.Completed, result.Status);
+            Assert.Equal(0, result.Evaluated);
+            Assert.Null(Description(_zz1));
+        }
+
+        [Fact]
         public void A_rule_unpublished_mid_run_fails_the_run()
         {
             var runId = SeedRun(OnDemandScope.AllRecords);
@@ -769,6 +827,7 @@ namespace Ascentix.RulesEngine.Tests
 
             public Action<OrganizationRequest> OnExecute { get; set; }
             public Action<string, Guid, ColumnSet> OnRetrieve { get; set; }
+            public Action<Entity> OnUpdate { get; set; }
 
             public OrganizationResponse Execute(OrganizationRequest request)
             {
@@ -783,7 +842,12 @@ namespace Ascentix.RulesEngine.Tests
             }
 
             public Guid Create(Entity entity) => _inner.Create(entity);
-            public void Update(Entity entity) => _inner.Update(entity);
+            public void Update(Entity entity)
+            {
+                OnUpdate?.Invoke(entity);
+                _inner.Update(entity);
+            }
+
             public void Delete(string entityName, Guid id) => _inner.Delete(entityName, id);
             public EntityCollection RetrieveMultiple(QueryBase query) => _inner.RetrieveMultiple(query);
             public void Associate(string entityName, Guid entityId, Relationship relationship, EntityReferenceCollection relatedEntities)
