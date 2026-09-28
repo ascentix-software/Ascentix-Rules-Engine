@@ -212,6 +212,7 @@ export interface ActionCfg {
   targetTable?: string; // CreateRecord: asx_targettable (logical name, singular)
   targetNodeId?: string; // Update/Delete: asx_TargetNode @odata.bind (single-cardinality node)
   fieldMapping?: string; // Create/Update: asx_fieldmapping JSON string
+  applyToPrevious?: boolean; // Update Record: asx_applytoprevious
 }
 
 export interface RuleConfig {
@@ -396,6 +397,7 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
         ...(a.severity ? { asx_severity: a.severity } : {}),
         ...(a.targetTable ? { asx_targettable: a.targetTable } : {}),
         ...(a.fieldMapping !== undefined ? { asx_fieldmapping: a.fieldMapping } : {}),
+        ...(a.applyToPrevious !== undefined ? { asx_applytoprevious: a.applyToPrevious } : {}),
         ...(a.targetNodeId
           ? { [`${BIND_NAV.actionTargetNode}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${a.targetNodeId})` }
           : {}),

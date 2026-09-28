@@ -94,3 +94,15 @@ currently-configured action will do.
 Create Record and Update Record actions replace the Message/Severity
 fields with a field mapping. See *Field Mapping* for how to map target
 columns to their values.
+
+### When the record moves to another parent
+
+A rule that runs on a record can update the record it points to, for example an opportunity's
+contact. When a save **changes** that lookup (the opportunity moves from Ana to Ben), the rule sees
+only the new contact. To keep the previous one up to date too, turn on **Also apply to the previous
+Contact when it changes** on the Update Record action. The rule then runs a second time for Ana in
+the same save, and only the actions with this option on are applied to her. Blocks and messages
+apply only to the record being saved. A record that both the new and the previous parent lead to
+(two orders under the same customer, say) is updated once, from the new one. If the action stops
+being one this option can apply to, the switch stays visible with a warning telling you to turn it
+off before publishing.

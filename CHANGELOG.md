@@ -28,6 +28,9 @@ only, so the version an administrator sees in their org can never carry the word
   `2026-09-01` means midnight in the rule's zone, and so does a Date Only or Time Zone
   Independent date used as a date expression's anchor. Default: UTC. An unknown zone is rejected
   at publish (`STRUCT_INVALID_TIMEZONE`).
+- **Also apply to the previous record.** When a save changes a lookup on the record (an opportunity
+  moves to another contact), an Update Record action can also be applied to the record the lookup
+  pointed to before, in the same save. New column `asx_ruleaction.asx_applytoprevious`.
 
 ### Changed
 
@@ -54,6 +57,8 @@ only, so the version an administrator sees in their org can never carry the word
 
 - A literal date filter without a time zone (e.g. `2026-09-01`) could drop rows for users
   outside UTC; it now matches the same rows for every user.
+- A record moved to another parent in the same save is no longer counted in its previous
+  parent's related rows.
 
 ## 0.0.0.1 (2026-08-28)
 
