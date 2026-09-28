@@ -27,7 +27,7 @@ establish that these additions are already installed in an environment.
 | `asx_severity` | Severity | Information = 1, Warning = 2, Error = 3 |
 | `asx_actiontype` | Action Type | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7 |
 | `asx_actionfireon` | Action Fire On | On Match = 1, On No Match = 2 |
-| `asx_triggers` | Triggers | On Create = 1, On Form = 2, Manual = 3, On Update = 4, On Delete = 5 (**multi-select**) |
+| `asx_triggers` | Triggers | On Create = 1, On Form = 2, On demand = 3, On Update = 4, On Delete = 5 (**multi-select**). Value 3 was labelled "Manual"; the stored value is unchanged and API trigger strings accept both `OnDemand` and the old `Manual` alias |
 | `asx_channel` | Channel | Standard = 1, Portal = 2 (**multi-select**). 3 "Application" was retired 2026-08-23; the engine reads a stored 3 as Standard |
 | `asx_comparisonvaluesource` | Comparison Value Source | Literal = 1, Field Reference = 2, Template = 3, Date Expression = 4 |
 | `asx_evaluationcontext` | Evaluation Context | User = 1, System = 2 |
@@ -64,6 +64,7 @@ prohibited after creation. Existing rules require no initialization operation.
 | Draft Base Version | `asx_draftbaseversion` | Integer | | Active publication version on which this draft is based |
 | Draft Stamp | `asx_draftstamp` | Text (36) | | Retired concurrency stamp; no longer advanced or checked |
 | Triggers | `asx_triggers` | MultiSelect → `asx_triggers` | ✔ | At least one (editor-enforced) |
+| Runs for | `asx_ondemandscope` | Choice (local) | | On demand only: **A record it's given** (1, default) or **All records that pass its execution conditions** (2). The Rule Builder shows it only when On demand is ticked; ignored for every other trigger and saved as the default when hidden |
 | Channels | `asx_channels` | MultiSelect → `asx_channel` | | Empty ⇒ applies on all channels; gates which origin channel (Standard/Portal) a rule fires on |
 | Effective From | `asx_effectivefrom` | DateTime (UTC) | | Not enforced before this; null ⇒ open start |
 | Effective To | `asx_effectiveto` | DateTime (UTC) | | Not enforced after this; null ⇒ open end |
@@ -269,6 +270,37 @@ The authoring workflow creates revisions on publication and deletes them with th
 
 Retired coordination table. The current runtime does not read, write, or acquire
 this lock; existing schema components do not affect authoring behavior.
+
+### 2.13 Rule Run (`asx_rulerun`)
+
+User-owned. One row per **Run now** execution of an On demand rule, created by the starter
+(hub / Rule Builder or a custom caller) and driven to completion by repeated calls to
+`asx_ProcessRunPage` (§7). Deleting the owning rule cascades and deletes its runs.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (200, primary) | `"<rule name> – <started on>"` |
+| `asx_rule` | Lookup → `asx_rule` | Required; delete cascade (deleting the rule deletes its runs) |
+| `asx_scope` | Choice (local) | Copied from the rule's `asx_ondemandscope` at start: **Given records** (1) / **All records** (2) |
+| `asx_recordids` | Memo (20,000) | JSON array of Guids; given-records runs only; at most 250 |
+| `asx_status` | Choice (local) | Queued (1), Running (2), Completed (3), Completed with failures (4), Failed (5), Cancelled (6) |
+| `asx_evaluated` | Integer (min 0) | Running total of records evaluated |
+| `asx_changed` | Integer (min 0) | Running total of records with at least one write applied |
+| `asx_blocked` | Integer (min 0) | Running total of records that fired a Block action |
+| `asx_failed` | Integer (min 0) | Running total of records that errored |
+| `asx_skipped` | Integer (min 0) | Running total of records that did not pass the execution conditions (All records scope only) |
+| `asx_failures` | Memo (100,000) | JSON array of the first 50 `{recordId, kind: "Blocked"\|"Failed", message}` |
+| `asx_bookmark` | Memo (20,000) | Paging cookie and page number (All records), or the next index (Given records) |
+| `asx_ruleversions` | Memo (4,000) | JSON array of the published revision ids used across pages |
+| `asx_startedon` | DateTime (UserLocal) | Set when the run is created |
+| `asx_lastpageon` | DateTime (UserLocal) | Set after each processed page |
+| `asx_finishedon` | DateTime (UserLocal) | Set when the run reaches a terminal status |
+
+**Lifecycle:** a synchronous pre-operation plug-in (`Ascentix.RulesEngine.Plugin.RuleRunPlugin`)
+on Create sets the status to Queued, copies the Scope, validates it (the rule is Published with
+On demand; Record ids exist for a given scope and have at most 250 entries), and refuses the
+create if the same rule already has a Queued or Running run. See the design spec for the full
+per-page state machine.
 
 ## 3. `asx_RunRules` Custom API
 
@@ -646,7 +678,98 @@ contract is in `docs/deployment/published-rule-revisions.md`.
 
 ---
 
-## 6. `asx_SyncSteps` Custom API
+## 6. `asx_ApplyRules` Custom API
+
+An **unbound (global) Dataverse Custom API Action** (`IsFunction = false`) that evaluates one
+**On demand** rule against one persisted record and, unlike `asx_RunRules`, **enforces** the
+result: a fired Block throws, and every other fired write action runs inside the call's own
+transaction.
+
+**Registration:** bound to plugin type `Ascentix.RulesEngine.Plugin.ApplyRulesApi`;
+`ExecutePrivilegeName = prvCreateasx_rulerun` (the same gate as starting a Rule Run). No
+additional custom processing steps. In the `AscentixRulesEngine` solution.
+
+### Request parameters
+
+| Parameter | Type | Optional | Notes |
+|---|---|---|---|
+| `RuleId` | Guid | No | The On demand rule to evaluate; must be Published with the On demand trigger |
+| `RecordId` | Guid | No | A persisted record of the rule's table |
+
+### Response parameters
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `IsValid` | Boolean | True when no Block action fired |
+| `Results` | String | JSON array of every fired action, in the `asx_RunRules` Results shape (§3) |
+| `WriteCount` | Integer | Number of write actions applied |
+
+### Semantics
+
+- Uses the RetrieveOnly root build (the persisted record, no overlay) and trigger `OnDemand`;
+  channel restrictions are ignored (on-demand runs have no channel).
+- A fired Block throws `InvalidPluginExecutionException` with the rendered block message and
+  applies no writes.
+- Otherwise every write intent runs inside the call's own transaction (synchronous, main
+  operation). A root-targeted Update becomes a real, engine-tagged `Update` of the record rather
+  than an in-flight `Target` change.
+- Allowed for a rule with either **Runs for** value (§2.1); `asx_ondemandscope` only affects how
+  `asx_ProcessRunPage` selects records for a Rule Run, not `asx_ApplyRules`.
+
+---
+
+## 7. `asx_ProcessRunPage` Custom API
+
+An **unbound (global) Dataverse Custom API Action** (`IsFunction = false`) that processes the
+next page of an existing Rule Run (§2.13), driven from **outside** Dataverse by repeated calls
+so every page starts fresh at plug-in depth 1.
+
+**Registration:** bound to plugin type `Ascentix.RulesEngine.Plugin.ProcessRunPageApi`;
+`ExecutePrivilegeName = prvCreateasx_rulerun`. No additional custom processing steps. In the
+`AscentixRulesEngine` solution.
+
+### Request parameters
+
+| Parameter | Type | Optional | Notes |
+|---|---|---|---|
+| `RunId` | Guid | No | The Rule Run to process |
+| `FailedRecordId` | Guid | Yes | Optional; behavior defined by the run-page processor |
+| `FailedMessage` | String | Yes | Optional; behavior defined by the run-page processor |
+
+### Response parameters
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `Done` | Boolean | True when the run has no further pages to process |
+| `Status` | Integer | Current `asx_status` of the run |
+| `Evaluated` | Integer | Running total of records evaluated |
+| `Changed` | Integer | Running total of records that had at least one write applied |
+| `Blocked` | Integer | Running total of records that fired a Block action |
+| `Failed` | Integer | Running total of records that errored |
+| `Skipped` | Integer | Running total of records that did not pass the execution conditions |
+
+### Semantics
+
+- If the run is not Queued or Running (already terminal), returns `Done = true` with the current
+  status and does nothing.
+- **Page budget:** stops after 500 records or 90 seconds of processing, whichever comes first.
+- **Record selection:** an **All records** run pushes down execution-condition filters via
+  FetchXML (the existing pushdown rules), ordered by primary id and paged with a stored cookie; a
+  record that doesn't pass the in-memory execution-condition check counts as Skipped. A **Given
+  records** run walks the stored ids in order from the bookmark index; a missing record counts as
+  Failed.
+- **Per record:** the same evaluation as `asx_ApplyRules`. A Block counts Blocked (no writes); an
+  exception counts Failed and the page carries on; all writes for a record run as one
+  `ExecuteTransactionRequest` (commit or roll back together) — at least one write counts Changed,
+  none counts Evaluated only.
+- **After each page:** saves the counts, the bookmark, `asx_lastpageon`, the rule versions used
+  (`asx_ruleversions`), and the first 50 failures (`asx_failures`).
+- **Evaluation context:** User-context rules run as the caller (the driver's identity); System-
+  context rules run as the system service.
+
+---
+
+## 8. `asx_SyncSteps` Custom API
 
 An **unbound (global) Dataverse Custom API Action** (`IsFunction = false`) that mechanizes bulk
 step maintenance: drift recovery, orphan cleanup, and pre-uninstall teardown of the generated
@@ -690,7 +813,7 @@ as the system user, exactly like `RuleRegistrationPlugin`. In the `AscentixRules
 
 ---
 
-## 7. Relationships (explicit schema names)
+## 9. Relationships (explicit schema names)
 
 | Relationship | Parent (1) | Child (N), holds the lookup |
 |---|---|---|
@@ -717,7 +840,7 @@ as the system user, exactly like `RuleRegistrationPlugin`. In the `AscentixRules
 
 ---
 
-## 8. Test fixture schema (not shipped)
+## 10. Test fixture schema (not shipped)
 
 The live client suites (`client/test-dev`, `client/e2e`, `client/scripts/seed-*`) run against a
 disposable **`sample_*` Order-domain model** that is **not part of the product**. It lives in the

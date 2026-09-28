@@ -30,7 +30,7 @@ function EnsureField([string]$Table, $Definition) {
     $existing = Request GET "EntityDefinitions(LogicalName='$Table')/Attributes?`$select=LogicalName&`$filter=LogicalName eq '$logical'"
     if ($existing.value.Count -eq 0) { Request POST "EntityDefinitions(LogicalName='$Table')/Attributes" $Definition | Out-Null }
 }
-function EnsureTable([string]$Name, [string]$Display) {
+function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'OrganizationOwned') {
     $logical = $Name.ToLowerInvariant()
     $existing = Request GET "EntityDefinitions?`$select=LogicalName&`$filter=LogicalName eq '$logical'"
     if ($existing.value.Count -gt 0) { return }
@@ -39,9 +39,17 @@ function EnsureTable([string]$Name, [string]$Display) {
     Request POST 'EntityDefinitions' @{
         '@odata.type' = 'Microsoft.Dynamics.CRM.EntityMetadata'; SchemaName = $Name; EntitySetName = $logical + 's';
         DisplayName = (Label $Display); DisplayCollectionName = (Label ($Display + 's'));
-        OwnershipType = 'OrganizationOwned'; HasActivities = $false; HasNotes = $false;
+        OwnershipType = $Ownership; HasActivities = $false; HasNotes = $false;
         IsActivity = $false; IsAuditEnabled = @{ Value = $false }; Attributes = @($primary)
     } | Out-Null
+}
+function EnsureOptionLabel([string]$OptionSet, [int]$Value, [string]$Text) {
+    $definition = Request GET "GlobalOptionSetDefinitions(Name='$OptionSet')/Microsoft.Dynamics.CRM.OptionSetMetadata?`$select=Options"
+    $option = $definition.Options | Where-Object { $_.Value -eq $Value }
+    $current = ($option.Label.LocalizedLabels | Where-Object { $_.LanguageCode -eq 1033 }).Label
+    if ($current -ne $Text) {
+        Request POST 'UpdateOptionValue' @{ OptionSetName = $OptionSet; Value = $Value; Label = (Label $Text); MergeLabels = $true } | Out-Null
+    }
 }
 function EnsureLookup([string]$From, [string]$To, [string]$Name, [string]$Display, [string]$Delete = 'Restrict') {
     $logical = $Name.ToLowerInvariant()
@@ -98,7 +106,37 @@ if ($Phase -eq 'Schema') {
     $applyPrevious.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.BooleanOptionSetMetadata';
         TrueOption = @{ Value = 1; Label = (Label 'Yes') }; FalseOption = @{ Value = 0; Label = (Label 'No') } }
     EnsureField 'asx_ruleaction' $applyPrevious
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity></entities></importexportxml>' } | Out-Null
+    EnsureTable 'asx_RuleRun' 'Rule Run' 'UserOwned'
+    $scope = Field 'asx_Scope' 'Picklist' 'Scope'
+    $scope.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.OptionSetMetadata'; IsGlobal = $false; OptionSetType = 'Picklist';
+        Options = @(@{ Value = 1; Label = (Label 'Given records') }, @{ Value = 2; Label = (Label 'All records') }) }
+    EnsureField 'asx_rulerun' $scope
+    $status = Field 'asx_Status' 'Picklist' 'Status'
+    $status.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.OptionSetMetadata'; IsGlobal = $false; OptionSetType = 'Picklist';
+        Options = @(@{ Value = 1; Label = (Label 'Queued') }, @{ Value = 2; Label = (Label 'Running') }, @{ Value = 3; Label = (Label 'Completed') },
+            @{ Value = 4; Label = (Label 'Completed with failures') }, @{ Value = 5; Label = (Label 'Failed') }, @{ Value = 6; Label = (Label 'Cancelled') }) }
+    EnsureField 'asx_rulerun' $status
+    foreach ($spec in @(@('asx_RecordIds', 'Record Ids', 20000), @('asx_Failures', 'Failures', 100000),
+        @('asx_Bookmark', 'Bookmark', 20000), @('asx_RuleVersions', 'Rule Versions', 4000))) {
+        $field = Field $spec[0] 'Memo' $spec[1]; $field.MaxLength = [int]$spec[2]
+        EnsureField 'asx_rulerun' $field
+    }
+    foreach ($spec in @(@('asx_Evaluated', 'Evaluated'), @('asx_Changed', 'Changed'), @('asx_Blocked', 'Blocked'), @('asx_Failed', 'Failed'), @('asx_Skipped', 'Skipped'))) {
+        $field = Field $spec[0] 'Integer' $spec[1]; $field.MinValue = 0; $field.MaxValue = 2147483647
+        EnsureField 'asx_rulerun' $field
+    }
+    foreach ($spec in @(@('asx_StartedOn', 'Started On'), @('asx_LastPageOn', 'Last Page On'), @('asx_FinishedOn', 'Finished On'))) {
+        $field = Field $spec[0] 'DateTime' $spec[1]; $field.Format = 'DateAndTime'; $field.DateTimeBehavior = @{ Value = 'UserLocal' }
+        EnsureField 'asx_rulerun' $field
+    }
+    EnsureLookup 'asx_rulerun' 'asx_rule' 'asx_Rule' 'Rule' 'Cascade'
+    $onDemandScope = Field 'asx_OnDemandScope' 'Picklist' 'Runs for'
+    $onDemandScope.DefaultFormValue = 1
+    $onDemandScope.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.OptionSetMetadata'; IsGlobal = $false; OptionSetType = 'Picklist';
+        Options = @(@{ Value = 1; Label = (Label "A record it's given") }, @{ Value = 2; Label = (Label 'All records that pass its execution conditions') }) }
+    EnsureField 'asx_rule' $onDemandScope
+    EnsureOptionLabel 'asx_triggers' 3 'On demand'
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity></entities><optionsets><optionset>asx_triggers</optionset></optionsets></importexportxml>' } | Out-Null
     # Only configure the product's shipped views; personal/customer views are not selected.
     foreach ($spec in @(@('asx_rule','asx_draftof'), @('asx_tableconfig','asx_isprivate'))) {
         $viewFolder = Join-Path $PSScriptRoot "../Solutions/$SolutionName/${SolutionName}_unmanaged/Entities/$($spec[0])/SavedQueries"
@@ -132,7 +170,7 @@ if ($Phase -eq 'Schema') {
             }
         }
     }
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity></entities></importexportxml>' } | Out-Null
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity></entities></importexportxml>' } | Out-Null
     Write-Host '[revisions] additive schema ready'
     return
 }
@@ -196,21 +234,21 @@ foreach ($spec in @(@('RulePublishPlugin',20), @('RuleRegistrationPlugin',30))) 
         Request PATCH "sdkmessageprocessingsteps($($step.sdkmessageprocessingstepid))" @{ rank = [int]$spec[1] } | Out-Null
     }
 }
-function EnsureApi([string]$Name, [string]$Privilege, [string]$Description) {
+function EnsureApi([string]$Name, [string]$Privilege, [string]$Description, [string]$Display = $Name, [string]$TypeId = $revisionType) {
     $existing = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq '$Name'"
-    $body = @{ uniquename = $Name; name = $Name; displayname = $Name; description = $Description; bindingtype = 0; isfunction = $false;
+    $body = @{ uniquename = $Name; name = $Name; displayname = $Display; description = $Description; bindingtype = 0; isfunction = $false;
         allowedcustomprocessingsteptype = 0; isprivate = $false; workflowsdkstepenabled = $false;
-        executeprivilegename = $Privilege; 'PluginTypeId@odata.bind' = "/plugintypes($revisionType)" }
+        executeprivilegename = $Privilege; 'PluginTypeId@odata.bind' = "/plugintypes($TypeId)" }
     if ($existing.value.Count -eq 0) { Request POST 'customapis' $body | Out-Null; $existing = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq '$Name'" }
-    else { Request PATCH "customapis($($existing.value[0].customapiid))" @{ 'PluginTypeId@odata.bind' = "/plugintypes($revisionType)"; executeprivilegename = $Privilege; description = $Description } | Out-Null }
+    else { Request PATCH "customapis($($existing.value[0].customapiid))" @{ 'PluginTypeId@odata.bind' = "/plugintypes($TypeId)"; executeprivilegename = $Privilege; description = $Description } | Out-Null }
     $existing.value[0].customapiid
 }
-function EnsureParameter([string]$ApiId, [string]$Name, [int]$Type, [bool]$Output, [string]$Description) {
+function EnsureParameter([string]$ApiId, [string]$Name, [int]$Type, [bool]$Output, [string]$Description, [bool]$Optional = $false) {
     $set = if ($Output) { 'customapiresponseproperties' } else { 'customapirequestparameters' }
     $existing = Request GET "${set}?`$select=uniquename&`$filter=_customapiid_value eq $ApiId and uniquename eq '$Name'"
     if ($existing.value.Count -gt 0) { return }
     $body = @{ uniquename = $Name; name = $Name; displayname = $Name; description = $Description; type = $Type; 'CustomAPIId@odata.bind' = "/customapis($ApiId)" }
-    if (!$Output) { $body.isoptional = $false }
+    if (!$Output) { $body.isoptional = $Optional }
     Request POST $set $body | Out-Null
 }
 $revisionType = PluginType 'RuleRevisionApi'
@@ -244,4 +282,24 @@ EnsureParameter $id 'RuleId' 10 $false 'Identifier of the rule or working draft 
 $validate = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq 'asx_ValidateRule'"
 if ($validate.value.Count -ne 1) { throw 'Missing asx_ValidateRule API.' }
 EnsureParameter $validate.value[0].customapiid 'DraftHash' 10 $true 'SHA-256 hash of the saved draft configuration checked by validation.'
+$applyRulesType = PluginType 'ApplyRulesApi'
+$id = EnsureApi 'asx_ApplyRules' 'prvCreateasx_rulerun' 'Evaluates one On demand rule for one record and applies its results (enforcing).' 'Apply Rules' $applyRulesType
+EnsureParameter $id 'RuleId' 12 $false 'Identifier of the On demand rule to evaluate.'
+EnsureParameter $id 'RecordId' 12 $false 'Identifier of the persisted record to evaluate the rule against.'
+EnsureParameter $id 'IsValid' 0 $true 'True when no Block action fired.'
+EnsureParameter $id 'Results' 10 $true 'JSON array of every fired action, in the asx_RunRules Results shape.'
+EnsureParameter $id 'WriteCount' 7 $true 'Number of write actions applied.'
+$processRunPageType = PluginType 'ProcessRunPageApi'
+$id = EnsureApi 'asx_ProcessRunPage' 'prvCreateasx_rulerun' 'Processes the next page of a Rule Run.' 'Process Run Page' $processRunPageType
+EnsureParameter $id 'RunId' 12 $false 'Identifier of the Rule Run to process.'
+EnsureParameter $id 'FailedRecordId' 12 $false 'Identifier of a record that failed evaluation on this page.' $true
+EnsureParameter $id 'FailedMessage' 10 $false 'Error text for a record that failed evaluation on this page.' $true
+EnsureParameter $id 'Done' 0 $true 'True when the run has no further pages to process.'
+EnsureParameter $id 'Status' 7 $true 'Current status of the run.'
+EnsureParameter $id 'Evaluated' 7 $true 'Running total of records evaluated.'
+EnsureParameter $id 'Changed' 7 $true 'Running total of records that had at least one write applied.'
+EnsureParameter $id 'Blocked' 7 $true 'Running total of records that fired a Block action.'
+EnsureParameter $id 'Failed' 7 $true 'Running total of records that failed with an error.'
+EnsureParameter $id 'Skipped' 7 $true 'Running total of records that did not pass the execution conditions.'
+EnsureStep 'asx_rulerun' 'Create' (PluginType 'RuleRunPlugin') 1 20
 Write-Host '[revisions] guards, lifecycle ordering, and APIs registered'
