@@ -56,7 +56,7 @@ export const CONDITION_SELECT =
 export const ACTION_SELECT =
   "asx_ruleactionid,asx_name,asx_order,asx_actiontype,asx_fireon," +
   "asx_targetcolumn,asx_targettable,asx_message,asx_fieldmapping," +
-  "asx_valuebool,asx_applyinversewhennotfired,asx_severity,asx_isactive," +
+  "asx_valuebool,asx_applyinversewhennotfired,asx_severity,asx_isactive,asx_applytoprevious," +
   LOOKUP.actionTargetNode;
 export const TABLECONFIG_SELECT =
   "asx_tableconfigid,asx_name,asx_tablelogicalname,asx_tableconfigtype," +

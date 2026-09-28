@@ -79,6 +79,7 @@ function actionAttrs(a: ActionNode): Record<string, any> {
     asx_applyinversewhennotfired: a.applyInverseWhenNotFired,
     asx_severity: a.severity,
     asx_isactive: a.isActive,
+    asx_applytoprevious: a.applyToPrevious ?? false,
   };
 }
 

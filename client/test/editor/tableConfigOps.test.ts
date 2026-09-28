@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { addNode, deleteNode, renameNode, setRoot } from "../../src/editor/model/reducer";
-import { childrenOf, descendantIds, nodeDepth, flattenForDisplay, canDeleteNode, orphanedByRoot, nodesInTree, isSingleCardinality } from "../../src/editor/model/tableConfigOps";
+import { childrenOf, descendantIds, nodeDepth, flattenForDisplay, canDeleteNode, orphanedByRoot, nodesInTree, isSingleCardinality, previousParentLookup } from "../../src/editor/model/tableConfigOps";
 import { resetTempIds } from "../../src/editor/model/ids";
 import type { RuleGraph, TableConfigRef } from "../../src/editor/model/types";
 
@@ -143,5 +143,27 @@ describe("pathToNode", () => {
   });
   it("returns [] for an unknown id", () => {
     expect(pathToNode({ root: ROOTN }, "nope")).toEqual([]);
+  });
+});
+
+const PREV_NODES: Record<string, TableConfigRef> = {
+  root: node({ id: "root", tableConfigType: "RootTable", name: "Opportunity" }),
+  contact: node({ id: "contact", parentTableConfigId: "root", name: "Contact" }),
+  account: node({ id: "account", parentTableConfigId: "contact", name: "Account" }),
+  lines: node({ id: "lines", tableConfigType: "ChildTable", parentTableConfigId: "root", name: "Lines" }),
+  product: node({ id: "product", parentTableConfigId: "lines", name: "Product" }),
+};
+
+describe("previousParentLookup", () => {
+  it("finds the root-level lookup from itself and from below", () => {
+    expect(previousParentLookup(PREV_NODES, "contact")?.id).toBe("contact");
+    expect(previousParentLookup(PREV_NODES, "account")?.id).toBe("contact");
+  });
+
+  it("has none for the root, a collection, or under a collection", () => {
+    expect(previousParentLookup(PREV_NODES, "root")).toBeNull();
+    expect(previousParentLookup(PREV_NODES, "lines")).toBeNull();
+    expect(previousParentLookup(PREV_NODES, "product")).toBeNull();
+    expect(previousParentLookup(PREV_NODES, null)).toBeNull();
   });
 });

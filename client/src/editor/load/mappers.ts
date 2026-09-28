@@ -81,6 +81,7 @@ export function mapActionRecord(raw: any): ActionNode {
     applyInverseWhenNotFired: boolOrNull(raw.asx_applyinversewhennotfired),
     severity: numOrNull(raw.asx_severity),
     isActive: boolOrNull(raw.asx_isactive),
+    applyToPrevious: boolOrNull(raw.asx_applytoprevious),
     localizedMessages: Array.isArray(raw[NAV.actionLocalizedMessages])
       ? raw[NAV.actionLocalizedMessages].map(mapLocalizedMessage)
       : [],

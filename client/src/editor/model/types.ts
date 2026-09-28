@@ -115,6 +115,9 @@ export interface ActionNode {
   applyInverseWhenNotFired: boolean | null;
   severity: number | null;
   isActive: boolean | null;
+  /** Update Record only: also apply to the previous record when the save changes the lookup above
+   * the target (asx_applytoprevious). */
+  applyToPrevious?: boolean | null;
   localizedMessages: LocalizedMessage[];
 }
 
