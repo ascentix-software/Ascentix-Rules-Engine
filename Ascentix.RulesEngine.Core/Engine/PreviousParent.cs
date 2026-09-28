@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Ascentix.RulesEngine.Core.Models;
+using Microsoft.Xrm.Sdk;
 
 namespace Ascentix.RulesEngine.Core.Engine
 {
@@ -31,5 +34,51 @@ namespace Ascentix.RulesEngine.Core.Engine
                 && action.ActionType == ActionType.UpdateRecord && action.TargetNodeId.HasValue
                 ? RootLookupOf(tree, action.TargetNodeId.Value)
                 : null;
+
+        /// <summary>The root-level lookups this save changed that ticked actions re-run for, each with
+        /// its previous value. Empty when <paramref name="saved"/> is null (Create), the lookup column is
+        /// not in <paramref name="overlay"/>, the value is unchanged, or the previous value is empty.</summary>
+        public static IReadOnlyList<ChangedLookup> Changed(TableConfigTree tree, IEnumerable<RuleAction> actions,
+            Entity saved, Entity overlay)
+        {
+            var result = new List<ChangedLookup>();
+            if (saved == null || overlay == null) return result;
+            var seen = new HashSet<Guid>();
+            foreach (var action in actions ?? Enumerable.Empty<RuleAction>())
+            {
+                var lookup = LookupFor(action, tree);
+                if (lookup == null || !seen.Add(lookup.Id)) continue;
+                var column = lookup.LookupColumnLogicalName;
+                if (string.IsNullOrWhiteSpace(column) || !overlay.Attributes.ContainsKey(column)) continue;
+                var previous = saved.GetAttributeValue<EntityReference>(column);
+                var current = overlay.GetAttributeValue<EntityReference>(column);
+                if (previous == null || (current != null && current.Id == previous.Id)) continue;
+                result.Add(new ChangedLookup(lookup, previous));
+            }
+            return result;
+        }
+
+        /// <summary>The root for run 2: a copy of <paramref name="root"/> (the record as it will be
+        /// saved) with the changed lookup pointed at its previous value.</summary>
+        public static Entity RootFor(Entity root, ChangedLookup changed)
+        {
+            var copy = new Entity(root.LogicalName, root.Id);
+            foreach (var attr in root.Attributes) copy[attr.Key] = attr.Value;
+            copy[changed.Lookup.LookupColumnLogicalName] = changed.Previous;
+            return copy;
+        }
+    }
+
+    /// <summary>A root-level lookup the save changed, and the record it pointed to before.</summary>
+    public sealed class ChangedLookup
+    {
+        public ChangedLookup(TableConfig lookup, EntityReference previous)
+        {
+            Lookup = lookup;
+            Previous = previous;
+        }
+
+        public TableConfig Lookup { get; }
+        public EntityReference Previous { get; }
     }
 }
