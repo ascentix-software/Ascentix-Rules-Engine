@@ -4,7 +4,6 @@ using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Plugin;
 using Ascentix.RulesEngine.Schema;
 using FakeXrmEasy;
-using FakeXrmEasy.FakeMessageExecutors;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Metadata;
@@ -16,36 +15,6 @@ namespace Ascentix.RulesEngine.Tests
     public class ApplyRulesApiTests
     {
         private static string Q(string f) => SchemaNames.Qualify(f);
-
-        // Answers RetrieveEntityRequest for "account" so LiteralCoercer can resolve the
-        // Update Record action's "description" mapping (String) inside the runner.
-        private sealed class AccountMetadataExecutor : IFakeMessageExecutor
-        {
-            public bool CanExecute(OrganizationRequest request)
-                => request is RetrieveEntityRequest req && req.LogicalName == "account";
-
-            public Type GetResponsibleRequestType() => typeof(RetrieveEntityRequest);
-
-            public OrganizationResponse Execute(OrganizationRequest request, XrmFakedContext ctx)
-            {
-                var descriptionAttr = new StringAttributeMetadata { LogicalName = "description" };
-                var entityMeta = new EntityMetadata { LogicalName = "account" };
-                var attrsProp = typeof(EntityMetadata).GetProperty("Attributes");
-                if (attrsProp != null)
-                    attrsProp.SetValue(entityMeta, new AttributeMetadata[] { descriptionAttr });
-                else
-                {
-                    var field = typeof(EntityMetadata).GetField("_attributes",
-                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    field?.SetValue(entityMeta, new AttributeMetadata[] { descriptionAttr });
-                }
-
-                return new RetrieveEntityResponse
-                {
-                    Results = new ParameterCollection { { "EntityMetadata", entityMeta } }
-                };
-            }
-        }
 
         // account.name is not null → Update Record (root) sets description = "applied" (OnMatch);
         // Block "Needs a name" (OnNoMatch); published, tagged OnDemand.
@@ -123,7 +92,7 @@ namespace Ascentix.RulesEngine.Tests
         public void A_matching_record_is_updated_and_the_write_is_counted()
         {
             var ctx = new XrmFakedContext();
-            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new AccountMetadataExecutor());
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("account", new StringAttributeMetadata { LogicalName = "description" }));
             var (seed, ruleId) = Seed();
             var recordId = Guid.NewGuid();
             seed.Add(new Entity("account", recordId) { ["name"] = "Acme" });
@@ -200,7 +169,7 @@ namespace Ascentix.RulesEngine.Tests
         public void A_given_or_all_records_rule_both_accept_one_record()
         {
             var ctx = new XrmFakedContext();
-            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new AccountMetadataExecutor());
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("account", new StringAttributeMetadata { LogicalName = "description" }));
             var (seed, ruleId) = Seed(new OptionSetValue((int)OnDemandScope.AllRecords));
             var recordId = Guid.NewGuid();
             seed.Add(new Entity("account", recordId) { ["name"] = "Acme" });
