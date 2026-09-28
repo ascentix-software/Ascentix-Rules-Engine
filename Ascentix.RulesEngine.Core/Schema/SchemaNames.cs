@@ -236,7 +236,7 @@ namespace Ascentix.RulesEngine.Schema
 
         /// <summary>
         /// asx_ApplyRules: unbound Action that evaluates one On demand rule against one record
-        /// and reports the outcome. Non-enforcing: a fired Block is reported, never thrown.
+        /// and enforces it: a fired Block throws; otherwise the rule's fired writes are applied.
         /// </summary>
         public static class ApplyRulesApi
         {
