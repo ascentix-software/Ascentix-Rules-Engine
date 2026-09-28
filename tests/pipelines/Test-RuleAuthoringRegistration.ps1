@@ -165,7 +165,7 @@ foreach ($interrupt in @($false, $true)) {
         Assert ($match.Count -eq 1 -and $match[0].type -eq $spec[2]) "Incorrect contract for $($spec[0]).$($spec[1])."
     }
     foreach ($apiName in @('asx_ApplyRules', 'asx_ProcessRunPage')) {
-        Assert ($apis[$apiName].executeprivilegename -eq 'prvCreateasx_rulerun' -and $apis[$apiName].bindingtype -eq 0 -and $apis[$apiName].isfunction -eq $false) "Incorrect contract for $apiName."
+        Assert ($apis[$apiName].executeprivilegename -eq 'prvCreateasx_RuleRun' -and $apis[$apiName].bindingtype -eq 0 -and $apis[$apiName].isfunction -eq $false) "Incorrect contract for $apiName."
     }
     # (Api, Parameter, Type, IsOutput, IsOptional) — IsOptional is ignored for outputs.
     foreach ($spec in @(

@@ -283,14 +283,14 @@ $validate = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq 
 if ($validate.value.Count -ne 1) { throw 'Missing asx_ValidateRule API.' }
 EnsureParameter $validate.value[0].customapiid 'DraftHash' 10 $true 'SHA-256 hash of the saved draft configuration checked by validation.'
 $applyRulesType = PluginType 'ApplyRulesApi'
-$id = EnsureApi 'asx_ApplyRules' 'prvCreateasx_rulerun' 'Evaluates one On demand rule for one record and applies its results (enforcing).' 'Apply Rules' $applyRulesType
+$id = EnsureApi 'asx_ApplyRules' 'prvCreateasx_RuleRun' 'Evaluates one On demand rule for one record and applies its results (enforcing).' 'Apply Rules' $applyRulesType
 EnsureParameter $id 'RuleId' 12 $false 'Identifier of the On demand rule to evaluate.'
 EnsureParameter $id 'RecordId' 12 $false 'Identifier of the persisted record to evaluate the rule against.'
 EnsureParameter $id 'IsValid' 0 $true 'True when no Block action fired.'
 EnsureParameter $id 'Results' 10 $true 'JSON array of every fired action, in the asx_RunRules Results shape.'
 EnsureParameter $id 'WriteCount' 7 $true 'Number of write actions applied.'
 $processRunPageType = PluginType 'ProcessRunPageApi'
-$id = EnsureApi 'asx_ProcessRunPage' 'prvCreateasx_rulerun' 'Processes the next page of a Rule Run.' 'Process Run Page' $processRunPageType
+$id = EnsureApi 'asx_ProcessRunPage' 'prvCreateasx_RuleRun' 'Processes the next page of a Rule Run.' 'Process Run Page' $processRunPageType
 EnsureParameter $id 'RunId' 12 $false 'Identifier of the Rule Run to process.'
 EnsureParameter $id 'FailedRecordId' 12 $false 'Identifier of a record that failed evaluation on this page.' $true
 EnsureParameter $id 'FailedMessage' 10 $false 'Error text for a record that failed evaluation on this page.' $true

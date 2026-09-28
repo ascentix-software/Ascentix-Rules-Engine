@@ -89,11 +89,11 @@ resume it first.") until the first reaches Cancelled or a terminal status
 ## Who can run rules
 
 Starting a run, resuming one, and calling `asx_ApplyRules` all require the
-**Rule Run Create** privilege (`prvCreateasx_rulerun`). Neither the **Rules
+**Rule Run Create** privilege (`prvCreateasx_RuleRun`). Neither the **Rules
 Engine Author** nor **Rules Engine Reader** role (*Security Roles*) grants it by
 default: an administrator decides who may actually run rules — which can be a
 different set of people from who may author or read them — by granting
-`prvCreateasx_rulerun` on top of whatever role they already hold.
+`prvCreateasx_RuleRun` on top of whatever role they already hold.
 
 A rule's **Evaluation Context** (*Evaluation Context*) still governs whose read
 access the run's traversal uses, and whose write it performs: a **User**-context

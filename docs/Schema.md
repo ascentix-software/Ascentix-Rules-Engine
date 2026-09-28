@@ -686,7 +686,7 @@ result: a fired Block throws, and every other fired write action runs inside the
 transaction.
 
 **Registration:** bound to plugin type `Ascentix.RulesEngine.Plugin.ApplyRulesApi`;
-`ExecutePrivilegeName = prvCreateasx_rulerun` (the same gate as starting a Rule Run). No
+`ExecutePrivilegeName = prvCreateasx_RuleRun` (the same gate as starting a Rule Run). No
 additional custom processing steps. In the `AscentixRulesEngine` solution.
 
 ### Request parameters
@@ -725,7 +725,7 @@ next page of an existing Rule Run (§2.13), driven from **outside** Dataverse by
 so every page starts fresh at plug-in depth 1.
 
 **Registration:** bound to plugin type `Ascentix.RulesEngine.Plugin.ProcessRunPageApi`;
-`ExecutePrivilegeName = prvCreateasx_rulerun`. No additional custom processing steps. In the
+`ExecutePrivilegeName = prvCreateasx_RuleRun`. No additional custom processing steps. In the
 `AscentixRulesEngine` solution.
 
 ### Request parameters

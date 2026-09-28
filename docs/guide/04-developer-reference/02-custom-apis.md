@@ -158,7 +158,7 @@ command button calls directly for a single record (see the recipe below).
 | `Results` | String | JSON array of every fired action, in the `asx_RunRules` `Results` shape above |
 | `WriteCount` | Integer | Number of write actions applied |
 
-Calling it requires the **Rule Run Create** privilege (`prvCreateasx_rulerun`),
+Calling it requires the **Rule Run Create** privilege (`prvCreateasx_RuleRun`),
 the same gate as starting a Rule Run (*Running Rules On Demand*). The rule's
 **Runs for** setting doesn't restrict `asx_ApplyRules`: it's allowed against a
 rule scoped either way, since it always targets exactly one record.
