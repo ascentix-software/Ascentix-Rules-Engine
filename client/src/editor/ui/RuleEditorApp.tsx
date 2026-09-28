@@ -4,7 +4,7 @@ import {
   Input,
   Dialog, DialogSurface, DialogBody, DialogTitle, DialogContent, DialogActions,
 } from "@fluentui/react-components";
-import { Edit16Regular } from "@fluentui/react-icons";
+import { Edit16Regular, Play16Regular, History16Regular } from "@fluentui/react-icons";
 import { AppProvider } from "./AppProvider";
 import { formatError } from "./errors";
 import { ScreenShell } from "./ScreenShell";
@@ -46,6 +46,9 @@ import { recoveryKey, useRuleRecovery } from "./useRuleRecovery";
 import { ReviewChangesDialog } from "./ReviewChangesDialog";
 import { reserveTempIds } from "../model/ids";
 import { loadPublishedGraph } from "../load/publishedGraph";
+import { canRunNow, RunNowDialog } from "../runs/RunNowDialog";
+import { RunsDialog } from "../runs/RunsDialog";
+import { executionConditionNames } from "../runs/runsData";
 
 const clone = (g: RuleGraph): RuleGraph => JSON.parse(JSON.stringify(g));
 // Deterministic-enough unique ids for batch/changeset boundaries.
@@ -107,6 +110,8 @@ export function RuleEditorApp({
   const [nameDraft, setNameDraft] = React.useState("");
   const [panelOpen, setPanelOpen] = React.useState(false);
   const [unpublishOpen, setUnpublishOpen] = React.useState(false);
+  const [runNowOpen, setRunNowOpen] = React.useState(false);
+  const [runsOpen, setRunsOpen] = React.useState(false);
   const [validationResult, setValidationResult] = React.useState<{
     isValid: boolean; issues: ApiIssue[]; draftHash?: string;
   } | null>(null);
@@ -433,6 +438,16 @@ export function RuleEditorApp({
                   >
                     Unpublish
                   </Button>
+                  {canRunNow(serverStatus, working.rule.triggers) && (
+                    <Button icon={<Play16Regular />} disabled={busy} onClick={() => setRunNowOpen(true)}>
+                      Run now
+                    </Button>
+                  )}
+                  {(published || !!working.rule.publishedRevisionId) && (
+                    <Button icon={<History16Regular />} disabled={busy} onClick={() => setRunsOpen(true)}>
+                      Runs
+                    </Button>
+                  )}
                 </div>
               }
             />
@@ -505,6 +520,23 @@ export function RuleEditorApp({
             onConfirm={onUnpublish}
           />
           <ReviewChangesDialog open={reviewOpen} snapshot={snapshot} working={working} onClose={() => setReviewOpen(false)} />
+          <RunNowDialog
+            open={runNowOpen}
+            api={api}
+            rule={{
+              id: working.rule.id, name: working.rule.name, table: working.rule.tableLogicalName,
+              scope: working.rule.onDemandScope ?? 1, executionConditions: executionConditionNames(displayed),
+            }}
+            onClose={() => setRunNowOpen(false)}
+          />
+          <RunsDialog
+            open={runsOpen}
+            api={api}
+            ruleId={working.rule.id}
+            ruleName={working.rule.name}
+            table={working.rule.tableLogicalName}
+            onClose={() => setRunsOpen(false)}
+          />
           <Dialog open={restoreOpen} onOpenChange={(_e, d) => setRestoreOpen(d.open)}><DialogSurface><DialogBody>
             <DialogTitle>Restore the published version to your draft?</DialogTitle>
             <DialogContent>This replaces saved and unsaved draft changes, including its data model, with a private copy of the published revision. The published rule and other rules keep enforcing unchanged.</DialogContent>

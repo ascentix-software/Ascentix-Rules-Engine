@@ -10,6 +10,12 @@ export interface RuleListItem {
   triggers: number[]; actionCount: number;
   rootConfigId: string | null; rootConfigName: string | null;
   rootConfigReadOnly?: boolean;
+  /** asx_ondemandscope: which records an On demand run processes; null/absent defaults
+   *  to 1 ("a record it's given") — see model/enums.ts's ON_DEMAND_SCOPE_OPTIONS. */
+  onDemandScope?: number | null;
+  /** _asx_publishedrevision_value: set once the rule has ever been published, and kept
+   *  after a later unpublish, so the Runs button (R4) still shows its run history. */
+  publishedRevisionId?: string | null;
   modifiedOn: string | null; modifiedBy: string | null;
 }
 export interface ConfigListItem {
@@ -77,7 +83,7 @@ export function groupUsedBy(rules: { rootConfigId: string | null }[]): Map<strin
 export async function loadHubData(api: WebApiPort): Promise<HubData> {
   const [ruleResp, actionResp, nodeResp] = await Promise.all([
     retrieveAll(api, ENTITY.rule,
-      `?$select=asx_ruleid,asx_name,asx_tablelogicalname,statuscode,asx_triggers,_asx_publishedrevision_value,${LOOKUP.ruleOfTableConfig},modifiedon,_modifiedby_value&$filter=_asx_draftof_value eq null&$orderby=modifiedon desc`),
+      `?$select=asx_ruleid,asx_name,asx_tablelogicalname,statuscode,asx_triggers,asx_ondemandscope,_asx_publishedrevision_value,${LOOKUP.ruleOfTableConfig},modifiedon,_modifiedby_value&$filter=_asx_draftof_value eq null&$orderby=modifiedon desc`),
     retrieveAll(api, ENTITY.action, `?$select=${LOOKUP.ruleOfAction}`),
     retrieveAll(api, ENTITY.tableConfig,
       `?$select=asx_tableconfigid,asx_name,asx_tablelogicalname,asx_tableconfigtype,${LOOKUP.parentTableOfConfig},modifiedon,_modifiedby_value&$filter=asx_isprivate ne true&$orderby=modifiedon desc`),
@@ -109,6 +115,8 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
       actionCount: published?.actions.length ?? actionCounts.get(r.asx_ruleid) ?? 0,
       rootConfigId: published ? publishedRoot ?? null : rootConfigId,
       rootConfigReadOnly: !!published,
+      onDemandScope: r.asx_ondemandscope ?? null,
+      publishedRevisionId: r._asx_publishedrevision_value ?? null,
       rootConfigName: published ? (publishedRoot ? published.tableConfigs[publishedRoot]?.name ?? null : null) : (rootConfigId ? nodeName.get(rootConfigId) ?? r[LOOKUP.ruleOfTableConfig + FV] ?? null : null),
       modifiedOn: r.modifiedon ?? null, modifiedBy: r["_modifiedby_value" + FV] ?? null,
     };

@@ -48,7 +48,7 @@ function port(): WebApiPort {
     retrieveMultipleRecords: async (entity) => {
       if (entity === ENTITY.rule) return { entities: [
         { asx_ruleid: RULE1, asx_name: "Rule One", asx_tablelogicalname: "account", statuscode: 1,
-          asx_triggers: "1,4", [LOOKUP.ruleOfTableConfig]: ROOT, modifiedon: "2026-06-20T00:00:00Z",
+          asx_triggers: "1,4", asx_ondemandscope: 2, [LOOKUP.ruleOfTableConfig]: ROOT, modifiedon: "2026-06-20T00:00:00Z",
           ["_modifiedby_value" + FV]: "A. Chen" },
         { asx_ruleid: RULE2, asx_name: "Rule Two", asx_tablelogicalname: "contact", statuscode: 753840000,
           asx_triggers: "1", [LOOKUP.ruleOfTableConfig]: null, modifiedon: "2026-06-19T00:00:00Z" },
@@ -82,6 +82,22 @@ describe("loadHubData", () => {
     expect(r2.rootConfigName).toBeNull();
     expect(r2.modifiedBy).toBeNull();
   });
+  it("selects asx_ondemandscope on the rule query and maps RuleListItem.onDemandScope", async () => {
+    let ruleOptions = "";
+    const base = port();
+    const capturing: WebApiPort = {
+      ...base,
+      retrieveMultipleRecords: async (entity, options) => {
+        if (entity === ENTITY.rule) ruleOptions = options ?? "";
+        return base.retrieveMultipleRecords(entity, options);
+      },
+    };
+    const { rules } = await loadHubData(capturing);
+    expect(ruleOptions).toContain("asx_ondemandscope");
+    expect(rules.find((r) => r.id === RULE1)!.onDemandScope).toBe(2);
+    expect(rules.find((r) => r.id === RULE2)!.onDemandScope).toBeNull();
+  });
+
   it("assembles configs (roots only) with node and used-by counts", async () => {
     const { configs } = await loadHubData(port());
     expect(configs.map((c) => c.id).sort()).toEqual([ROOT, ROOT2].sort());

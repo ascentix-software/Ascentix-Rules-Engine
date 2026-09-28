@@ -1,6 +1,6 @@
 import * as React from "react";
 import { SearchBox, Dropdown, Option, Button, TabList, Tab } from "@fluentui/react-components";
-import { Add16Regular, Copy16Regular, Delete16Regular } from "@fluentui/react-icons";
+import { Add16Regular, Copy16Regular, Delete16Regular, Play16Regular, History16Regular } from "@fluentui/react-icons";
 import { AppProvider } from "./AppProvider";
 import { ScreenShell } from "./ScreenShell";
 import { navigate } from "./router";
@@ -14,6 +14,7 @@ import { ListFooter } from "./ListFooter";
 import type { RuleListItem, ConfigListItem } from "../load/hubData";
 import type { EditorApi } from "../webapi";
 import { loadHubData } from "../load/hubData";
+import { loadRuleEditorGraph } from "../load/ruleEditorGraph";
 import {
   createRule, createConfig, duplicateRule, duplicateConfig, deleteRule, deleteConfig,
 } from "../save/operations";
@@ -22,6 +23,9 @@ import { NewConfigDialog } from "./hub/NewConfigDialog";
 import { ConfirmDeleteDialog } from "./hub/ConfirmDeleteDialog";
 import { activateOnKey } from "./keyboard";
 import { formatError } from "./errors";
+import { canRunNow, RunNowDialog, type RunNowRule } from "../runs/RunNowDialog";
+import { RunsDialog } from "../runs/RunsDialog";
+import { executionConditionNames } from "../runs/runsData";
 
 const PAGE_SIZE_DEFAULT = 10;
 const RULES_COLS = "2.5fr 1fr 0.95fr 1.25fr 0.8fr 1.15fr 92px";
@@ -99,6 +103,9 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   const [newRuleOpen, setNewRuleOpen] = React.useState(false);
   const [newConfigOpen, setNewConfigOpen] = React.useState(false);
   const [pendingDelete, setPendingDelete] = React.useState<{ kind: "rule" | "config"; id: string; name: string } | null>(null);
+  const [runNowRule, setRunNowRule] = React.useState<RunNowRule | null>(null);
+  const [loadingRunNowId, setLoadingRunNowId] = React.useState<string | null>(null);
+  const [runsRule, setRunsRule] = React.useState<{ id: string; name: string; table: string } | null>(null);
   const now = Date.now();
   const [tab, setTab] = React.useState<"rules" | "configs">("rules");
   const [search, setSearch] = React.useState("");
@@ -142,6 +149,29 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   const onCreateConfig = (args: { name: string; table: string }) =>
     run(async () => { const id = await createConfig(api, args); navigate("tableconfig", id); });
   const onDuplicateRule = (id: string) => run(async () => navigate("rule", await duplicateRule(api, id)));
+  // The hub only carries a RuleListItem (name/table/scope); the execution condition
+  // names shown in the dialog live on the full graph, so load it with the same
+  // loader RuleEditorApp uses before opening the dialog. A load failure still lets
+  // the run start (it just can't show what the "all records" scope will match).
+  async function onRunNow(r: RuleListItem) {
+    setLoadingRunNowId(r.id);
+    const scope = r.onDemandScope ?? 1;
+    try {
+      const graph = await loadRuleEditorGraph(api, r.id);
+      setRunNowRule({
+        id: r.id, name: r.name, table: r.tableLogicalName,
+        scope: graph.rule.onDemandScope ?? scope,
+        executionConditions: executionConditionNames(graph),
+      });
+    } catch {
+      setRunNowRule({
+        id: r.id, name: r.name, table: r.tableLogicalName, scope,
+        executionConditions: ["(could not load the execution conditions)"],
+      });
+    } finally {
+      setLoadingRunNowId(null);
+    }
+  }
   const onDuplicateConfig = (id: string) => run(async () => navigate("tableconfig", await duplicateConfig(api, id)));
   const onConfirmDelete = () => {
     const pd = pendingDelete;
@@ -259,6 +289,14 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                     { label: "Modified", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{modified(r.modifiedOn, r.modifiedBy)}</span> },
                     { label: "", node: (
                       <span style={{ display: "flex", gap: 2, justifyContent: stacked ? "flex-start" : "flex-end" }} onClick={(e) => e.stopPropagation()}>
+                        {canRunNow(r.statusCode, r.triggers) && (
+                          <Button size="small" appearance="subtle" icon={<Play16Regular />} aria-label="Run now" title="Run now"
+                            disabled={busy || loadingRunNowId === r.id} onClick={() => onRunNow(r)} />
+                        )}
+                        {(r.statusCode === 753840000 || !!r.publishedRevisionId) && (
+                          <Button size="small" appearance="subtle" icon={<History16Regular />} aria-label="Runs" title="Runs"
+                            disabled={busy} onClick={() => setRunsRule({ id: r.id, name: r.name, table: r.tableLogicalName })} />
+                        )}
                         <Button size="small" appearance="subtle" icon={<Copy16Regular />} aria-label="Duplicate" title="Duplicate" disabled={busy} onClick={() => onDuplicateRule(r.id)} />
                         <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete" title="Delete" disabled={busy} style={{ color: color.danger }} onClick={() => setPendingDelete({ kind: "rule", id: r.id, name: r.name })} />
                       </span>
@@ -313,6 +351,13 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
             onCreate={(args) => { setNewConfigOpen(false); onCreateConfig(args); }} />
           <ConfirmDeleteDialog open={!!pendingDelete} name={pendingDelete?.name ?? ""}
             onCancel={() => setPendingDelete(null)} onConfirm={onConfirmDelete} />
+          {runNowRule && (
+            <RunNowDialog open={!!runNowRule} api={api} rule={runNowRule} onClose={() => setRunNowRule(null)} />
+          )}
+          {runsRule && (
+            <RunsDialog open={!!runsRule} api={api} ruleId={runsRule.id} ruleName={runsRule.name} table={runsRule.table}
+              onClose={() => setRunsRule(null)} />
+          )}
         </div>
       </ScreenShell>
     </AppProvider>
