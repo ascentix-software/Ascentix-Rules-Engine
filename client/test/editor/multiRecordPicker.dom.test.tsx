@@ -61,4 +61,41 @@ describe("MultiRecordPickerDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
     expect(onCancel).toHaveBeenCalled();
   });
+
+  it("keeps the selection across a new search, even once the checked row scrolls out of view", async () => {
+    const first = rows(1); // g0 "Rec 0"
+    const second: RecordRow[] = [{ id: "g9", name: "Rec 9", entity: { accountid: "g9", name: "Rec 9" } }];
+    const query = vi.fn<(table: string, fetchXml: string) => Promise<RecordRow[]>>()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValue(second);
+    const onSelect = vi.fn();
+    const meta = fakeMetadata({ account: [] });
+    meta.views = async () => [view({ id: "v1" })];
+    const records: any = { queryByFetchXml: query, search: vi.fn(), resolveName: vi.fn() };
+    render(
+      <AppProvider>
+        <MetadataProvider service={meta}>
+          <RecordSearchProvider service={records}>
+            <MultiRecordPickerDialog open table="account" max={5} onSelect={onSelect} onCancel={vi.fn()} />
+          </RecordSearchProvider>
+        </MetadataProvider>
+      </AppProvider>,
+    );
+
+    await screen.findByText("Rec 0");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Rec 0" }));
+    expect(screen.getByRole("button", { name: "Select 1 record" })).toBeEnabled();
+
+    // Debounced requery to a different result set that no longer contains the checked row.
+    fireEvent.change(screen.getByRole("textbox", { name: /search records/i }), { target: { value: "z" } });
+    await screen.findByText("Rec 9");
+    expect(screen.queryByText("Rec 0")).toBeNull();
+
+    // The selection (count, button label) survives even though the row isn't rendered any more.
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select 1 record" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select 1 record" }));
+    expect(onSelect).toHaveBeenCalledWith(["g0"]);
+  });
 });

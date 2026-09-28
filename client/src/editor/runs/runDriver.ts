@@ -1,4 +1,5 @@
 import type { WebApiPort, RunPageResult } from "../webapi";
+import { ENTITY_SET, BIND_NAV } from "../load/odata";
 
 // asx_rulerun status choice values (docs/Schema.md §2.13).
 export const RUN_STATUS = {
@@ -23,9 +24,9 @@ export function parseRecordFailure(message: string): { recordId: string; message
 
 /** Creates an asx_rulerun for `ruleId`, scoped to `recordIds` when given, and returns its id. */
 export async function startRun(api: WebApiPort, ruleId: string, recordIds?: string[]): Promise<string> {
-  const data: Record<string, unknown> = { "asx_rule@odata.bind": `/asx_rules(${ruleId})` };
+  const data: Record<string, unknown> = { [`${BIND_NAV.runRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})` };
   if (recordIds) data.asx_recordids = JSON.stringify(recordIds);
-  return api.createRecord("asx_ruleruns", data);
+  return api.createRecord(ENTITY_SET.ruleRun, data);
 }
 
 /**
@@ -63,5 +64,5 @@ export async function driveRun(
 
 /** Cancels a run by PATCHing its status to Cancelled. */
 export async function cancelRun(api: WebApiPort, runId: string): Promise<void> {
-  await api.updateRecord("asx_ruleruns", runId, { asx_status: RUN_STATUS.Cancelled });
+  await api.updateRecord(ENTITY_SET.ruleRun, runId, { asx_status: RUN_STATUS.Cancelled });
 }

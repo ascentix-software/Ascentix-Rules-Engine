@@ -81,7 +81,6 @@ export function MultiRecordPickerDialog({ open, table, max, onSelect, onCancel }
     if (!view) return;
     const myReq = ++reqIdRef.current;
     setLastAttempt({ page: targetPage, append });
-    if (!append) setSelected(new Map());
     setLoading(true); setError(false);
     try {
       const userFilter = compileToFetchXml(filter);
@@ -212,6 +211,7 @@ export function MultiRecordPickerDialog({ open, table, max, onSelect, onCancel }
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: 12, color: color.inkMuted }}>
                       {rows ? `Showing ${rows.length}` : ""}
+                      {count > 0 && <span style={{ marginLeft: 8 }}>{count} selected</span>}
                       {atCap && <span style={{ marginLeft: 8 }}>You can choose up to {max} records.</span>}
                     </span>
                     {hasMore && (

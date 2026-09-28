@@ -65,7 +65,7 @@ describe("startRun", () => {
     const id = await startRun(api, "rule1", ["a", "b"]);
     expect(id).toBe("run1");
     expect(createRecord).toHaveBeenCalledWith("asx_ruleruns", {
-      "asx_rule@odata.bind": "/asx_rules(rule1)",
+      "asx_Rule@odata.bind": "/asx_rules(rule1)",
       asx_recordids: JSON.stringify(["a", "b"]),
     });
   });
@@ -75,7 +75,7 @@ describe("startRun", () => {
     const api = { createRecord } as any as WebApiPort;
     const id = await startRun(api, "rule1");
     expect(id).toBe("run2");
-    expect(createRecord).toHaveBeenCalledWith("asx_ruleruns", { "asx_rule@odata.bind": "/asx_rules(rule1)" });
+    expect(createRecord).toHaveBeenCalledWith("asx_ruleruns", { "asx_Rule@odata.bind": "/asx_rules(rule1)" });
   });
 });
 

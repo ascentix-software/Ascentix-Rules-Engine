@@ -83,6 +83,7 @@ export const ENTITY_SET = {
   localizedMessage: "asx_localizedmessages",
   nodeFilterGroup: "asx_nodefiltergroups",
   nodeFilterCriterion: "asx_nodefiltercriterions",
+  ruleRun: "asx_ruleruns",
 } as const;
 
 // @odata.bind navigation-property names. The referencing-side navigation
@@ -116,4 +117,9 @@ export const BIND_NAV = {
   // lowercase lookups above.
   filterCriterionCollectionNode: "asx_collectionnode",
   filterGroupOwningCriterion: "asx_owningcriterion",
+  // asx_rulerun.asx_rule: provisioned by EnsureLookup with SchemaName "asx_Rule"
+  // (pipelines/Configure-RuleAuthoring.ps1) and no ReferencingEntityNavigationPropertyName
+  // override, so the nav property is PascalCased, unlike the plain-lowercase asx_rule lookups
+  // on asx_conditiongroup/asx_ruleaction above. Not yet round-tripped by bindNav.dev.test.ts.
+  runRule: "asx_Rule",
 } as const;
