@@ -281,7 +281,7 @@ User-owned. One row per **Run now** execution of an On demand rule, created by t
 |---|---|---|
 | `asx_name` | Text (200, primary) | `"<rule name> – <started on>"` |
 | `asx_rule` | Lookup → `asx_rule` | Required; delete cascade (deleting the rule deletes its runs) |
-| `asx_scope` | Choice (local) | Copied from the rule's `asx_ondemandscope` at start: **Given records** (1) / **All records** (2) |
+| `asx_scope` | Choice (local) | Set at start: **Given records** (1) when record ids are given, otherwise **All records** (2), which needs a rule scoped to All records |
 | `asx_recordids` | Memo (20,000) | JSON array of Guids; given-records runs only; at most 250 |
 | `asx_status` | Choice (local) | Queued (1), Running (2), Completed (3), Completed with failures (4), Failed (5), Cancelled (6) |
 | `asx_evaluated` | Integer (min 0) | Running total of records evaluated |
@@ -297,10 +297,16 @@ User-owned. One row per **Run now** execution of an On demand rule, created by t
 | `asx_finishedon` | DateTime (UserLocal) | Set when the run reaches a terminal status |
 
 **Lifecycle:** a synchronous pre-operation plug-in (`Ascentix.RulesEngine.Plugin.RuleRunPlugin`)
-on Create sets the status to Queued, copies the Scope, validates it (the rule is Published with
-On demand; Record ids exist for a given scope and have at most 250 entries), and refuses the
-create if the same rule already has a Queued or Running run. See the design spec for the full
-per-page state machine.
+on Create sets the status to Queued, sets the Scope (Given records when record ids are given, All
+records otherwise), validates the run (the rule is Published with On demand; the record ids parse
+as a JSON array of ids, at most 250 of them, and are required for a rule scoped to **A record
+it's given**; whether those records exist is checked per page, not here), clears the state
+columns (`asx_bookmark`, `asx_failures`, `asx_ruleversions`, `asx_lastpageon`, `asx_finishedon`;
+counts 0), and refuses the create if the same rule already has a Queued or Running run. A second
+synchronous pre-operation plug-in (`Ascentix.RulesEngine.Plugin.RuleRunUpdatePlugin`) on Update
+refuses every change made outside `asx_ProcessRunPage` except cancelling (setting `asx_status`
+from Queued or Running to Cancelled, and nothing else) with `"Only cancelling a run is
+allowed."`. `asx_ProcessRunPage` (§7) advances the run page by page.
 
 ## 3. `asx_RunRules` Custom API
 
@@ -689,12 +695,19 @@ transaction.
 `ExecutePrivilegeName = prvCreateasx_RuleRun` (the same gate as starting a Rule Run). No
 additional custom processing steps. In the `AscentixRulesEngine` solution.
 
+**Privileges:** `prvCreateasx_RuleRun` is the gate for both `asx_ApplyRules` and
+`asx_ProcessRunPage`, but running rules from the Rule Builder or a flow needs more than Create
+alone. On the Rule Run table (`asx_rulerun`): **Create** (the gate), **Read** (the Runs dialog,
+reading a run back), **Append** (setting the run's Rule) and **Write** at owner (User) level or
+wider (cancelling). On the Rule table (`asx_rule`): **Append To**. A small dedicated security
+role holding exactly these is the simplest way to grant them.
+
 ### Request parameters
 
 | Parameter | Type | Optional | Notes |
 |---|---|---|---|
 | `RuleId` | Guid | No | The On demand rule to evaluate; must be Published with the On demand trigger |
-| `RecordId` | Guid | No | A persisted record of the rule's table |
+| `RecordId` | Guid | No | A persisted record of the rule's table, readable in the rule's evaluation context |
 
 ### Response parameters
 
@@ -708,6 +721,9 @@ additional custom processing steps. In the `AscentixRulesEngine` solution.
 
 - Uses the RetrieveOnly root build (the persisted record, no overlay) and trigger `OnDemand`;
   channel restrictions are ignored (on-demand runs have no channel).
+- The record must exist and be readable in the rule's evaluation context: as the caller for a
+  User-context rule, as the system for a System-context rule. Otherwise the call throws
+  `"Record <id> was not found in <table>, or you can't read it."`.
 - A fired Block throws `InvalidPluginExecutionException` with the rendered block message and
   applies no writes.
 - Otherwise every write intent runs inside the call's own transaction (synchronous, main
@@ -726,7 +742,8 @@ so every page starts fresh at plug-in depth 1.
 
 **Registration:** bound to plugin type `Ascentix.RulesEngine.Plugin.ProcessRunPageApi`;
 `ExecutePrivilegeName = prvCreateasx_RuleRun`. No additional custom processing steps. In the
-`AscentixRulesEngine` solution.
+`AscentixRulesEngine` solution. Driving a run needs the privileges listed in §6
+(**Privileges**), not Create alone.
 
 ### Request parameters
 
@@ -752,14 +769,25 @@ so every page starts fresh at plug-in depth 1.
 
 - If the run is not Queued or Running (already terminal), returns `Done = true` with the current
   status and does nothing.
-- **Page budget:** stops after 500 records or 90 seconds of processing, whichever comes first.
+- **Row lock:** before reading the run's state, each call updates the run's `asx_lastpageon`.
+  The row lock that update takes holds until the call's transaction ends, so two callers driving
+  the same run take turns (the second reads the state the first saved), and a cancel waits for
+  the page in progress instead of racing its save.
+- **Page budget:** stops after 500 records or 60 seconds of processing, whichever comes first.
+  The time is checked before each chunk and after each record, so a page over budget stops after
+  the record in hand, well inside the platform's two-minute limit.
 - **Record selection:** an **All records** run reads the rule's table ordered by primary id, a page
   at a time, with the page number and paging cookie kept in the bookmark. A page cut short by the
   budget is resumed by re-reading the same page and skipping the ids already handled on it (kept
   in the bookmark), so rows deleted or inserted in the meantime can't make it skip or repeat a
   record. A **Given records** run walks the stored ids in order from the bookmark index. Records
-  are evaluated in chunks of 100; a record that no longer exists counts as Failed
-  (`"Record not found."`).
+  are evaluated in chunks of 25; a record that no longer exists, or isn't readable in the rule's
+  evaluation context, counts as Failed (`"Record not found or not readable."`) and is never
+  evaluated.
+- **Evaluation context (reads):** records are read in the rule's evaluation context, the same one
+  its traversal uses. For a User-context rule an **All records** run only pages over the rows the
+  caller (the driver's identity) can read, and a given record the caller can't read counts Failed;
+  a System-context rule reads as the system.
 - **Failure messages** stored in `asx_failures` are cut to 1,000 characters.
 - **Per record:** the same evaluation as `asx_ApplyRules`. A record that doesn't pass the rule's
   execution conditions counts Skipped; a Block counts Blocked (no writes, recorded in
@@ -781,6 +809,10 @@ so every page starts fresh at plug-in depth 1.
 - **Rule no longer runnable:** if the rule is no longer published with the On demand trigger, the
   run is set to Failed with the failure `"The rule is no longer published with the On demand
   trigger."`.
+- **Runs for no longer matches:** every page checks the run against its rule's published **Runs
+  for**. An All records run needs a rule scoped to All records and no record ids; a Given records
+  run needs record ids. Otherwise the run is set to Failed with the failure `"The run no longer
+  matches its rule's Runs for setting."`.
 - **Completion:** when the last page is consumed the run is Completed, or Completed with failures
   if anything was Blocked or Failed, and `asx_finishedon` is set.
 - **After each page:** saves the counts, the bookmark, `asx_lastpageon`, the rule versions used

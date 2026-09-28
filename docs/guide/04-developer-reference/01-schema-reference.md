@@ -177,12 +177,14 @@ runs.
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
 | Rule | `asx_rule` | Lookup → `asx_rule` | Yes | The rule this run is for |
-| Scope | `asx_scope` | Choice (local) | No | Copied from the rule's `asx_ondemandscope` at start: Given records (1) / All records (2) |
+| Scope | `asx_scope` | Choice (local) | No | Set at start: Given records (1) when Record Ids are given, otherwise All records (2), which needs a rule scoped to All records |
 | Record Ids | `asx_recordids` | Multiline text (20,000) | No | JSON array of Guids; Given-records runs only; at most 250 |
 | Status | `asx_status` | Choice (local) | No | Queued (1), Running (2), Completed (3), Completed with failures (4), Failed (5), Cancelled (6) |
 | Evaluated / Changed / Blocked / Failed / Skipped | `asx_evaluated` / `asx_changed` / `asx_blocked` / `asx_failed` / `asx_skipped` | Whole Number | No | Running totals, updated after each processed page |
 | Failures | `asx_failures` | Multiline text (100,000) | No | JSON array of the first 50 `{recordId, kind, message}` |
 
-See *Running Rules On Demand* for what these mean in practice, and
+The engine keeps these columns itself: once a run is created, the only change
+anyone else can make is cancelling it (Status from Queued or Running to
+Cancelled). See *Running Rules On Demand* for what these mean in practice, and
 `docs/Schema.md` (§2.13/§7) in the repository for the full per-page state
 machine.

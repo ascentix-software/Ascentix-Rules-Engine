@@ -139,16 +139,17 @@ node. The numbers are server-side evaluation cost only, not end-user save latenc
 
 Evaluates one **On demand** rule against one persisted record and, unlike
 `asx_RunRules`, **enforces** the result: a fired `Block` throws, and every other
-fired write action runs inside the call's own transaction. This is what **Run
-now** (see *Running Rules On Demand*) calls per record, and what a script or a
-command button calls directly for a single record (see the recipe below).
+fired write action runs inside the call's own transaction. It's what a script or
+a command button calls directly for a single record (see the recipe below).
+**Run now** doesn't call it: Run now creates a Rule Run and drives it with
+`asx_ProcessRunPage` (below), even for one record.
 
 **Request**
 
 | Parameter | Type | Optional | Notes |
 |---|---|---|---|
 | `RuleId` | Guid | No | The On demand rule to evaluate; must be Published with the On demand trigger |
-| `RecordId` | Guid | No | An existing record of the rule's table |
+| `RecordId` | Guid | No | An existing record of the rule's table; for a User-context rule, one the caller can read |
 
 **Response**
 
@@ -159,9 +160,12 @@ command button calls directly for a single record (see the recipe below).
 | `WriteCount` | Integer | Number of write actions applied |
 
 Calling it requires the **Rule Run Create** privilege (`prvCreateasx_RuleRun`),
-the same gate as starting a Rule Run (*Running Rules On Demand*). The rule's
-**Runs for** setting doesn't restrict `asx_ApplyRules`: it's allowed against a
-rule scoped either way, since it always targets exactly one record.
+the same gate as starting a Rule Run; *Running Rules On Demand* lists the rest of
+what running rules needs. A record that doesn't exist, or that a User-context
+rule's caller can't read, is refused: "Record … was not found in …, or you can't
+read it." The rule's **Runs for** setting doesn't restrict `asx_ApplyRules`: it's
+allowed against a rule scoped either way, since it always targets exactly one
+record.
 
 ## `asx_ProcessRunPage`: advance a Rule Run
 
@@ -188,8 +192,10 @@ or an integration can call it the same way (see the recipe below).
 
 If the run isn't Queued or Running (it already reached a terminal status, or was
 Cancelled), the call returns `Done = true` with that status and does nothing.
-Otherwise it processes up to **500 records** or **90 seconds**, whichever comes
-first, then saves its progress and returns.
+Otherwise it processes up to **500 records** or **60 seconds**, whichever comes
+first, then saves its progress and returns. Calling it needs the same privileges
+as `asx_ApplyRules`. Two callers driving the same run take turns: each call locks
+the run while it works, so the second one continues from what the first saved.
 
 **Retrying a failed write.** A write that throws fails the whole call with an
 error whose message contains the marker

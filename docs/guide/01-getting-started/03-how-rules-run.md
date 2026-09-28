@@ -69,7 +69,11 @@ flow can call directly. See *Running Rules On Demand* for the full picture.
   it's given**) or **every record that passes the rule's execution conditions**
   (**all records**, read a page at a time). A caller can also invoke
   `asx_ApplyRules` directly against a single record.
-- **What actions it can apply:** the full server action set, exactly like *On
-  create / update / delete* below: a fired **Block** throws, applying no writes for
-  that record, and otherwise every fired write action is applied inside its own
-  transaction.
+- **What actions it can apply:** the full server action set, like *On create /
+  update / delete* below. `asx_ApplyRules` throws on a fired **Block**, applying no
+  writes; otherwise every fired write action is applied inside the call's
+  transaction. In a **Rule Run** (what Run now starts), a record that fires a
+  Block gets no writes and is counted Blocked rather than thrown, so the run goes
+  on; the records of one page share a transaction, and a write that fails rolls
+  the page back, is counted Failed, and the page is processed again without that
+  record.

@@ -99,8 +99,13 @@ enforcement (see *How Rules Run*):
   caller as data instead: the response's `IsValid` flag is `true` only when
   no `Block` action fired, and `FailedRuleCount` counts the distinct rules
   that fired one. Nothing is thrown and no write actually happens.
-- **Run now**, a **Rule Run**, and `asx_ApplyRules` **do** enforce, exactly
-  like *On create / update / delete* above: a fired `Block` throws and
-  applies no writes for that record; otherwise every fired write action is
-  applied, inside its own transaction, per record. See *Running Rules On
-  Demand* for what a run records and how it recovers from a failed write.
+- `asx_ApplyRules` **does** enforce, exactly like *On create / update /
+  delete* above: a fired `Block` throws and applies no writes; otherwise every
+  fired write action is applied inside the call's transaction.
+- **Run now** and a **Rule Run** enforce too, per record, but a run keeps
+  going: a record that fires a `Block` gets no writes and is **counted**
+  Blocked (with its message) instead of stopping the run, and every other
+  record's fired writes are applied. The records of one page share one
+  transaction: a write that fails rolls the whole page back, the failing record
+  is counted Failed, and the page is processed again without it. See *Running
+  Rules On Demand* for what a run records.
