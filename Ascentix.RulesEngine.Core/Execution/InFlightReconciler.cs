@@ -48,8 +48,9 @@ namespace Ascentix.RulesEngine.Core.Execution
     /// solves it for every other node that fetches the same table.
     ///
     /// Per operation, over the rows of a node whose table matches the in-flight table:
-    ///  - Update: overlay the unsaved Target onto the matching row; if a pushed filter kept the
-    ///    row out server-side (it was judged against stale values), add the record back.
+    ///  - Update: overlay the unsaved Target onto the matching row; drop it when the save moves it
+    ///    to a parent outside this collection's scope; if a pushed filter kept the row out
+    ///    server-side (it was judged against stale values), add the record back.
     ///  - Create: add the not-yet-persisted record to each collection it will belong to.
     ///  - Delete: drop the record from COLLECTIONS. Never from a lookup node, where a rule
     ///    legitimately reads the record being deleted ("block the delete when ...").
@@ -102,6 +103,13 @@ namespace Ascentix.RulesEngine.Core.Execution
                 if (existing != null)
                 {
                     Overlay(existing, record.Target);
+                    // A save that moves the row to another parent takes it out of every collection
+                    // scoped to the old parent (the new parent's fetch adds it through Belongs).
+                    if (isCollection && MovedOutOfScope(existing, node, record.Target, scope))
+                    {
+                        rows.Remove(existing);
+                        byId.Remove(record.Id);
+                    }
                     continue;
                 }
 
@@ -128,6 +136,16 @@ namespace Ascentix.RulesEngine.Core.Execution
             if (!record.Root.Attributes.TryGetValue(node.ChildLinkField, out raw)) return false;
             var parent = raw as EntityReference;
             return parent != null && scope.Contains(parent.Id);
+        }
+
+        // True when this save rewrites the collection's link column to a parent outside the set
+        // the fetch was scoped to (another parent, or none).
+        private static bool MovedOutOfScope(Entity row, TableConfig node, Entity target, HashSet<Guid> scope)
+        {
+            if (target == null || scope.Count == 0 || string.IsNullOrWhiteSpace(node.ChildLinkField)) return false;
+            if (!target.Attributes.ContainsKey(node.ChildLinkField)) return false;
+            var parent = row.GetAttributeValue<EntityReference>(node.ChildLinkField);
+            return parent == null || !scope.Contains(parent.Id);
         }
 
         private static void Overlay(Entity row, Entity target)

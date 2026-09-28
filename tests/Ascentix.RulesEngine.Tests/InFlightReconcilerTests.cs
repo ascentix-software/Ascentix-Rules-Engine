@@ -135,6 +135,76 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal("$400.00", rows[0].FormattedValues["sample_lineamount"]);
         }
 
+        [Fact]
+        public void Update_moving_a_row_to_another_parent_removes_it_from_the_old_parents_collection()
+        {
+            // Order's lines as fetched: the line being saved still points at Order in the database.
+            var movedId = Guid.NewGuid();
+            var rows = new List<Entity> { Line(movedId, 100m), Line(Guid.NewGuid(), 50m) };
+
+            var target = new Entity("sample_orderline", movedId)
+                { ["sample_orderid"] = new EntityReference("sample_order", OtherOrderId) };
+            var inFlight = Batch(InFlightOperation.Update,
+                new InFlightRecord { Id = movedId, Target = target, Root = Line(movedId, 100m, OtherOrderId) });
+
+            InFlightReconciler.Apply(rows, Lines(), inFlight, new List<Guid> { OrderId });
+
+            Assert.Single(rows);
+            Assert.Equal(50m, Sum(rows));
+        }
+
+        [Fact]
+        public void Update_clearing_the_link_removes_the_row()
+        {
+            var movedId = Guid.NewGuid();
+            var rows = new List<Entity> { Line(movedId, 100m) };
+
+            var target = new Entity("sample_orderline", movedId) { ["sample_orderid"] = null };
+            var inFlight = Batch(InFlightOperation.Update,
+                new InFlightRecord { Id = movedId, Target = target, Root = new Entity("sample_orderline", movedId) });
+
+            InFlightReconciler.Apply(rows, Lines(), inFlight, new List<Guid> { OrderId });
+
+            Assert.Empty(rows);
+        }
+
+        [Fact]
+        public void Update_that_keeps_the_parent_keeps_the_row()
+        {
+            var lineId = Guid.NewGuid();
+            var rows = new List<Entity> { Line(lineId, 100m) };
+
+            var target = new Entity("sample_orderline", lineId)
+            {
+                ["sample_orderid"] = new EntityReference("sample_order", OrderId),
+                ["sample_lineamount"] = new Money(300m),
+            };
+            var inFlight = Batch(InFlightOperation.Update,
+                new InFlightRecord { Id = lineId, Target = target, Root = Line(lineId, 300m) });
+
+            InFlightReconciler.Apply(rows, Lines(), inFlight, new List<Guid> { OrderId });
+
+            Assert.Single(rows);
+            Assert.Equal(300m, Sum(rows));
+        }
+
+        [Fact]
+        public void Update_moving_a_row_leaves_lookup_results_alone()
+        {
+            // Only collections are scoped by a link column; a lookup node's row stays.
+            var lineId = Guid.NewGuid();
+            var rows = new List<Entity> { Line(lineId, 100m) };
+
+            var target = new Entity("sample_orderline", lineId)
+                { ["sample_orderid"] = new EntityReference("sample_order", OtherOrderId) };
+            var inFlight = Batch(InFlightOperation.Update,
+                new InFlightRecord { Id = lineId, Target = target, Root = Line(lineId, 100m, OtherOrderId) });
+
+            InFlightReconciler.Apply(rows, LineLookup(), inFlight, new List<Guid> { lineId });
+
+            Assert.Single(rows);
+        }
+
         // ── Create ───────────────────────────────────────────────────────────────
 
         [Fact]
