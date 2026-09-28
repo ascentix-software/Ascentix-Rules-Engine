@@ -129,21 +129,42 @@ namespace Ascentix.RulesEngine.Core.Engine
             var rootAllColumns = buildMode == RootBuildMode.RetrieveAndOverlay
                 && selfNodes.Any(e => e.Columns == null && e.Variants != null && e.Variants.Count > 0);
 
+            // On Update the saved record (before the overlay) tells which lookups this save changed.
+            var saved = trigger == RuleTrigger.OnUpdate && buildMode == RootBuildMode.RetrieveAndOverlay
+                ? new List<Entity>() : null;
             List<Entity> roots;
             using (diag.Time("rootBuild"))
-                roots = RootEntityBuilder.Build(traversalService, logicalName, inputs, rootColumns, buildMode, rootAllColumns);
+                roots = RootEntityBuilder.Build(traversalService, logicalName, inputs, rootColumns, buildMode, rootAllColumns, saved);
             var inFlight = BuildInFlightBatch(logicalName, trigger, inputs, roots);
+            var allActions = actionsByRule.Values.SelectMany(v => v).ToList();
 
             var records = new List<EvaluationInput.EvaluationRecord>(roots.Count);
             for (var i = 0; i < roots.Count; i++)
             {
                 var root = roots[i];
                 var cache = new QueryResultCache(tree);
+                var previousRuns = new List<EvaluationInput.PreviousRun>();
                 if (tree.Count > 0)
+                {
                     using (diag.Time("queryExecute"))
                         new QueryExecutor(traversalService, cache, tree, diag, utcNow, trigger == RuleTrigger.OnCreate)
                             .Execute(root, plan, inFlight);
-                records.Add(new EvaluationInput.EvaluationRecord(i, root, cache));
+
+                    // A changed lookup with ticked actions: run the same plan again with the lookup
+                    // pointed at its previous record (own cache; same in-flight batch, so the moved
+                    // row leaves the previous parent's collections).
+                    if (saved != null)
+                        foreach (var changed in PreviousParent.Changed(tree, allActions, saved[i], inputs[i].Overlay))
+                        {
+                            var previousRoot = PreviousParent.RootFor(root, changed);
+                            var previousCache = new QueryResultCache(tree);
+                            using (diag.Time("queryExecute"))
+                                new QueryExecutor(traversalService, previousCache, tree, diag, utcNow, rootIsNew: false)
+                                    .Execute(previousRoot, plan, inFlight);
+                            previousRuns.Add(new EvaluationInput.PreviousRun(changed.Lookup, previousRoot, previousCache));
+                        }
+                }
+                records.Add(new EvaluationInput.EvaluationRecord(i, root, cache, previousRuns));
             }
 
             return new EvaluationInput(

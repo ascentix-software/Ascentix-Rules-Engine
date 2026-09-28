@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Actions;
@@ -50,25 +51,46 @@ namespace Ascentix.RulesEngine.Core.Engine
                     var groupEval = new ConditionGroupEvaluator(conditionEval);
 
                     foreach (var ruleId in input.RuleIds)
+                        EvaluateRule(ruleId, root, cache, conditionEval, groupEval, null);
+
+                    // Second runs: each changed lookup's previous record, ticked actions only. The
+                    // root there is an existing record, so no new-record stamp.
+                    foreach (var run in record.PreviousRuns)
                     {
-                        conditionEval.Dates = input.DatesByRule.TryGetValue(ruleId, out var dates) ? dates : null;
+                        var previousEval = new ConditionEvaluator(run.Cache, tree, resolver, input.Labels, input.UtcNow)
+                        { Pushdown = input.Pushdown };
+                        var previousGroups = new ConditionGroupEvaluator(previousEval);
+                        foreach (var ruleId in input.RuleIds)
+                            EvaluateRule(ruleId, run.Root, run.Cache, previousEval, previousGroups, run.Lookup);
+                    }
+
+                    void EvaluateRule(Guid ruleId, Entity ruleRoot, QueryResultCache ruleCache,
+                        ConditionEvaluator eval, ConditionGroupEvaluator groups, TableConfig previousOf)
+                    {
+                        eval.Dates = input.DatesByRule.TryGetValue(ruleId, out var dates) ? dates : null;
 
                         var ruleRootGroups = input.RootGroups.Where(g => g.RuleId == ruleId).ToList();
 
                         var executionGroups = ruleRootGroups.Where(g => g.IsExecutionCondition).ToList();
-                        if (executionGroups.Any() && !executionGroups.All(g => groupEval.EvaluateGroup(g, root).Passed))
-                            continue;
+                        if (executionGroups.Any() && !executionGroups.All(g => groups.EvaluateGroup(g, ruleRoot).Passed))
+                            return;
 
                         var ruleGroups = ruleRootGroups.Where(g => !g.IsExecutionCondition).ToList();
-                        var matched = ruleGroups.All(g => groupEval.EvaluateGroup(g, root).Passed);
+                        var matched = ruleGroups.All(g => groups.EvaluateGroup(g, ruleRoot).Passed);
 
                         input.ActionsByRule.TryGetValue(ruleId, out var actions);
                         foreach (var a in ActionDispatcher.ComputeFiredActions(matched, actions))
                         {
+                            // A second run only brings the previous record up to date: ticked Update
+                            // Record actions in that lookup's branch. Everything else ran in run 1.
+                            if (previousOf != null && PreviousParent.LookupFor(a, tree)?.Id != previousOf.Id) continue;
+
                             WriteIntent intent = null;
                             if (ActionDispatcher.IsServerAction(a.ActionType) && a.ActionType != ActionType.Block)
-                                intent = writeResolver.Resolve(a, Mapping(input, a), root, cache, input.Context);
-                            fired.Add(ToResult(a, input.LanguageId, root, cache, templates, trace, intent));
+                                intent = writeResolver.Resolve(a, Mapping(input, a), ruleRoot, ruleCache, input.Context);
+                            var result = ToResult(a, input.LanguageId, ruleRoot, ruleCache, templates, trace, intent);
+                            result.PreviousOfNodeId = previousOf?.Id;
+                            fired.Add(result);
                         }
                     }
                 }

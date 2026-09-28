@@ -29,6 +29,7 @@ namespace Ascentix.RulesEngine.Core.Engine
             [DataMember(Name = "severity", Order = 7)] public string Severity { get; set; }
             [DataMember(Name = "targetTable", Order = 8)] public string TargetTable { get; set; }
             [DataMember(Name = "write", Order = 9, EmitDefaultValue = false)] public WriteIntentDto Write { get; set; }
+            [DataMember(Name = "previousOf", Order = 10, EmitDefaultValue = false)] public string PreviousOf { get; set; }
         }
 
         [DataContract]
@@ -95,7 +96,8 @@ namespace Ascentix.RulesEngine.Core.Engine
                     Message = a.Message,
                     Severity = a.Severity?.ToString(),
                     TargetTable = a.TargetTable,
-                    Write = ToWriteDto(a.WriteIntent)
+                    Write = ToWriteDto(a.WriteIntent),
+                    PreviousOf = a.PreviousOfNodeId?.ToString()
                 })
                 .ToList();
 

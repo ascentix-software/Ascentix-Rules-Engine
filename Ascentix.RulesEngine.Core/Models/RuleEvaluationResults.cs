@@ -19,6 +19,9 @@ namespace Ascentix.RulesEngine.Core.Models
         public Severity? Severity { get; set; }
         public string TargetTable { get; set; }
         public WriteIntent WriteIntent { get; set; }
+        /// <summary>Set when the action fired in the second run for a changed lookup's previous
+        /// record: the lookup node's id. Null for the normal run.</summary>
+        public Guid? PreviousOfNodeId { get; set; }
     }
 
     /// <summary>All actions that fired for a single root record.</summary>
