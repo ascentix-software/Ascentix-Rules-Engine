@@ -134,4 +134,13 @@ describe("ActionInspector: apply to previous", () => {
     renderUpdate("root");
     expect(screen.queryByLabelText(/Also apply to the previous/)).toBeNull();
   });
+
+  it("keeps a ticked but now-ineligible flag visible with a warning, and lets the author untick it", () => {
+    const h = renderUpdate("root", { applyToPrevious: true });
+    expect(screen.getByText(
+      "Only Update Record actions on a record reached through lookups can use this. Turn it off to publish.",
+    )).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Also apply to the previous record when it changes"));
+    expect(h.onPatchAction).toHaveBeenCalledWith("a1", { applyToPrevious: false });
+  });
 });

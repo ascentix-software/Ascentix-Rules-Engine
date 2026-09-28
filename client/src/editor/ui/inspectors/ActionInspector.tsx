@@ -262,11 +262,26 @@ export function ActionInspector({
           />
         </Field>
       )}
-      {t === "UpdateRecord" && (() => {
-        const lookup = previousParentLookup(tableConfigs, action.targetNodeId);
-        return lookup && (
-          <Field label={`Also apply to the previous ${lookup.name} when it changes`}
-            hint={`When the save points ${lookup.name} at a different record, also apply this action to the one it pointed to before.`}>
+      {(() => {
+        // The switch stays visible whenever the flag is on, even once the action is no longer
+        // eligible (action type changed away from Update Record, or the target moved out of the
+        // lookup branch): a ticked, ineligible action is not inert (publish validation raises
+        // STRUCT_APPLY_PREVIOUS_TARGET), so the author must be able to untick it here. No silent
+        // auto-clear.
+        const lookup = t === "UpdateRecord" ? previousParentLookup(tableConfigs, action.targetNodeId) : null;
+        if (lookup) {
+          return (
+            <Field label={`Also apply to the previous ${lookup.name} when it changes`}
+              hint={`When the save points ${lookup.name} at a different record, also apply this action to the one it pointed to before.`}>
+              <Switch checked={!!action.applyToPrevious} onChange={(_e, d) => onPatch({ applyToPrevious: d.checked })} />
+            </Field>
+          );
+        }
+        if (!action.applyToPrevious) return null;
+        return (
+          <Field label="Also apply to the previous record when it changes"
+            validationState="warning"
+            validationMessage="Only Update Record actions on a record reached through lookups can use this. Turn it off to publish.">
             <Switch checked={!!action.applyToPrevious} onChange={(_e, d) => onPatch({ applyToPrevious: d.checked })} />
           </Field>
         );
