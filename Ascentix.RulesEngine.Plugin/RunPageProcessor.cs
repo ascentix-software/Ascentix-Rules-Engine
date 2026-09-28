@@ -152,6 +152,8 @@ namespace Ascentix.RulesEngine.Plugin
             if (row.Status == RuleRunStatus.Queued) row.Status = RuleRunStatus.Running;
             row.LastPageOn = _utcNow();
 
+            var evaluator = new OnDemandEvaluator(_system, _user, _languageId, _trace);
+
             // Select the page window.
             List<Guid> window;
             bool more;
@@ -165,7 +167,9 @@ namespace Ascentix.RulesEngine.Plugin
                 };
                 if (row.Bookmark.Cookie != null) query.PageInfo.PagingCookie = row.Bookmark.Cookie;
                 query.AddOrder(rule.Table + "id", OrderType.Ascending);
-                var result = _system.RetrieveMultiple(query);
+                // Enumerated in the rule's evaluation context, so a User rule never pages over a
+                // row its starter can't read.
+                var result = evaluator.ReadService(rule).RetrieveMultiple(query);
                 // The whole page every time: a resumed page skips what it already handled by id (the
                 // skip list), so rows deleted or inserted since the last call can't shift it.
                 window = result.Entities.Select(e => e.Id).ToList();
@@ -180,7 +184,6 @@ namespace Ascentix.RulesEngine.Plugin
 
             // Walk the window (minus the skip list) in chunks, until the page size or time budget.
             var skip = new HashSet<Guid>(row.Bookmark.Skip);
-            var evaluator = new OnDemandEvaluator(_system, _user, _languageId, _trace);
             var executor = new WriteActionExecutor();
             var consumed = 0;   // positions of the window walked, skipped ids included
             var processed = 0;
@@ -195,12 +198,12 @@ namespace Ascentix.RulesEngine.Plugin
                 if (chunk.Count == 0) continue;
                 processed += chunk.Count;
 
-                var existing = evaluator.Existing(rule.Table, chunk);
+                var existing = evaluator.Existing(rule, chunk);
                 foreach (var missing in chunk.Where(id => !existing.Contains(id)))
                 {
                     row.Evaluated++;
                     row.Failed++;
-                    row.Failures.Add(Failure(missing, "Failed", "Record not found."));
+                    row.Failures.Add(Failure(missing, "Failed", "Record not found or not readable."));
                     if (SafetyStop(row)) return Finish(runId, row, RuleRunStatus.Failed);
                 }
 

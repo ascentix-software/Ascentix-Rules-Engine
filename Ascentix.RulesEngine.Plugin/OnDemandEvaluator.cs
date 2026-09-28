@@ -10,8 +10,9 @@ using Ascentix.RulesEngine.Core.Models;
 namespace Ascentix.RulesEngine.Plugin
 {
     /// <summary>
-    /// Shared on-demand evaluation: checks record existence (system service) and runs one
-    /// On demand rule against a set of records (selection narrowed to that rule, any channel).
+    /// Shared on-demand evaluation: checks which records exist and are readable in the rule's
+    /// evaluation context, and runs one On demand rule against a set of records (selection
+    /// narrowed to that rule, any channel).
     /// Used by asx_ApplyRules (one record) and Rule Run page processing (many).
     /// </summary>
     public sealed class OnDemandEvaluator
@@ -29,14 +30,21 @@ namespace Ascentix.RulesEngine.Plugin
             _trace = trace;
         }
 
-        /// <summary>Ids that exist in <paramref name="table"/>, found in one query.</summary>
-        public HashSet<Guid> Existing(string table, IList<Guid> ids)
+        /// <summary>The service that reads <paramref name="rule"/>'s records: the caller's for a
+        /// User rule, the system's for a System rule. It matches the service the Runner builds the
+        /// rule's roots with, so a row the caller can't read is never evaluated as a blank record.</summary>
+        public IOrganizationService ReadService(OnDemandRule rule) =>
+            rule.Context == RuleEvaluationContext.System ? _system : _user;
+
+        /// <summary>Ids that exist in the rule's table and are readable in its evaluation
+        /// context, found in one query.</summary>
+        public HashSet<Guid> Existing(OnDemandRule rule, IList<Guid> ids)
         {
             var found = new HashSet<Guid>();
             if (ids.Count == 0) return found;
-            var query = new QueryExpression(table) { ColumnSet = new ColumnSet(false) };
-            query.Criteria.AddCondition(table + "id", ConditionOperator.In, ids.Cast<object>().ToArray());
-            foreach (var e in _system.RetrieveMultiple(query).Entities) found.Add(e.Id);
+            var query = new QueryExpression(rule.Table) { ColumnSet = new ColumnSet(false) };
+            query.Criteria.AddCondition(rule.Table + "id", ConditionOperator.In, ids.Cast<object>().ToArray());
+            foreach (var e in ReadService(rule).RetrieveMultiple(query).Entities) found.Add(e.Id);
             return found;
         }
 

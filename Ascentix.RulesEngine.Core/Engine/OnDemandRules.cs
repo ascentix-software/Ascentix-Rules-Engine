@@ -3,6 +3,7 @@ using System.Linq;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
 using Ascentix.RulesEngine.Core.Diagnostics;
+using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Schema;
 
@@ -12,13 +13,15 @@ namespace Ascentix.RulesEngine.Core.Engine
     /// bits a Rule Run needs (asx_rulerun creation, then asx_ProcessRunPage).</summary>
     public sealed class OnDemandRule
     {
-        public OnDemandRule(Guid ruleId, string table, string name, OnDemandScope scope, Guid? publishedRevisionId)
+        public OnDemandRule(Guid ruleId, string table, string name, OnDemandScope scope, Guid? publishedRevisionId,
+            RuleEvaluationContext context)
         {
             RuleId = ruleId;
             Table = table;
             Name = name;
             Scope = scope;
             PublishedRevisionId = publishedRevisionId;
+            Context = context;
         }
 
         public Guid RuleId { get; }
@@ -26,6 +29,10 @@ namespace Ascentix.RulesEngine.Core.Engine
         public string Name { get; }
         public OnDemandScope Scope { get; }
         public Guid? PublishedRevisionId { get; }
+
+        /// <summary>The published definition's evaluation context: which service reads the
+        /// records a run selects (a User rule never sees a row its starter can't read).</summary>
+        public RuleEvaluationContext Context { get; }
     }
 
     /// <summary>Resolves whether a rule is runnable on demand: published (or a legacy live rule),
@@ -56,7 +63,8 @@ namespace Ascentix.RulesEngine.Core.Engine
             var scope = rule.GetAttributeValue<OptionSetValue>(SchemaNames.Qualify(SchemaNames.Rule.OnDemandScope))?.Value;
             return new OnDemandRule(ruleId, table, header.GetAttributeValue<string>(SchemaNames.Qualify(SchemaNames.PrimaryName)),
                 scope == (int)OnDemandScope.AllRecords ? OnDemandScope.AllRecords : OnDemandScope.GivenRecord,
-                header.GetAttributeValue<EntityReference>(SchemaNames.Qualify(SchemaNames.Rule.PublishedRevision))?.Id);
+                header.GetAttributeValue<EntityReference>(SchemaNames.Qualify(SchemaNames.Rule.PublishedRevision))?.Id,
+                RuleEvaluationContextResolver.Resolve(rule));
         }
     }
 }

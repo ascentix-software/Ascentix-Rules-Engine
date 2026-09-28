@@ -145,10 +145,11 @@ namespace Ascentix.RulesEngine.Tests
 
         private static RunPageLimits Limits() => new RunPageLimits { PageSize = 2, ChunkSize = 1 };
 
-        private RunPageProcessor Processor(RunPageLimits limits = null, IOrganizationService service = null, Func<DateTime> clock = null)
+        private RunPageProcessor Processor(RunPageLimits limits = null, IOrganizationService service = null, Func<DateTime> clock = null,
+            IOrganizationService user = null)
         {
             var svc = service ?? _service;
-            return new RunPageProcessor(svc, svc, 1033, new XrmFakedTracingService(), engineInitiated: false,
+            return new RunPageProcessor(svc, user ?? svc, 1033, new XrmFakedTracingService(), engineInitiated: false,
                 limits ?? Limits(), clock ?? (() => Now));
         }
 
@@ -269,8 +270,48 @@ namespace Ascentix.RulesEngine.Tests
             var failure = Assert.Single(FailuresOf(Run(runId)));
             Assert.Equal(deletedId, failure.RecordId);
             Assert.Equal("Failed", failure.Kind);
-            Assert.Equal("Record not found.", failure.Message);
+            Assert.Equal("Record not found or not readable.", failure.Message);
             Assert.Equal("big", Description(_zz3));
+        }
+
+        [Fact]
+        public void A_record_the_starter_cannot_read_counts_failed_and_is_never_evaluated_or_written()
+        {
+            // The rule runs in the User context: the starter's service can't see ZZ3.
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz3 });
+            var user = new HiddenRowService(_service, _zz3);
+
+            var (last, _) = ProcessUntilDone(Processor(user: user), runId);
+
+            Assert.Equal(RuleRunStatus.CompletedWithFailures, last.Status);
+            Assert.Equal(2, last.Evaluated);
+            Assert.Equal(1, last.Changed);
+            Assert.Equal(1, last.Failed);
+            Assert.Equal(0, last.Skipped + last.Blocked);
+            var failure = Assert.Single(FailuresOf(Run(runId)));
+            Assert.Equal(_zz3, failure.RecordId);
+            Assert.Equal("Failed", failure.Kind);
+            Assert.Equal("Record not found or not readable.", failure.Message);
+            Assert.Equal("big", Description(_zz1));
+            Assert.Null(Description(_zz3));
+        }
+
+        [Fact]
+        public void An_all_records_user_context_run_never_enumerates_a_row_the_starter_cannot_read()
+        {
+            var runId = SeedRun(OnDemandScope.AllRecords);
+            var user = new HiddenRowService(_service, _zz3);
+
+            var (last, _) = ProcessUntilDone(Processor(user: user), runId);
+
+            Assert.Equal(3, last.Evaluated);
+            Assert.Equal(1, last.Changed);
+            Assert.Equal(1, last.Blocked);
+            Assert.Equal(1, last.Skipped);
+            Assert.Equal(0, last.Failed);
+            Assert.DoesNotContain(FailuresOf(Run(runId)), f => f.RecordId == _zz3);
+            Assert.Equal("big", Description(_zz1));
+            Assert.Null(Description(_zz3));
         }
 
         [Fact]

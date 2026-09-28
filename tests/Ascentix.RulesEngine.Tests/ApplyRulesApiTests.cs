@@ -18,7 +18,8 @@ namespace Ascentix.RulesEngine.Tests
 
         // account.name is not null → Update Record (root) sets description = "applied" (OnMatch);
         // Block "Needs a name" (OnNoMatch); published, tagged OnDemand.
-        private static (List<Entity> Seed, Guid RuleId) Seed(OptionSetValue onDemandScope = null)
+        private static (List<Entity> Seed, Guid RuleId) Seed(OptionSetValue onDemandScope = null,
+            RuleEvaluationContext? evaluationContext = null, RuleStatus status = RuleStatus.Published)
         {
             var ids = (rule: Guid.NewGuid(), cfg: Guid.NewGuid(), grp: Guid.NewGuid(),
                        cond: Guid.NewGuid(), updateAct: Guid.NewGuid(), blockAct: Guid.NewGuid());
@@ -30,12 +31,14 @@ namespace Ascentix.RulesEngine.Tests
             var rule = new Entity(Q(SchemaNames.Rule.Entity), ids.rule)
             {
                 [Q(SchemaNames.Rule.TableLogicalName)] = "account",
-                ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
+                ["statuscode"] = new OptionSetValue((int)status),
                 [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
                     new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnDemand) }),
             };
             if (onDemandScope != null)
                 rule[Q(SchemaNames.Rule.OnDemandScope)] = onDemandScope;
+            if (evaluationContext.HasValue)
+                rule[Q(SchemaNames.Rule.EvaluationContext)] = new OptionSetValue((int)evaluationContext.Value);
 
             var group = new Entity(Q(SchemaNames.ConditionGroup.Entity), ids.grp)
             {
@@ -136,7 +139,62 @@ namespace Ascentix.RulesEngine.Tests
 
             var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
                 ctx.ExecutePluginWith<ApplyRulesApi>(ApiContext(Input(ruleId, recordId))));
-            Assert.Contains($"Record {recordId} was not found in account.", ex.Message);
+            Assert.Contains($"Record {recordId} was not found in account, or you can't read it.", ex.Message);
+        }
+
+        [Fact]
+        public void A_record_the_caller_cannot_read_is_refused_for_a_user_context_rule()
+        {
+            var ctx = new CallerServiceContext();
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("account", new StringAttributeMetadata { LogicalName = "description" }));
+            var (seed, ruleId) = Seed();
+            var recordId = Guid.NewGuid();
+            seed.Add(new Entity("account", recordId) { ["name"] = "Acme" });
+            ctx.Initialize(seed);
+            var user = new HiddenRowService(ctx.GetOrganizationService(), recordId);
+
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
+                ctx.ExecuteAs<ApplyRulesApi>(ApiContext(Input(ruleId, recordId)), user));
+
+            Assert.Equal($"Record {recordId} was not found in account, or you can't read it.", ex.Message);
+            var untouched = ctx.GetOrganizationService().Retrieve("account", recordId, new ColumnSet("description"));
+            Assert.False(untouched.Contains("description"));
+        }
+
+        [Fact]
+        public void A_system_context_rule_applies_to_a_record_the_caller_cannot_read()
+        {
+            var ctx = new CallerServiceContext();
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("account", new StringAttributeMetadata { LogicalName = "description" }));
+            var (seed, ruleId) = Seed(evaluationContext: RuleEvaluationContext.System);
+            var recordId = Guid.NewGuid();
+            seed.Add(new Entity("account", recordId) { ["name"] = "Acme" });
+            ctx.Initialize(seed);
+            var user = new HiddenRowService(ctx.GetOrganizationService(), recordId);
+
+            var pctx = ApiContext(Input(ruleId, recordId));
+            ctx.ExecuteAs<ApplyRulesApi>(pctx, user);
+
+            Assert.Equal(1, (int)pctx.OutputParameters[SchemaNames.ApplyRulesApi.PropWriteCount]);
+            var updated = ctx.GetOrganizationService().Retrieve("account", recordId, new ColumnSet("description"));
+            Assert.Equal("applied", updated["description"]);
+        }
+
+        [Fact]
+        public void An_unpublished_rule_is_refused()
+        {
+            var ctx = new XrmFakedContext();
+            var (seed, ruleId) = Seed(status: RuleStatus.Draft);
+            var recordId = Guid.NewGuid();
+            seed.Add(new Entity("account", recordId) { ["name"] = "Acme" });
+            ctx.Initialize(seed);
+
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
+                ctx.ExecutePluginWith<ApplyRulesApi>(ApiContext(Input(ruleId, recordId))));
+
+            Assert.Equal("The rule is not published with the On demand trigger.", ex.Message);
+            var untouched = ctx.GetOrganizationService().Retrieve("account", recordId, new ColumnSet("description"));
+            Assert.False(untouched.Contains("description"));
         }
 
         [Fact]

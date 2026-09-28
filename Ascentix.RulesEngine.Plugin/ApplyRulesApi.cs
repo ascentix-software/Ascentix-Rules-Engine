@@ -31,8 +31,8 @@ namespace Ascentix.RulesEngine.Plugin
 
             var rule = OnDemandRules.Resolve(system, ruleId, trace);
             var evaluator = new OnDemandEvaluator(system, user, languageId, trace);
-            if (!evaluator.Existing(rule.Table, new[] { recordId }).Contains(recordId))
-                throw new InvalidPluginExecutionException($"Record {recordId} was not found in {rule.Table}.");
+            if (!evaluator.Existing(rule, new[] { recordId }).Contains(recordId))
+                throw new InvalidPluginExecutionException($"Record {recordId} was not found in {rule.Table}, or you can't read it.");
 
             var outcome = evaluator.Evaluate(rule, new[] { recordId });
             var record = outcome.Records[0];
