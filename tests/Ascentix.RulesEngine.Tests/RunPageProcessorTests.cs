@@ -145,11 +145,11 @@ namespace Ascentix.RulesEngine.Tests
 
         private static RunPageLimits Limits() => new RunPageLimits { PageSize = 2, ChunkSize = 1 };
 
-        private RunPageProcessor Processor(RunPageLimits limits = null, IOrganizationService service = null, Func<DateTime> clock = null)
+        private RunPageProcessor Processor(RunPageLimits limits = null, IOrganizationService service = null)
         {
             var svc = service ?? _service;
             return new RunPageProcessor(svc, svc, 1033, new XrmFakedTracingService(), engineInitiated: false,
-                limits ?? Limits(), clock ?? (() => Now));
+                limits ?? Limits(), () => Now);
         }
 
         private static (RunPageResult Last, int Calls) ProcessUntilDone(RunPageProcessor processor, Guid runId)
@@ -265,20 +265,11 @@ namespace Ascentix.RulesEngine.Tests
         [Fact]
         public void A_reported_failure_is_counted_once_and_skipped()
         {
-            // ZZ3 is reported failed; after ZZ1 is written the clock jumps past the budget, so the
-            // page stops part-way and ZZ3 stays in the bookmark's skip list. The caller retries the
-            // same report: it is not counted twice, and ZZ3 is never written.
+            // ZZ3 is reported failed, and the report is repeated: it is counted once, stays in the
+            // bookmark's skip list, and is never written when the page is then processed.
             var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz3, _zz2 });
-            var now = Now;
-            var proxy = new ProxyService(_service)
-            {
-                OnExecute = request =>
-                {
-                    ThrowOnUpdateOf(_zz3)(request);
-                    if (request is UpdateRequest u && u.Target.LogicalName == "account") now = now.AddMinutes(5);
-                }
-            };
-            var processor = Processor(service: proxy, clock: () => now);
+            var proxy = new ProxyService(_service) { OnExecute = ThrowOnUpdateOf(_zz3) };
+            var processor = Processor(service: proxy);
 
             var first = processor.Process(runId, _zz3, "boom");
             Assert.False(first.Done);
@@ -286,13 +277,17 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Contains(_zz3, RunState.ParseBookmark(Run(runId).GetAttributeValue<string>(Q(SchemaNames.RuleRun.Bookmark))).Skip);
 
             var second = processor.Process(runId, _zz3, "boom");
-
-            Assert.True(second.Done);
-            Assert.Equal(RuleRunStatus.CompletedWithFailures, second.Status);
-            Assert.Equal(3, second.Evaluated);
+            Assert.False(second.Done);
+            Assert.Equal(1, second.Evaluated);
             Assert.Equal(1, second.Failed);
-            Assert.Equal(1, second.Changed);
-            Assert.Equal(1, second.Blocked);
+
+            var (last, _) = ProcessUntilDone(processor, runId);
+
+            Assert.Equal(RuleRunStatus.CompletedWithFailures, last.Status);
+            Assert.Equal(3, last.Evaluated);
+            Assert.Equal(1, last.Failed);
+            Assert.Equal(1, last.Changed);
+            Assert.Equal(1, last.Blocked);
             Assert.Null(Description(_zz3));
             Assert.Equal("big", Description(_zz1));
 
@@ -300,6 +295,86 @@ namespace Ascentix.RulesEngine.Tests
             var reported = Assert.Single(failures, f => f.RecordId == _zz3);
             Assert.Equal("Failed", reported.Kind);
             Assert.Equal("boom", reported.Message);
+        }
+
+        [Fact]
+        public void A_call_that_reports_a_failure_processes_no_records()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz3 });
+            var proxy = new ProxyService(_service)
+            {
+                OnExecute = request =>
+                {
+                    if (request is UpdateRequest u && u.Target.LogicalName == "account")
+                        throw new InvalidOperationException("No record may be written in a call that reports a failure.");
+                }
+            };
+
+            var result = Processor(service: proxy).Process(runId, _zz3, "boom");
+
+            Assert.False(result.Done);
+            Assert.Equal(RuleRunStatus.Running, result.Status);
+            Assert.Equal(1, result.Evaluated);
+            Assert.Equal(1, result.Failed);
+            Assert.Equal(0, result.Changed + result.Blocked + result.Skipped);
+            var run = Run(runId);
+            Assert.Equal(1, Count(run, SchemaNames.RuleRun.Evaluated));
+            Assert.Equal(Now, run.GetAttributeValue<DateTime>(Q(SchemaNames.RuleRun.LastPageOn)));
+            var bookmark = RunState.ParseBookmark(run.GetAttributeValue<string>(Q(SchemaNames.RuleRun.Bookmark)));
+            Assert.Equal(0, bookmark.Index);
+            Assert.Equal(new[] { _zz3 }, bookmark.Skip);
+            Assert.Null(Description(_zz1));
+        }
+
+        [Fact]
+        public void Two_failing_writes_on_one_page_are_each_recorded_once_and_the_run_completes()
+        {
+            var zz4 = _service.Create(new Entity("account") { ["name"] = "ZZ4", ["numberofemployees"] = 80 });
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, zz4, _zz3, _zz2 });
+            var proxy = new ProxyService(_service)
+            {
+                OnExecute = request => { ThrowOnUpdateOf(_zz1)(request); ThrowOnUpdateOf(_zz3)(request); }
+            };
+            var processor = Processor(new RunPageLimits { PageSize = 4, ChunkSize = 1 }, proxy);
+
+            // The driver loop: on record-failed, re-call once with that record reported.
+            RunPageResult result = null;
+            Guid? failedId = null;
+            string failedMessage = null;
+            var calls = 0;
+            while (calls < 10)
+            {
+                calls++;
+                try
+                {
+                    result = processor.Process(runId, failedId, failedMessage);
+                    failedId = null;
+                    failedMessage = null;
+                    if (result.Done) break;
+                }
+                catch (InvalidPluginExecutionException ex) when (ex.Message.StartsWith(RunPageProcessor.RecordFailedPrefix))
+                {
+                    var rest = ex.Message.Substring(RunPageProcessor.RecordFailedPrefix.Length);
+                    failedId = Guid.Parse(rest.Substring(0, 36));
+                    failedMessage = rest.Substring(37);
+                }
+            }
+
+            Assert.True(calls < 10);
+            Assert.True(result.Done);
+            Assert.Equal(RuleRunStatus.CompletedWithFailures, result.Status);
+            Assert.Equal(4, result.Evaluated);
+            Assert.Equal(2, result.Failed);
+            Assert.Equal(1, result.Changed);
+            Assert.Equal(1, result.Blocked);
+            Assert.Equal("big", Description(zz4));
+            Assert.Null(Description(_zz1));
+            Assert.Null(Description(_zz3));
+
+            var failures = FailuresOf(Run(runId));
+            Assert.Equal("boom", Assert.Single(failures, f => f.RecordId == _zz1).Message);
+            Assert.Equal("boom", Assert.Single(failures, f => f.RecordId == _zz3).Message);
+            Assert.Single(failures, f => f.RecordId == _zz2 && f.Kind == "Blocked");
         }
 
         [Fact]

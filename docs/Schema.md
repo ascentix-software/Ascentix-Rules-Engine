@@ -733,7 +733,7 @@ so every page starts fresh at plug-in depth 1.
 | Parameter | Type | Optional | Notes |
 |---|---|---|---|
 | `RunId` | Guid | No | The Rule Run to process |
-| `FailedRecordId` | Guid | Yes | The record named by the previous call's `record-failed` error (see **Failed writes**): counted Failed once and skipped while the page is re-processed |
+| `FailedRecordId` | Guid | Yes | The record named by the previous call's `record-failed` error (see **Failed writes**): the call only counts it Failed once and adds it to the skip list |
 | `FailedMessage` | String | Yes | The message from that error, stored in `asx_failures`; default `"The write failed."` |
 
 ### Response parameters
@@ -764,9 +764,15 @@ so every page starts fresh at plug-in depth 1.
 - **Failed writes:** a write that throws fails the whole call with
   `asx_ProcessRunPage:record-failed:<record guid>:<message>`, so the platform rolls the page back
   (no writes and no run update from that call are kept). The caller then calls again with
-  `FailedRecordId = <record guid>` and `FailedMessage = <message>`: the record is counted Evaluated
-  and Failed once, added to the bookmark's skip list, and the same page is re-processed without
-  it. A repeated report of a record already in the skip list is not counted again.
+  `FailedRecordId = <record guid>` and `FailedMessage = <message>`. That call only records the
+  failure: the record is counted Evaluated and Failed once, added to the bookmark's skip list, and
+  the run is saved; no records are processed (`Done` is false unless the safety stop fired). The
+  next call, without `FailedRecordId`, re-processes the page without the skipped records. Each
+  report is committed on its own, so a page with several failing writes still converges. A
+  repeated report of a record already in the skip list is not counted again. Send
+  `FailedRecordId` only on the call right after a `record-failed` error.
+- **Other errors:** a caller should stop on any other error. The run stays Running (or Queued, if no
+  page has been saved yet) and can be resumed later by calling again.
 - **Safety stop:** after 100 records, if every record so far failed, the run is set to Failed.
 - **Rule no longer runnable:** if the rule is no longer published with the On demand trigger, the
   run is set to Failed with the failure `"The rule is no longer published with the On demand

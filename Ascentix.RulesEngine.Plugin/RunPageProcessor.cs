@@ -37,8 +37,8 @@ namespace Ascentix.RulesEngine.Plugin
     /// rule in chunks, applies each unblocked record's writes, and saves the counts, bookmark,
     /// failures and rule versions in one update. A failed write throws
     /// <c>asx_ProcessRunPage:record-failed:&lt;id&gt;:&lt;message&gt;</c> so the platform rolls the
-    /// page back; the caller re-calls with that id as FailedRecordId, which counts it Failed once
-    /// and skips it while the page is re-processed.
+    /// page back; the caller re-calls with that id as FailedRecordId, which only counts it Failed
+    /// once and adds it to the skip list; the call after that re-processes the page without it.
     /// </summary>
     public sealed class RunPageProcessor
     {
@@ -115,16 +115,23 @@ namespace Ascentix.RulesEngine.Plugin
             row.Versions = RunState.ParseVersions(run.GetAttributeValue<string>(Q(SchemaNames.RuleRun.RuleVersions)));
             var allRecords = run.GetAttributeValue<OptionSetValue>(Q(SchemaNames.RuleRun.Scope))?.Value == (int)OnDemandScope.AllRecords;
 
-            // The previous call threw record-failed for this id and was rolled back: count it once
-            // and skip it while this page is re-processed.
-            var reportedFailure = false;
-            if (failedRecordId.HasValue && !row.Bookmark.Skip.Contains(failedRecordId.Value))
+            // The previous call threw record-failed for this id and was rolled back: count it once,
+            // add it to the skip list, and save without processing anything. Committing each report
+            // in its own call lets a page with several failing writes converge; the next call
+            // re-processes the page without the skipped ids.
+            if (failedRecordId.HasValue)
             {
-                row.Bookmark.Skip.Add(failedRecordId.Value);
-                row.Evaluated++;
-                row.Failed++;
-                row.Failures.Add(new RunFailure(failedRecordId.Value, "Failed", failedMessage ?? "The write failed."));
-                reportedFailure = true;
+                if (!row.Bookmark.Skip.Contains(failedRecordId.Value))
+                {
+                    row.Bookmark.Skip.Add(failedRecordId.Value);
+                    row.Evaluated++;
+                    row.Failed++;
+                    row.Failures.Add(new RunFailure(failedRecordId.Value, "Failed", failedMessage ?? "The write failed."));
+                }
+                if (row.Status == RuleRunStatus.Queued) row.Status = RuleRunStatus.Running;
+                row.LastPageOn = _utcNow();
+                if (SafetyStop(row)) return Finish(runId, row, RuleRunStatus.Failed);
+                return Save(runId, row, done: false);
             }
 
             OnDemandRule rule;
@@ -143,9 +150,6 @@ namespace Ascentix.RulesEngine.Plugin
 
             if (row.Status == RuleRunStatus.Queued) row.Status = RuleRunStatus.Running;
             row.LastPageOn = _utcNow();
-
-            if (reportedFailure && SafetyStop(row))
-                return Finish(runId, row, RuleRunStatus.Failed);
 
             // Select the page window.
             List<Guid> window;
