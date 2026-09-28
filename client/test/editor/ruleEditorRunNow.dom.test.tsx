@@ -9,8 +9,8 @@ import type { RecordSearchService } from "../../src/editor/records";
 import type { EditorApi } from "../../src/editor/webapi";
 import type { RuleGraph, ConditionGroupNode } from "../../src/editor/model/types";
 
-// Review fix (task-8 round 1, finding #1 + R11): while a draft is open, working.rule.id is
-// the DRAFT's own id, not the published rule the server can actually start a run against
+// While a draft is open, working.rule.id is the DRAFT's own id, not the published rule
+// the server can actually start a run against
 // (RuleRunPlugin -> OnDemandRules.Resolve only resolves Published rules), and the execution
 // conditions Run now shows must describe what is actually enforced (the published
 // definition), not the draft being edited. Both Run now and Runs must use
@@ -93,14 +93,14 @@ function publishedGraphFixture(): RuleGraph {
   };
 }
 
-function renderApp(api: Partial<EditorApi>) {
+function renderApp(api: Partial<EditorApi>, graph: RuleGraph = draftGraph()) {
   render(
     <AppProvider>
       <MetadataProvider service={meta}>
         <RecordSearchProvider service={records}>
           <SystemChoicesProvider>
-            <RuleEditorApp initialGraph={draftGraph()} api={api as EditorApi}
-              reload={async () => draftGraph()} initialValueLabels={{}} loadValueLabels={async () => ({})} />
+            <RuleEditorApp initialGraph={graph} api={api as EditorApi}
+              reload={async () => graph} initialValueLabels={{}} loadValueLabels={async () => ({})} />
           </SystemChoicesProvider>
         </RecordSearchProvider>
       </MetadataProvider>
@@ -139,5 +139,27 @@ describe("RuleEditorApp Run now / Runs, with a draft open on a published rule", 
     renderApp({});
     fireEvent.click(screen.getByRole("button", { name: "Runs" }));
     await waitFor(() => expect(loadRuns).toHaveBeenCalledWith(expect.anything(), ACTIVE_ID));
+  });
+
+  it("shows Run now when the published rule runs On demand, even if the draft dropped the trigger", async () => {
+    vi.mocked(loadPublishedGraph).mockResolvedValue(publishedGraphFixture());
+    const readPublishedRule = vi.fn(async () => "definition");
+    const draft = draftGraph();
+    draft.rule.triggers = [1];
+    renderApp({ readPublishedRule }, draft);
+
+    expect(await screen.findByRole("button", { name: "Run now" })).toBeInTheDocument();
+    expect(readPublishedRule).toHaveBeenCalledWith(ACTIVE_ID);
+  });
+
+  it("hides Run now when only the draft has the On demand trigger", async () => {
+    const published = publishedGraphFixture();
+    published.rule = { ...published.rule, triggers: [1] };
+    vi.mocked(loadPublishedGraph).mockResolvedValue(published);
+    const readPublishedRule = vi.fn(async () => "definition");
+    renderApp({ readPublishedRule });
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Run now" })).not.toBeInTheDocument());
+    expect(readPublishedRule).toHaveBeenCalledWith(ACTIVE_ID);
   });
 });

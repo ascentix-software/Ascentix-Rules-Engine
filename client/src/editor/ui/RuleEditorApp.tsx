@@ -115,6 +115,7 @@ export function RuleEditorApp({
   } | null>(null);
   const [loadingRunNow, setLoadingRunNow] = React.useState(false);
   const [runsOpen, setRunsOpen] = React.useState(false);
+  const [publishedTriggers, setPublishedTriggers] = React.useState<number[] | null>(null);
   const [validationResult, setValidationResult] = React.useState<{
     isValid: boolean; issues: ApiIssue[]; draftHash?: string;
   } | null>(null);
@@ -294,12 +295,35 @@ export function RuleEditorApp({
     finally { setBusy(false); }
   }
 
-  // R11: the Run now dialog must describe what actually runs — the PUBLISHED definition,
+  // The Run now dialog must describe what actually runs — the PUBLISHED definition,
   // not the draft being edited — so load it the same way "View published" (onViewPublished,
   // above) does; fall back to the working graph if that load fails (or the port can't read
   // published rules). Also uses activeRuleId, the rule id the run itself must be created
   // against: RuleRunPlugin/OnDemandRules.Resolve only resolve Published rules, and while a
   // draft is open working.rule.id is the DRAFT's id, not the published one.
+  // Run now is offered from the PUBLISHED triggers, as the hub does: with a draft open, the
+  // draft's triggers may not be what's enforced (it can add or drop On demand). Loaded once
+  // per published revision; until it loads, or if it can't, the published view (when shown)
+  // or the working graph stands in. Without a draft, the working graph is the published one.
+  const activeRuleId = working.rule.activeRuleId;
+  const publishedRevisionId = working.rule.publishedRevisionId;
+  React.useEffect(() => {
+    setPublishedTriggers(null);
+    const read = api.readPublishedRule;
+    if (!activeRuleId || !(published || publishedRevisionId) || !read) return;
+    let live = true;
+    (async () => {
+      try {
+        const graph = await loadPublishedGraph(await read(activeRuleId), activeRuleId);
+        if (live) setPublishedTriggers(graph.rule.triggers);
+      } catch {
+        // keep the fallback below
+      }
+    })();
+    return () => { live = false; };
+  }, [api, activeRuleId, publishedRevisionId, published]);
+  const runNowTriggers = publishedTriggers ?? publishedView?.rule.triggers ?? working.rule.triggers;
+
   async function onOpenRunNow() {
     setLoadingRunNow(true);
     const activeId = working.rule.activeRuleId ?? working.rule.id;
@@ -310,6 +334,7 @@ export function RuleEditorApp({
         const publishedGraph = await loadPublishedGraph(await api.readPublishedRule(activeId), activeId);
         scope = publishedGraph.rule.onDemandScope ?? 1;
         executionConditions = executionConditionNames(publishedGraph);
+        if (working.rule.activeRuleId) setPublishedTriggers(publishedGraph.rule.triggers);
       }
     } catch {
       // fall back to the working graph's values already assigned above
@@ -465,7 +490,7 @@ export function RuleEditorApp({
                   >
                     Unpublish
                   </Button>
-                  {canRunNow(serverStatus, working.rule.triggers) && (
+                  {canRunNow(serverStatus, runNowTriggers) && (
                     <Button icon={<Play16Regular />} disabled={busy || loadingRunNow} onClick={onOpenRunNow}>
                       Run now
                     </Button>

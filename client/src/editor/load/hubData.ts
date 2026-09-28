@@ -14,7 +14,8 @@ export interface RuleListItem {
    *  to 1 ("a record it's given") — see model/enums.ts's ON_DEMAND_SCOPE_OPTIONS. */
   onDemandScope?: number | null;
   /** _asx_publishedrevision_value: set once the rule has ever been published, and kept
-   *  after a later unpublish, so the Runs button (R4) still shows its run history. */
+   *  after a later unpublish, so the Runs button still shows the rule's run history
+   *  (its runs outlive an unpublish). */
   publishedRevisionId?: string | null;
   modifiedOn: string | null; modifiedBy: string | null;
 }

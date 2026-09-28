@@ -151,7 +151,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   const onCreateConfig = (args: { name: string; table: string }) =>
     run(async () => { const id = await createConfig(api, args); navigate("tableconfig", id); });
   const onDuplicateRule = (id: string) => run(async () => navigate("rule", await duplicateRule(api, id)));
-  // R11: the hub only carries a RuleListItem (name/table/scope); the execution condition
+  // The hub only carries a RuleListItem (name/table/scope); the execution condition
   // names shown in the dialog must describe what actually runs — the PUBLISHED definition,
   // not a draft — so load it the same way "View published" does in the Rule Builder
   // (loadPublishedGraph). Run now is only offered when the rule is Published (canRunNow),

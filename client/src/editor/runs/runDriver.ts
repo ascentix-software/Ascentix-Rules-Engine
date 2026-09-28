@@ -33,10 +33,12 @@ export async function startRun(api: WebApiPort, ruleId: string, recordIds?: stri
  * Drives a run to completion by calling asx_ProcessRunPage in a loop, reporting each page's
  * result via `onProgress`, until the run is done or `signal` is aborted.
  *
- * R6: any error other than a record-failed error is fatal and is rethrown; the run stays
- * Running server-side and can be resumed by calling driveRun again.
- * R7: FailedRecordId/FailedMessage are sent only on the call right after a record-failed
- * error — `failed` is reset to undefined as soon as a page call succeeds.
+ * Any error other than a record-failed error is fatal and is rethrown: the failed page
+ * rolled back, so the run keeps its bookmark server-side and calling driveRun again
+ * resumes it. FailedRecordId/FailedMessage are sent only on the call right after a
+ * record-failed error (`failed` is reset as soon as a page call succeeds): a call that
+ * reports a failure only records it and processes no records, so the next call, without
+ * it, re-processes the page minus that record.
  */
 export async function driveRun(
   api: WebApiPort,
