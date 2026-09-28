@@ -463,5 +463,45 @@ namespace Ascentix.RulesEngine.Tests
         {
             Assert.DoesNotContain(new StructuralChecks().Check(ZoneModel(zone)), i => i.Code == "STRUCT_INVALID_TIMEZONE");
         }
+
+        private static RuleForValidation PreviousModel(RuleAction action)
+        {
+            var id = Guid.NewGuid();
+            return new RuleForValidation
+            {
+                RuleId = id,
+                RuleEntity = new Entity("asx_rule", id),
+                PrimaryTable = "opportunity",
+                Groups = new List<ConditionGroup>(),
+                Actions = new List<RuleAction> { action },
+                Configs = PreviousParentTests.Tree(),
+            };
+        }
+
+        [Fact]
+        public void Apply_to_previous_on_an_eligible_update_is_accepted()
+        {
+            Assert.DoesNotContain(new StructuralChecks().Check(PreviousModel(PreviousParentTests.Update(PreviousParentTests.AccountId))),
+                i => i.Code == "STRUCT_APPLY_PREVIOUS_TARGET");
+        }
+
+        [Fact]
+        public void Apply_to_previous_on_the_root_or_under_a_collection_is_flagged()
+        {
+            Assert.Contains(new StructuralChecks().Check(PreviousModel(PreviousParentTests.Update(PreviousParentTests.RootId))),
+                i => i.Code == "STRUCT_APPLY_PREVIOUS_TARGET");
+            Assert.Contains(new StructuralChecks().Check(PreviousModel(PreviousParentTests.Update(PreviousParentTests.LineProductId))),
+                i => i.Code == "STRUCT_APPLY_PREVIOUS_TARGET");
+        }
+
+        [Fact]
+        public void Apply_to_previous_on_a_non_update_action_is_flagged()
+        {
+            var create = PreviousParentTests.Update(PreviousParentTests.ContactId);
+            create.ActionType = ActionType.CreateRecord;
+            create.TargetNodeId = null;
+            create.TargetTable = "task";
+            Assert.Contains(new StructuralChecks().Check(PreviousModel(create)), i => i.Code == "STRUCT_APPLY_PREVIOUS_TARGET");
+        }
     }
 }

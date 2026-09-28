@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Actions;
+using Ascentix.RulesEngine.Core.Engine;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
 
@@ -46,6 +47,9 @@ namespace Ascentix.RulesEngine.Core.Validation
 
             foreach (var a in activeActions)
                 CheckAction(a, issues);
+
+            foreach (var a in activeActions)
+                CheckApplyToPrevious(a, model, issues);
 
             foreach (var g in model.AllGroups())
                 foreach (var nf in g.NodeFilterGroups ?? Enumerable.Empty<NodeFilterGroup>())
@@ -287,6 +291,19 @@ namespace Ascentix.RulesEngine.Core.Validation
                     if (a.TargetNodeId == null) Missing("TargetNodeId", "Target node is required.");
                     break;
             }
+        }
+
+        // "Also apply to the previous parent" is an Update Record option for a target reached through
+        // lookups from the saved record (see PreviousParent.RootLookupOf).
+        private static void CheckApplyToPrevious(RuleAction a, RuleForValidation model, List<ValidationIssue> issues)
+        {
+            if (!a.ApplyToPrevious) return;
+            var eligible = a.ActionType == ActionType.UpdateRecord && a.TargetNodeId.HasValue
+                && PreviousParent.RootLookupOf(model.Configs, a.TargetNodeId.Value) != null;
+            if (!eligible)
+                issues.Add(ValidationIssue.Error("STRUCT_APPLY_PREVIOUS_TARGET",
+                    "\"Also apply to the previous record\" needs an Update Record action whose target is reached through lookups from the rule's record.",
+                    IssueTarget.Action(a.Id, "ApplyToPrevious")));
         }
 
         private static void CheckFieldMapping(RuleAction a, List<ValidationIssue> issues, bool requireMapping)

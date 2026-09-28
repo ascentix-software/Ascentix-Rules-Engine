@@ -93,7 +93,12 @@ if ($Phase -eq 'Schema') {
     EnsureField 'asx_rulecondition' $expressionFilters
     $timeZone = Field 'asx_EvaluationTimeZone' 'String' 'Evaluation time zone'; $timeZone.MaxLength = 100
     EnsureField 'asx_rule' $timeZone
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity></entities></importexportxml>' } | Out-Null
+    $applyPrevious = Field 'asx_ApplyToPrevious' 'Boolean' 'Also apply to previous'
+    $applyPrevious.DefaultValue = $false
+    $applyPrevious.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.BooleanOptionSetMetadata';
+        TrueOption = @{ Value = 1; Label = (Label 'Yes') }; FalseOption = @{ Value = 0; Label = (Label 'No') } }
+    EnsureField 'asx_ruleaction' $applyPrevious
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity></entities></importexportxml>' } | Out-Null
     # Only configure the product's shipped views; personal/customer views are not selected.
     foreach ($spec in @(@('asx_rule','asx_draftof'), @('asx_tableconfig','asx_isprivate'))) {
         $viewFolder = Join-Path $PSScriptRoot "../Solutions/$SolutionName/${SolutionName}_unmanaged/Entities/$($spec[0])/SavedQueries"
@@ -127,7 +132,7 @@ if ($Phase -eq 'Schema') {
             }
         }
     }
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity></entities></importexportxml>' } | Out-Null
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity></entities></importexportxml>' } | Out-Null
     Write-Host '[revisions] additive schema ready'
     return
 }

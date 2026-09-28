@@ -193,6 +193,7 @@ requirements at the application level).
 | Field Mapping | `asx_fieldmapping` | Multiline (JSON) | | Create/Update value map (see format below) |
 | Order | `asx_order` | Whole Number | | Execution order |
 | Is Active | `asx_isactive` | Yes/No | | Default Yes |
+| Also Apply To Previous | `asx_applytoprevious` | Yes/No | | Update Record only: when the save changes the lookup above the target node, also apply the action to the record the lookup pointed to before the save. Default No |
 
 > **Write actions (CreateRecord / UpdateRecord / DeleteRecord)** are executed by the **plugin**
 > (enforcing adapter): synchronously, in the triggering operation's transaction (atomic: a write
@@ -572,7 +573,9 @@ Field notes:
   `META_OPERATOR_TYPE_MISMATCH`, `STRUCT_ROWCOUNT_ON_CREATE` (Warning: a min-rows Row Count on
   a structurally-empty-at-create collection combined with the On Create trigger can never pass
   during Create), `STRUCT_INVALID_DATEEXPR`, `STRUCT_EXPR_FILTER_MISSING`,
-  `STRUCT_INVALID_EXPRESSION_FILTERS`, `STRUCT_INVALID_TIMEZONE`. Trusted Authors may publish System-context writes without
+  `STRUCT_INVALID_EXPRESSION_FILTERS`, `STRUCT_INVALID_TIMEZONE`, `STRUCT_APPLY_PREVIOUS_TARGET` (Error: an action's
+  "Also Apply To Previous" is ticked but the action is not an Update Record whose target is reached through
+  lookups from the rule's record). Trusted Authors may publish System-context writes without
   holding privileges on the target business tables; see `docs/Security.md`.
 - `kind` is a string enum name: `"Rule"`, `"Group"`, `"Condition"`, or `"Action"`.
 - `field` is the logical-name fragment of the column the issue targets; omitted (`null`) when the
