@@ -117,7 +117,7 @@ if ($Phase -eq 'Schema') {
             @{ Value = 4; Label = (Label 'Completed with failures') }, @{ Value = 5; Label = (Label 'Failed') }, @{ Value = 6; Label = (Label 'Cancelled') }) }
     EnsureField 'asx_rulerun' $status
     foreach ($spec in @(@('asx_RecordIds', 'Record Ids', 20000), @('asx_Failures', 'Failures', 100000),
-        @('asx_Bookmark', 'Bookmark', 20000), @('asx_RuleVersions', 'Rule Versions', 4000))) {
+        @('asx_Bookmark', 'Bookmark', 100000), @('asx_RuleVersions', 'Rule Versions', 4000))) {
         $field = Field $spec[0] 'Memo' $spec[1]; $field.MaxLength = [int]$spec[2]
         EnsureField 'asx_rulerun' $field
     }

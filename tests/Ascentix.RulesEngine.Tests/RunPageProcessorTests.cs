@@ -145,11 +145,37 @@ namespace Ascentix.RulesEngine.Tests
 
         private static RunPageLimits Limits() => new RunPageLimits { PageSize = 2, ChunkSize = 1 };
 
-        private RunPageProcessor Processor(RunPageLimits limits = null, IOrganizationService service = null)
+        private RunPageProcessor Processor(RunPageLimits limits = null, IOrganizationService service = null, Func<DateTime> clock = null)
         {
             var svc = service ?? _service;
             return new RunPageProcessor(svc, svc, 1033, new XrmFakedTracingService(), engineInitiated: false,
-                limits ?? Limits(), () => Now);
+                limits ?? Limits(), clock ?? (() => Now));
+        }
+
+        private RunBookmark BookmarkOf(Guid runId) =>
+            RunState.ParseBookmark(Run(runId).GetAttributeValue<string>(Q(SchemaNames.RuleRun.Bookmark)));
+
+        // Ids that sort the same way by .NET Guid comparison and by SQL uniqueidentifier order.
+        private static Guid OrderedId(int n) => new Guid($"00000000-0000-0000-0000-{n:D12}");
+
+        // A proxy that counts account writes per id and moves the clock past the default 90 s
+        // budget on each one, so every page stops after its first write.
+        private (ProxyService Proxy, Dictionary<Guid, int> Writes, Func<DateTime> Clock) BudgetCutProxy()
+        {
+            var now = Now;
+            var writes = new Dictionary<Guid, int>();
+            var proxy = new ProxyService(_service)
+            {
+                OnExecute = request =>
+                {
+                    if (request is UpdateRequest u && u.Target.LogicalName == "account")
+                    {
+                        writes[u.Target.Id] = writes.TryGetValue(u.Target.Id, out var n) ? n + 1 : 1;
+                        now = now.AddMinutes(5);
+                    }
+                }
+            };
+            return (proxy, writes, () => now);
         }
 
         private static (RunPageResult Last, int Calls) ProcessUntilDone(RunPageProcessor processor, Guid runId)
@@ -375,6 +401,110 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal("boom", Assert.Single(failures, f => f.RecordId == _zz1).Message);
             Assert.Equal("boom", Assert.Single(failures, f => f.RecordId == _zz3).Message);
             Assert.Single(failures, f => f.RecordId == _zz2 && f.Kind == "Blocked");
+        }
+
+        [Fact]
+        public void A_budget_cut_all_records_page_resumes_by_id_when_rows_are_deleted_or_inserted()
+        {
+            // Replace the seeded accounts with ids whose order is known: 10, 20, 30 | 40, 50.
+            foreach (var seeded in new[] { _zz1, _zz2, _zz3, _other }) _service.Delete("account", seeded);
+            foreach (var n in new[] { 10, 20, 30, 40, 50 })
+                _service.Create(new Entity("account", OrderedId(n)) { ["name"] = "ZZ" + n, ["numberofemployees"] = 50 });
+            var runId = SeedRun(OnDemandScope.AllRecords);
+            var (proxy, writes, clock) = BudgetCutProxy();
+            var processor = Processor(new RunPageLimits { PageSize = 3, ChunkSize = 1 }, proxy, clock);
+
+            var first = processor.Process(runId, null, null);
+
+            Assert.False(first.Done);
+            Assert.Equal(1, first.Evaluated);
+            var bookmark = BookmarkOf(runId);
+            Assert.Equal(1, bookmark.Page);
+            Assert.Equal(0, bookmark.Offset);
+            Assert.Equal(new[] { OrderedId(10) }, bookmark.Skip);
+
+            // A processed row is deleted and a new row lands inside the page: re-read by position,
+            // the page would shift and skip 20 (or repeat a record).
+            _service.Delete("account", OrderedId(10));
+            _service.Create(new Entity("account", OrderedId(25)) { ["name"] = "ZZ25", ["numberofemployees"] = 50 });
+
+            var second = processor.Process(runId, null, null);
+
+            Assert.False(second.Done);
+            bookmark = BookmarkOf(runId);
+            Assert.Equal(1, bookmark.Page);
+            Assert.Equal(new[] { OrderedId(10), OrderedId(20) }, bookmark.Skip);
+
+            var (last, _) = ProcessUntilDone(processor, runId);
+
+            Assert.Equal(RuleRunStatus.Completed, last.Status);
+            Assert.Equal(6, last.Evaluated);
+            Assert.Equal(6, last.Changed);
+            Assert.Equal(0, last.Failed + last.Blocked + last.Skipped);
+            var expected = new[] { 10, 20, 25, 30, 40, 50 }.Select(OrderedId).ToList();
+            Assert.Equal(expected.OrderBy(id => id), writes.Keys.OrderBy(id => id));
+            Assert.All(writes.Values, count => Assert.Equal(1, count));
+        }
+
+        [Fact]
+        public void A_budget_cut_given_records_page_advances_the_index_by_what_it_consumed()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz3, _zz2 });
+            var (proxy, writes, clock) = BudgetCutProxy();
+            var processor = Processor(new RunPageLimits { PageSize = 3, ChunkSize = 1 }, proxy, clock);
+
+            var first = processor.Process(runId, null, null);
+
+            Assert.False(first.Done);
+            var bookmark = BookmarkOf(runId);
+            Assert.Equal(1, bookmark.Index);
+            Assert.Empty(bookmark.Skip);
+
+            var (last, _) = ProcessUntilDone(processor, runId);
+
+            Assert.Equal(RuleRunStatus.CompletedWithFailures, last.Status);
+            Assert.Equal(3, last.Evaluated);
+            Assert.Equal(2, last.Changed);
+            Assert.Equal(1, last.Blocked);
+            Assert.Equal(0, last.Failed + last.Skipped);
+            Assert.Equal(3, BookmarkOf(runId).Index);
+            Assert.All(writes.Values, count => Assert.Equal(1, count));
+            Assert.Equal(2, writes.Count);
+        }
+
+        [Fact]
+        public void A_long_reported_failure_message_is_stored_cut_to_1000_characters()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1 });
+
+            Processor().Process(runId, _zz1, new string('m', 5000));
+
+            var failure = Assert.Single(FailuresOf(Run(runId)));
+            Assert.Equal(new string('m', 1000), failure.Message);
+        }
+
+        [Fact]
+        public void A_long_write_error_is_stored_cut_to_1000_characters()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1 });
+            var proxy = new ProxyService(_service)
+            {
+                OnExecute = request =>
+                {
+                    if (request is UpdateRequest u && u.Target.LogicalName == "account")
+                        throw new InvalidPluginExecutionException(new string('w', 5000));
+                }
+            };
+            var processor = Processor(service: proxy);
+
+            // The driver passes the record-failed message back as FailedMessage.
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() => processor.Process(runId, null, null));
+            var message = ex.Message.Substring(RunPageProcessor.RecordFailedPrefix.Length + 37);
+            processor.Process(runId, _zz1, message);
+
+            var failure = Assert.Single(FailuresOf(Run(runId)));
+            Assert.Equal(_zz1, failure.RecordId);
+            Assert.Equal(new string('w', 1000), failure.Message);
         }
 
         [Fact]

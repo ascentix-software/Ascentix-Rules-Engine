@@ -335,6 +335,7 @@ foreach ($interrupt in @($false, $true)) {
         Assert ($fields['asx_rule/asx_evaluationtimezone'].MaxLength -eq 100) 'Expected the rule evaluation time zone column.'
         Assert ($null -ne $fields['asx_ruleaction/asx_applytoprevious']) 'Expected the apply-to-previous action column.'
         Assert ($tables['asx_rulerun'].OwnershipType -eq 'UserOwned') 'Rule Run must be a user-owned table.'
+        Assert ($fields['asx_rulerun/asx_bookmark'].MaxLength -eq 100000) 'Expected the Rule Run bookmark to hold a page of handled record ids.'
         $onDemandOptions = $fields['asx_rule/asx_ondemandscope'].OptionSet.Options
         Assert ((($onDemandOptions | Where-Object { $_.Value -eq 1 }).Label.LocalizedLabels[0].Label) -eq "A record it's given") 'Incorrect label for Runs for option 1.'
         Assert ((($onDemandOptions | Where-Object { $_.Value -eq 2 }).Label.LocalizedLabels[0].Label) -eq 'All records that pass its execution conditions') 'Incorrect label for Runs for option 2.'

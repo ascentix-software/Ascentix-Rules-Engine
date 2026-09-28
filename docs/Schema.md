@@ -290,7 +290,7 @@ User-owned. One row per **Run now** execution of an On demand rule, created by t
 | `asx_failed` | Integer (min 0) | Running total of records that errored |
 | `asx_skipped` | Integer (min 0) | Running total of records that did not pass the execution conditions |
 | `asx_failures` | Memo (100,000) | JSON array of the first 50 `{recordId, kind: "Blocked"\|"Failed", message}` |
-| `asx_bookmark` | Memo (20,000) | Paging cookie and page number (All records), or the next index (Given records) |
+| `asx_bookmark` | Memo (100,000) | JSON: the page number, paging cookie and the ids already handled on that page (All records), or the next index (Given records); either scope also lists reported failed ids to skip. `offset` is kept for compatibility and always 0 |
 | `asx_ruleversions` | Memo (4,000) | JSON array of the published revision ids used across pages |
 | `asx_startedon` | DateTime (UserLocal) | Set when the run is created |
 | `asx_lastpageon` | DateTime (UserLocal) | Set after each processed page |
@@ -754,9 +754,13 @@ so every page starts fresh at plug-in depth 1.
   status and does nothing.
 - **Page budget:** stops after 500 records or 90 seconds of processing, whichever comes first.
 - **Record selection:** an **All records** run reads the rule's table ordered by primary id, a page
-  at a time, with the page number, paging cookie and offset kept in the bookmark. A **Given
-  records** run walks the stored ids in order from the bookmark index. Records are evaluated in
-  chunks of 100; a record that no longer exists counts as Failed (`"Record not found."`).
+  at a time, with the page number and paging cookie kept in the bookmark. A page cut short by the
+  budget is resumed by re-reading the same page and skipping the ids already handled on it (kept
+  in the bookmark), so rows deleted or inserted in the meantime can't make it skip or repeat a
+  record. A **Given records** run walks the stored ids in order from the bookmark index. Records
+  are evaluated in chunks of 100; a record that no longer exists counts as Failed
+  (`"Record not found."`).
+- **Failure messages** stored in `asx_failures` are cut to 1,000 characters.
 - **Per record:** the same evaluation as `asx_ApplyRules`. A record that doesn't pass the rule's
   execution conditions counts Skipped; a Block counts Blocked (no writes, recorded in
   `asx_failures`); otherwise its writes are applied — at least one write counts Changed, none

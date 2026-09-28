@@ -43,6 +43,7 @@ namespace Ascentix.RulesEngine.Plugin
     public sealed class RunPageProcessor
     {
         public const string RecordFailedPrefix = "asx_ProcessRunPage:record-failed:";
+        public const int MaxFailureMessageLength = 1000;
 
         private const string NotPublishedMessage = "The rule is not published with the On demand trigger.";
 
@@ -126,7 +127,7 @@ namespace Ascentix.RulesEngine.Plugin
                     row.Bookmark.Skip.Add(failedRecordId.Value);
                     row.Evaluated++;
                     row.Failed++;
-                    row.Failures.Add(new RunFailure(failedRecordId.Value, "Failed", failedMessage ?? "The write failed."));
+                    row.Failures.Add(Failure(failedRecordId.Value, "Failed", failedMessage ?? "The write failed."));
                 }
                 if (row.Status == RuleRunStatus.Queued) row.Status = RuleRunStatus.Running;
                 row.LastPageOn = _utcNow();
@@ -141,7 +142,7 @@ namespace Ascentix.RulesEngine.Plugin
             }
             catch (InvalidPluginExecutionException e) when (e.Message == NotPublishedMessage)
             {
-                row.Failures.Add(new RunFailure(Guid.Empty, "Failed", "The rule is no longer published with the On demand trigger."));
+                row.Failures.Add(Failure(Guid.Empty, "Failed", "The rule is no longer published with the On demand trigger."));
                 return Finish(runId, row, RuleRunStatus.Failed);
             }
 
@@ -165,7 +166,9 @@ namespace Ascentix.RulesEngine.Plugin
                 if (row.Bookmark.Cookie != null) query.PageInfo.PagingCookie = row.Bookmark.Cookie;
                 query.AddOrder(rule.Table + "id", OrderType.Ascending);
                 var result = _system.RetrieveMultiple(query);
-                window = result.Entities.Select(e => e.Id).Skip(row.Bookmark.Offset).ToList();
+                // The whole page every time: a resumed page skips what it already handled by id (the
+                // skip list), so rows deleted or inserted since the last call can't shift it.
+                window = result.Entities.Select(e => e.Id).ToList();
                 more = result.MoreRecords;
                 pagingCookie = result.PagingCookie;
             }
@@ -197,7 +200,7 @@ namespace Ascentix.RulesEngine.Plugin
                 {
                     row.Evaluated++;
                     row.Failed++;
-                    row.Failures.Add(new RunFailure(missing, "Failed", "Record not found."));
+                    row.Failures.Add(Failure(missing, "Failed", "Record not found."));
                     if (SafetyStop(row)) return Finish(runId, row, RuleRunStatus.Failed);
                 }
 
@@ -215,7 +218,7 @@ namespace Ascentix.RulesEngine.Plugin
                     else if (record.HasBlock)
                     {
                         row.Blocked++;
-                        row.Failures.Add(new RunFailure(record.RecordId, "Blocked",
+                        row.Failures.Add(Failure(record.RecordId, "Blocked",
                             ActionDispatcher.FormatBlockMessage(record.BlockingMessages, _languageId)));
                     }
                     else
@@ -228,26 +231,26 @@ namespace Ascentix.RulesEngine.Plugin
                         catch (Exception ex)
                         {
                             // Rolls the whole page back; the caller re-calls with this record reported.
-                            throw new InvalidPluginExecutionException($"{RecordFailedPrefix}{record.RecordId}:{ex.Message}");
+                            throw new InvalidPluginExecutionException($"{RecordFailedPrefix}{record.RecordId}:{Truncate(ex.Message)}");
                         }
                     }
                     if (SafetyStop(row)) return Finish(runId, row, RuleRunStatus.Failed);
                 }
+
+                // An all-records page resumes by id: everything handled so far is skipped next time.
+                if (allRecords) row.Bookmark.Skip.AddRange(chunk);
             }
 
-            // Advance the bookmark past what this page consumed.
+            // Advance the bookmark past what this page consumed. Offset is no longer used (an
+            // all-records page resumes through the skip list) and is always written as 0.
             var windowConsumed = consumed == window.Count;
+            row.Bookmark.Offset = 0;
             if (allRecords)
             {
                 if (windowConsumed)
                 {
                     row.Bookmark.Page++;
                     row.Bookmark.Cookie = pagingCookie;
-                    row.Bookmark.Offset = 0;
-                }
-                else
-                {
-                    row.Bookmark.Offset += consumed;
                 }
             }
             else
@@ -261,6 +264,13 @@ namespace Ascentix.RulesEngine.Plugin
 
             return Save(runId, row, done: false);
         }
+
+        // Failure messages are capped so 50 of them always fit asx_failures (Memo 100,000).
+        private static RunFailure Failure(Guid recordId, string kind, string message) =>
+            new RunFailure(recordId, kind, Truncate(message));
+
+        private static string Truncate(string message) =>
+            message != null && message.Length > MaxFailureMessageLength ? message.Substring(0, MaxFailureMessageLength) : message;
 
         // Every record so far failed: a misconfigured rule or a run over the wrong table. Stop
         // before failing the rest.
