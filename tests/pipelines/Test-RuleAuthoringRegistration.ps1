@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $fixtureId = '11111111-1111-1111-1111-111111111111'
 $apis = @{}
 $parameters = @{}
-$state = @{ Creates = 0; FailParameterOnce = $false; DeleteGuardId = $null; GuardCreates = 0; DeleteStages = @{}; RevisionGuard = $true; RunStepId = $null }
+$state = @{ Creates = 0; FailParameterOnce = $false; DeleteGuardId = $null; GuardCreates = 0; DeleteStages = @{}; RevisionGuard = $true; RunStepId = $null; RunUpdateStepId = $null }
 $pluginTypeIds = @{}
 
 function Assert([bool]$Condition, [string]$Message) {
@@ -40,6 +40,9 @@ function Invoke-RestMethod {
                 if ($path -match "_eventhandler_value eq $(TypeId 'RuleRunPlugin') ") {
                     return @{ value = @(if ($state.RunStepId) { @{ sdkmessageprocessingstepid = $state.RunStepId } }) }
                 }
+                if ($path -match "_eventhandler_value eq $(TypeId 'RuleRunUpdatePlugin') ") {
+                    return @{ value = @(if ($state.RunUpdateStepId) { @{ sdkmessageprocessingstepid = $state.RunUpdateStepId } }) }
+                }
                 return @{ value = @(@{ sdkmessageprocessingstepid = $fixtureId; stage = 20; mode = 0; statecode = 0 }) }
             }
             '^customapis\?.*uniquename eq ''([^'']+)''' {
@@ -70,6 +73,18 @@ function Invoke-RestMethod {
                 $state.Creates++
             } else {
                 Assert ($path -eq "sdkmessageprocessingsteps($($state.RunStepId))") 'Rule Run step retry must update the same step.'
+            }
+            return
+        }
+        if ($record['eventhandler_plugintype@odata.bind'] -eq "/plugintypes($(TypeId 'RuleRunUpdatePlugin'))") {
+            Assert ($record.stage -eq 20 -and $record.mode -eq 0) 'Rule Run update step must be a synchronous pre-operation step.'
+            Assert ($record.name -eq 'Ascentix revision guard: asx_rulerun Update') 'Rule Run update step must be registered for asx_rulerun Update.'
+            if ($Method -eq 'POST') {
+                Assert (!$state.RunUpdateStepId) 'Only the missing Rule Run update step should be created.'
+                $state.RunUpdateStepId = [guid]::NewGuid().ToString()
+                $state.Creates++
+            } else {
+                Assert ($path -eq "sdkmessageprocessingsteps($($state.RunUpdateStepId))") 'Rule Run update step retry must update the same step.'
             }
             return
         }
@@ -141,7 +156,7 @@ foreach ($interrupt in @($false, $true)) {
     $parameters.Clear()
     $state.Creates = 0; $state.RevisionGuard = $true
     $state.DeleteGuardId = $null; $state.GuardCreates = 0; $state.DeleteStages.Clear()
-    $state.RunStepId = $null
+    $state.RunStepId = $null; $state.RunUpdateStepId = $null
     $state.FailParameterOnce = $interrupt
     if ($interrupt) {
         $interrupted = $false
@@ -154,7 +169,7 @@ foreach ($interrupt in @($false, $true)) {
     }
     Register
     Assert ($apis.Count -eq 8 -and $parameters.Count -eq 24) 'Expected seven new APIs and twenty-four parameters/properties.'
-    Assert ($state.Creates -eq 32) 'Expected exactly thirty-two successful creates.'
+    Assert ($state.Creates -eq 33) 'Expected exactly thirty-three successful creates.'
     foreach ($spec in @(
         @('asx_ReadPublishedRule', 'RuleId', 10), @('asx_ReadPublishedRule', 'Definition', 10),
         @('asx_RestoreRuleDraft', 'RuleId', 10),
@@ -181,6 +196,7 @@ foreach ($interrupt in @($false, $true)) {
         if (!$spec[3]) { Assert ($match[0].isoptional -eq $spec[4]) "Incorrect optionality for $($spec[0]).$($spec[1])." }
     }
     Assert (($null -ne $state.RunStepId)) 'Expected the Rule Run creation step to be registered.'
+    Assert (($null -ne $state.RunUpdateStepId)) 'Expected the Rule Run update step to be registered.'
     # Simulate upgrading the old restore contract. A same-named input on another
     # API must survive, and rerunning registration must not recreate the old input.
     $restoreVersionKey = "customapirequestparameters/$($apis['asx_RestoreRuleDraft'].customapiid)/ExpectedVersion"
@@ -192,7 +208,7 @@ foreach ($interrupt in @($false, $true)) {
     Assert ($parameters.ContainsKey($otherVersionKey)) 'Registration removed another API parameter.'
     $parameters.Remove($otherVersionKey)
     Register
-    Assert ($parameters.Count -eq 24 -and $state.Creates -eq 32) 'Completed deployment retry changed the API contract.'
+    Assert ($parameters.Count -eq 24 -and $state.Creates -eq 33) 'Completed deployment retry changed the API contract.'
     Assert ($state.GuardCreates -eq 1 -and $state.DeleteStages.Count -eq 3 -and $state.DeleteStages.ContainsKey(10) -and $state.DeleteStages.ContainsKey(20) -and $state.DeleteStages.ContainsKey(40)) 'Expected capture in PreValidation and transactional cleanup in PreOperation/PostOperation.'
     Assert (!$state.RevisionGuard) 'Revision-table plugin vetoes must be removed.'
     Assert ($apis['asx_OpenRuleDraft'].executeprivilegename -eq 'prvWriteasx_rule') 'Opening a draft requires the platform Write privilege.'

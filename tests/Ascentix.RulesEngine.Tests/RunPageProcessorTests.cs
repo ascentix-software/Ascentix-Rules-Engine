@@ -34,6 +34,7 @@ namespace Ascentix.RulesEngine.Tests
         private readonly Guid _zz2 = Guid.NewGuid();
         private readonly Guid _zz3 = Guid.NewGuid();
         private readonly Guid _other = Guid.NewGuid();
+        private readonly Guid _updateActionId = Guid.NewGuid();
 
         public RunPageProcessorTests()
         {
@@ -62,12 +63,13 @@ namespace Ascentix.RulesEngine.Tests
                     ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
                     [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
                         new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnDemand) }),
+                    [Q(SchemaNames.Rule.OnDemandScope)] = new OptionSetValue((int)OnDemandScope.AllRecords),
                 },
                 Group(execGroup, ruleRef, isExecutionCondition: true),
                 Condition(execGroup, cfgRef, "name", ComparisonOperator.Contains, "ZZ"),
                 Group(matchGroup, ruleRef, isExecutionCondition: false),
                 Condition(matchGroup, cfgRef, "numberofemployees", ComparisonOperator.GreaterThan, "10"),
-                new Entity(Q(SchemaNames.RuleAction.Entity), Guid.NewGuid())
+                new Entity(Q(SchemaNames.RuleAction.Entity), _updateActionId)
                 {
                     [Q(SchemaNames.RuleAction.Rule)] = ruleRef,
                     [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.UpdateRecord),
@@ -93,17 +95,22 @@ namespace Ascentix.RulesEngine.Tests
             });
             _service = _ctx.GetOrganizationService();
 
-            // Publish: freeze the authored rows into a revision and point the rule at it.
+            Publish(_revisionId);
+        }
+
+        // Publish: freeze the authored rows into a revision and point the rule at it.
+        private void Publish(Guid revisionId)
+        {
             var snapshot = RuleSnapshot.Capture(_service, _ruleId);
-            _service.Create(new Entity(Q(SchemaNames.RuleRevision.Entity), _revisionId)
+            _service.Create(new Entity(Q(SchemaNames.RuleRevision.Entity), revisionId)
             {
-                [Q(SchemaNames.RuleRevision.Rule)] = ruleRef,
+                [Q(SchemaNames.RuleRevision.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), _ruleId),
                 [Q(SchemaNames.RuleRevision.Definition)] = snapshot.Serialize(),
                 [Q(SchemaNames.RuleRevision.Hash)] = snapshot.Hash(),
             });
             _service.Update(new Entity(Q(SchemaNames.Rule.Entity), _ruleId)
             {
-                [Q(SchemaNames.Rule.PublishedRevision)] = new EntityReference(Q(SchemaNames.RuleRevision.Entity), _revisionId),
+                [Q(SchemaNames.Rule.PublishedRevision)] = new EntityReference(Q(SchemaNames.RuleRevision.Entity), revisionId),
             });
         }
 
@@ -770,6 +777,91 @@ namespace Ascentix.RulesEngine.Tests
             var failure = Assert.Single(FailuresOf(run), f => f.RecordId == Guid.Empty);
             Assert.Equal("Failed", failure.Kind);
             Assert.Equal("The rule is no longer published with the On demand trigger.", failure.Message);
+        }
+
+        [Fact]
+        public void An_all_records_run_fails_once_its_rule_runs_for_given_records()
+        {
+            var runId = SeedRun(OnDemandScope.AllRecords);
+            _service.Update(new Entity(Q(SchemaNames.Rule.Entity), _ruleId)
+            {
+                [Q(SchemaNames.Rule.OnDemandScope)] = new OptionSetValue((int)OnDemandScope.GivenRecord),
+            });
+            Publish(Guid.NewGuid());
+
+            var result = Processor().Process(runId, null, null);
+
+            AssertScopeMismatch(runId, result);
+        }
+
+        [Fact]
+        public void An_all_records_run_with_record_ids_fails()
+        {
+            var runId = SeedRun(OnDemandScope.AllRecords, new[] { _zz1 });
+
+            var result = Processor().Process(runId, null, null);
+
+            AssertScopeMismatch(runId, result);
+        }
+
+        [Fact]
+        public void A_given_records_run_without_record_ids_fails()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord);
+
+            var result = Processor().Process(runId, null, null);
+
+            AssertScopeMismatch(runId, result);
+        }
+
+        private void AssertScopeMismatch(Guid runId, RunPageResult result)
+        {
+            Assert.True(result.Done);
+            Assert.Equal(RuleRunStatus.Failed, result.Status);
+            Assert.Equal(0, result.Evaluated);
+            var run = Run(runId);
+            Assert.Equal(RuleRunStatus.Failed, StatusOf(run));
+            var failure = Assert.Single(FailuresOf(run));
+            Assert.Equal(Guid.Empty, failure.RecordId);
+            Assert.Equal("The run no longer matches its rule's Runs for setting.", failure.Message);
+            Assert.Null(Description(_zz1));
+        }
+
+        [Fact]
+        public void Republishing_mid_run_records_a_second_version_and_the_next_page_uses_it()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz3 });
+            var processor = Processor(new RunPageLimits { PageSize = 1, ChunkSize = 1 });
+            Assert.False(processor.Process(runId, null, null).Done);
+
+            _service.Update(new Entity(Q(SchemaNames.RuleAction.Entity), _updateActionId)
+            {
+                [Q(SchemaNames.RuleAction.FieldMapping)] = "[{\"target\":\"description\",\"source\":\"literal\",\"value\":\"bigger\"}]",
+            });
+            var secondRevision = Guid.NewGuid();
+            Publish(secondRevision);
+
+            var (last, _) = ProcessUntilDone(processor, runId);
+
+            Assert.Equal(RuleRunStatus.Completed, last.Status);
+            Assert.Equal("big", Description(_zz1));
+            Assert.Equal("bigger", Description(_zz3));
+            Assert.Equal(new[] { _revisionId, secondRevision },
+                RunState.ParseVersions(Run(runId).GetAttributeValue<string>(Q(SchemaNames.RuleRun.RuleVersions))));
+        }
+
+        [Fact]
+        public void A_failure_after_a_success_does_not_trip_the_safety_stop()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() });
+            var limits = new RunPageLimits { PageSize = 10, ChunkSize = 1, SafetyStopAfter = 2 };
+
+            var (last, _) = ProcessUntilDone(Processor(limits), runId);
+
+            Assert.Equal(RuleRunStatus.CompletedWithFailures, last.Status);
+            Assert.Equal(4, last.Evaluated);
+            Assert.Equal(3, last.Failed);
+            Assert.Equal(1, last.Changed);
         }
 
         [Fact]

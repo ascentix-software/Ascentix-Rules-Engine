@@ -10,5 +10,6 @@
   "Ascentix.RulesEngine.Plugin.ValidateRuleApi",
   "Ascentix.RulesEngine.Plugin.ApplyRulesApi",
   "Ascentix.RulesEngine.Plugin.ProcessRunPageApi",
-  "Ascentix.RulesEngine.Plugin.RuleRunPlugin"
+  "Ascentix.RulesEngine.Plugin.RuleRunPlugin",
+  "Ascentix.RulesEngine.Plugin.RuleRunUpdatePlugin"
 ]

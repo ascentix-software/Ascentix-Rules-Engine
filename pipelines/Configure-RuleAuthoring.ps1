@@ -302,4 +302,6 @@ EnsureParameter $id 'Blocked' 7 $true 'Running total of records that fired a Blo
 EnsureParameter $id 'Failed' 7 $true 'Running total of records that failed with an error.'
 EnsureParameter $id 'Skipped' 7 $true 'Running total of records that did not pass the execution conditions.'
 EnsureStep 'asx_rulerun' 'Create' (PluginType 'RuleRunPlugin') 1 20
+# Outside asx_ProcessRunPage, a run may only be cancelled.
+EnsureStep 'asx_rulerun' 'Update' (PluginType 'RuleRunUpdatePlugin') 1 20
 Write-Host '[revisions] guards, lifecycle ordering, and APIs registered'

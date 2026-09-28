@@ -48,6 +48,7 @@ namespace Ascentix.RulesEngine.Plugin
         public const int MaxFailureMessageLength = 1000;
 
         private const string NotPublishedMessage = "The rule is not published with the On demand trigger.";
+        private const string ScopeMismatchMessage = "The run no longer matches its rule's Runs for setting.";
 
         private static string Q(string fragment) => SchemaNames.Qualify(fragment);
 
@@ -146,6 +147,16 @@ namespace Ascentix.RulesEngine.Plugin
             catch (InvalidPluginExecutionException e) when (e.Message == NotPublishedMessage)
             {
                 row.Failures.Add(Failure(Guid.Empty, "Failed", "The rule is no longer published with the On demand trigger."));
+                return Finish(runId, row, RuleRunStatus.Failed);
+            }
+
+            // The run must still match its rule's Runs for setting: an all-records run needs an
+            // All records rule and no record ids; a given-records run needs its ids. Checked on
+            // every page, so neither a republish nor an edit to the run widens what it touches.
+            var scopeMatches = allRecords ? rule.Scope == OnDemandScope.AllRecords && ids.Count == 0 : ids.Count > 0;
+            if (!scopeMatches)
+            {
+                row.Failures.Add(Failure(Guid.Empty, "Failed", ScopeMismatchMessage));
                 return Finish(runId, row, RuleRunStatus.Failed);
             }
 

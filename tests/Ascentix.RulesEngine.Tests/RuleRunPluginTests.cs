@@ -97,6 +97,32 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void A_new_run_starts_from_empty_state_whatever_the_caller_sent()
+        {
+            var (seed, allId, _, _) = Seed();
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(seed);
+
+            var run = Run(allId);
+            run[Q(SchemaNames.RuleRun.Bookmark)] = "{\"index\":400,\"page\":9}";
+            run[Q(SchemaNames.RuleRun.Failures)] = "[]";
+            run[Q(SchemaNames.RuleRun.RuleVersions)] = $"[\"{Guid.NewGuid()}\"]";
+            run[Q(SchemaNames.RuleRun.LastPageOn)] = DateTime.UtcNow;
+            run[Q(SchemaNames.RuleRun.FinishedOn)] = DateTime.UtcNow;
+            run[Q(SchemaNames.RuleRun.Evaluated)] = 7;
+            run[Q(SchemaNames.RuleRun.Status)] = new OptionSetValue((int)RuleRunStatus.Running);
+            ctx.ExecutePluginWith<RuleRunPlugin>(RunContext(run));
+
+            Assert.Null(run[Q(SchemaNames.RuleRun.Bookmark)]);
+            Assert.Null(run[Q(SchemaNames.RuleRun.Failures)]);
+            Assert.Null(run[Q(SchemaNames.RuleRun.RuleVersions)]);
+            Assert.Null(run[Q(SchemaNames.RuleRun.LastPageOn)]);
+            Assert.Null(run[Q(SchemaNames.RuleRun.FinishedOn)]);
+            Assert.Equal(0, run.GetAttributeValue<int>(Q(SchemaNames.RuleRun.Evaluated)));
+            Assert.Equal((int)RuleRunStatus.Queued, run.GetAttributeValue<OptionSetValue>(Q(SchemaNames.RuleRun.Status)).Value);
+        }
+
+        [Fact]
         public void Record_ids_make_a_given_records_run_for_any_on_demand_rule()
         {
             var (seed, allId, _, _) = Seed();

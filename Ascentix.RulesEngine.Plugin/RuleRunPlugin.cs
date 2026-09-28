@@ -54,6 +54,12 @@ namespace Ascentix.RulesEngine.Plugin
             target[Q(SchemaNames.RuleRun.Blocked)] = 0;
             target[Q(SchemaNames.RuleRun.Failed)] = 0;
             target[Q(SchemaNames.RuleRun.Skipped)] = 0;
+            // The engine's state, never the caller's: a run always starts from the beginning.
+            target[Q(SchemaNames.RuleRun.Bookmark)] = null;
+            target[Q(SchemaNames.RuleRun.Failures)] = null;
+            target[Q(SchemaNames.RuleRun.RuleVersions)] = null;
+            target[Q(SchemaNames.RuleRun.LastPageOn)] = null;
+            target[Q(SchemaNames.RuleRun.FinishedOn)] = null;
             target[Q(SchemaNames.RuleRun.StartedOn)] = nowUtc;
 
             if (string.IsNullOrWhiteSpace(target.GetAttributeValue<string>(Q(SchemaNames.RuleRun.Name))))
