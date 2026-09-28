@@ -41,7 +41,8 @@ export async function loadPublishedGraph(definition: string, ruleId: string) {
       return { entities: records.filter(r => r.entity === entity && (!predicates || predicates.some(p => String(r.raw[p.field]).toLowerCase() === p.id)))
         .map(r => r.raw).sort((a, b) => (a.asx_order ?? 0) - (b.asx_order ?? 0)) };
     },
-    createRecord: readonly, validateRule: readonly, publishRule: readonly, unpublishRule: readonly,
+    createRecord: readonly, updateRecord: readonly, processRunPage: readonly,
+    validateRule: readonly, publishRule: readonly, unpublishRule: readonly,
   };
   return loadRuleGraph(api, ruleId);
 }

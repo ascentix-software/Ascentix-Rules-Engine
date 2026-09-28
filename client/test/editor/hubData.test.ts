@@ -40,6 +40,8 @@ function port(): WebApiPort {
   return {
     retrieveRecord: async () => { throw new Error("unused"); },
     createRecord: async () => { throw new Error("unused"); },
+    updateRecord: async () => { throw new Error("unused"); },
+    processRunPage: async () => { throw new Error("unused"); },
     validateRule: async () => { throw new Error("unused"); },
     publishRule: async () => { throw new Error("unused"); },
     unpublishRule: async () => { throw new Error("unused"); },
@@ -99,6 +101,8 @@ describe("retrieveAll (nextLink paging)", () => {
     return {
       retrieveRecord: async () => { throw new Error("unused"); },
       createRecord: async () => { throw new Error("unused"); },
+      updateRecord: async () => { throw new Error("unused"); },
+      processRunPage: async () => { throw new Error("unused"); },
       validateRule: async () => { throw new Error("unused"); },
       publishRule: async () => { throw new Error("unused"); },
       unpublishRule: async () => { throw new Error("unused"); },

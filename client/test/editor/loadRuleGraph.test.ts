@@ -29,6 +29,8 @@ function fakePort(): WebApiPort {
       throw new Error("unexpected retrieveMultipleRecords " + entity);
     },
     createRecord: async () => { throw new Error("unused"); },
+    updateRecord: async () => { throw new Error("unused"); },
+    processRunPage: async () => { throw new Error("unused"); },
     validateRule: async () => { throw new Error("unused"); },
     publishRule: async () => { throw new Error("unused"); },
     unpublishRule: async () => { throw new Error("unused"); },
@@ -68,6 +70,8 @@ describe("loadRuleGraph", () => {
           throw new Error("unexpected retrieveMultipleRecords " + entity);
         },
         createRecord: async () => { throw new Error("unused"); },
+    updateRecord: async () => { throw new Error("unused"); },
+    processRunPage: async () => { throw new Error("unused"); },
         validateRule: async () => { throw new Error("unused"); },
         publishRule: async () => { throw new Error("unused"); },
         unpublishRule: async () => { throw new Error("unused"); },
@@ -107,6 +111,8 @@ describe("loadRuleGraph", () => {
           throw new Error("unexpected retrieveMultipleRecords " + entity);
         },
         createRecord: async () => { throw new Error("unused"); },
+    updateRecord: async () => { throw new Error("unused"); },
+    processRunPage: async () => { throw new Error("unused"); },
         validateRule: async () => { throw new Error("unused"); },
         publishRule: async () => { throw new Error("unused"); },
         unpublishRule: async () => { throw new Error("unused"); },
