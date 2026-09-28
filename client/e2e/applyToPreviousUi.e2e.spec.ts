@@ -67,6 +67,11 @@ test("Also apply to the previous switch: visible and saved only while the target
     let action = await actionOf(rule.ruleId);
     expect(action.asx_applytoprevious).toBe(true);
 
+    // Save reloads the rule and resets selection to the rule level (RuleEditorApp.acceptFresh),
+    // which collapses the inspector panel back to the rule's own settings. Re-select the action
+    // before touching its fields again, same as re-opening a row after any other round-trip.
+    await frame.getByRole("button", { name: /^Edit action 1/ }).click();
+
     // Retarget to the rule's own record (the root): reached in zero lookups, so the switch is
     // no longer eligible and is not rendered at all (nothing left to untick).
     await nodeBox.click();
