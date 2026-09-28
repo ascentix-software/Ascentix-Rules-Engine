@@ -193,6 +193,26 @@ export async function addChildNode(
   });
 }
 
+// Adds a LookupTable node under `parentId` (a single-valued lookup off the parent's table, e.g.
+// the line's order). Mirrors test-dev/ruleBehavior/authoring.ts's ensureLineRootedConfig, the
+// Root -> Lookup shape the "apply to the previous parent" surface keys off
+// (tableConfigOps.previousParentLookup). Returned id is tracked by the PARENT's cleanup, same as
+// addChildNode.
+export async function addLookupNode(
+  parentId: string,
+  opts: { name: string; table: string; lookupColumnLogicalName: string; lookupTargetIdAttribute: string },
+): Promise<string> {
+  const api = createDevApi();
+  return api.createRecord(ENTITY_SET.tableConfig, {
+    asx_name: opts.name.startsWith("ZZ_RB_") ? opts.name : `ZZ_RB_${opts.name}`,
+    asx_tablelogicalname: opts.table,
+    asx_tableconfigtype: 2 /* LookupTable */,
+    asx_lookupcolumnlogicalname: opts.lookupColumnLogicalName,
+    asx_lookuptargetidattribute: opts.lookupTargetIdAttribute,
+    [`${BIND_NAV.tableConfigParent}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${parentId})`,
+  });
+}
+
 // Root `sample_order` config + one `sample_orderline` child collection. The canonical shape for
 // every surface that needs a many-cardinality node: RowCount conditions, "Only consider records
 // where…", Insert-aggregate, UpdateRecord target nodes.
