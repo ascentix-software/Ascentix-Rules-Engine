@@ -88,6 +88,10 @@ namespace Ascentix.RulesEngine.Core.Engine
                             WriteIntent intent = null;
                             if (ActionDispatcher.IsServerAction(a.ActionType) && a.ActionType != ActionType.Block)
                                 intent = writeResolver.Resolve(a, Mapping(input, a), ruleRoot, ruleCache, input.Context);
+                            // A record run 1 also resolves for this node (both parents share it) is
+                            // current, not previous: run 1 owns it, so run 2 must not overwrite it.
+                            if (previousOf != null && intent?.Operation == WriteOperation.Update
+                                && IsRunOneTarget(cache, a, intent)) continue;
                             var result = ToResult(a, input.LanguageId, ruleRoot, ruleCache, templates, trace, intent);
                             result.PreviousOfNodeId = previousOf?.Id;
                             fired.Add(result);
@@ -106,6 +110,13 @@ namespace Ascentix.RulesEngine.Core.Engine
         // was, raised only when that action actually fires.
         private static List<FieldMappingEntry> Mapping(EvaluationInput input, RuleAction a) =>
             input.MappingsByAction.TryGetValue(a.Id, out var m) ? m : FieldMappingParser.Parse(a.FieldMapping);
+
+        private static bool IsRunOneTarget(QueryResultCache runOneCache, RuleAction a, WriteIntent intent)
+        {
+            if (!a.TargetNodeId.HasValue || !runOneCache.Has(a.TargetNodeId.Value)) return false;
+            var rows = runOneCache.Get(a.TargetNodeId.Value);
+            return rows.Count == 1 && rows[0].Id == intent.TargetId;
+        }
 
         private static FiredActionResult ToResult(
             RuleAction a,

@@ -42,6 +42,15 @@ namespace Ascentix.RulesEngine.Tests
                     });
                     return new RetrieveEntityResponse { Results = new ParameterCollection { { "EntityMetadata", meta } } };
                 }
+                if (request is RetrieveEntityRequest creq && creq.LogicalName == "sample_customer")
+                {
+                    var meta = new EntityMetadata { LogicalName = "sample_customer" };
+                    typeof(EntityMetadata).GetProperty("Attributes").SetValue(meta, new AttributeMetadata[]
+                    {
+                        new BooleanAttributeMetadata { LogicalName = "sample_ispriority" },
+                    });
+                    return new RetrieveEntityResponse { Results = new ParameterCollection { { "EntityMetadata", meta } } };
+                }
                 return _inner.Execute(request);
             }
 
@@ -227,6 +236,73 @@ namespace Ascentix.RulesEngine.Tests
                 buildMode: RootBuildMode.RetrieveAndOverlay, trace: new XrmFakedTracingService());
 
             Assert.DoesNotContain(outcome.Records[0].FiredActions, a => a.PreviousOfNodeId != null);
+        }
+
+        [Fact]
+        public void A_record_both_orders_share_is_written_by_the_normal_run_only()
+        {
+            // Line → Order → Customer; the line moves between two orders of the same customer. The
+            // ticked action targets the customer, which run 2 resolves to the same, still current,
+            // record: run 1 owns it, so run 2 must not write it again.
+            Guid ruleId = Guid.NewGuid(), rootCfg = Guid.NewGuid(), orderCfg = Guid.NewGuid(), customerCfg = Guid.NewGuid();
+            Guid customer = Guid.NewGuid(), orderA = Guid.NewGuid(), orderB = Guid.NewGuid(), line = Guid.NewGuid();
+            EntityReference Cfg(Guid id) => new EntityReference(Q(SchemaNames.TableConfig.Entity), id);
+            Entity Order(Guid id) => new Entity("sample_order", id)
+                { ["sample_customerid"] = new EntityReference("sample_customer", customer) };
+
+            var seed = new List<Entity>
+            {
+                new Entity(Q(SchemaNames.TableConfig.Entity), rootCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_orderline",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.RootTable),
+                },
+                new Entity(Q(SchemaNames.TableConfig.Entity), orderCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_order",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.LookupTable),
+                    [Q(SchemaNames.TableConfig.ParentTable)] = Cfg(rootCfg),
+                    [Q(SchemaNames.TableConfig.LookupColumnLogicalName)] = "sample_orderid",
+                    [Q(SchemaNames.TableConfig.LookupTargetIdAttribute)] = "sample_orderid",
+                },
+                new Entity(Q(SchemaNames.TableConfig.Entity), customerCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_customer",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.LookupTable),
+                    [Q(SchemaNames.TableConfig.ParentTable)] = Cfg(orderCfg),
+                    [Q(SchemaNames.TableConfig.LookupColumnLogicalName)] = "sample_customerid",
+                    [Q(SchemaNames.TableConfig.LookupTargetIdAttribute)] = "sample_customerid",
+                },
+                new Entity(Q(SchemaNames.Rule.Entity), ruleId)
+                {
+                    [Q(SchemaNames.Rule.TableLogicalName)] = "sample_orderline",
+                    ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
+                    [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
+                        new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnUpdate) }),
+                },
+                Action(Guid.NewGuid(), ruleId, customerCfg, ActionFireOn.OnMatch,
+                    "[{\"target\":\"sample_ispriority\",\"source\":\"literal\",\"value\":true}]", tick: true, order: 1),
+                new Entity("sample_customer", customer),
+                Order(orderA),
+                Order(orderB),
+                new Entity("sample_orderline", line) { ["sample_orderid"] = new EntityReference("sample_order", orderA) },
+            };
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(seed);
+            var service = new MetadataService(ctx.GetOrganizationService());
+
+            var overlay = new Entity("sample_orderline", line) { ["sample_orderid"] = new EntityReference("sample_order", orderB) };
+            var outcome = new RulesEngineRunner().Run(
+                systemService: service, userService: service, logicalName: "sample_orderline",
+                inputs: new List<RootInput> { new RootInput { Id = line, Overlay = overlay } },
+                trigger: RuleTrigger.OnUpdate, channel: RuleChannel.Standard, languageId: 1033,
+                buildMode: RootBuildMode.RetrieveAndOverlay, trace: new XrmFakedTracingService());
+
+            var fired = outcome.Records[0].FiredActions;
+            Assert.DoesNotContain(fired, a => a.PreviousOfNodeId != null);
+            var write = Assert.Single(fired);
+            Assert.Equal(customer, write.WriteIntent.TargetId);
+            Assert.Equal(true, write.WriteIntent.Values["sample_ispriority"]);
         }
     }
 }
