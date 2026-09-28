@@ -110,7 +110,10 @@ export function RuleEditorApp({
   const [nameDraft, setNameDraft] = React.useState("");
   const [panelOpen, setPanelOpen] = React.useState(false);
   const [unpublishOpen, setUnpublishOpen] = React.useState(false);
-  const [runNowOpen, setRunNowOpen] = React.useState(false);
+  const [runNowRule, setRunNowRule] = React.useState<{
+    id: string; name: string; table: string; scope: number; executionConditions: string[];
+  } | null>(null);
+  const [loadingRunNow, setLoadingRunNow] = React.useState(false);
   const [runsOpen, setRunsOpen] = React.useState(false);
   const [validationResult, setValidationResult] = React.useState<{
     isValid: boolean; issues: ApiIssue[]; draftHash?: string;
@@ -291,6 +294,30 @@ export function RuleEditorApp({
     finally { setBusy(false); }
   }
 
+  // R11: the Run now dialog must describe what actually runs — the PUBLISHED definition,
+  // not the draft being edited — so load it the same way "View published" (onViewPublished,
+  // above) does; fall back to the working graph if that load fails (or the port can't read
+  // published rules). Also uses activeRuleId, the rule id the run itself must be created
+  // against: RuleRunPlugin/OnDemandRules.Resolve only resolve Published rules, and while a
+  // draft is open working.rule.id is the DRAFT's id, not the published one.
+  async function onOpenRunNow() {
+    setLoadingRunNow(true);
+    const activeId = working.rule.activeRuleId ?? working.rule.id;
+    let scope = working.rule.onDemandScope ?? 1;
+    let executionConditions = executionConditionNames(displayed);
+    try {
+      if (api.readPublishedRule) {
+        const publishedGraph = await loadPublishedGraph(await api.readPublishedRule(activeId), activeId);
+        scope = publishedGraph.rule.onDemandScope ?? 1;
+        executionConditions = executionConditionNames(publishedGraph);
+      }
+    } catch {
+      // fall back to the working graph's values already assigned above
+    }
+    setRunNowRule({ id: activeId, name: working.rule.name, table: working.rule.tableLogicalName, scope, executionConditions });
+    setLoadingRunNow(false);
+  }
+
   async function onRestoreDraft() {
     setRestoreOpen(false);
     if (!api.restoreRuleDraft) return;
@@ -439,7 +466,7 @@ export function RuleEditorApp({
                     Unpublish
                   </Button>
                   {canRunNow(serverStatus, working.rule.triggers) && (
-                    <Button icon={<Play16Regular />} disabled={busy} onClick={() => setRunNowOpen(true)}>
+                    <Button icon={<Play16Regular />} disabled={busy || loadingRunNow} onClick={onOpenRunNow}>
                       Run now
                     </Button>
                   )}
@@ -520,19 +547,13 @@ export function RuleEditorApp({
             onConfirm={onUnpublish}
           />
           <ReviewChangesDialog open={reviewOpen} snapshot={snapshot} working={working} onClose={() => setReviewOpen(false)} />
-          <RunNowDialog
-            open={runNowOpen}
-            api={api}
-            rule={{
-              id: working.rule.id, name: working.rule.name, table: working.rule.tableLogicalName,
-              scope: working.rule.onDemandScope ?? 1, executionConditions: executionConditionNames(displayed),
-            }}
-            onClose={() => setRunNowOpen(false)}
-          />
+          {runNowRule && (
+            <RunNowDialog open={!!runNowRule} api={api} rule={runNowRule} onClose={() => setRunNowRule(null)} />
+          )}
           <RunsDialog
             open={runsOpen}
             api={api}
-            ruleId={working.rule.id}
+            ruleId={working.rule.activeRuleId ?? working.rule.id}
             ruleName={working.rule.name}
             table={working.rule.tableLogicalName}
             onClose={() => setRunsOpen(false)}

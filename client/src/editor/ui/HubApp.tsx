@@ -13,8 +13,10 @@ import { relativeTime } from "./hubFormat";
 import { ListFooter } from "./ListFooter";
 import type { RuleListItem, ConfigListItem } from "../load/hubData";
 import type { EditorApi } from "../webapi";
+import type { RuleGraph } from "../model/types";
 import { loadHubData } from "../load/hubData";
 import { loadRuleEditorGraph } from "../load/ruleEditorGraph";
+import { loadPublishedGraph } from "../load/publishedGraph";
 import {
   createRule, createConfig, duplicateRule, duplicateConfig, deleteRule, deleteConfig,
 } from "../save/operations";
@@ -149,28 +151,42 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   const onCreateConfig = (args: { name: string; table: string }) =>
     run(async () => { const id = await createConfig(api, args); navigate("tableconfig", id); });
   const onDuplicateRule = (id: string) => run(async () => navigate("rule", await duplicateRule(api, id)));
-  // The hub only carries a RuleListItem (name/table/scope); the execution condition
-  // names shown in the dialog live on the full graph, so load it with the same
-  // loader RuleEditorApp uses before opening the dialog. A load failure still lets
-  // the run start (it just can't show what the "all records" scope will match).
+  // R11: the hub only carries a RuleListItem (name/table/scope); the execution condition
+  // names shown in the dialog must describe what actually runs — the PUBLISHED definition,
+  // not a draft — so load it the same way "View published" does in the Rule Builder
+  // (loadPublishedGraph). Run now is only offered when the rule is Published (canRunNow),
+  // so a published revision should always be there; fall back to loadRuleEditorGraph's
+  // graph (draft or published, best effort) if the published load fails, and to a plain
+  // placeholder if that fails too — the run can still be started either way.
+  async function loadRunNowGraph(id: string): Promise<RuleGraph | null> {
+    if (api.readPublishedRule) {
+      try {
+        return await loadPublishedGraph(await api.readPublishedRule(id), id);
+      } catch {
+        // fall through to the best-effort loader below
+      }
+    }
+    try {
+      return await loadRuleEditorGraph(api, id);
+    } catch {
+      return null;
+    }
+  }
   async function onRunNow(r: RuleListItem) {
     setLoadingRunNowId(r.id);
     const scope = r.onDemandScope ?? 1;
-    try {
-      const graph = await loadRuleEditorGraph(api, r.id);
-      setRunNowRule({
+    const graph = await loadRunNowGraph(r.id);
+    setRunNowRule(graph
+      ? {
         id: r.id, name: r.name, table: r.tableLogicalName,
         scope: graph.rule.onDemandScope ?? scope,
         executionConditions: executionConditionNames(graph),
-      });
-    } catch {
-      setRunNowRule({
+      }
+      : {
         id: r.id, name: r.name, table: r.tableLogicalName, scope,
         executionConditions: ["(could not load the execution conditions)"],
       });
-    } finally {
-      setLoadingRunNowId(null);
-    }
+    setLoadingRunNowId(null);
   }
   const onDuplicateConfig = (id: string) => run(async () => navigate("tableconfig", await duplicateConfig(api, id)));
   const onConfirmDelete = () => {
