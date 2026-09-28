@@ -198,7 +198,9 @@ in a longer message, so search for the marker rather than expecting it at the
 start), and the platform rolls that call back — no writes and no run update from
 it are kept. Call again with `FailedRecordId` and `FailedMessage` set from that
 marker: that call **only** records the failure (the record is counted Evaluated
-and Failed once) and returns, without processing further records. The next call,
+and Failed once, the message cut to 1,000 characters, and both kept among the
+run's first 50 recorded failures) and returns, without processing further
+records. The next call,
 made **without** `FailedRecordId`, resumes normal processing, skipping the
 records already reported this way. Send `FailedRecordId` only on the call right
 after a record-failed error — any other error means stop and try again later;

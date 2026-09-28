@@ -177,7 +177,7 @@ runs.
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
 | Rule | `asx_rule` | Lookup → `asx_rule` | Yes | The rule this run is for |
-| Scope | `asx_ondemandscope` | Choice → `asx_ondemandscope` | No | Copied from the rule at start: Given records (1) / All records (2) |
+| Scope | `asx_scope` | Choice (local) | No | Copied from the rule's `asx_ondemandscope` at start: Given records (1) / All records (2) |
 | Record Ids | `asx_recordids` | Multiline text (20,000) | No | JSON array of Guids; Given-records runs only; at most 250 |
 | Status | `asx_status` | Choice (local) | No | Queued (1), Running (2), Completed (3), Completed with failures (4), Failed (5), Cancelled (6) |
 | Evaluated / Changed / Blocked / Failed / Skipped | `asx_evaluated` / `asx_changed` / `asx_blocked` / `asx_failed` / `asx_skipped` | Whole Number | No | Running totals, updated after each processed page |

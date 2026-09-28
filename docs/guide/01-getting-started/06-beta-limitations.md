@@ -153,7 +153,8 @@ systematically verified across languages during the beta.
 
 A Rule Run (*Administering → Running Rules On Demand*) processes at most **500
 records** or **90 seconds** per `asx_ProcessRunPage` call, whichever comes first,
-and keeps only its **first 50** Blocked/Failed records. A **Given records** run
+and keeps only its **first 50** Blocked/Failed records, each message cut to
+**1,000 characters**. A **Given records** run
 is capped at **250** record ids. A rule can have at most **one** run Queued or
 Running at a time; starting a second is refused until the first is cancelled or
 reaches a terminal status. An **All records** run's execution conditions are
