@@ -4,8 +4,9 @@ import {
 } from "@fluentui/react-components";
 import { Dismiss20Regular } from "@fluentui/react-icons";
 import type { WebApiPort, BatchApi } from "../webapi";
-import { loadRuns, isStale, runStatusLabel, type RunRow } from "./runsData";
+import { loadRuns, isStale, isActive, runStatusLabel, type RunRow } from "./runsData";
 import { RunProgress } from "./RunProgress";
+import { cancelRun } from "./runDriver";
 import { Callout } from "../ui/primitives";
 import { color } from "../ui/tokens";
 import { formatError } from "../ui/errors";
@@ -24,6 +25,7 @@ export function RunsDialog({ open, api, ruleId, ruleName, table, onClose }: {
   const [error, setError] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [resumingId, setResumingId] = React.useState<string | null>(null);
+  const [cancellingId, setCancellingId] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     setRows(null);
@@ -43,6 +45,20 @@ export function RunsDialog({ open, api, ruleId, ruleName, table, onClose }: {
   }, [open, reload]);
 
   const selected = rows?.find((r) => r.id === selectedId) ?? null;
+
+  // Cancel is always offered for an unfinished run, so a run stuck in Queued or Running
+  // (its driving browser gone) can be stopped from here as well as resumed.
+  async function onCancel(runId: string) {
+    setCancellingId(runId);
+    try {
+      await cancelRun(api, runId);
+      setCancellingId(null);
+      await reload();
+    } catch (e) {
+      setCancellingId(null);
+      setError(formatError(e));
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={(_e, d) => { if (!d.open) onClose(); }}>
@@ -92,9 +108,15 @@ export function RunsDialog({ open, api, ruleId, ruleName, table, onClose }: {
                           <td style={{ padding: "6px 10px", borderBottom: `1px solid ${color.canvas}` }}>{r.startedBy ?? "—"}</td>
                           <td style={{ padding: "6px 10px", borderBottom: `1px solid ${color.canvas}` }}>{r.startedOn ?? "—"}</td>
                           <td style={{ padding: "6px 10px", borderBottom: `1px solid ${color.canvas}` }}>
-                            {isStale(r, Date.now()) && (
-                              <Button size="small" onClick={(e) => { e.stopPropagation(); setResumingId(r.id); }}>Resume</Button>
-                            )}
+                            <div style={{ display: "flex", gap: 6 }}>
+                              {isStale(r, Date.now()) && (
+                                <Button size="small" onClick={(e) => { e.stopPropagation(); setResumingId(r.id); }}>Resume</Button>
+                              )}
+                              {isActive(r.status) && (
+                                <Button size="small" disabled={cancellingId === r.id}
+                                  onClick={(e) => { e.stopPropagation(); void onCancel(r.id); }}>Cancel</Button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}

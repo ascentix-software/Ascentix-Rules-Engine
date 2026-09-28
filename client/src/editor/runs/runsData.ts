@@ -64,12 +64,19 @@ const LOOKUP_RULE_OF_RUN = "_asx_rule_value";
 
 const TWO_MINUTES_MS = 2 * 60 * 1000;
 
-/** A Running row whose last reported page is more than two minutes old: the
- *  browser that was driving it is presumed gone, so the Runs dialog offers Resume. */
+/** A Running row whose last reported page is more than two minutes old, or a Queued
+ *  row that hasn't reported a page within two minutes of starting: the browser that was
+ *  driving it is presumed gone, so the Runs dialog offers Resume. */
 export function isStale(row: RunRow, now: number): boolean {
-  if (row.status !== RUN_STATUS.Running) return false;
-  if (!row.lastPageOn) return true;
-  return now - new Date(row.lastPageOn).getTime() > TWO_MINUTES_MS;
+  if (row.status !== RUN_STATUS.Running && row.status !== RUN_STATUS.Queued) return false;
+  const since = row.status === RUN_STATUS.Queued ? row.lastPageOn ?? row.startedOn : row.lastPageOn;
+  if (!since) return true;
+  return now - new Date(since).getTime() > TWO_MINUTES_MS;
+}
+
+/** A run that hasn't finished yet: Queued or Running. */
+export function isActive(status: number): boolean {
+  return status === RUN_STATUS.Queued || status === RUN_STATUS.Running;
 }
 
 const RUN_STATUS_LABEL: Record<number, string> = {
