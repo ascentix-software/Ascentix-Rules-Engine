@@ -10,12 +10,14 @@ using Ascentix.RulesEngine.Schema;
 
 namespace Ascentix.RulesEngine.Plugin
 {
-    /// <summary>How much one asx_ProcessRunPage call may do. Settable so tests can shrink them.</summary>
+    /// <summary>How much one asx_ProcessRunPage call may do. Settable so tests can shrink them.
+    /// The budget leaves headroom under the platform's two-minute plug-in timeout: it is checked
+    /// before each chunk and after each record, so the slowest record still has room to finish.</summary>
     public sealed class RunPageLimits
     {
         public int PageSize { get; set; } = 500;
-        public int ChunkSize { get; set; } = 100;
-        public TimeSpan Budget { get; set; } = TimeSpan.FromSeconds(90);
+        public int ChunkSize { get; set; } = 25;
+        public TimeSpan Budget { get; set; } = TimeSpan.FromSeconds(60);
         public int SafetyStopAfter { get; set; } = 100;
     }
 
@@ -187,13 +189,18 @@ namespace Ascentix.RulesEngine.Plugin
             var executor = new WriteActionExecutor();
             var consumed = 0;   // positions of the window walked, skipped ids included
             var processed = 0;
-            while (consumed < window.Count && processed < _limits.PageSize && _utcNow() - start < _limits.Budget)
+            var budgetCut = false;
+            while (consumed < window.Count && processed < _limits.PageSize && !OverBudget(start))
             {
                 var chunk = new List<Guid>();
+                var positions = new Dictionary<Guid, int>();   // each chunk id's position in the window
                 while (consumed < window.Count && chunk.Count < _limits.ChunkSize)
                 {
-                    var id = window[consumed++];
-                    if (!skip.Contains(id)) chunk.Add(id);
+                    var position = consumed++;
+                    var id = window[position];
+                    if (skip.Contains(id)) continue;
+                    chunk.Add(id);
+                    positions[id] = position;
                 }
                 if (chunk.Count == 0) continue;
                 processed += chunk.Count;
@@ -208,11 +215,16 @@ namespace Ascentix.RulesEngine.Plugin
                 }
 
                 var existingIds = chunk.Where(existing.Contains).ToList();
-                if (existingIds.Count == 0) continue;
+                if (existingIds.Count == 0)
+                {
+                    if (allRecords) row.Bookmark.Skip.AddRange(chunk);
+                    continue;
+                }
 
                 var outcome = evaluator.Evaluate(rule, existingIds);
-                foreach (var record in outcome.Records)
+                for (var r = 0; r < outcome.Records.Count; r++)
                 {
+                    var record = outcome.Records[r];
                     row.Evaluated++;
                     if (record.GatedRuleIds.Contains(rule.RuleId))
                     {
@@ -238,7 +250,22 @@ namespace Ascentix.RulesEngine.Plugin
                         }
                     }
                     if (SafetyStop(row)) return Finish(runId, row, RuleRunStatus.Failed);
+
+                    // Over budget mid-chunk: stop after this record, saving progress exactly as a
+                    // budget cut between chunks would. The walk rewinds to the first record not yet
+                    // evaluated; ids already counted past that point (a missing record) join the
+                    // skip list so the next page doesn't count them again.
+                    if (r < outcome.Records.Count - 1 && OverBudget(start))
+                    {
+                        var unhandled = new HashSet<Guid>(existingIds.Skip(r + 1));
+                        var handled = chunk.Where(id => !unhandled.Contains(id)).ToList();
+                        consumed = positions[existingIds[r + 1]];
+                        row.Bookmark.Skip.AddRange(allRecords ? handled : handled.Where(id => positions[id] > consumed));
+                        budgetCut = true;
+                        break;
+                    }
                 }
+                if (budgetCut) break;
 
                 // An all-records page resumes by id: everything handled so far is skipped next time.
                 if (allRecords) row.Bookmark.Skip.AddRange(chunk);
@@ -267,6 +294,8 @@ namespace Ascentix.RulesEngine.Plugin
 
             return Save(runId, row, done: false);
         }
+
+        private bool OverBudget(DateTime start) => _utcNow() - start >= _limits.Budget;
 
         // Failure messages are capped so 50 of them always fit asx_failures (Memo 100,000).
         private static RunFailure Failure(Guid recordId, string kind, string message) =>

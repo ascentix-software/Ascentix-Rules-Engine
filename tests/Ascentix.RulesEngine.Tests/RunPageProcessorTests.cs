@@ -159,7 +159,7 @@ namespace Ascentix.RulesEngine.Tests
         // Ids that sort the same way by .NET Guid comparison and by SQL uniqueidentifier order.
         private static Guid OrderedId(int n) => new Guid($"00000000-0000-0000-0000-{n:D12}");
 
-        // A proxy that counts account writes per id and moves the clock past the default 90 s
+        // A proxy that counts account writes per id and moves the clock past the default 60 s
         // budget on each one, so every page stops after its first write.
         private (ProxyService Proxy, Dictionary<Guid, int> Writes, Func<DateTime> Clock) BudgetCutProxy()
         {
@@ -511,6 +511,92 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(3, BookmarkOf(runId).Index);
             Assert.All(writes.Values, count => Assert.Equal(1, count));
             Assert.Equal(2, writes.Count);
+        }
+
+        [Fact]
+        public void The_default_page_limits_leave_headroom_under_the_platform_timeout()
+        {
+            var limits = new RunPageLimits();
+
+            Assert.Equal(TimeSpan.FromSeconds(60), limits.Budget);
+            Assert.Equal(25, limits.ChunkSize);
+        }
+
+        [Fact]
+        public void A_budget_cut_inside_a_given_records_chunk_stops_after_the_current_record()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz3, _zz2 });
+            var (proxy, writes, clock) = BudgetCutProxy();
+            var processor = Processor(new RunPageLimits { PageSize = 3, ChunkSize = 3 }, proxy, clock);
+
+            var first = processor.Process(runId, null, null);
+
+            Assert.False(first.Done);
+            Assert.Equal(1, first.Evaluated);
+            Assert.Equal(1, first.Changed);
+            Assert.Equal(1, BookmarkOf(runId).Index);
+            Assert.Null(Description(_zz3));
+
+            var (last, _) = ProcessUntilDone(processor, runId);
+
+            Assert.Equal(RuleRunStatus.CompletedWithFailures, last.Status);
+            Assert.Equal(3, last.Evaluated);
+            Assert.Equal(2, last.Changed);
+            Assert.Equal(1, last.Blocked);
+            Assert.Equal(0, last.Failed + last.Skipped);
+            Assert.Equal(2, writes.Count);
+            Assert.All(writes.Values, count => Assert.Equal(1, count));
+        }
+
+        [Fact]
+        public void A_budget_cut_inside_a_chunk_keeps_an_already_counted_missing_record_counted_once()
+        {
+            var missing = Guid.NewGuid();
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, missing, _zz3 });
+            var (proxy, writes, clock) = BudgetCutProxy();
+            var processor = Processor(new RunPageLimits { PageSize = 3, ChunkSize = 3 }, proxy, clock);
+
+            var first = processor.Process(runId, null, null);
+
+            Assert.False(first.Done);
+            Assert.Equal(2, first.Evaluated);   // ZZ1 written, the missing id counted
+            Assert.Equal(1, first.Failed);
+
+            var (last, _) = ProcessUntilDone(processor, runId);
+
+            Assert.Equal(RuleRunStatus.CompletedWithFailures, last.Status);
+            Assert.Equal(3, last.Evaluated);
+            Assert.Equal(1, last.Failed);
+            Assert.Equal(2, last.Changed);
+            Assert.Single(FailuresOf(Run(runId)), f => f.RecordId == missing);
+            Assert.All(writes.Values, count => Assert.Equal(1, count));
+        }
+
+        [Fact]
+        public void A_budget_cut_inside_an_all_records_chunk_skips_only_what_it_handled()
+        {
+            foreach (var seeded in new[] { _zz1, _zz2, _zz3, _other }) _service.Delete("account", seeded);
+            foreach (var n in new[] { 10, 20, 30 })
+                _service.Create(new Entity("account", OrderedId(n)) { ["name"] = "ZZ" + n, ["numberofemployees"] = 50 });
+            var runId = SeedRun(OnDemandScope.AllRecords);
+            var (proxy, writes, clock) = BudgetCutProxy();
+            var processor = Processor(new RunPageLimits { PageSize = 3, ChunkSize = 3 }, proxy, clock);
+
+            var first = processor.Process(runId, null, null);
+
+            Assert.False(first.Done);
+            Assert.Equal(1, first.Evaluated);
+            var bookmark = BookmarkOf(runId);
+            Assert.Equal(1, bookmark.Page);
+            Assert.Equal(new[] { OrderedId(10) }, bookmark.Skip);
+
+            var (last, _) = ProcessUntilDone(processor, runId);
+
+            Assert.Equal(RuleRunStatus.Completed, last.Status);
+            Assert.Equal(3, last.Evaluated);
+            Assert.Equal(3, last.Changed);
+            Assert.Equal(3, writes.Count);
+            Assert.All(writes.Values, count => Assert.Equal(1, count));
         }
 
         [Fact]
