@@ -13,7 +13,7 @@ export function synthConfigGraph(tableConfigs: Record<string, TableConfigRef>, r
   return {
     rule: { id: "__delete-config__", name: "", tableLogicalName: "", statusCode: null, etag: null,
       triggers: [], channels: [], effectiveFrom: null, effectiveTo: null, evaluationContext: null,
-      rootTableConfigId: rootId, triggerColumns: [] },
+      onDemandScope: null, rootTableConfigId: rootId, triggerColumns: [] },
     executionGroups: [], validationGroups: [], actions: [], tableConfigs,
   };
 }

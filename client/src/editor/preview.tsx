@@ -41,7 +41,8 @@ const SAMPLE: RuleGraph = {
   rule: {
     id: "sample", name: "High-value deal guardrails", tableLogicalName: "opportunity",
     statusCode: 1, etag: null, triggers: [1, 2], channels: [], effectiveFrom: null,
-    effectiveTo: null, evaluationContext: null, rootTableConfigId: "root", triggerColumns: [],
+    effectiveTo: null, evaluationContext: null, onDemandScope: null,
+    rootTableConfigId: "root", triggerColumns: [],
   },
   tableConfigs: {
     root: { id: "root", name: "Opportunity", tableLogicalName: "opportunity", tableConfigType: "RootTable", parentTableConfigId: null, lookupColumnLogicalName: null, childLinkField: null, lookupTargetIdAttribute: null },

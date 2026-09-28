@@ -76,7 +76,7 @@ export interface RuleFixtureOpts {
 }
 
 // Creates a Draft rule on `account` (root config + optional exec group / comparison
-// condition / ShowMessage action), trigger Manual only, ZZ-prefixed. Options carve out
+// condition / ShowMessage action), trigger On demand only, ZZ-prefixed. Options carve out
 // the variants the e2e specs need: a bare rule to author against in the UI, an
 // incomplete condition for the validation-failure path, or the default fully-valid
 // shape. Returns a cleanup that deletes everything it created (reverse order).
@@ -113,7 +113,7 @@ export async function createRuleFixture(opts: RuleFixtureOpts = {}): Promise<{ r
     }));
     const ruleId = track(ENTITY_SET.rule, await api.createRecord(ENTITY_SET.rule, {
       asx_name: ruleName, asx_tablelogicalname: "account",
-      asx_triggers: "3", // Manual only, never auto-fires
+      asx_triggers: "3", // On demand only, never auto-fires
       [`${BIND_NAV.ruleRootTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${cfgId})`,
     }));
     if (opts.withGroup ?? true) {
@@ -241,7 +241,7 @@ export async function createRuleOnConfig(opts: {
   const ruleId = await api.createRecord(ENTITY_SET.rule, {
     asx_name: ruleName,
     asx_tablelogicalname: opts.table,
-    asx_triggers: opts.triggers ?? "3", // Manual only, never auto-fires
+    asx_triggers: opts.triggers ?? "3", // On demand only, never auto-fires
     [`${BIND_NAV.ruleRootTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${opts.rootConfigId})`,
   });
   return { ruleId, ruleName, cleanup: () => deleteRuleCascade(ruleId) };

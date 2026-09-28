@@ -37,7 +37,7 @@ describe("NewRuleDialog", () => {
     expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
 
     // Each trigger checkbox must have its own distinct accessible name (WCAG 4.1.2).
-    for (const name of ["On Create", "On Form", "Manual", "On Update", "On Delete"]) {
+    for (const name of ["On Create", "On Form", "On demand", "On Update", "On Delete"]) {
       expect(screen.getByRole("checkbox", { name })).toBeInTheDocument();
     }
   });

@@ -13,7 +13,7 @@ import { openHub, hubRow } from "./editorHarness";
 
 test.beforeAll(async () => { await sweepRuleBehaviorOrphans(); });
 
-test("New rule dialog: existing config + Manual trigger → lands in the rule editor", async ({ page }) => {
+test("New rule dialog: existing config + On demand trigger → lands in the rule editor", async ({ page }) => {
   const appId = await resolveAppId();
   const cfg = await createZzRootConfig("uidlg_cfg", "account");
   const ruleName = "ZZ_RB_uidlg_rule";
@@ -28,7 +28,7 @@ test("New rule dialog: existing config + Manual trigger → lands in the rule ed
     await dialog.getByRole("radio", { name: "Use an existing configuration" }).check();
     await dialog.getByRole("combobox", { name: "Configuration" }).click();
     await frame.getByRole("option", { name: /ZZ_RB_uidlg_cfg/ }).click();
-    await dialog.getByRole("checkbox", { name: "Manual" }).check();
+    await dialog.getByRole("checkbox", { name: "On demand" }).check();
 
     const create = dialog.getByRole("button", { name: "Create" });
     await expect(create).toBeEnabled();
@@ -62,7 +62,7 @@ test("New rule dialog: NEW-configuration mode creates config + rule (empty-org d
     await tableBox.click();
     await tableBox.pressSequentially("account", { delay: 30 });
     await frame.getByRole("option", { name: /\(account\)$/ }).first().click();
-    await dialog.getByRole("checkbox", { name: "Manual" }).check();
+    await dialog.getByRole("checkbox", { name: "On demand" }).check();
     await dialog.getByRole("button", { name: "Create" }).click();
 
     await expect(frame.getByRole("button", { name: "Rename rule" })).toBeVisible({ timeout: 30_000 });

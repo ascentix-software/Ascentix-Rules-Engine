@@ -39,6 +39,7 @@ export function mapRuleHeader(raw: any): RuleHeader {
     effectiveTo: strOrNull(raw.asx_effectiveto),
     evaluationContext: numOrNull(raw.asx_evaluationcontext),
     evaluationTimeZone: strOrNull(raw.asx_evaluationtimezone),
+    onDemandScope: numOrNull(raw.asx_ondemandscope),
     rootTableConfigId: strOrNull(raw[LOOKUP.ruleOfTableConfig]),
     triggerColumns: parseStringArray(raw.asx_triggercolumns),
   };

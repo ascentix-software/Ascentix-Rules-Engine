@@ -57,7 +57,13 @@ export function tableConfigTypeValue(label: TableConfigTypeLabel): number {
 
 // Values mirror docs/Schema.md §1 global choices.
 const TRIGGER: Record<number, string> = {
-  1: "On Create", 2: "On Form", 3: "Manual", 4: "On Update", 5: "On Delete",
+  1: "On Create", 2: "On Form", 3: "On demand", 4: "On Update", 5: "On Delete",
+};
+export const ON_DEMAND = 3;
+// asx_ondemandscope: which records an On demand run processes. Hidden (and saved as the
+// default, 1) unless ON_DEMAND is ticked — see RuleInspector and save/diff.ts's ruleAttrs.
+const ON_DEMAND_SCOPE: Record<number, string> = {
+  1: "A record it's given", 2: "All records that pass its execution conditions",
 };
 // Channel 3 ("Application") is retired; the engine reads a stored 3 as Standard.
 const CHANNEL: Record<number, string> = { 1: "Standard", 2: "Portal" };
@@ -79,6 +85,7 @@ const optionList = (m: Record<number, string>) =>
 export const TRIGGER_OPTIONS = optionList(TRIGGER);
 export const CHANNEL_OPTIONS = optionList(CHANNEL);
 export const EVALUATION_CONTEXT_OPTIONS = optionList(EVALUATION_CONTEXT);
+export const ON_DEMAND_SCOPE_OPTIONS = optionList(ON_DEMAND_SCOPE);
 
 export function parseMultiSelect(raw: unknown): number[] {
   if (raw == null || raw === "") return [];

@@ -20,6 +20,7 @@ describe("record mappers", () => {
       effectiveTo: null,
       evaluationContext: 1,
       evaluationTimeZone: null,
+      onDemandScope: null,
       rootTableConfigId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
       triggerColumns: ["sample_lineamount"],
     });
@@ -28,6 +29,11 @@ describe("record mappers", () => {
   it("maps the rule's time zone", () => {
     expect(mapRuleHeader({ ...rawRule, asx_evaluationtimezone: "Eastern Standard Time" }).evaluationTimeZone)
       .toBe("Eastern Standard Time");
+  });
+
+  it("maps the rule's on-demand scope", () => {
+    expect(mapRuleHeader({ ...rawRule, asx_ondemandscope: 2 }).onDemandScope).toBe(2);
+    expect(mapRuleHeader(rawRule).onDemandScope).toBeNull();
   });
 
   it("defaults triggerColumns to [] when asx_triggercolumns is blank/absent", () => {
