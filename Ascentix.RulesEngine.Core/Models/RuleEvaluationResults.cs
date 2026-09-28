@@ -30,6 +30,10 @@ namespace Ascentix.RulesEngine.Core.Models
         public Guid RecordId { get; set; }
         public IList<FiredActionResult> FiredActions { get; set; } = new List<FiredActionResult>();
 
+        /// <summary>Rules whose execution conditions did not pass for this record (the rule did not
+        /// evaluate). Never null.</summary>
+        public IList<Guid> GatedRuleIds { get; set; } = new List<Guid>();
+
         public bool HasBlock => FiredActions.Any(a => a.ActionType == ActionType.Block);
 
         public IEnumerable<string> BlockingMessages =>

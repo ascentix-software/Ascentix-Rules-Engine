@@ -31,9 +31,10 @@ namespace Ascentix.RulesEngine.Core.Engine
             RuleChannel channel,
             int languageId,
             RootBuildMode buildMode,
-            ITracingService trace)
+            ITracingService trace,
+            RuleSelection selection = null)
             => Run(systemService, userService, logicalName, inputs, trigger, channel, languageId, buildMode, trace,
-                DateTime.UtcNow);
+                DateTime.UtcNow, selection);
 
         /// <summary>Evaluates every bucket at <paramref name="utcNow"/>, so all rules in one run
         /// agree on "now" (date expressions, pushed date literals).</summary>
@@ -47,13 +48,19 @@ namespace Ascentix.RulesEngine.Core.Engine
             int languageId,
             RootBuildMode buildMode,
             ITracingService trace,
-            DateTime utcNow)
+            DateTime utcNow,
+            RuleSelection selection = null)
         {
             var diag = new RunDiagnostics();
             var overall = Stopwatch.StartNew();
 
             var fired = new List<FiredActionResult>[inputs.Count];
-            for (var i = 0; i < inputs.Count; i++) fired[i] = new List<FiredActionResult>();
+            var gated = new List<Guid>[inputs.Count];
+            for (var i = 0; i < inputs.Count; i++)
+            {
+                fired[i] = new List<FiredActionResult>();
+                gated[i] = new List<Guid>();
+            }
 
             // Table metadata (column types, option labels, date behaviors) is the same for every
             // bucket, and RuleBuckets makes one bucket per published revision: one provider per run
@@ -62,7 +69,7 @@ namespace Ascentix.RulesEngine.Core.Engine
             // straight through to it).
             var metadata = new AttributeMetadataProvider(systemService);
 
-            foreach (var bucket in RuleBuckets.Load(systemService, logicalName, trigger, channel, diag, trace))
+            foreach (var bucket in RuleBuckets.Load(systemService, logicalName, trigger, channel, diag, trace, selection))
             {
                 var traversalService = bucket.Context == RuleEvaluationContext.User ? userService : systemService;
                 var input = EvaluationGatherer.ForBucket(
@@ -70,11 +77,14 @@ namespace Ascentix.RulesEngine.Core.Engine
                     bucket.Rules, bucket.Context, utcNow, diag, metadata);
                 var verdict = BucketEvaluator.Evaluate(input, trace, diag);
                 for (var k = 0; k < input.Records.Count; k++)
+                {
                     fired[input.Records[k].Index].AddRange(verdict.FiredByRecord[k]);
+                    gated[input.Records[k].Index].AddRange(verdict.GatedByRecord[k]);
+                }
             }
 
             overall.Stop();
-            return RunOutcomeAssembler.Assemble(inputs, fired, diag, overall.ElapsedMilliseconds, trace);
+            return RunOutcomeAssembler.Assemble(inputs, fired, gated, diag, overall.ElapsedMilliseconds, trace);
         }
     }
 }

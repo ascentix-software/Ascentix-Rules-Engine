@@ -35,11 +35,13 @@ namespace Ascentix.RulesEngine.Core.Engine
             var writeResolver = new WriteIntentResolver(tree, metadata, input.Labels, input.UtcNow);
 
             var firedByRecord = new List<IReadOnlyList<FiredActionResult>>(input.Records.Count);
+            var gatedByRecord = new List<IReadOnlyList<Guid>>(input.Records.Count);
             foreach (var record in input.Records)
             {
                 var root = record.Root;
                 var cache = record.Cache;
                 var fired = new List<FiredActionResult>();
+                var gated = new List<Guid>();
 
                 using (diag?.Time("evaluate"))
                 {
@@ -78,7 +80,10 @@ namespace Ascentix.RulesEngine.Core.Engine
 
                         var executionGroups = ruleRootGroups.Where(g => g.IsExecutionCondition).ToList();
                         if (executionGroups.Any() && !executionGroups.All(g => groups.EvaluateGroup(g, ruleRoot).Passed))
+                        {
+                            if (previousOf == null) gated.Add(ruleId);
                             return;
+                        }
 
                         var ruleGroups = ruleRootGroups.Where(g => !g.IsExecutionCondition).ToList();
                         var matched = ruleGroups.All(g => groups.EvaluateGroup(g, ruleRoot).Passed);
@@ -105,9 +110,10 @@ namespace Ascentix.RulesEngine.Core.Engine
                 }
 
                 firedByRecord.Add(fired);
+                gatedByRecord.Add(gated);
             }
 
-            return new EvaluationVerdict(firedByRecord);
+            return new EvaluationVerdict(firedByRecord, gatedByRecord);
         }
 
         // The gather stage's memo holds every mapping the reference computation parsed. One it

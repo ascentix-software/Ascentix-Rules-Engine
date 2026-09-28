@@ -13,7 +13,7 @@ namespace Ascentix.RulesEngine.Tests
     {
         private static string Q(string f) => SchemaNames.Qualify(f);
 
-        // account.name must equal "Valid"; Block OnNoMatch; tagged Manual.
+        // account.name must equal "Valid"; Block OnNoMatch; tagged OnDemand.
         private static List<Entity> Seed()
         {
             var ids = (rule: Guid.NewGuid(), cfg: Guid.NewGuid(), grp: Guid.NewGuid(),
@@ -28,7 +28,7 @@ namespace Ascentix.RulesEngine.Tests
                 [Q(SchemaNames.Rule.TableLogicalName)] = "account",
                 ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
                 [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
-                    new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.Manual) }),
+                    new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnDemand) }),
             };
             var group = new Entity(Q(SchemaNames.ConditionGroup.Entity), ids.grp)
             {

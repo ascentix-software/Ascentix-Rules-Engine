@@ -100,7 +100,7 @@ namespace Ascentix.RulesEngine.Tests
         public void Rule_not_tagged_for_trigger_is_excluded()
         {
             var ctx = new XrmFakedContext();
-            ctx.Initialize(Seed(RuleTrigger.Manual)); // only Manual; default request trigger is OnForm
+            ctx.Initialize(Seed(RuleTrigger.OnDemand)); // only OnDemand; default request trigger is OnForm
 
             var pctx = ApiContext(new ParameterCollection { { "TableName", "account" } });
             ctx.ExecutePluginWith<ReadRulesApi>(pctx);

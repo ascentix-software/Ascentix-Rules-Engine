@@ -74,7 +74,7 @@ namespace Ascentix.RulesEngine.Tests
             PublishedRules.Read(service, service.Retrieve("asx_rule", rule, new ColumnSet(true)));
         private static RuleEvaluationOutcome Run(IOrganizationService service) => new RulesEngineRunner().Run(service, service, "account",
             new List<RootInput> { new RootInput { Overlay = new Entity("account", Guid.NewGuid()) { ["name"] = "Invalid" } } },
-            RuleTrigger.Manual, RuleChannel.Standard, 1033, RootBuildMode.UseTarget, new XrmFakedTracingService());
+            RuleTrigger.OnDemand, RuleChannel.Standard, 1033, RootBuildMode.UseTarget, new XrmFakedTracingService());
 
         [Fact]
         public void Draft_changes_do_not_change_runtime_or_registration()
@@ -136,7 +136,7 @@ namespace Ascentix.RulesEngine.Tests
             Freeze(service, first, 2);
             var outcome = new RulesEngineRunner().Run(service, service, "account",
                 new List<RootInput> { new RootInput { Id = account, Overlay = new Entity("account", account) } },
-                RuleTrigger.Manual, RuleChannel.Standard, 1033, RootBuildMode.UseTarget, new XrmFakedTracingService());
+                RuleTrigger.OnDemand, RuleChannel.Standard, 1033, RootBuildMode.UseTarget, new XrmFakedTracingService());
             var action = Assert.Single(outcome.Records.Single().FiredActions);
             Assert.Equal(first, action.RuleId);
         }

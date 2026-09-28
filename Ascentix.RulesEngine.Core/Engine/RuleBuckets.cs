@@ -41,26 +41,32 @@ namespace Ascentix.RulesEngine.Core.Engine
             RuleTrigger trigger,
             RuleChannel channel,
             RunDiagnostics diag,
-            ITracingService trace)
+            ITracingService trace,
+            RuleSelection selection = null)
         {
             var revisionBuckets = new List<Bucket>();
             var publishedLoaded = 0;
             var nowUtc = DateTime.UtcNow;
             List<Entity> rules;
+            List<Entity> Load(RuleLoader loader) => selection?.AnyChannel == true
+                ? loader.LoadRules(logicalName, trigger)
+                : loader.LoadRules(logicalName, trigger, channel);
             using (diag.Time("ruleLoad"))
             {
                 var headers = PublishedRules.Headers(systemService, logicalName);
+                if (selection?.RuleId != null)
+                    headers = headers.Where(h => h.Id == selection.RuleId.Value).ToList();
                 foreach (var header in headers.Where(h => h.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) != null))
                 {
                     var frozen = new SnapshotService(systemService, PublishedRules.Read(systemService, header));
-                    var candidates = new RuleLoader(frozen).LoadRules(logicalName, trigger, channel);
+                    var candidates = Load(new RuleLoader(frozen));
                     publishedLoaded += candidates.Count;
                     var selected = candidates.Where(r => RuleScheduleFilter.IsInEffect(r, nowUtc)).ToList();
                     if (selected.Count > 0) revisionBuckets.Add(new Bucket(RuleEvaluationContextResolver.Resolve(selected[0]), selected) { ConfigurationService = frozen });
                 }
                 // Existing normalized rules remain supported until explicitly revised.
                 var legacyIds = new HashSet<Guid>(headers.Where(h => h.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) == null).Select(h => h.Id));
-                rules = legacyIds.Count == 0 ? new List<Entity>() : new RuleLoader(systemService).LoadRules(logicalName, trigger, channel).Where(r => legacyIds.Contains(r.Id)).ToList();
+                rules = legacyIds.Count == 0 ? new List<Entity>() : Load(new RuleLoader(systemService)).Where(r => legacyIds.Contains(r.Id)).ToList();
             }
             diag.RulesLoaded = rules.Count + publishedLoaded;
 

@@ -35,7 +35,7 @@ namespace Ascentix.RulesEngine.Plugin
             var recordJson = GetString(context, "RecordJson");
             var triggersRaw = GetString(context, "Triggers");
 
-            var trigger = ParseTrigger(triggersRaw);
+            var trigger = TriggerNames.Parse(triggersRaw, "asx_RunRules", RuleTrigger.OnDemand);
             var (input, mode) = BuildInput(tableName, recordIdRaw, recordJson);
 
             var languageId = LanguageResolver.Resolve(systemService, context.InitiatingUserId);
@@ -63,17 +63,6 @@ namespace Ascentix.RulesEngine.Plugin
 
         private static bool GetBool(IPluginExecutionContext context, string name)
             => context.InputParameters.TryGetValue(name, out var v) && v is bool b && b;
-
-        // Default Manual; case-insensitive; unknown → argument error.
-        private static RuleTrigger ParseTrigger(string raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw)) return RuleTrigger.Manual;
-            if (Enum.TryParse<RuleTrigger>(raw.Trim(), ignoreCase: true, out var trigger))
-                return trigger;
-            throw new InvalidPluginExecutionException(
-                $"asx_RunRules: unknown Triggers value '{raw}'. Expected one of " +
-                "OnCreate, OnForm, Manual, OnUpdate, OnDelete.");
-        }
 
         // RecordId only → RetrieveOnly; RecordJson only → UseTarget; both → RetrieveAndOverlay.
         private static (RootInput Input, RootBuildMode Mode) BuildInput(

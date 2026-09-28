@@ -11,11 +11,18 @@ namespace Ascentix.RulesEngine.Core.Engine
     /// </summary>
     public sealed class EvaluationVerdict
     {
-        public EvaluationVerdict(IReadOnlyList<IReadOnlyList<FiredActionResult>> firedByRecord)
+        public EvaluationVerdict(
+            IReadOnlyList<IReadOnlyList<FiredActionResult>> firedByRecord,
+            IReadOnlyList<IReadOnlyList<Guid>> gatedByRecord)
         {
             FiredByRecord = firedByRecord ?? throw new ArgumentNullException(nameof(firedByRecord));
+            GatedByRecord = gatedByRecord ?? throw new ArgumentNullException(nameof(gatedByRecord));
         }
 
         public IReadOnlyList<IReadOnlyList<FiredActionResult>> FiredByRecord { get; }
+
+        /// <summary>Per record (same alignment as <see cref="FiredByRecord"/>): ids of rules whose
+        /// execution conditions did not pass, so the rule never evaluated for that record.</summary>
+        public IReadOnlyList<IReadOnlyList<Guid>> GatedByRecord { get; }
     }
 }
