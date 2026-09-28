@@ -39,6 +39,8 @@ namespace Ascentix.RulesEngine.Tests
                     {
                         new BooleanAttributeMetadata { LogicalName = "sample_isexpedited" },
                         new MemoAttributeMetadata { LogicalName = "sample_approvalnotes" },
+                        new DateTimeAttributeMetadata { LogicalName = "sample_orderdate" },
+                        new DateTimeAttributeMetadata { LogicalName = "sample_duedate" },
                     });
                     return new RetrieveEntityResponse { Results = new ParameterCollection { { "EntityMetadata", meta } } };
                 }
@@ -439,6 +441,305 @@ namespace Ascentix.RulesEngine.Tests
             var write = Assert.Single(fired);
             Assert.Equal(customer, write.WriteIntent.TargetId);
             Assert.Equal(true, write.WriteIntent.Values["sample_ispriority"]);
+        }
+
+        [Fact]
+        public void Run_2_reads_the_previous_orders_date_not_the_new_ones()
+        {
+            // A FieldComparison condition anchored on the Order lookup: order.sample_orderdate
+            // >= order.sample_duedate + 1 day (DateExpression anchor, same node, different
+            // column). Order A's dates make this false; order B's make it true — so run 1
+            // (order B) fires the OnMatch action and run 2 (order A, the previous parent) fires
+            // OnNoMatch instead, proving run 2 resolves both the comparison column and the
+            // anchor against A, not B.
+            Guid ruleId = Guid.NewGuid(), rootCfg = Guid.NewGuid(), orderCfg = Guid.NewGuid();
+            Guid grp = Guid.NewGuid(), cond = Guid.NewGuid();
+            Guid orderA = Guid.NewGuid(), orderB = Guid.NewGuid(), line = Guid.NewGuid();
+
+            EntityReference Cfg(Guid id) => new EntityReference(Q(SchemaNames.TableConfig.Entity), id);
+
+            var seed = new List<Entity>
+            {
+                new Entity(Q(SchemaNames.TableConfig.Entity), rootCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_orderline",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.RootTable),
+                },
+                new Entity(Q(SchemaNames.TableConfig.Entity), orderCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_order",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.LookupTable),
+                    [Q(SchemaNames.TableConfig.ParentTable)] = Cfg(rootCfg),
+                    [Q(SchemaNames.TableConfig.LookupColumnLogicalName)] = "sample_orderid",
+                    [Q(SchemaNames.TableConfig.LookupTargetIdAttribute)] = "sample_orderid",
+                },
+                new Entity(Q(SchemaNames.Rule.Entity), ruleId)
+                {
+                    [Q(SchemaNames.Rule.TableLogicalName)] = "sample_orderline",
+                    ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
+                    [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
+                        new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnUpdate) }),
+                },
+                new Entity(Q(SchemaNames.ConditionGroup.Entity), grp)
+                {
+                    [Q(SchemaNames.ConditionGroup.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
+                    [Q(SchemaNames.ConditionGroup.LogicalOperator)] = new OptionSetValue((int)CoreModels.LogicalOperator.And),
+                    [Q(SchemaNames.ConditionGroup.IsExecutionCondition)] = false,
+                },
+                new Entity(Q(SchemaNames.RuleCondition.Entity), cond)
+                {
+                    [Q(SchemaNames.RuleCondition.ConditionGroup)] = new EntityReference(Q(SchemaNames.ConditionGroup.Entity), grp),
+                    [Q(SchemaNames.RuleCondition.TableConfig)] = Cfg(orderCfg),
+                    [Q(SchemaNames.RuleCondition.ConditionType)] = new OptionSetValue((int)ConditionType.FieldComparison),
+                    [Q(SchemaNames.RuleCondition.ComparisonColumn)] = "sample_orderdate",
+                    [Q(SchemaNames.RuleCondition.ComparisonOperator)] = new OptionSetValue((int)ComparisonOperator.GreaterThanOrEqual),
+                    [Q(SchemaNames.RuleCondition.ComparisonValueSource)] = new OptionSetValue((int)ComparisonValueSource.DateExpression),
+                    [Q(SchemaNames.RuleCondition.ComparisonValue)] =
+                        "{\"anchor\":{\"kind\":\"field\",\"node\":\"" + orderCfg + "\",\"column\":\"sample_duedate\"},\"op\":\"add\",\"amount\":1,\"unit\":\"days\"}",
+                },
+                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnMatch,
+                    "[{\"target\":\"sample_approvalnotes\",\"source\":\"literal\",\"value\":\"matched\"}]", tick: true, order: 1),
+                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnNoMatch,
+                    "[{\"target\":\"sample_approvalnotes\",\"source\":\"literal\",\"value\":\"no-match\"}]", tick: true, order: 2),
+                new Entity("sample_order", orderA)
+                {
+                    ["sample_orderdate"] = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    ["sample_duedate"] = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc),
+                },
+                new Entity("sample_order", orderB)
+                {
+                    ["sample_orderdate"] = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc),
+                    ["sample_duedate"] = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                },
+                new Entity("sample_orderline", line) { ["sample_orderid"] = new EntityReference("sample_order", orderA), ["sample_name"] = line.ToString() },
+            };
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(seed);
+            var service = new MetadataService(ctx.GetOrganizationService());
+
+            var overlay = new Entity("sample_orderline", line) { ["sample_orderid"] = new EntityReference("sample_order", orderB) };
+            var outcome = new RulesEngineRunner().Run(
+                systemService: service, userService: service, logicalName: "sample_orderline",
+                inputs: new List<RootInput> { new RootInput { Id = line, Overlay = overlay } },
+                trigger: RuleTrigger.OnUpdate, channel: RuleChannel.Standard, languageId: 1033,
+                buildMode: RootBuildMode.RetrieveAndOverlay, trace: new XrmFakedTracingService());
+
+            var fired = outcome.Records[0].FiredActions;
+            var forB = fired.Where(a => a.PreviousOfNodeId == null).ToList();
+            var forA = fired.Where(a => a.PreviousOfNodeId == orderCfg).ToList();
+
+            // Run 1, order B: orderdate (June) >= duedate + 1 day (Jan 2) → match → "matched".
+            var bWrite = Assert.Single(forB);
+            Assert.Equal(orderB, bWrite.WriteIntent.TargetId);
+            Assert.Equal("matched", bWrite.WriteIntent.Values["sample_approvalnotes"]);
+
+            // Run 2, order A: orderdate (Jan) >= duedate + 1 day (June 2) → no match → "no-match".
+            // If the anchor or the comparison column leaked order B's dates into run 2, this
+            // would fire "matched" instead.
+            var aWrite = Assert.Single(forA);
+            Assert.Equal(orderA, aWrite.WriteIntent.TargetId);
+            Assert.Equal("no-match", aWrite.WriteIntent.Values["sample_approvalnotes"]);
+        }
+
+        [Fact]
+        public void Two_lookups_changing_in_one_save_each_get_their_own_previous_parent_run()
+        {
+            // Root line with two root-level lookups: Order (sample_orderid) and Customer
+            // (sample_customerid), each with its own ticked Update Record action. One save
+            // changes both. Each changed lookup gets its own run 2, and each fires only the
+            // action targeting that lookup — never the other lookup's action.
+            Guid ruleId = Guid.NewGuid(), rootCfg = Guid.NewGuid(), orderCfg = Guid.NewGuid(), customerCfg = Guid.NewGuid();
+            Guid orderA = Guid.NewGuid(), orderB = Guid.NewGuid(), custX = Guid.NewGuid(), custY = Guid.NewGuid(), line = Guid.NewGuid();
+
+            EntityReference Cfg(Guid id) => new EntityReference(Q(SchemaNames.TableConfig.Entity), id);
+
+            var seed = new List<Entity>
+            {
+                new Entity(Q(SchemaNames.TableConfig.Entity), rootCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_orderline",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.RootTable),
+                },
+                new Entity(Q(SchemaNames.TableConfig.Entity), orderCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_order",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.LookupTable),
+                    [Q(SchemaNames.TableConfig.ParentTable)] = Cfg(rootCfg),
+                    [Q(SchemaNames.TableConfig.LookupColumnLogicalName)] = "sample_orderid",
+                    [Q(SchemaNames.TableConfig.LookupTargetIdAttribute)] = "sample_orderid",
+                },
+                // A second root-level lookup, sibling of the order lookup: the line's customer.
+                new Entity(Q(SchemaNames.TableConfig.Entity), customerCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_customer",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.LookupTable),
+                    [Q(SchemaNames.TableConfig.ParentTable)] = Cfg(rootCfg),
+                    [Q(SchemaNames.TableConfig.LookupColumnLogicalName)] = "sample_customerid",
+                    [Q(SchemaNames.TableConfig.LookupTargetIdAttribute)] = "sample_customerid",
+                },
+                new Entity(Q(SchemaNames.Rule.Entity), ruleId)
+                {
+                    [Q(SchemaNames.Rule.TableLogicalName)] = "sample_orderline",
+                    ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
+                    [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
+                        new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnUpdate) }),
+                },
+                // Ticked: each action targets a different one of the two lookups.
+                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnMatch,
+                    "[{\"target\":\"sample_approvalnotes\",\"source\":\"literal\",\"value\":\"order touched\"}]", tick: true, order: 1),
+                Action(Guid.NewGuid(), ruleId, customerCfg, ActionFireOn.OnMatch,
+                    "[{\"target\":\"sample_ispriority\",\"source\":\"literal\",\"value\":true}]", tick: true, order: 2),
+                new Entity("sample_order", orderA),
+                new Entity("sample_order", orderB),
+                new Entity("sample_customer", custX),
+                new Entity("sample_customer", custY),
+                new Entity("sample_orderline", line)
+                {
+                    ["sample_orderid"] = new EntityReference("sample_order", orderA),
+                    ["sample_customerid"] = new EntityReference("sample_customer", custX),
+                    ["sample_name"] = line.ToString(),
+                },
+            };
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(seed);
+            var service = new MetadataService(ctx.GetOrganizationService());
+
+            // One save changes BOTH lookups: order A → B, customer X → Y.
+            var overlay = new Entity("sample_orderline", line)
+            {
+                ["sample_orderid"] = new EntityReference("sample_order", orderB),
+                ["sample_customerid"] = new EntityReference("sample_customer", custY),
+            };
+            var outcome = new RulesEngineRunner().Run(
+                systemService: service, userService: service, logicalName: "sample_orderline",
+                inputs: new List<RootInput> { new RootInput { Id = line, Overlay = overlay } },
+                trigger: RuleTrigger.OnUpdate, channel: RuleChannel.Standard, languageId: 1033,
+                buildMode: RootBuildMode.RetrieveAndOverlay, trace: new XrmFakedTracingService());
+
+            var fired = outcome.Records[0].FiredActions;
+            var forOrder = fired.Where(a => a.PreviousOfNodeId == orderCfg).ToList();
+            var forCustomer = fired.Where(a => a.PreviousOfNodeId == customerCfg).ToList();
+
+            // Run 2 for the order lookup: only the order-targeted action, against order A.
+            var orderWrite = Assert.Single(forOrder);
+            Assert.Equal(orderA, orderWrite.WriteIntent.TargetId);
+            Assert.Equal("order touched", orderWrite.WriteIntent.Values["sample_approvalnotes"]);
+
+            // Run 2 for the customer lookup: only the customer-targeted action, against customer X.
+            var customerWrite = Assert.Single(forCustomer);
+            Assert.Equal(custX, customerWrite.WriteIntent.TargetId);
+            Assert.Equal(true, customerWrite.WriteIntent.Values["sample_ispriority"]);
+        }
+
+        [Fact]
+        public void Bulk_save_gives_each_record_its_own_previous_parent_run()
+        {
+            // Two RootInputs in one call (the UpdateMultiple shape): line2 moves from order A to
+            // B, as in the single-record test above; line4, on an unrelated order C, only has its
+            // name changed. Assert per record: record 0 gets run-2 results for order A only,
+            // record 1 gets none, and the moved line is counted under B (not A) for the
+            // RowCount>=2 match — the same rule as the single-record test above.
+            Guid ruleId = Guid.NewGuid(), rootCfg = Guid.NewGuid(), orderCfg = Guid.NewGuid(), siblingsCfg = Guid.NewGuid();
+            Guid grp = Guid.NewGuid(), cond = Guid.NewGuid();
+            Guid orderA = Guid.NewGuid(), orderB = Guid.NewGuid(), orderC = Guid.NewGuid();
+            Guid line1 = Guid.NewGuid(), line2 = Guid.NewGuid(), line3 = Guid.NewGuid(), line4 = Guid.NewGuid();
+
+            EntityReference Cfg(Guid id) => new EntityReference(Q(SchemaNames.TableConfig.Entity), id);
+            Entity Line(Guid id, Guid order) => new Entity("sample_orderline", id)
+                { ["sample_orderid"] = new EntityReference("sample_order", order), ["sample_name"] = id.ToString() };
+
+            var seed = new List<Entity>
+            {
+                new Entity(Q(SchemaNames.TableConfig.Entity), rootCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_orderline",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.RootTable),
+                },
+                new Entity(Q(SchemaNames.TableConfig.Entity), orderCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_order",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.LookupTable),
+                    [Q(SchemaNames.TableConfig.ParentTable)] = Cfg(rootCfg),
+                    [Q(SchemaNames.TableConfig.LookupColumnLogicalName)] = "sample_orderid",
+                    [Q(SchemaNames.TableConfig.LookupTargetIdAttribute)] = "sample_orderid",
+                },
+                new Entity(Q(SchemaNames.TableConfig.Entity), siblingsCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_orderline",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.ChildTable),
+                    [Q(SchemaNames.TableConfig.ParentTable)] = Cfg(orderCfg),
+                    [Q(SchemaNames.TableConfig.ChildLinkField)] = "sample_orderid",
+                },
+                new Entity(Q(SchemaNames.Rule.Entity), ruleId)
+                {
+                    [Q(SchemaNames.Rule.TableLogicalName)] = "sample_orderline",
+                    ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
+                    [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
+                        new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnUpdate) }),
+                },
+                new Entity(Q(SchemaNames.ConditionGroup.Entity), grp)
+                {
+                    [Q(SchemaNames.ConditionGroup.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
+                    [Q(SchemaNames.ConditionGroup.LogicalOperator)] = new OptionSetValue((int)CoreModels.LogicalOperator.And),
+                    [Q(SchemaNames.ConditionGroup.IsExecutionCondition)] = false,
+                },
+                new Entity(Q(SchemaNames.RuleCondition.Entity), cond)
+                {
+                    [Q(SchemaNames.RuleCondition.ConditionGroup)] = new EntityReference(Q(SchemaNames.ConditionGroup.Entity), grp),
+                    [Q(SchemaNames.RuleCondition.TableConfig)] = Cfg(siblingsCfg),
+                    [Q(SchemaNames.RuleCondition.ConditionType)] = new OptionSetValue((int)ConditionType.RowCount),
+                    [Q(SchemaNames.RuleCondition.MinExpectedRows)] = 2,
+                },
+                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnMatch,
+                    "[{\"target\":\"sample_isexpedited\",\"source\":\"literal\",\"value\":true}]", tick: true, order: 1),
+                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnNoMatch,
+                    "[{\"target\":\"sample_isexpedited\",\"source\":\"literal\",\"value\":false}]", tick: true, order: 2),
+                new Entity("sample_order", orderA),
+                new Entity("sample_order", orderB),
+                new Entity("sample_order", orderC),
+                Line(line1, orderA),
+                Line(line2, orderA),   // moving to B
+                Line(line3, orderB),
+                Line(line4, orderC),   // unrelated rename only
+            };
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(seed);
+            var service = new MetadataService(ctx.GetOrganizationService());
+
+            var moveOverlay = new Entity("sample_orderline", line2) { ["sample_orderid"] = new EntityReference("sample_order", orderB) };
+            var renameOverlay = new Entity("sample_orderline", line4) { ["sample_name"] = "renamed" };
+            var outcome = new RulesEngineRunner().Run(
+                systemService: service,
+                userService: service,
+                logicalName: "sample_orderline",
+                inputs: new List<RootInput>
+                {
+                    new RootInput { Id = line2, Overlay = moveOverlay },
+                    new RootInput { Id = line4, Overlay = renameOverlay },
+                },
+                trigger: RuleTrigger.OnUpdate,
+                channel: RuleChannel.Standard,
+                languageId: 1033,
+                buildMode: RootBuildMode.RetrieveAndOverlay,
+                trace: new XrmFakedTracingService());
+
+            // Record 0 (the move): run-2 fires only for order A, and only the ticked no-match action.
+            var record0 = outcome.Records[0].FiredActions;
+            var record0PreviousRuns = record0.Where(a => a.PreviousOfNodeId != null).ToList();
+            var aWrite = Assert.Single(record0PreviousRuns);
+            Assert.Equal(orderCfg, aWrite.PreviousOfNodeId);
+            Assert.Equal(orderA, aWrite.WriteIntent.TargetId);
+            Assert.Equal(false, aWrite.WriteIntent.Values["sample_isexpedited"]);
+
+            // Order B now has two lines (2 and 3): the normal run matches and expedites B, not A.
+            var record0Normal = record0.Where(a => a.PreviousOfNodeId == null).ToList();
+            var bWrite = Assert.Single(record0Normal);
+            Assert.Equal(orderB, bWrite.WriteIntent.TargetId);
+            Assert.Equal(true, bWrite.WriteIntent.Values["sample_isexpedited"]);
+
+            // Record 1 (the unrelated rename): no lookup changed, so no run-2 at all.
+            var record1 = outcome.Records[1].FiredActions;
+            Assert.DoesNotContain(record1, a => a.PreviousOfNodeId != null);
         }
     }
 }
