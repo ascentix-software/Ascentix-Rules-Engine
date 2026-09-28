@@ -18,11 +18,28 @@ selected. The available values are:
 
 - **On Create**
 - **On Form**
-- **Manual**
+- **On demand** (labelled **Manual** before this release; the stored value and the
+  API trigger name are unchanged, and `Manual` is still accepted alongside
+  `OnDemand`)
 - **On Update**
 - **On Delete**
 
 See *How Rules Run* for what each trigger invokes and which actions apply under it.
+
+## Runs for
+
+**Runs for** (`asx_ondemandscope`) only appears once **On demand** is ticked, and
+decides which records an On demand rule can be invoked against:
+
+- **A record it's given** (the default): **Run now** and `asx_ApplyRules` act on
+  one record you name, and a **Rule Run** started against the rule must be given
+  up to 250 record ids.
+- **All records that pass its execution conditions**: a **Rule Run** started
+  against the rule instead reads the whole table, a page at a time, applying the
+  rule to every record its execution conditions let through.
+
+See *Running Rules On Demand* for the full Run now / Runs workflow this setting
+drives, and *Beta Limitations* for the page/record budgets a run works within.
 
 ## Trigger Columns
 

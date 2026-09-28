@@ -52,6 +52,30 @@ export interface RunRulesResult {
   diagnostics: { nodes?: Array<{ table?: string; nodeId?: string; rows: number }> } | null;
 }
 
+/** asx_ApplyRules result (docs/Schema.md §6): a fired Block throws instead of coming back here. */
+export interface ApplyRulesResult {
+  isValid: boolean;
+  firedActions: any[];
+  writeCount: number;
+}
+
+/** The record-failed retry seam for asx_ProcessRunPage (docs/Schema.md §7). */
+export interface ProcessRunPageFailure {
+  recordId: string;
+  message: string;
+}
+
+/** asx_ProcessRunPage result (docs/Schema.md §7): running totals as of this page. */
+export interface ProcessRunPageResult {
+  done: boolean;
+  status: number;
+  evaluated: number;
+  changed: number;
+  blocked: number;
+  failed: number;
+  skipped: number;
+}
+
 export interface OrgHandle {
   identity: OrgIdentity;
   url: string;
@@ -67,6 +91,10 @@ export interface OrgHandle {
   /** Rules use asx_DeleteRule; other DELETE 404s require a confirming GET 404. */
   deleteRecord(entitySet: string, id: string): Promise<void>;
   runRules(tableName: string, opts?: RunRulesOptions): Promise<RunRulesResult>;
+  /** Call asx_ApplyRules: enforces one On demand rule against one persisted record. */
+  applyRules(ruleId: string, recordId: string): Promise<ApplyRulesResult>;
+  /** Call asx_ProcessRunPage: advances one Rule Run by a page. */
+  processRunPage(runId: string, failed?: ProcessRunPageFailure): Promise<ProcessRunPageResult>;
 }
 
 export const API_VERSION: string;

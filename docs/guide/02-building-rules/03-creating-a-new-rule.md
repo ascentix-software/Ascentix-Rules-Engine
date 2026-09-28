@@ -6,14 +6,14 @@ slug: creating-a-new-rule
 screenshots:
   - file: images/02-03-creating-a-new-rule-01.png
     caption: The New rule dialog, where you name the rule, choose a new or existing table configuration, and select triggers.
-    alt: New rule modal dialog with a Name field, a Data model radio choice (New configuration for a table / Use an existing configuration), a Configuration dropdown, Triggers checkboxes (On Create, On Form, Manual, On Update, On Delete), and Cancel/Create buttons.
+    alt: New rule modal dialog with a Name field, a Data model radio choice (New configuration for a table / Use an existing configuration), a Configuration dropdown, Triggers checkboxes (On Create, On Form, On demand, On Update, On Delete), and Cancel/Create buttons.
 ---
 
 # Creating a New Rule
 
 A rule starts with the table configuration it will run against.
 
-![New rule modal dialog with a Name field, a Data model radio choice (New configuration for a table / Use an existing configuration), a Configuration dropdown, Triggers checkboxes (On Create, On Form, Manual, On Update, On Delete), and Cancel/Create buttons.](../images/02-03-creating-a-new-rule-01.png)
+![New rule modal dialog with a Name field, a Data model radio choice (New configuration for a table / Use an existing configuration), a Configuration dropdown, Triggers checkboxes (On Create, On Form, On demand, On Update, On Delete), and Cancel/Create buttons.](../images/02-03-creating-a-new-rule-01.png)
 
 ## Steps
 
@@ -25,7 +25,7 @@ A rule starts with the table configuration it will run against.
      picker for the root table.
    - **Use an existing configuration**: reuse a table-config tree that's
      already shared by another rule, chosen from a **Configuration** dropdown.
-4. Select at least one **Trigger**: **On Create**, **On Form**, **Manual**,
+4. Select at least one **Trigger**: **On Create**, **On Form**, **On demand**,
    **On Update**, or **On Delete**. See *Triggers & Channels* for what each
    one means. **Create** stays disabled until at least one is checked.
 5. Click **Create**. The new rule opens in the editor, in **Draft** status.

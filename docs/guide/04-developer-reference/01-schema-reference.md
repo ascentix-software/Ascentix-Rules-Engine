@@ -27,7 +27,8 @@ stable integers. Do not assume label text; match on the value.
 | Severity | `asx_severity` | Information = 1, Warning = 2, Error = 3 |
 | Action Type | `asx_actiontype` | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7 |
 | Action Fire On | `asx_actionfireon` | On Match = 1, On No Match = 2 |
-| Triggers *(multi-select)* | `asx_triggers` | On Create = 1, On Form = 2, Manual = 3, On Update = 4, On Delete = 5 |
+| Triggers *(multi-select)* | `asx_triggers` | On Create = 1, On Form = 2, On demand = 3 (formerly Manual), On Update = 4, On Delete = 5 |
+| Runs for | `asx_ondemandscope` | A record it's given = 1 (default), All records that pass its execution conditions = 2 |
 | Channel *(multi-select)* | `asx_channel` | Standard = 1, Portal = 2 |
 | Comparison Value Source | `asx_comparisonvaluesource` | Literal = 1, Field Reference = 2, Template = 3, Date Expression = 4 |
 | Evaluation Context | `asx_evaluationcontext` | User = 1, System = 2 |
@@ -51,6 +52,7 @@ Archived mean.
 | Evaluation Context | `asx_evaluationcontext` | Choice → `asx_evaluationcontext` | No | Default User |
 | Root Table Config | `asx_roottableconfig` | Lookup → `asx_tableconfig` | Yes | The root of the rule's Table Config tree |
 | Trigger Columns | `asx_triggercolumns` | Multiline Text (4000) | No | JSON array of root-table column logical names; OnUpdate only. The rule also fires when one of these columns changes (unioned with the columns its conditions reference) |
+| Runs for | `asx_ondemandscope` | Choice (local) | No | On demand only: a record it's given (1, default) or all records that pass its execution conditions (2) |
 
 ### Table Config (`asx_tableconfig`)
 
@@ -164,3 +166,23 @@ A single leaf check inside a Node Filter Group.
 `asx_searchcriteriagroup` / `asx_searchcriterion` hold the in-memory filter used by
 Row Count conditions. `asx_localizedmessage` holds per-language overrides of an
 action's default message.
+
+### Rule Run (`asx_rulerun`)
+
+One row per **Run now** / Rule Run started against an On demand rule, created by
+Run now (or a caller) and driven to completion by repeated calls to
+`asx_ProcessRunPage` (see *Custom APIs*). Deleting the owning rule deletes its
+runs.
+
+| Column | Schema name | Type | Required | Notes |
+|---|---|---|---|---|
+| Rule | `asx_rule` | Lookup → `asx_rule` | Yes | The rule this run is for |
+| Scope | `asx_ondemandscope` | Choice → `asx_ondemandscope` | No | Copied from the rule at start: Given records (1) / All records (2) |
+| Record Ids | `asx_recordids` | Multiline text (20,000) | No | JSON array of Guids; Given-records runs only; at most 250 |
+| Status | `asx_status` | Choice (local) | No | Queued (1), Running (2), Completed (3), Completed with failures (4), Failed (5), Cancelled (6) |
+| Evaluated / Changed / Blocked / Failed / Skipped | `asx_evaluated` / `asx_changed` / `asx_blocked` / `asx_failed` / `asx_skipped` | Whole Number | No | Running totals, updated after each processed page |
+| Failures | `asx_failures` | Multiline text (100,000) | No | JSON array of the first 50 `{recordId, kind, message}` |
+
+See *Running Rules On Demand* for what these mean in practice, and
+`docs/Schema.md` (§2.13/§7) in the repository for the full per-page state
+machine.

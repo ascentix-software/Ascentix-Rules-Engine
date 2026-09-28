@@ -31,4 +31,7 @@ export type {
   EnvOptions,
   RunRulesOptions,
   RunRulesResult,
+  ApplyRulesResult,
+  ProcessRunPageFailure,
+  ProcessRunPageResult,
 } from "../scripts/devOrg.mjs";

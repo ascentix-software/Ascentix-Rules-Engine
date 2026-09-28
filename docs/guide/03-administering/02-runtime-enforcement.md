@@ -89,11 +89,18 @@ out the form early feedback before they save:
 The server backstops the client for any write that doesn't go through this
 form (bulk import, API calls, other integrations).
 
-## Manual / on-demand
+## On demand
 
-A rule invoked through `asx_RunRules` never blocks, regardless of what
-fires (see *How Rules Run*). Every fired action, including `Block`, is
-reported back to the caller as data instead: the response's `IsValid` flag
-is `true` only when no `Block` action fired, and `FailedRuleCount` counts
-the distinct rules that fired one. Nothing is thrown and no write actually
-happens.
+The **On demand** trigger has two different invocations with different
+enforcement (see *How Rules Run*):
+
+- A rule invoked through `asx_RunRules` never blocks, regardless of what
+  fires. Every fired action, including `Block`, is reported back to the
+  caller as data instead: the response's `IsValid` flag is `true` only when
+  no `Block` action fired, and `FailedRuleCount` counts the distinct rules
+  that fired one. Nothing is thrown and no write actually happens.
+- **Run now**, a **Rule Run**, and `asx_ApplyRules` **do** enforce, exactly
+  like *On create / update / delete* above: a fired `Block` throws and
+  applies no writes for that record; otherwise every fired write action is
+  applied, inside its own transaction, per record. See *Running Rules On
+  Demand* for what a run records and how it recovers from a failed write.

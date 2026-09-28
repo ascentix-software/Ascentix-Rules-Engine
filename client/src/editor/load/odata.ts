@@ -30,6 +30,9 @@ export const LOOKUP = {
   // the GROUP (the sub-filter's root); collection-node is on the CRITERION (Exists target).
   filterGroupOwningCriterion: "_asx_owningcriterion_value",
   filterCriterionCollectionNode: "_asx_collectionnode_value",
+  // asx_rulerun.asx_rule (docs/Schema.md §2.13): same Web API lookup-value field name as every
+  // other "asx_rule" attribute above, just on a different owning entity.
+  ruleOfRun: "_asx_rule_value",
 } as const;
 
 export const NAV = {
@@ -120,6 +123,6 @@ export const BIND_NAV = {
   // asx_rulerun.asx_rule: provisioned by EnsureLookup with SchemaName "asx_Rule"
   // (pipelines/Configure-RuleAuthoring.ps1) and no ReferencingEntityNavigationPropertyName
   // override, so the nav property is PascalCased, unlike the plain-lowercase asx_rule lookups
-  // on asx_conditiongroup/asx_ruleaction above. Not yet round-tripped by bindNav.dev.test.ts.
+  // on asx_conditiongroup/asx_ruleaction above. Round-tripped by bindNav.dev.test.ts.
   runRule: "asx_Rule",
 } as const;

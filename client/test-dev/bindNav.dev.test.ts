@@ -105,6 +105,52 @@ async function makeFilterCriterion(label: string, filterGroupId: string): Promis
   return id;
 }
 
+// A dedicated Published On demand rule for the runRule bind check below: RuleRunPlugin resolves
+// the bound rule via OnDemandRules.Resolve (docs/Schema.md §2.13 Lifecycle) before allowing an
+// asx_rulerun create, so the shared ZZ_P2SEED_Rule (not On demand) can't stand in for it here.
+// Everything it creates is tracked in `created`, same as the other make* helpers above.
+async function makeOnDemandRule(): Promise<string> {
+  const rootId = await api.createRecord(ENTITY_SET.tableConfig, {
+    asx_name: `${runPrefix}runRule_root`,
+    asx_tablelogicalname: "sample_order",
+    asx_tableconfigtype: 1, // Root
+  });
+  created.push({ set: ENTITY_SET.tableConfig, id: rootId });
+  const onDemandRuleId = await api.createRecord(ENTITY_SET.rule, {
+    asx_name: `${runPrefix}runRule_rule`,
+    asx_tablelogicalname: "sample_order",
+    asx_triggers: "3", // On demand
+    [`${BIND_NAV.ruleRootTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${rootId})`,
+  });
+  created.push({ set: ENTITY_SET.rule, id: onDemandRuleId });
+  const runRuleGroupId = await api.createRecord(ENTITY_SET.group, {
+    asx_name: `${runPrefix}runRule_group`,
+    asx_logicaloperator: 1,
+    asx_isexecutioncondition: false,
+    "asx_rule@odata.bind": `/${ENTITY_SET.rule}(${onDemandRuleId})`,
+  });
+  created.push({ set: ENTITY_SET.group, id: runRuleGroupId });
+  const conditionId = await api.createRecord(ENTITY_SET.condition, {
+    asx_name: `${runPrefix}runRule_cond`,
+    asx_conditiontype: 1,
+    asx_comparisoncolumn: "sample_ordertotal",
+    asx_comparisonoperator: 10, // Is Not Null
+    "asx_conditiongroup@odata.bind": `/${ENTITY_SET.group}(${runRuleGroupId})`,
+    "asx_tableconfig@odata.bind": `/${ENTITY_SET.tableConfig}(${rootId})`,
+  });
+  created.push({ set: ENTITY_SET.condition, id: conditionId });
+  const actionId = await api.createRecord(ENTITY_SET.action, {
+    asx_name: `${runPrefix}runRule_action`,
+    asx_actiontype: 3, // ShowMessage
+    asx_fireon: 1,
+    asx_message: "runRule bind check",
+    "asx_rule@odata.bind": `/${ENTITY_SET.rule}(${onDemandRuleId})`,
+  });
+  created.push({ set: ENTITY_SET.action, id: actionId });
+  await api.publishRule(onDemandRuleId);
+  return onDemandRuleId;
+}
+
 describe("BIND_NAV @odata.bind round-trips against DEV", () => {
   it("groupRule binds a condition group to its rule", () =>
     roundTrip({
@@ -316,4 +362,14 @@ describe("BIND_NAV @odata.bind round-trips against DEV", () => {
       },
     });
   });
+
+  it("runRule binds a rule run to its rule", async () => {
+    const onDemandRuleId = await makeOnDemandRule();
+    await roundTrip({
+      label: "runRule",
+      set: ENTITY_SET.ruleRun, navProp: BIND_NAV.runRule, // PascalCase: asx_Rule
+      parentSet: ENTITY_SET.rule, parentId: onDemandRuleId,
+      lookupValueField: LOOKUP.ruleOfRun, // "_asx_rule_value"
+    });
+  }, 30000);
 });
