@@ -213,6 +213,7 @@ export interface ActionCfg {
   targetNodeId?: string; // Update/Delete: asx_TargetNode @odata.bind (single-cardinality node)
   fieldMapping?: string; // Create/Update: asx_fieldmapping JSON string
   applyToPrevious?: boolean; // Update Record: asx_applytoprevious
+  order?: number; // asx_order: dispatch order among the actions that fire (default 1)
 }
 
 export interface RuleConfig {
@@ -411,7 +412,7 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
         asx_name: `${ruleName}_a${i + 1}`,
         asx_actiontype: a.actionType,
         asx_fireon: a.fireOn,
-        asx_order: 1,
+        asx_order: a.order ?? 1,
         asx_isactive: true,
         ...(a.targetColumn ? { asx_targetcolumn: a.targetColumn } : {}),
         ...(a.valueBool !== undefined ? { asx_valuebool: a.valueBool } : {}),
