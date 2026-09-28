@@ -246,3 +246,33 @@ export async function createRuleOnConfig(opts: {
   });
   return { ruleId, ruleName, cleanup: () => deleteRuleCascade(ruleId) };
 }
+
+// ---- On-demand runs (Run now / Runs dialog e2e specs) --------------------------------------
+// No e2e spec yet imports the applyRules/processRunPage wrappers from test-dev/devApi, so these
+// stay local rather than reaching into that module, per the e2e-new brief's convention note.
+// They mirror the browser's own runs/runDriver.ts (startRun / driveRun), just driven here
+// directly through createDevApi() for specs that arrange a run via the API instead of the UI.
+
+// Creates an asx_rulerun for `ruleId`, scoped to `recordIds` when given.
+export async function createRuleRun(ruleId: string, recordIds?: string[]): Promise<string> {
+  const api = createDevApi();
+  const data: Record<string, unknown> = { [`${BIND_NAV.runRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})` };
+  if (recordIds) data.asx_recordids = JSON.stringify(recordIds);
+  return api.createRecord(ENTITY_SET.ruleRun, data);
+}
+
+export interface RunPageCounts {
+  done: boolean; status: number; evaluated: number; changed: number; blocked: number; failed: number; skipped: number;
+}
+
+// Drives a run to completion by calling asx_ProcessRunPage in a loop. Unlike runDriver.ts's
+// driveRun, this has no record-failed retry protocol: the e2e fixtures that use this only author
+// Update/Block actions, neither of which throws, so a rejected write is never in scope here.
+export async function driveRunToCompletion(runId: string, maxCalls = 50): Promise<RunPageCounts> {
+  const api = createDevApi();
+  for (let i = 0; i < maxCalls; i++) {
+    const last = await api.processRunPage(runId);
+    if (last.done) return last;
+  }
+  throw new Error(`driveRunToCompletion: run ${runId} did not finish within ${maxCalls} calls.`);
+}
