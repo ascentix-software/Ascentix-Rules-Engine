@@ -104,7 +104,7 @@ Contact when it changes** on the Update Record action. The rule then runs a seco
 the same save, and only the actions with this option on are applied to her. Blocks and messages
 apply only to the record being saved. A record that both the new and the previous parent lead to
 (two orders under the same customer, say) can only be updated by the new one's run; the previous
-one's run leaves it alone. If the action stops being one this option can apply to, the switch
-stays visible with a warning telling you to turn it off before publishing. The second run writes
-with the rule's own evaluation context, so with a User-context rule the person saving also needs
-write access to the previous record.
+one's run leaves it alone. The option only appears on Update Record actions whose target is
+reached through lookups; if you later change the action so it no longer qualifies, the option is
+hidden and saved as off. The second run writes with the rule's own evaluation context, so with a
+User-context rule the person saving also needs write access to the previous record.

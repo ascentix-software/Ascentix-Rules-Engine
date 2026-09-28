@@ -263,25 +263,15 @@ export function ActionInspector({
         </Field>
       )}
       {(() => {
-        // The switch stays visible whenever the flag is on, even once the action is no longer
-        // eligible (action type changed away from Update Record, or the target moved out of the
-        // lookup branch): a ticked, ineligible action is not inert (publish validation raises
-        // STRUCT_APPLY_PREVIOUS_TARGET), so the author must be able to untick it here. No silent
-        // auto-clear.
+        // Shown only while the action is eligible (Update Record, targeting a node reached
+        // through lookups). If a later edit moves the target out of the lookup branch or changes
+        // the action type away from Update Record, the field disappears; diff.ts saves the flag
+        // as off in that case, so there is nothing left to untick here.
         const lookup = t === "UpdateRecord" ? previousParentLookup(tableConfigs, action.targetNodeId) : null;
-        if (lookup) {
-          return (
-            <Field label={`Also apply to the previous ${lookup.name} when it changes`}
-              hint={`When the save points ${lookup.name} at a different record, also apply this action to the one it pointed to before.`}>
-              <Switch checked={!!action.applyToPrevious} onChange={(_e, d) => onPatch({ applyToPrevious: d.checked })} />
-            </Field>
-          );
-        }
-        if (!action.applyToPrevious) return null;
+        if (!lookup) return null;
         return (
-          <Field label="Also apply to the previous record when it changes"
-            validationState="warning"
-            validationMessage="Only Update Record actions on a record reached through lookups can use this. Turn it off to publish.">
+          <Field label={`Also apply to the previous ${lookup.name} when it changes`}
+            hint={`When the save points ${lookup.name} at a different record, also apply this action to the one it pointed to before.`}>
             <Switch checked={!!action.applyToPrevious} onChange={(_e, d) => onPatch({ applyToPrevious: d.checked })} />
           </Field>
         );
