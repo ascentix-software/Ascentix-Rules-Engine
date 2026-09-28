@@ -18,7 +18,9 @@ namespace Ascentix.RulesEngine.Core.Engine
     /// → self-node pass → rootBuild → in-flight batch → per-root queryExecute) and handed over
     /// as an <see cref="EvaluationInput"/>. Owns those stage timers. Nothing here evaluates a
     /// rule; nothing after here reads a service. systemService reads rule config and metadata;
-    /// traversalService reads business data (root retrieval + QueryExecutor).
+    /// traversalService reads business data (root retrieval + QueryExecutor). On Update, a
+    /// changed root-level lookup with ticked actions runs the same plan a second time, rooted at
+    /// the lookup's previous record (see <see cref="PreviousParent"/>).
     /// </summary>
     public static class EvaluationGatherer
     {

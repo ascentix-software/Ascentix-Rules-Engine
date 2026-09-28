@@ -336,6 +336,13 @@ Enums are serialized as string names (`"Block"`, `"OnMatch"`, `"Error"`). Fields
 an action type are `null` (e.g. `targetColumn`/`value` for `Block`; `message`/`severity` for
 `SetVisible`). `message` is already localized using the resolved language at evaluation time.
 
+A fired action also carries `previousOf`: the id of the root-level lookup node when the action
+fired for the previous value of a changed lookup (see *"Also apply to the previous"* under
+Building Actions), absent for a normal-run action. It can only appear when the dry run evaluates
+an Update — `Triggers` is `OnUpdate` and both `RecordId` and `RecordJson` are supplied (a
+retrieve-and-overlay build), the only shape that carries a saved record to compare against the
+overlay.
+
 A fired **CreateRecord / UpdateRecord / DeleteRecord** action also carries a `write` object, the
 fully-resolved write intent. It is **reported only** (`asx_RunRules` never executes it; the plugin does):
 

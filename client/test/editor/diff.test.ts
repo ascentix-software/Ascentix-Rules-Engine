@@ -169,6 +169,30 @@ describe("diffRuleGraph", () => {
   });
 });
 
+describe("diffRuleGraph — applyToPrevious", () => {
+  it("a new action emits asx_applytoprevious", () => {
+    const snap = baseGraph();
+    let w = addAction(clone(snap));
+    w = { ...w, actions: w.actions.map((a) => ({ ...a, applyToPrevious: true })) };
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_ruleaction") as any;
+    expect(op.attrs.asx_applytoprevious).toBe(true);
+  });
+
+  it("an unchanged loaded action with the column absent/false emits no update", () => {
+    const action = {
+      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, fireOn: 1,
+      targetColumn: null, targetTable: null, targetNodeId: "tc1", message: null,
+      fieldMapping: null, value: null, applyInverseWhenNotFired: null,
+      severity: null, isActive: true, localizedMessages: [],
+      // applyToPrevious intentionally omitted, as mapActionRecord leaves it for a loaded row
+      // whose asx_applytoprevious column is absent or false.
+    };
+    const snap: RuleGraph = { ...baseGraph(), actions: [action] };
+    const w = clone(snap);
+    expect(diffRuleGraph(snap, w).some((o) => o.entity === "asx_ruleaction")).toBe(false);
+  });
+});
+
 describe("diffRuleGraph — rule fields", () => {
   it("emits encoded multi-selects, dates and eval context on change", () => {
     const snap = baseGraph();

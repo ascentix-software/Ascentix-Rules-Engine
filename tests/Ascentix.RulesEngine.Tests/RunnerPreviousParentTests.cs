@@ -192,6 +192,142 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void Run_2_contributes_nothing_for_a_rule_with_no_ticked_action_for_the_changed_lookup()
+        {
+            // Same shape as the first test (a line moves from A to B), plus a second rule in the
+            // same bucket whose only action targeting the order node is UNTICKED. BucketEvaluator
+            // now skips evaluating a rule's conditions in run 2 unless it has an eligible ticked
+            // action for that lookup (see BucketEvaluator.HasPreviousAction); this asserts the
+            // resulting behavior: rule 2 fires nothing at all, and rule 1's run-2 result is exactly
+            // as in the single-rule scenario. Proving the conditions themselves are never
+            // evaluated would need an evaluation that throws when reached, which nothing in this
+            // harness can force without also breaking rule 1's own evaluation (the tree/plan is
+            // shared across every rule in the bucket) — so this is the observable half of the
+            // fix, backed by the code comment at the skip site.
+            Guid ruleId = Guid.NewGuid(), ruleId2 = Guid.NewGuid();
+            Guid rootCfg = Guid.NewGuid(), orderCfg = Guid.NewGuid(), siblingsCfg = Guid.NewGuid();
+            Guid grp = Guid.NewGuid(), cond = Guid.NewGuid(), grp2 = Guid.NewGuid(), cond2 = Guid.NewGuid();
+            Guid orderA = Guid.NewGuid(), orderB = Guid.NewGuid();
+            Guid line1 = Guid.NewGuid(), line2 = Guid.NewGuid(), line3 = Guid.NewGuid();
+
+            EntityReference Cfg(Guid id) => new EntityReference(Q(SchemaNames.TableConfig.Entity), id);
+            Entity Line(Guid id, Guid order) => new Entity("sample_orderline", id)
+                { ["sample_orderid"] = new EntityReference("sample_order", order), ["sample_name"] = id.ToString() };
+
+            var seed = new List<Entity>
+            {
+                new Entity(Q(SchemaNames.TableConfig.Entity), rootCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_orderline",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.RootTable),
+                },
+                new Entity(Q(SchemaNames.TableConfig.Entity), orderCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_order",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.LookupTable),
+                    [Q(SchemaNames.TableConfig.ParentTable)] = Cfg(rootCfg),
+                    [Q(SchemaNames.TableConfig.LookupColumnLogicalName)] = "sample_orderid",
+                    [Q(SchemaNames.TableConfig.LookupTargetIdAttribute)] = "sample_orderid",
+                },
+                new Entity(Q(SchemaNames.TableConfig.Entity), siblingsCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_orderline",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.ChildTable),
+                    [Q(SchemaNames.TableConfig.ParentTable)] = Cfg(orderCfg),
+                    [Q(SchemaNames.TableConfig.ChildLinkField)] = "sample_orderid",
+                },
+                // Rule 1: ticked expedite actions, as in the base scenario.
+                new Entity(Q(SchemaNames.Rule.Entity), ruleId)
+                {
+                    [Q(SchemaNames.Rule.TableLogicalName)] = "sample_orderline",
+                    ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
+                    [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
+                        new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnUpdate) }),
+                },
+                new Entity(Q(SchemaNames.ConditionGroup.Entity), grp)
+                {
+                    [Q(SchemaNames.ConditionGroup.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
+                    [Q(SchemaNames.ConditionGroup.LogicalOperator)] = new OptionSetValue((int)CoreModels.LogicalOperator.And),
+                    [Q(SchemaNames.ConditionGroup.IsExecutionCondition)] = false,
+                },
+                new Entity(Q(SchemaNames.RuleCondition.Entity), cond)
+                {
+                    [Q(SchemaNames.RuleCondition.ConditionGroup)] = new EntityReference(Q(SchemaNames.ConditionGroup.Entity), grp),
+                    [Q(SchemaNames.RuleCondition.TableConfig)] = Cfg(siblingsCfg),
+                    [Q(SchemaNames.RuleCondition.ConditionType)] = new OptionSetValue((int)ConditionType.RowCount),
+                    [Q(SchemaNames.RuleCondition.MinExpectedRows)] = 2,
+                },
+                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnMatch,
+                    "[{\"target\":\"sample_isexpedited\",\"source\":\"literal\",\"value\":true}]", tick: true, order: 1),
+                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnNoMatch,
+                    "[{\"target\":\"sample_isexpedited\",\"source\":\"literal\",\"value\":false}]", tick: true, order: 2),
+
+                // Rule 2: same bucket, own condition group, only an UNTICKED Update Record action
+                // on the same order node — without the run-2 filter it would still never fire
+                // (the per-action check already excludes unticked actions), so what this proves
+                // is that adding a rule with nothing eligible for the changed lookup leaves rule
+                // 1's run-2 result untouched and contributes no fired actions of its own.
+                new Entity(Q(SchemaNames.Rule.Entity), ruleId2)
+                {
+                    [Q(SchemaNames.Rule.TableLogicalName)] = "sample_orderline",
+                    ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
+                    [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
+                        new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnUpdate) }),
+                },
+                new Entity(Q(SchemaNames.ConditionGroup.Entity), grp2)
+                {
+                    [Q(SchemaNames.ConditionGroup.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId2),
+                    [Q(SchemaNames.ConditionGroup.LogicalOperator)] = new OptionSetValue((int)CoreModels.LogicalOperator.And),
+                    [Q(SchemaNames.ConditionGroup.IsExecutionCondition)] = false,
+                },
+                new Entity(Q(SchemaNames.RuleCondition.Entity), cond2)
+                {
+                    [Q(SchemaNames.RuleCondition.ConditionGroup)] = new EntityReference(Q(SchemaNames.ConditionGroup.Entity), grp2),
+                    [Q(SchemaNames.RuleCondition.TableConfig)] = Cfg(siblingsCfg),
+                    [Q(SchemaNames.RuleCondition.ConditionType)] = new OptionSetValue((int)ConditionType.RowCount),
+                    [Q(SchemaNames.RuleCondition.MinExpectedRows)] = 2,
+                },
+                Action(Guid.NewGuid(), ruleId2, orderCfg, ActionFireOn.OnNoMatch,
+                    "[{\"target\":\"sample_approvalnotes\",\"source\":\"literal\",\"value\":\"should never apply\"}]",
+                    tick: false, order: 1),
+
+                new Entity("sample_order", orderA),
+                new Entity("sample_order", orderB),
+                Line(line1, orderA),
+                Line(line2, orderA),   // the line being moved; still on A in the database
+                Line(line3, orderB),
+            };
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(seed);
+            var service = new MetadataService(ctx.GetOrganizationService());
+
+            // Move line 2 from A to B: after the save, B has lines 2 and 3 (pass), A has line 1 (no match).
+            var overlay = new Entity("sample_orderline", line2) { ["sample_orderid"] = new EntityReference("sample_order", orderB) };
+            var outcome = new RulesEngineRunner().Run(
+                systemService: service,
+                userService: service,
+                logicalName: "sample_orderline",
+                inputs: new List<RootInput> { new RootInput { Id = line2, Overlay = overlay } },
+                trigger: RuleTrigger.OnUpdate,
+                channel: RuleChannel.Standard,
+                languageId: 1033,
+                buildMode: RootBuildMode.RetrieveAndOverlay,
+                trace: new XrmFakedTracingService());
+
+            var fired = outcome.Records[0].FiredActions;
+            var forA = fired.Where(a => a.PreviousOfNodeId == orderCfg).ToList();
+
+            // Rule 2 fires nothing anywhere (run 1 or run 2): its only action is unticked.
+            Assert.DoesNotContain(fired, a => a.RuleId == ruleId2);
+
+            // Rule 1's run-2 result is exactly as in the single-rule scenario.
+            var aWrite = Assert.Single(forA);
+            Assert.Equal(ruleId, aWrite.RuleId);
+            Assert.Equal(orderA, aWrite.WriteIntent.TargetId);
+            Assert.Equal(false, aWrite.WriteIntent.Values["sample_isexpedited"]);
+        }
+
+        [Fact]
         public void Without_a_lookup_change_there_is_no_second_run()
         {
             // Same seed shape, but the save changes only the line's name.

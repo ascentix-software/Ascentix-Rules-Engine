@@ -113,6 +113,7 @@ The outcome layer. Columns not relevant to a given Action Type are left blank.
 | Field Mapping | `asx_fieldmapping` | Multiline text (JSON) | No | Create/Update value map |
 | Order | `asx_order` | Whole Number | No | Execution order |
 | Is Active | `asx_isactive` | Yes/No | No | Default Yes |
+| Also Apply To Previous | `asx_applytoprevious` | Yes/No | No | Update Record only: when the save changes the lookup above the target node, also apply the action to the record the lookup pointed to before the save. Default No |
 
 ## Value nodes
 

@@ -103,6 +103,8 @@ only the new contact. To keep the previous one up to date too, turn on **Also ap
 Contact when it changes** on the Update Record action. The rule then runs a second time for Ana in
 the same save, and only the actions with this option on are applied to her. Blocks and messages
 apply only to the record being saved. A record that both the new and the previous parent lead to
-(two orders under the same customer, say) is updated once, from the new one. If the action stops
-being one this option can apply to, the switch stays visible with a warning telling you to turn it
-off before publishing.
+(two orders under the same customer, say) can only be updated by the new one's run; the previous
+one's run leaves it alone. If the action stops being one this option can apply to, the switch
+stays visible with a warning telling you to turn it off before publishing. The second run writes
+with the rule's own evaluation context, so with a User-context rule the person saving also needs
+write access to the previous record.

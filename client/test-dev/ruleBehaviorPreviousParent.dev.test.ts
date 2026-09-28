@@ -43,7 +43,8 @@ describe("apply to the previous parent", () => {
       actions: [
         { actionType: 6, fireOn: 1, targetNodeId: lr.order, fieldMapping: setExpedite(true), applyToPrevious: true },
         { actionType: 6, fireOn: 2, targetNodeId: lr.order, fieldMapping: setExpedite(false), applyToPrevious: true },
-        { actionType: 6, fireOn: 1, targetNodeId: lr.order, applyToPrevious: false,
+        // Unticked, fires OnNoMatch: without the run-2 filter it would apply to A (no match there).
+        { actionType: 6, fireOn: 2, targetNodeId: lr.order, applyToPrevious: false,
           fieldMapping: JSON.stringify([{ target: "sample_approvalnotes", source: "literal", value: "line changed" }]) },
       ],
     });
@@ -61,7 +62,7 @@ describe("apply to the previous parent", () => {
     const orderA = await api.retrieveRecord("sample_orders", a, "?$select=sample_isexpedited,sample_approvalnotes");
     const orderB = await api.retrieveRecord("sample_orders", b, "?$select=sample_isexpedited,sample_approvalnotes");
     expect(orderB.sample_isexpedited).toBe(true);
-    expect(orderB.sample_approvalnotes).toBe("line changed");
+    expect(orderB.sample_approvalnotes ?? null).toBeNull(); // B matched: OnNoMatch note never fires
     expect(orderA.sample_isexpedited).toBe(false);          // run 2 cleared it
     expect(orderA.sample_approvalnotes ?? null).toBeNull(); // unticked: not applied to A
   });

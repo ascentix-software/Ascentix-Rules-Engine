@@ -54,14 +54,19 @@ namespace Ascentix.RulesEngine.Core.Engine
                         EvaluateRule(ruleId, root, cache, conditionEval, groupEval, null);
 
                     // Second runs: each changed lookup's previous record, ticked actions only. The
-                    // root there is an existing record, so no new-record stamp.
+                    // root there is an existing record, so no new-record stamp. A rule with no
+                    // action that can fire for this lookup has nothing to contribute here, so its
+                    // conditions are not even evaluated a second time.
                     foreach (var run in record.PreviousRuns)
                     {
                         var previousEval = new ConditionEvaluator(run.Cache, tree, resolver, input.Labels, input.UtcNow)
                         { Pushdown = input.Pushdown };
                         var previousGroups = new ConditionGroupEvaluator(previousEval);
                         foreach (var ruleId in input.RuleIds)
+                        {
+                            if (!HasPreviousAction(input, ruleId, tree, run.Lookup)) continue;
                             EvaluateRule(ruleId, run.Root, run.Cache, previousEval, previousGroups, run.Lookup);
+                        }
                     }
 
                     void EvaluateRule(Guid ruleId, Entity ruleRoot, QueryResultCache ruleCache,
@@ -110,6 +115,13 @@ namespace Ascentix.RulesEngine.Core.Engine
         // was, raised only when that action actually fires.
         private static List<FieldMappingEntry> Mapping(EvaluationInput input, RuleAction a) =>
             input.MappingsByAction.TryGetValue(a.Id, out var m) ? m : FieldMappingParser.Parse(a.FieldMapping);
+
+        // Run 2 only ever fires a ticked action whose root-level lookup is the one that changed;
+        // a rule with no such action would evaluate conditions and fire nothing, so it is skipped
+        // before conditions are evaluated at all.
+        private static bool HasPreviousAction(EvaluationInput input, Guid ruleId, TableConfigTree tree, TableConfig lookup) =>
+            input.ActionsByRule.TryGetValue(ruleId, out var actions)
+            && actions.Any(a => PreviousParent.LookupFor(a, tree)?.Id == lookup.Id);
 
         private static bool IsRunOneTarget(QueryResultCache runOneCache, RuleAction a, WriteIntent intent)
         {

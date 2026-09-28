@@ -60,6 +60,25 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void PreviousOfNodeId_serializes_as_previousOf_guid_and_is_absent_when_null()
+        {
+            var nodeId = Guid.NewGuid();
+            var json = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
+            {
+                RuleId = Guid.NewGuid(), ActionType = ActionType.UpdateRecord,
+                FireOn = ActionFireOn.OnMatch, PreviousOfNodeId = nodeId
+            }));
+            Assert.Contains($"\"previousOf\":\"{nodeId}\"", json);
+
+            var jsonWithoutPrevious = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
+            {
+                RuleId = Guid.NewGuid(), ActionType = ActionType.UpdateRecord,
+                FireOn = ActionFireOn.OnMatch, PreviousOfNodeId = null
+            }));
+            Assert.DoesNotContain("previousOf", jsonWithoutPrevious);
+        }
+
+        [Fact]
         public void Serializes_write_intent_for_create_action()
         {
             var outcome = new RuleEvaluationOutcome

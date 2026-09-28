@@ -112,6 +112,11 @@ a `write` object, the fully-resolved write intent (`operation`, `targetTable`,
 `targetId`, `values`). `asx_RunRules` reports that intent; only the server engine
 applies it, on Create/Update/Delete. See *Runtime Enforcement*.
 
+A fired action also carries `previousOf`: the id of the root-level lookup node when the action
+fired for the previous value of a changed lookup ("Also apply to the previous"), absent
+otherwise. It appears only when the dry run evaluates an Update — `Triggers` is `OnUpdate` and
+both `RecordId` and `RecordJson` are supplied.
+
 **Diagnostics** (opt-in, `IncludeDiagnostics: true`) report what the evaluation cost,
 for support conversations and your own sizing against the *Beta Limitations* budget:
 

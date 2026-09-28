@@ -9,8 +9,8 @@ namespace Ascentix.RulesEngine.Core.Engine
     /// <summary>
     /// "Also apply to the previous parent": when a save changes a lookup on the saved record, a
     /// rule's ticked Update Record actions in that lookup's branch run a second time for the
-    /// record the lookup pointed to before the save. This class holds the eligibility rule and,
-    /// from Task 3, which lookups changed.
+    /// record the lookup pointed to before the save. This class holds the eligibility rule and
+    /// which lookups changed.
     /// </summary>
     public static class PreviousParent
     {

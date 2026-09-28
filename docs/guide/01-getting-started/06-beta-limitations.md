@@ -28,7 +28,9 @@ Benchmarking shows that rules within these boundaries evaluate inside the
 Those tests were not run in your environment; real-world timings depend on the
 number of other processes registered on the same events and the volume of data.
 Bulk operations (`CreateMultiple`/`UpdateMultiple`) incur that per-record
-evaluation cost for every record in the batch.
+evaluation cost for every record in the batch. When a save changes a lookup that a rule's ticked
+"Also apply to the previous" action depends on, the rule's related records are read a second time
+for the previous record, so that save costs about twice as much.
 
 Beyond this envelope the engine may still work, but it's outside what the beta
 has verified. Rule filters are pushed into the Dataverse queries where provably

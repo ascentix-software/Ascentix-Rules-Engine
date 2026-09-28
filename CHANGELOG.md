@@ -30,7 +30,8 @@ only, so the version an administrator sees in their org can never carry the word
   at publish (`STRUCT_INVALID_TIMEZONE`).
 - **Also apply to the previous record.** When a save changes a lookup on the record (an opportunity
   moves to another contact), an Update Record action can also be applied to the record the lookup
-  pointed to before, in the same save. New column `asx_ruleaction.asx_applytoprevious`.
+  pointed to before, in the same save. New column `asx_ruleaction.asx_applytoprevious`. An action
+  whose target this option can't apply to is rejected at publish (`STRUCT_APPLY_PREVIOUS_TARGET`).
 
 ### Changed
 
