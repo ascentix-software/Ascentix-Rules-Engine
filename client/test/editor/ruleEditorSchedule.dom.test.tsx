@@ -292,6 +292,26 @@ describe("RuleEditorApp Schedule, loading", () => {
     expect(screen.getByLabelText("Time of day")).toHaveValue("05:30");
     expect(loadRuleSchedule).toHaveBeenCalledTimes(1);
   });
+
+  it("a load abandoned mid-flight (the rule stopped qualifying first) still loads on re-qualifying", async () => {
+    let finishFirst!: (value: RuleSchedule | null) => void;
+    vi.mocked(loadRuleSchedule)
+      .mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+      .mockResolvedValueOnce(onSchedule());
+    renderApp({ getClientUrl: () => CLIENT_URL });
+    await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalledTimes(1));
+
+    // Leave On demand + All records while the first load is still in flight, then let it land.
+    fireEvent.click(screen.getByRole("combobox", { name: "Runs for" }));
+    fireEvent.click(await screen.findByText("A record it's given"));
+    finishFirst(onSchedule());
+
+    // Back in: the abandoned load didn't count, so the schedule is read again and shown.
+    fireEvent.click(screen.getByRole("combobox", { name: "Runs for" }));
+    fireEvent.click(await screen.findByText("All records that pass its execution conditions"));
+    await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("switch")).toBeChecked());
+  });
 });
 
 describe("RuleEditorApp Schedule, blocking Save from another panel", () => {

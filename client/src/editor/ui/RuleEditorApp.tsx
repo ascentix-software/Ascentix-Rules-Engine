@@ -205,14 +205,15 @@ export function RuleEditorApp({
   React.useEffect(() => {
     if (!scheduleAppliesNow) return;
     if (loadedScheduleRuleIdRef.current === scheduleRuleId) return;
-    loadedScheduleRuleIdRef.current = scheduleRuleId;
     let live = true;
     (async () => {
+      // Marked loaded only once a result lands: a load abandoned mid-flight (the rule stopped
+      // qualifying before it returned) must not stop the next qualification from loading.
       try {
         const loaded = await loadRuleSchedule(api, scheduleRuleId);
-        if (live) { setScheduleSnapshot(loaded); setSchedule(loaded); setScheduleStatus("ok"); }
+        if (live) { loadedScheduleRuleIdRef.current = scheduleRuleId; setScheduleSnapshot(loaded); setSchedule(loaded); setScheduleStatus("ok"); }
       } catch (e) {
-        if (live) setScheduleStatus(isPrivilegeDeniedError(e) ? "denied" : "error");
+        if (live) { loadedScheduleRuleIdRef.current = scheduleRuleId; setScheduleStatus(isPrivilegeDeniedError(e) ? "denied" : "error"); }
       }
     })();
     return () => { live = false; };
