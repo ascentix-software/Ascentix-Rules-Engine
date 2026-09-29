@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { isStale, type RunRow } from "../../src/editor/runs/runsData";
+import { describe, it, expect, vi } from "vitest";
+import { isStale, loadRuns, type RunRow } from "../../src/editor/runs/runsData";
+import type { WebApiPort } from "../../src/editor/webapi";
 
 const NOW = new Date("2026-09-28T12:00:00Z").getTime();
 
@@ -9,6 +10,17 @@ function row(over: Partial<RunRow>): RunRow {
     startedOn: null, lastPageOn: null, finishedOn: null, startedBy: null, failures: [], ...over,
   };
 }
+
+describe("loadRuns", () => {
+  // Xrm.WebApi.retrieveMultipleRecords needs the table's LOGICAL name (asx_rulerun), not the
+  // entity set name (asx_ruleruns): the dev/test fakes accept either, which hid this bug.
+  it("queries by the rulerun's logical name", async () => {
+    const retrieveMultipleRecords = vi.fn(async () => ({ entities: [] }));
+    const api = { retrieveMultipleRecords } as any as WebApiPort;
+    await loadRuns(api, "rule1");
+    expect(retrieveMultipleRecords).toHaveBeenCalledWith("asx_rulerun", expect.stringContaining("rule1"));
+  });
+});
 
 describe("isStale", () => {
   it("a Running run is stale once its last page is more than two minutes old", () => {

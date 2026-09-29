@@ -1,5 +1,5 @@
 import type { WebApiPort, RunPageResult } from "../webapi";
-import { ENTITY_SET, BIND_NAV } from "../load/odata";
+import { ENTITY, ENTITY_SET, BIND_NAV } from "../load/odata";
 
 // asx_rulerun status choice values (docs/Schema.md §2.13).
 export const RUN_STATUS = {
@@ -26,7 +26,8 @@ export function parseRecordFailure(message: string): { recordId: string; message
 export async function startRun(api: WebApiPort, ruleId: string, recordIds?: string[]): Promise<string> {
   const data: Record<string, unknown> = { [`${BIND_NAV.runRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})` };
   if (recordIds) data.asx_recordids = JSON.stringify(recordIds);
-  return api.createRecord(ENTITY_SET.ruleRun, data);
+  // createRecord goes to Xrm.WebApi, which takes the LOGICAL name, not the entity set.
+  return api.createRecord(ENTITY.ruleRun, data);
 }
 
 /**
@@ -66,5 +67,6 @@ export async function driveRun(
 
 /** Cancels a run by PATCHing its status to Cancelled. */
 export async function cancelRun(api: WebApiPort, runId: string): Promise<void> {
+  // updateRecord builds a raw Web API PATCH URL (webapi.ts), which needs the entity SET name.
   await api.updateRecord(ENTITY_SET.ruleRun, runId, { asx_status: RUN_STATUS.Cancelled });
 }

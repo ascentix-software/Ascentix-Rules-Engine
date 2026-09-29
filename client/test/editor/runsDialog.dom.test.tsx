@@ -53,12 +53,16 @@ describe("RunsDialog", () => {
   afterEach(() => { vi.useRealTimers(); });
 
   it("renders rows with their counts", async () => {
+    // Xrm.WebApi.retrieveMultipleRecords needs the table's LOGICAL name (asx_rulerun), not
+    // the entity set name (asx_ruleruns): the fake accepts either, which hid this bug.
+    const retrieveMultipleRecords = vi.fn(async () => ({ entities: [staleRow, freshRow] }));
     renderWithFluent(
-      <RunsDialog open api={fakeApi([staleRow, freshRow])} ruleId="rule1" ruleName="Credit check" table="account" onClose={vi.fn()} />,
+      <RunsDialog open api={fakeApi([staleRow, freshRow], { retrieveMultipleRecords })} ruleId="rule1" ruleName="Credit check" table="account" onClose={vi.fn()} />,
     );
     await waitFor(() => expect(screen.getAllByText("Running").length).toBe(2));
     expect(screen.getByText("10")).toBeInTheDocument(); // staleRow evaluated
     expect(screen.getAllByText("A. Chen")).toHaveLength(2);
+    expect(retrieveMultipleRecords).toHaveBeenCalledWith("asx_rulerun", expect.any(String));
   });
 
   it("a stale Running row shows Resume; a fresh one doesn't", async () => {

@@ -59,12 +59,14 @@ describe("parseRecordFailure", () => {
 });
 
 describe("startRun", () => {
+  // Xrm.WebApi.createRecord needs the table's LOGICAL name (asx_rulerun), not the entity set
+  // name (asx_ruleruns): the dev/test fakes accept either, which is why this went unnoticed.
   it("starts a run with record ids", async () => {
     const createRecord = vi.fn(async () => "run1");
     const api = { createRecord } as any as WebApiPort;
     const id = await startRun(api, "rule1", ["a", "b"]);
     expect(id).toBe("run1");
-    expect(createRecord).toHaveBeenCalledWith("asx_ruleruns", {
+    expect(createRecord).toHaveBeenCalledWith("asx_rulerun", {
       "asx_Rule@odata.bind": "/asx_rules(rule1)",
       asx_recordids: JSON.stringify(["a", "b"]),
     });
@@ -75,7 +77,7 @@ describe("startRun", () => {
     const api = { createRecord } as any as WebApiPort;
     const id = await startRun(api, "rule1");
     expect(id).toBe("run2");
-    expect(createRecord).toHaveBeenCalledWith("asx_ruleruns", { "asx_Rule@odata.bind": "/asx_rules(rule1)" });
+    expect(createRecord).toHaveBeenCalledWith("asx_rulerun", { "asx_Rule@odata.bind": "/asx_rules(rule1)" });
   });
 });
 

@@ -1,6 +1,6 @@
 import type { WebApiPort } from "../webapi";
 import type { RuleGraph } from "../model/types";
-import { ENTITY_SET } from "../load/odata";
+import { ENTITY } from "../load/odata";
 import { flattenConditions } from "../model/tree";
 import { deriveConditionName } from "../ui/labels";
 import { RUN_STATUS } from "./runDriver";
@@ -37,8 +37,9 @@ const RUN_SELECT =
  *  through WebApiPort.retrieveMultipleRecords, so this follows the same pattern
  *  as hubData.ts's `_modifiedby_value` + FV reads). */
 export async function loadRuns(api: WebApiPort, ruleId: string): Promise<RunRow[]> {
+  // retrieveMultipleRecords goes to Xrm.WebApi, which takes the LOGICAL name, not the entity set.
   const resp = await api.retrieveMultipleRecords(
-    ENTITY_SET.ruleRun,
+    ENTITY.ruleRun,
     `?$select=${RUN_SELECT}&$filter=${LOOKUP_RULE_OF_RUN} eq ${ruleId}&$orderby=asx_startedon desc&$top=50`,
   );
   return resp.entities.map((r: any) => ({

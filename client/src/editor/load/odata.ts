@@ -9,6 +9,10 @@ export const ENTITY = {
   localizedMessage: "asx_localizedmessage",
   nodeFilterGroup: "asx_nodefiltergroup",
   nodeFilterCriterion: "asx_nodefiltercriterion",
+  // asx_rulerun (docs/Schema.md §2.13): Xrm.WebApi's retrieveRecord / retrieveMultipleRecords /
+  // createRecord all take the table's LOGICAL name, unlike ENTITY_SET below (the plural
+  // collection name used for @odata.bind targets and raw Web API PATCH URLs).
+  ruleRun: "asx_rulerun",
 } as const;
 
 export const LOOKUP = {
