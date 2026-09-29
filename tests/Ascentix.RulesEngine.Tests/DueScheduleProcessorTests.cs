@@ -332,21 +332,95 @@ namespace Ascentix.RulesEngine.Tests
         {
             var fine = Rule("Fine");
             var vanished = Schedule(Guid.NewGuid(), Now.AddMinutes(-3)); // rule deleted mid-call
-            var noRule = Schedule(null, Now.AddMinutes(-2));
             var fineSchedule = Schedule(fine.Id, Now.AddMinutes(-1));
-            _ctx.Initialize(new List<Entity> { fine, vanished, noRule, fineSchedule });
+            _ctx.Initialize(new List<Entity> { fine, vanished, fineSchedule });
 
             var result = Process();
 
-            foreach (var schedule in new[] { vanished, noRule })
-            {
-                var stored = Reload(schedule);
-                Assert.Null(Outcome(stored));
-                Assert.Equal(schedule.GetAttributeValue<DateTime>(Q(SchemaNames.RuleSchedule.NextRunOn)), NextRunOn(stored).Value.ToUniversalTime());
-            }
+            var stored = Reload(vanished);
+            Assert.Null(Outcome(stored));
+            Assert.True(stored.GetAttributeValue<bool>(Q(SchemaNames.RuleSchedule.On)));
+            Assert.Equal(Now.AddMinutes(-3), NextRunOn(stored).Value.ToUniversalTime());
             Assert.Equal((int)ScheduleOutcome.StartedRun, Outcome(Reload(fineSchedule)));
             Assert.Single(result.RunIds);
-            Assert.Equal(3, result.ScheduledCount);
+            Assert.Equal(2, result.ScheduledCount);
+        }
+
+        private void AssertTurnedOff(Entity schedule)
+        {
+            var stored = Reload(schedule);
+            Assert.Equal((int)ScheduleOutcome.RuleNotRunnable, Outcome(stored));
+            Assert.Equal(Now, stored.GetAttributeValue<DateTime>(Q(SchemaNames.RuleSchedule.LastRunOn)).ToUniversalTime());
+            Assert.False(stored.GetAttributeValue<bool>(Q(SchemaNames.RuleSchedule.On)));
+            Assert.Null(NextRunOn(stored));
+        }
+
+        [Fact]
+        public void A_due_schedule_without_a_rule_is_turned_off()
+        {
+            var fine = Rule("Fine");
+            var noRule = Schedule(null, Now.AddMinutes(-2));
+            var fineSchedule = Schedule(fine.Id, Now.AddMinutes(-1));
+            _ctx.Initialize(new List<Entity> { fine, noRule, fineSchedule });
+
+            var result = Process();
+
+            AssertTurnedOff(noRule);
+            Assert.Equal((int)ScheduleOutcome.StartedRun, Outcome(Reload(fineSchedule)));
+            Assert.Single(result.RunIds);
+        }
+
+        [Fact]
+        public void A_corrupt_recurrence_is_turned_off_without_stopping_the_others()
+        {
+            var weekly = Rule("Weekly");
+            var undefined = Rule("Undefined");
+            var missingN = Rule("Missing N");
+            var fine = Rule("Fine");
+            var noDays = Schedule(weekly.Id, Now.AddMinutes(-4));
+            noDays[Q(SchemaNames.RuleSchedule.Pattern)] = new OptionSetValue((int)SchedulePattern.Weekly);
+            noDays[Q(SchemaNames.RuleSchedule.TimeOfDay)] = "09:00";
+            var noPattern = Schedule(undefined.Id, Now.AddMinutes(-3));
+            noPattern.Attributes.Remove(Q(SchemaNames.RuleSchedule.Pattern));
+            var noEvery = Schedule(missingN.Id, Now.AddMinutes(-2));
+            noEvery.Attributes.Remove(Q(SchemaNames.RuleSchedule.Every));
+            var fineSchedule = Schedule(fine.Id, Now.AddMinutes(-1));
+            _ctx.Initialize(new List<Entity> { weekly, undefined, missingN, fine, noDays, noPattern, noEvery, fineSchedule });
+
+            var result = Process();
+
+            AssertTurnedOff(noDays);
+            AssertTurnedOff(noPattern);
+            AssertTurnedOff(noEvery);
+            Assert.Empty(Runs(weekly.Id));
+            Assert.Empty(Runs(undefined.Id));
+            Assert.Empty(Runs(missingN.Id));
+            var run = Assert.Single(Runs(fine.Id));
+            Assert.Equal((int)ScheduleOutcome.StartedRun, Outcome(Reload(fineSchedule)));
+            Assert.Equal(new[] { run.Id }, result.RunIds.ToArray());
+            Assert.Equal(4, result.ScheduledCount);
+        }
+
+        [Fact]
+        public void A_rule_whose_resolution_fails_unexpectedly_is_marked_not_runnable()
+        {
+            // Its published revision is missing: loading it faults with a service error, not an
+            // InvalidPluginExecutionException.
+            var broken = Rule("Broken");
+            broken[Q(SchemaNames.Rule.PublishedRevision)] = new EntityReference(Q(SchemaNames.RuleRevision.Entity), Guid.NewGuid());
+            var fine = Rule("Fine");
+            var brokenSchedule = Schedule(broken.Id, Now.AddMinutes(-2));
+            var fineSchedule = Schedule(fine.Id, Now.AddMinutes(-1));
+            _ctx.Initialize(new List<Entity> { broken, fine, brokenSchedule, fineSchedule });
+
+            var result = Process();
+
+            var stored = Reload(brokenSchedule);
+            Assert.Equal((int)ScheduleOutcome.RuleNotRunnable, Outcome(stored));
+            Assert.Equal(Now.AddHours(1), NextRunOn(stored).Value.ToUniversalTime());
+            Assert.Empty(Runs(broken.Id));
+            Assert.Equal((int)ScheduleOutcome.StartedRun, Outcome(Reload(fineSchedule)));
+            Assert.Single(result.RunIds);
         }
 
         [Fact]

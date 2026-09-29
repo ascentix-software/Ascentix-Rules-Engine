@@ -133,11 +133,19 @@ namespace Ascentix.RulesEngine.Plugin
         private Guid? ProcessSchedule(Entity schedule, DateTime now)
         {
             var ruleRef = schedule.GetAttributeValue<EntityReference>(Q(SchemaNames.RuleSchedule.Rule));
-            var rule = ruleRef != null ? FindRule(ruleRef.Id) : null;
+            if (ruleRef == null)
+            {
+                // Nothing to run, ever: switch it off so it stops coming due.
+                _trace.Trace($"asx_StartDueSchedules: schedule {schedule.Id} has no rule; turned off.");
+                TurnOff(schedule, now);
+                return null;
+            }
+
+            var rule = FindRule(ruleRef.Id);
             if (rule == null)
             {
                 // The rule was deleted (its cascade removes the schedule): nothing to run or advance.
-                _trace.Trace($"asx_StartDueSchedules: schedule {schedule.Id} has no rule; skipped.");
+                _trace.Trace($"asx_StartDueSchedules: schedule {schedule.Id}'s rule is gone; skipped.");
                 return null;
             }
 
@@ -147,9 +155,24 @@ namespace Ascentix.RulesEngine.Plugin
             var zoneKnown = EvaluationZone.TryResolve(EvaluationZone.SettingOf(rule), out var zone);
             if (!zoneKnown) zone = TimeZoneInfo.Utc;
 
+            // Computed once, before anything is created: a corrupt recurrence (undefined pattern,
+            // missing N, weekly with no days...) must not fail the call for every other schedule,
+            // nor stay due forever. It is switched off instead.
+            DateTime next;
+            try
+            {
+                next = ScheduleCalculator.NextRun(def, zone, now);
+            }
+            catch (Exception e) when (e is ArgumentException || e is InvalidOperationException)
+            {
+                _trace.Trace($"asx_StartDueSchedules: schedule {schedule.Id} has no valid recurrence ({e.Message}); turned off.");
+                TurnOff(schedule, now);
+                return null;
+            }
+
             if (!zoneKnown || !IsRunnable(rule.Id))
             {
-                MarkNotRunnable(schedule, def, zone, now);
+                MarkNotRunnable(schedule, next, now);
                 return null;
             }
 
@@ -165,6 +188,9 @@ namespace Ascentix.RulesEngine.Plugin
             {
                 runId = _createRun(rule.Id);
             }
+            // Both catches are best-effort. On Dataverse a failed service call dooms the API's
+            // transaction, so later writes in this call would fail anyway; the pre-checks above
+            // (runnable, scope, active run) are what keep RuleRunPlugin from refusing the Create.
             catch (Exception e) when (e.Message != null && e.Message.Contains(RunInProgressMessage))
             {
                 // A concurrent caller started the rule's run first: continue that one.
@@ -180,7 +206,7 @@ namespace Ascentix.RulesEngine.Plugin
             catch (Exception e)
             {
                 _trace.Trace($"asx_StartDueSchedules: schedule {schedule.Id} could not start a run: {e.Message}");
-                MarkNotRunnable(schedule, def, zone, now);
+                MarkNotRunnable(schedule, next, now);
                 return null;
             }
 
@@ -189,7 +215,7 @@ namespace Ascentix.RulesEngine.Plugin
                 [Q(SchemaNames.RuleSchedule.LastOutcome)] = new OptionSetValue((int)ScheduleOutcome.StartedRun),
                 [Q(SchemaNames.RuleSchedule.LastRun)] = new EntityReference(Q(SchemaNames.RuleRun.Entity), runId),
                 [Q(SchemaNames.RuleSchedule.LastRunOn)] = now,
-                [Q(SchemaNames.RuleSchedule.NextRunOn)] = ScheduleCalculator.NextRun(def, zone, now),
+                [Q(SchemaNames.RuleSchedule.NextRunOn)] = next,
             });
             return runId;
         }
@@ -213,7 +239,9 @@ namespace Ascentix.RulesEngine.Plugin
             {
                 return OnDemandRules.Resolve(_system, ruleId, _trace).Scope == OnDemandScope.AllRecords;
             }
-            catch (InvalidPluginExecutionException e)
+            // Any failure, not only InvalidPluginExecutionException: resolving parses the published
+            // revision, which can throw other types.
+            catch (Exception e)
             {
                 _trace.Trace($"asx_StartDueSchedules: rule {ruleId} is not runnable: {e.Message}");
                 return false;
@@ -228,12 +256,22 @@ namespace Ascentix.RulesEngine.Plugin
             return _system.RetrieveMultiple(query).Entities.FirstOrDefault()?.Id;
         }
 
-        private void MarkNotRunnable(Entity schedule, RuleScheduleDefinition def, TimeZoneInfo zone, DateTime now) =>
+        private void MarkNotRunnable(Entity schedule, DateTime next, DateTime now) =>
             _system.Update(new Entity(Q(SchemaNames.RuleSchedule.Entity), schedule.Id)
             {
                 [Q(SchemaNames.RuleSchedule.LastOutcome)] = new OptionSetValue((int)ScheduleOutcome.RuleNotRunnable),
                 [Q(SchemaNames.RuleSchedule.LastRunOn)] = now,
-                [Q(SchemaNames.RuleSchedule.NextRunOn)] = ScheduleCalculator.NextRun(def, zone, now),
+                [Q(SchemaNames.RuleSchedule.NextRunOn)] = next,
+            });
+
+        // A schedule that can never run: not runnable, switched off, and out of the due set.
+        private void TurnOff(Entity schedule, DateTime now) =>
+            _system.Update(new Entity(Q(SchemaNames.RuleSchedule.Entity), schedule.Id)
+            {
+                [Q(SchemaNames.RuleSchedule.LastOutcome)] = new OptionSetValue((int)ScheduleOutcome.RuleNotRunnable),
+                [Q(SchemaNames.RuleSchedule.LastRunOn)] = now,
+                [Q(SchemaNames.RuleSchedule.On)] = false,
+                [Q(SchemaNames.RuleSchedule.NextRunOn)] = null,
             });
 
         // Next run on is left as is: the schedule stays due and continues until the run finishes.

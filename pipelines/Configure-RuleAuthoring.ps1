@@ -345,7 +345,7 @@ EnsureStep 'asx_rulerun' 'Create' (PluginType 'RuleRunPlugin') 1 20
 EnsureStep 'asx_rulerun' 'Update' (PluginType 'RuleRunUpdatePlugin') 1 20
 $startDueSchedulesType = PluginType 'StartDueSchedulesApi'
 $id = EnsureApi 'asx_StartDueSchedules' 'prvCreateasx_RuleRun' 'Starts or continues runs for due rule schedules and returns the run ids to drive.' 'Start Due Schedules' $startDueSchedulesType
-EnsureParameter $id 'RunIds' 10 $true 'Comma-separated identifiers of the Rule Runs started or continued by this call.'
+EnsureParameter $id 'RunIds' 10 $true 'JSON array of the ids of the Rule Runs to drive: started, continued or resumed by this call.'
 EnsureParameter $id 'ScheduledCount' 7 $true 'Number of due schedules processed by this call.'
 $scheduleType = PluginType 'RuleSchedulePlugin'
 EnsureStep 'asx_ruleschedule' 'Create' $scheduleType 1 20
