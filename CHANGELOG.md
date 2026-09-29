@@ -41,6 +41,17 @@ only, so the version an administrator sees in their org can never carry the word
   moves to another contact), an Update Record action can also be applied to the record the lookup
   pointed to before, in the same save. New column `asx_ruleaction.asx_applytoprevious`. An action
   whose target this option can't apply to is rejected at publish (`STRUCT_APPLY_PREVIOUS_TARGET`).
+- **Rule schedules.** A Published On demand rule scoped to all records can run on a recurring
+  schedule (every 15/30/45 minutes, every 1–23 hours, daily, weekly, or monthly, in the rule's own
+  time zone) instead of only on demand: the Rule Builder's new **Schedule** section starts or
+  continues a Rule Run the same way **Run now** does, within about 15 minutes of the scheduled
+  time. New table `asx_ruleschedule` (at most one per rule) and a new unbound Custom API,
+  `asx_StartDueSchedules`, that a caller on a timer drives — the optional **scheduler add-on**
+  (a separate solution, `AscentixRulesEngineScheduler`, shipping one cloud flow) calls it every 15
+  minutes and drives every returned run with `asx_ProcessRunPage`. A new table,
+  `asx_schedulerstatus`, tracks a heartbeat for whatever calls `asx_StartDueSchedules`, shown as a
+  status chip in the hub alongside a clock icon on scheduled rules. See *Administering →
+  Scheduling Rules*.
 
 ### Changed
 

@@ -59,3 +59,11 @@ export async function processRunPage(
 ): Promise<{ done: boolean; status: number; evaluated: number; changed: number; blocked: number; failed: number; skipped: number }> {
   return devOrg("user", tokenOverride ? { tokenOverride } : {}).processRunPage(runId, failed);
 }
+
+// Calls asx_StartDueSchedules (docs/Schema.md §9): starts or continues every due Rule Schedule
+// and records the scheduler heartbeat. No request parameters. tokenOverride: same seam as above.
+export async function startDueSchedules(
+  tokenOverride?: string,
+): Promise<{ runIds: string[]; scheduledCount: number }> {
+  return devOrg("user", tokenOverride ? { tokenOverride } : {}).startDueSchedules();
+}

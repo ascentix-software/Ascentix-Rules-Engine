@@ -7,7 +7,7 @@ slug: custom-apis
 
 # Custom APIs
 
-The engine exposes seven **unbound Dataverse Custom APIs** for integrating with rules
+The engine exposes eight **unbound Dataverse Custom APIs** for integrating with rules
 outside the built-in save enforcement and form behavior described in *How Rules Run*.
 All seven are callable through the standard Dataverse Web API
 (`Xrm.WebApi.online.execute` from client code, or a plain HTTP request from a
@@ -273,6 +273,46 @@ A cloud flow that starts a Rule Run and drives it to completion:
       should end the flow — the run stays Queued or Running and can be resumed
       by running this flow (or **Resume** in the Runs dialog) again later.
    2. **Set variable** `Done` = the action's `Done` output.
+
+## `asx_StartDueSchedules`: drive due Rule Schedules
+
+Finds every currently-due **Rule Schedule** (`asx_ruleschedule`, *Schema Reference*)
+and starts or continues each one's Rule Run, driven from **outside** Dataverse by a
+caller on a timer — the shipped scheduler add-on's flow, or your own (*Administering →
+Scheduling Rules*). It also records a heartbeat on **Scheduler Status**
+(`asx_schedulerstatus`), which the hub reads for its status chip.
+
+**Request**
+
+None.
+
+**Response**
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `RunIds` | String | JSON array of every Rule Run id started or continued by this call, plus any other active run of a scheduled rule left over from a previous wake-up |
+| `ScheduledCount` | Integer | Number of due schedules this call processed |
+
+```http
+POST /api/data/v9.2/asx_StartDueSchedules
+Content-Type: application/json
+
+{}
+```
+
+```json
+{ "RunIds": "[\"00000000-0000-0000-0000-000000000000\"]", "ScheduledCount": 1 }
+```
+
+At most **50** due schedules are processed per call; a larger backlog is picked up
+across further calls (further wake-ups of the add-on's flow, on its own 15-minute
+interval). Calling it requires the same **Rule Run Create** privilege
+(`prvCreateasx_RuleRun`) as `asx_ApplyRules`/`asx_ProcessRunPage`, plus **Read**/**Write**
+on Rule Schedule and **Create**/**Read**/**Write** on Scheduler Status (*Administering →
+Scheduling Rules* lists the full set). Drive each returned id with `asx_ProcessRunPage`
+(above) the same way Run now does; a schedule whose rule already has an active run is
+reported as **continued**, not started again, so an id in `RunIds` may already be
+partway through.
 
 ## `asx_ReadRules`: runtime projection
 

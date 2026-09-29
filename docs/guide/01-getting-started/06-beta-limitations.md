@@ -167,6 +167,17 @@ per record, same as any other rule evaluation) to skip records it shouldn't
 touch, rather than a server-side pre-filter. Scope such a rule with a tight
 execution condition on a large table.
 
+A rule **schedule** (*Administering → Scheduling Rules*) starts or continues a Rule
+Run the same way Run now does, so the limits above apply equally to a scheduled run.
+On top of those: a schedule fires **within 15 minutes** of its scheduled time, not at
+the exact minute, since the shipped scheduler add-on's flow calls
+`asx_StartDueSchedules` on that interval. Each call to `asx_StartDueSchedules`
+processes at most **50** due schedules; a larger backlog is picked up across further
+calls. The add-on's flow budgets about **12 minutes** per wake-up to drive the runs it
+started or continued before ending, so it finishes a large backlog of due schedules or
+slow-running rules across more than one wake-up rather than blocking indefinitely. A
+rule can have at most **one** schedule.
+
 ## 16. The "apply inverse" flag is reserved
 
 The `asx_applyinversewhennotfired` column exists in the schema and is settable,

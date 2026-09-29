@@ -188,3 +188,39 @@ anyone else can make is cancelling it (Status from Queued or Running to
 Cancelled). See *Running Rules On Demand* for what these mean in practice, and
 `docs/Schema.md` (§2.13/§7) in the repository for the full per-page state
 machine.
+
+### Rule Schedule (`asx_ruleschedule`)
+
+At most one row per rule, driving the schedule that starts or continues its Rule Runs
+(see *Scheduling Rules*). Deleting the owning rule deletes its schedule.
+
+| Column | Schema name | Type | Required | Notes |
+|---|---|---|---|---|
+| Rule | `asx_rule` | Lookup → `asx_rule` | Yes | The rule this schedule drives |
+| On | `asx_on` | Yes/No | No | Whether the schedule is currently active; default Yes |
+| Pattern | `asx_pattern` | Choice (local) | No | Every N minutes (1), Every N hours (2), Daily (3), Weekly (4), Monthly (5) |
+| Every | `asx_every` | Whole Number | No | The N in Every N minutes (15/30/45) / Every N hours (1–23) |
+| Time Of Day | `asx_timeofday` | Text (5) | No | `HH:mm`, 24-hour; Daily/Weekly/Monthly |
+| Days Of Week | `asx_daysofweek` | Choice (local, multi-select) | No | Sunday (0) … Saturday (6); Weekly only |
+| Day Of Month | `asx_dayofmonth` | Whole Number | No | 1–31, clamped to the month's last day; Monthly only |
+| Next Run On | `asx_nextrunon` | DateTime (Time Zone Independent) | No | When the schedule is next due, compared as a wall-clock value regardless of the caller's own time zone |
+| Last Run On | `asx_lastrunon` | DateTime (User Local) | No | Set after the schedule last started or continued a run |
+| Last Run | `asx_lastrun` | Lookup → `asx_rulerun` | No | The most recent Rule Run this schedule drove |
+| Last Outcome | `asx_lastoutcome` | Choice (local) | No | Started a run (1), Continued the active run (2), Rule not runnable (3) |
+
+`asx_nextrunon`, `asx_lastrunon`, `asx_lastrun` and `asx_lastoutcome` are engine-owned:
+a plug-in on Create/Update recomputes or strips them from any caller-supplied value, so
+only the schedule itself (via `asx_StartDueSchedules`) ever sets them. See *Scheduling
+Rules* for how the pattern, precision and catch-up behavior work in practice.
+
+### Scheduler Status (`asx_schedulerstatus`)
+
+A single, organization-wide heartbeat row for whatever calls `asx_StartDueSchedules` on
+a timer (the scheduler add-on, or your own caller — *Scheduling Rules*), read by the
+hub's status chip. The engine itself never reads it.
+
+| Column | Schema name | Type | Required | Notes |
+|---|---|---|---|---|
+| Last Seen On | `asx_lastseenon` | DateTime (User Local) | No | Last time a caller reported in |
+| Last Seen By | `asx_lastseenby` | Lookup → `systemuser` | No | Identity of the last caller |
+| Calls Today | `asx_callstoday` | Whole Number | No | Calls made so far in the current day |
