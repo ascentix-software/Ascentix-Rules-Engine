@@ -15,6 +15,9 @@ namespace Ascentix.RulesEngine.Core.Scheduling
         /// schedule is due, evaluated in <paramref name="zone"/>.</summary>
         public static DateTime NextRun(RuleScheduleDefinition def, TimeZoneInfo zone, DateTime fromUtc)
         {
+            if (!Enum.IsDefined(typeof(SchedulePattern), def.Pattern))
+                throw new ArgumentException("Unknown schedule pattern.");
+
             fromUtc = DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc);
             switch (def.Pattern)
             {
@@ -63,10 +66,14 @@ namespace Ascentix.RulesEngine.Core.Scheduling
         }
 
         /// <summary>Field-shaped validation. Returns the first message found, or null when valid.
-        /// Order: pattern-specific Every; then, for Daily/Weekly/Monthly, time missing, then time
-        /// format; then days (Weekly); then day of month (Monthly).</summary>
+        /// Order: an undefined pattern first; then pattern-specific Every; then, for
+        /// Daily/Weekly/Monthly, time missing, then time format; then days (Weekly); then day of
+        /// month (Monthly).</summary>
         public static string Validate(RuleScheduleDefinition def)
         {
+            if (!Enum.IsDefined(typeof(SchedulePattern), def.Pattern))
+                return "Choose how often the schedule runs.";
+
             switch (def.Pattern)
             {
                 case SchedulePattern.EveryMinutes:

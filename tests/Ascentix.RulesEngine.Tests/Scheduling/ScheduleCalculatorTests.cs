@@ -61,12 +61,18 @@ namespace Ascentix.RulesEngine.Tests.Scheduling
         [InlineData(3, null, "25:00", null, null, "Time of day must be HH:mm (24-hour).")]
         [InlineData(4, null, "09:00", "", null, "Choose at least one day for a weekly schedule.")]
         [InlineData(5, null, "09:00", null, null, "Choose a day of the month for a monthly schedule.")]
+        [InlineData(0, null, null, null, null, "Choose how often the schedule runs.")]
+        [InlineData(9, null, null, null, null, "Choose how often the schedule runs.")]
         public void Validation_messages(int pattern, int? every, string time, string days, int? dom, string expected) =>
             Assert.Equal(expected, ScheduleCalculator.Validate(Def((SchedulePattern)pattern, every, time,
                 days == null ? null : new DayOfWeek[0], dom)));
 
         [Fact] public void A_valid_definition_has_no_message() =>
             Assert.Null(ScheduleCalculator.Validate(Def(SchedulePattern.EveryMinutes, 30)));
+
+        [Fact] public void NextRun_throws_for_an_undefined_pattern() =>
+            Assert.Throws<ArgumentException>(() =>
+                ScheduleCalculator.NextRun(Def((SchedulePattern)0), TimeZoneInfo.Utc, U(2026, 1, 5, 10, 0)));
 
         [Fact]
         public void FromEntity_reads_pattern_time_and_days()
