@@ -189,5 +189,84 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal("x", svc.Updated[0]["description"]);
             Assert.Equal(PluginReentry.EngineWriteTag, svc.Tags.Single());
         }
+
+        private sealed class NoBulk : IBulkWriteSupport { public bool Supports(string m, string t) => false; }
+
+        private static WriteIntent SetUpdate(Guid id, bool loaded) => new WriteIntent
+        {
+            Operation = WriteOperation.Update, TargetTable = "contact", TargetId = id, Context = RuleEvaluationContext.User,
+            SourceActionName = "Stop bulk email", Values = new Dictionary<string, object> { ["donotbulkemail"] = true },
+            LoadedValues = new Dictionary<string, object> { ["donotbulkemail"] = loaded },
+        };
+
+        [Fact]
+        public void A_set_update_skips_rows_that_already_hold_the_value()
+        {
+            var svc = new RecordingService();
+            var record = new RecordEvaluationResult
+            {
+                RecordId = Guid.NewGuid(),
+                FiredActions = new List<FiredActionResult> { new FiredActionResult { ActionType = ActionType.UpdateRecord,
+                    WriteIntents = new List<WriteIntent> { SetUpdate(Guid.NewGuid(), true), SetUpdate(Guid.NewGuid(), false), SetUpdate(Guid.NewGuid(), false) } } },
+            };
+
+            var applied = new WriteActionExecutor(_ => new NoBulk(), null).ExecuteRecord(record, null, svc, svc, false, new NullTrace());
+
+            Assert.Equal(2, applied);
+            Assert.Equal(2, svc.Updated.Count);
+        }
+
+        [Fact]
+        public void Two_actions_updating_one_record_send_one_merged_update()
+        {
+            var svc = new RecordingService();
+            var id = Guid.NewGuid();
+            var a = new WriteIntent { Operation = WriteOperation.Update, TargetTable = "contact", TargetId = id, SourceActionOrder = 1, AlwaysWrite = true,
+                Values = new Dictionary<string, object> { ["description"] = "one" } };
+            var b = new WriteIntent { Operation = WriteOperation.Update, TargetTable = "contact", TargetId = id, SourceActionOrder = 2, AlwaysWrite = true,
+                Values = new Dictionary<string, object> { ["donotbulkemail"] = true } };
+
+            new WriteActionExecutor(_ => new NoBulk(), null).Execute(Outcome(Guid.NewGuid(), a, b), new List<WriteTarget>(), svc, svc, false, new NullTrace());
+
+            var update = Assert.Single(svc.Updated);
+            Assert.Equal("one", update["description"]);
+            Assert.Equal(true, update["donotbulkemail"]);
+        }
+
+        [Fact]
+        public void An_engine_initiated_save_skips_set_writes_but_still_writes_in_place()
+        {
+            var svc = new RecordingService();
+            var recId = Guid.NewGuid();
+            var target = new Entity("account", recId);
+            var root = new WriteIntent { Operation = WriteOperation.Update, TargetTable = "account", TargetId = recId, RootTargeted = true, AlwaysWrite = true,
+                Values = new Dictionary<string, object> { ["name"] = "X" } };
+            var record = new RecordEvaluationResult
+            {
+                RecordId = recId,
+                FiredActions = new List<FiredActionResult>
+                {
+                    new FiredActionResult { ActionType = ActionType.UpdateRecord, WriteIntent = root },
+                    new FiredActionResult { ActionType = ActionType.UpdateRecord, WriteIntents = new List<WriteIntent> { SetUpdate(Guid.NewGuid(), false) } },
+                },
+            };
+
+            var applied = new WriteActionExecutor(_ => new NoBulk(), null).ExecuteRecord(record, target, svc, svc, engineInitiated: true, new NullTrace());
+
+            Assert.Equal(1, applied);
+            Assert.Equal("X", target["name"]);
+            Assert.Empty(svc.Updated);
+        }
+
+        [Fact]
+        public void A_failed_write_names_the_action()
+        {
+            var svc = new RecordingService { FailNextCreate = true };
+            var create = new WriteIntent { Operation = WriteOperation.Create, TargetTable = "task", TargetId = Guid.NewGuid(), SourceActionName = "Make follow-up",
+                Values = new Dictionary<string, object> { ["subject"] = "x" } };
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
+                new WriteActionExecutor(_ => new NoBulk(), null).Execute(Outcome(Guid.NewGuid(), create), new List<WriteTarget>(), svc, svc, false, new NullTrace()));
+            Assert.Equal("Create task (action \"Make follow-up\"): boom", ex.Message);
+        }
     }
 }
