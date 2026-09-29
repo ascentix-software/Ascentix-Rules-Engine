@@ -129,6 +129,23 @@ describe("loadHubData", () => {
     expect(r2.scheduleSummary).toBeUndefined();
   });
 
+  it("still resolves with the rules, none marked scheduled, when the schedule query rejects " +
+    "(schedule table not yet upgraded in / no read privilege on this environment)", async () => {
+    const base = port();
+    const failingPort: WebApiPort = {
+      ...base,
+      retrieveMultipleRecords: async (entity, options) => {
+        if (entity === ENTITY.ruleSchedule) throw new Error("asx_ruleschedule does not exist");
+        return base.retrieveMultipleRecords(entity, options);
+      },
+    };
+    const { rules, truncated } = await loadHubData(failingPort);
+    expect(rules.length).toBe(2);
+    expect(rules.every((r) => !r.scheduled)).toBe(true);
+    expect(rules.every((r) => r.scheduleSummary === undefined)).toBe(true);
+    expect(truncated).toBe(false);
+  });
+
   it("selects asx_on eq true and the pattern fields on the schedule query", async () => {
     let scheduleOptions = "";
     const base = port();

@@ -94,8 +94,13 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
     retrieveAll(api, ENTITY.action, `?$select=${LOOKUP.ruleOfAction}`),
     retrieveAll(api, ENTITY.tableConfig,
       `?$select=asx_tableconfigid,asx_name,asx_tablelogicalname,asx_tableconfigtype,${LOOKUP.parentTableOfConfig},modifiedon,_modifiedby_value&$filter=asx_isprivate ne true&$orderby=modifiedon desc`),
+    // Its own catch, separate from the three queries above: asx_ruleschedule may not exist yet
+    // (solution not upgraded on this environment) or the caller may lack read privilege on it.
+    // Either way the hub as a whole must still load — only the scheduled indicators disappear,
+    // never "The hub could not load." (client/src/editor/index.tsx's top-level catch).
     retrieveAll(api, ENTITY.ruleSchedule,
-      `?$select=${LOOKUP.ruleOfSchedule},asx_pattern,asx_every,asx_timeofday,asx_daysofweek,asx_dayofmonth&$filter=asx_on eq true`),
+      `?$select=${LOOKUP.ruleOfSchedule},asx_pattern,asx_every,asx_timeofday,asx_daysofweek,asx_dayofmonth&$filter=asx_on eq true`)
+      .catch(() => ({ entities: [] as any[], truncated: false })),
   ]);
   const truncated = ruleResp.truncated || actionResp.truncated || nodeResp.truncated || scheduleResp.truncated;
 
