@@ -31,6 +31,13 @@ export interface ScheduleInspectorProps {
   schedule: RuleSchedule | null;
   onPatchSchedule(patch: Partial<RuleSchedule>): void;
   onOpenRuns(): void;
+  /** The rule's own fields are read-only (e.g. a published rule not being edited). */
+  ruleFieldsDisabled?: boolean;
+  /** The Schedule section is read-only; independent of the rule fields, since a schedule never
+   *  needs a draft or a publish. */
+  scheduleDisabled?: boolean;
+  /** The schedule couldn't be read (no privilege): the section shows a note, not controls. */
+  scheduleUnavailable?: boolean;
 }
 
 const tintIcon = <div style={{ width: 28, height: 28, borderRadius: 7, background: color.brandTint }} />;
@@ -89,7 +96,10 @@ export function ruleEditorInspectorContent(
     body: <RuleInspector rule={graph.rule} onPatch={h.onPatchRule}
       schedule={schedule?.schedule ?? null}
       onPatchSchedule={schedule?.onPatchSchedule}
-      onOpenRuns={schedule?.onOpenRuns} />,
+      onOpenRuns={schedule?.onOpenRuns}
+      disabled={schedule?.ruleFieldsDisabled}
+      scheduleDisabled={schedule?.scheduleDisabled}
+      scheduleUnavailable={schedule?.scheduleUnavailable} />,
   };
 }
 

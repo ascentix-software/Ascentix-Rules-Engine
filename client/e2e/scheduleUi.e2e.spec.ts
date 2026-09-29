@@ -7,7 +7,8 @@ import { resolveAppId } from "./devHelpers";
 import { openRuleFromHub, openHub, toolbar } from "./editorHarness";
 
 // The Schedule section (client/src/editor/schedule/ScheduleSection.tsx), end to end: tick a
-// Published On demand/all-records rule's schedule On, choose Daily at 02:00, save, and confirm
+// Published On demand/all-records rule's schedule On — directly on the published rule, with no
+// Edit rule / draft — choose Daily at 02:00, save, and confirm
 // both the Web API row and the hub's own indicators (docs/guide/03-administering — Scheduling
 // rules; client/src/editor/ui/HubApp.tsx's clock icon + scheduler chip). This never waits for
 // the schedule to actually come due (see ruleSchedules.dev.test.ts for that): it only proves the
@@ -52,9 +53,16 @@ test("Schedule: set Daily at 02:00, verify via the API, reload, and see it in th
   try {
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
 
+    // A schedule never needs a draft or a publish: the published rule is opened as is (its own
+    // fields read-only, "Edit rule" offered) and the schedule is set and saved directly, without
+    // choosing Edit rule.
+    const editRule = toolbar(frame).getByRole("button", { name: "Edit rule", exact: true });
+    await expect(editRule).toBeVisible();
+
     // The Switch is doubly-labelled (its own "On"/"Off" text plus the surrounding Field's
     // "Schedule" — see ScheduleSection.tsx), so match loosely on "Schedule" rather than the
     // current toggle state.
+    await expect(frame.getByRole("switch", { name: /Schedule/ })).toBeEnabled();
     await frame.getByRole("switch", { name: /Schedule/ }).click();
 
     await frame.getByRole("combobox", { name: "Pattern" }).click();
@@ -63,6 +71,8 @@ test("Schedule: set Daily at 02:00, verify via the API, reload, and see it in th
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    // Still the published rule, not a draft: nothing but the schedule was saved.
+    await expect(editRule).toBeVisible();
 
     // Assert through the Web API: the schedule row exists with the values just set.
     const rows = await api.retrieveMultipleRecords(

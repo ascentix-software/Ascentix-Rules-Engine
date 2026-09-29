@@ -50,7 +50,7 @@ import { canRunNow, RunNowDialog } from "../runs/RunNowDialog";
 import { RunsDialog } from "../runs/RunsDialog";
 import { executionConditionNames } from "../runs/runsData";
 import type { RuleSchedule } from "../schedule/scheduleModel";
-import { emptySchedule, scheduleApplies } from "../schedule/scheduleModel";
+import { emptySchedule, scheduleApplies, validateSchedule } from "../schedule/scheduleModel";
 import { loadRuleSchedule, diffSchedule } from "../schedule/scheduleData";
 
 const clone = (g: RuleGraph): RuleGraph => JSON.parse(JSON.stringify(g));
@@ -129,6 +129,9 @@ export function RuleEditorApp({
   // what's persisted; schedule is the working draft the Schedule section edits.
   const [scheduleSnapshot, setScheduleSnapshot] = React.useState<RuleSchedule | null>(null);
   const [schedule, setSchedule] = React.useState<RuleSchedule | null>(null);
+  // "denied" when the schedule can't be read (typically no Rule Schedule privilege): the section
+  // then shows a note instead of its controls, and the editor never sends schedule ops.
+  const [scheduleAccess, setScheduleAccess] = React.useState<"ok" | "denied">("ok");
 
   const labelFor = useChoiceLabel();
   const styles = useEditorStyles();
@@ -140,11 +143,21 @@ export function RuleEditorApp({
 
   const scheduleRuleId = working.rule.activeRuleId ?? working.rule.id;
   const scheduleAppliesNow = scheduleApplies(working.rule);
-  const scheduleOps = diffSchedule(scheduleSnapshot, schedule, scheduleRuleId, scheduleAppliesNow);
-  const dirty = JSON.stringify(snapshot) !== JSON.stringify(working) || scheduleOps.length > 0;
+  // The automatic turn-off (diffSchedule with applies = false) only counts when the rule stopped
+  // qualifying in this editing session; a rule that already didn't qualify has nothing to undo.
+  const scheduleStoppedApplying = scheduleApplies(snapshot.rule) && !scheduleAppliesNow;
+  const scheduleOps = scheduleAppliesNow || scheduleStoppedApplying
+    ? diffSchedule(scheduleSnapshot, schedule, scheduleRuleId, scheduleAppliesNow) : [];
+  const scheduleError = scheduleAppliesNow && schedule?.on ? validateSchedule(schedule) : null;
+  const graphDirty = JSON.stringify(snapshot) !== JSON.stringify(working);
+  const dirty = graphDirty || scheduleOps.length > 0;
   const recovery = useRuleRecovery(recoveryKey(api.getClientUrl?.() ?? window.location.origin, initialGraph.rule.activeRuleId ?? initialGraph.rule.id), snapshot, working);
   const needsDraft = (published || !!working.rule.publishedRevisionId) && !working.rule.activeRuleId;
   const editable = !publishedView && !busy && !recovery.pending && !needsDraft;
+  // A schedule never needs a publish: on a published rule that isn't being edited, the Schedule
+  // section stays editable (the rule's own fields don't) and Save sends only its ops.
+  const scheduleEditable = !publishedView && !busy && !recovery.pending && scheduleAccess !== "denied";
+  const canSave = !scheduleError && (editable ? dirty : scheduleEditable && needsDraft && !graphDirty && scheduleOps.length > 0);
   const setWorking: React.Dispatch<React.SetStateAction<RuleGraph>> = (value) => {
     if (editable) history.set(value);
   };
@@ -173,37 +186,41 @@ export function RuleEditorApp({
     setValidationResult(null);
   }, [working]);
 
-  // Load the schedule next to the graph. Fires once at mount and again if the rule this editor
-  // targets ever resolves to a different active/published id (it normally doesn't mid-session).
+  // Load the schedule next to the graph, only for a rule that can be scheduled. Fires at mount,
+  // when the rule starts qualifying, and if the rule this editor targets ever resolves to a
+  // different active/published id (it normally doesn't mid-session). A failed load is quiet:
+  // most often the user has no Rule Schedule privilege, and the section says so itself.
   React.useEffect(() => {
+    if (!scheduleAppliesNow) return;
     let live = true;
     (async () => {
       try {
         const loaded = await loadRuleSchedule(api, scheduleRuleId);
-        if (live) { setScheduleSnapshot(loaded); setSchedule(loaded); }
-      } catch (e) {
-        if (live) setBanner({ intent: "error", text: `Could not load the schedule: ${formatError(e)}` });
+        if (live) { setScheduleSnapshot(loaded); setSchedule(loaded); setScheduleAccess("ok"); }
+      } catch {
+        if (live) setScheduleAccess("denied");
       }
     })();
     return () => { live = false; };
-  }, [api, scheduleRuleId]);
+  }, [api, scheduleRuleId, scheduleAppliesNow]);
 
-  // Re-reads the schedule after a save so the engine-calculated Next run (and, on the next
-  // save, Last run/outcome) shows the server's latest values rather than the just-saved local
-  // draft. Best-effort: a failure here leaves the local draft in place, not an error banner,
-  // since the save itself already succeeded.
-  async function reloadSchedule() {
+  // Re-reads the schedule after a save or a Reload so the engine-calculated Next run (and Last
+  // run/outcome) shows the server's latest values rather than the local draft. Best-effort: a
+  // failure here leaves the local draft in place, not an error banner. A rule that can't be
+  // scheduled has no section to refresh; the load effect reads it if it starts qualifying.
+  async function reloadSchedule(rule: RuleHeader) {
+    if (!scheduleApplies(rule) || scheduleAccess === "denied") return;
     try {
       const loaded = await loadRuleSchedule(api, scheduleRuleId);
       setScheduleSnapshot(loaded);
       setSchedule(loaded);
     } catch {
-      // keep the just-saved local draft; a manual Reload retries
+      // keep the local draft; a manual Reload retries
     }
   }
 
   function onPatchSchedule(patch: Partial<RuleSchedule>) {
-    if (!editable) return;
+    if (!scheduleEditable) return;
     setSchedule((s) => ({ ...(s ?? emptySchedule()), ...patch }));
   }
 
@@ -266,14 +283,21 @@ export function RuleEditorApp({
     return saveRuleGraph(api, snapshot, workingRef.current, nextIds(), scheduleOps);
   }
 
+  // Reloads the graph and then the schedule, e.g. after a save.
+  async function refreshAfterSave() {
+    const fresh = await reload();
+    await acceptFresh(fresh);
+    await reloadSchedule(fresh.rule);
+  }
+
   async function onSave() {
-    if (!editable) return;
+    if (!canSave) return;
     setBusy(true);
     setBanner(null);
     try {
       const result = await performSave();
       if (reportSaveFailure(result)) return;
-      if (result.status === "saved") { await acceptFresh(await reload()); await reloadSchedule(); }
+      if (result.status === "saved") await refreshAfterSave();
       setBanner({ intent: "success", text: result.status === "noop" ? "Nothing to save." : "Saved." });
     } catch (e) {
       setBanner({ intent: "error", text: `Save or refresh failed: ${formatError(e)}. Your local edits are retained; review them before reloading.` });
@@ -283,7 +307,9 @@ export function RuleEditorApp({
   async function onReload() {
     setBusy(true);
     try {
-      await acceptFresh(await reload());
+      const fresh = await reload();
+      await acceptFresh(fresh);
+      await reloadSchedule(fresh.rule);
       setBanner(null);
     } catch (e) {
       setBanner({ intent: "error", text: `Reload failed: ${formatError(e)}` });
@@ -291,14 +317,14 @@ export function RuleEditorApp({
   }
 
   async function onValidate() {
-    if (busy || recovery.pending || publishedView) return;
+    if (busy || recovery.pending || publishedView || (dirty && scheduleError)) return;
     setBusy(true);
     setBanner(null);
     try {
       if (dirty) {
         const result = await performSave();
         if (reportSaveFailure(result)) return;
-        if (result.status === "saved") { await acceptFresh(await reload()); await reloadSchedule(); }
+        if (result.status === "saved") await refreshAfterSave();
       }
       const result = await api.validateRule(working.rule.id);
       setValidationResult(result);
@@ -460,10 +486,15 @@ export function RuleEditorApp({
     onUpdateTranslation: (id: string, tid: string, msg: string) => setWorking((g) => updateTranslation(g, id, tid, { message: msg })),
     onRemoveTranslation: (id: string, tid: string) => setWorking((g) => removeTranslation(g, id, tid)),
   };
+  // The rule panel disables its own fields and, separately, the Schedule section (editable on a
+  // published rule without a draft); every other panel follows the editor's editable state.
+  const rulePanel = !selection || selection.kind === "rule";
   const content = ruleEditorInspectorContent(displayed, selection, inspectorHandlers, {
     schedule, onPatchSchedule, onOpenRuns: () => setRunsOpen(true),
+    ruleFieldsDisabled: !editable, scheduleDisabled: !scheduleEditable,
+    scheduleUnavailable: scheduleAccess === "denied",
   });
-  const inspectorBody = <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+  const inspectorBody = <fieldset disabled={!editable && !rulePanel} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
     {content.body}
   </fieldset>;
   const selectedId = !!selection && (selection.kind === "group" || selection.kind === "condition" || selection.kind === "action") ? selection.id : undefined;
@@ -528,9 +559,9 @@ export function RuleEditorApp({
                 <div aria-busy={busy} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   {dirty && <UnsavedPill />}
                   {needsDraft && !publishedView && <Button appearance="primary" disabled={busy || !api.openRuleDraft} onClick={onEdit}>Edit rule</Button>}
-                  <Button appearance={needsDraft ? "secondary" : "primary"} disabled={!editable || !dirty} onClick={onSave}>Save</Button>
+                  <Button appearance={needsDraft ? "secondary" : "primary"} disabled={!canSave} onClick={onSave}>Save</Button>
                   <Button disabled={busy || !!publishedView} onClick={() => guardNavigate(onReload)}>Reload</Button>
-                  <Button disabled={busy || !!recovery.pending || !!publishedView} onClick={onValidate}>{dirty ? "Save & validate" : "Validate"}</Button>
+                  <Button disabled={busy || !!recovery.pending || !!publishedView || (dirty && !!scheduleError)} onClick={onValidate}>{dirty ? "Save & validate" : "Validate"}</Button>
                   <Button
                     appearance="primary"
                     disabled={!editable || dirty || !validationResult?.isValid}

@@ -284,6 +284,21 @@ describe("schedulerChip", () => {
       .toEqual({ text: "Scheduler: last ran 15 minutes ago", tone: "ok" });
   });
 
+  it("uses the singular for one minute", () => {
+    expect(schedulerChip({ lastSeenOn: "2026-09-29T12:29:00Z", installed: true }, true, NOW))
+      .toEqual({ text: "Scheduler: last ran 1 minute ago", tone: "ok" });
+    expect(schedulerChip({ lastSeenOn: "2026-09-29T12:30:00Z", installed: true }, true, NOW))
+      .toEqual({ text: "Scheduler: last ran 0 minutes ago", tone: "ok" });
+  });
+
+  it("is still running at exactly 30 minutes, and not running just past it", () => {
+    expect(schedulerChip({ lastSeenOn: "2026-09-29T12:00:00Z", installed: true }, true, NOW))
+      .toEqual({ text: "Scheduler: last ran 30 minutes ago", tone: "ok" });
+    const lastSeenOn = "2026-09-29T11:59:59Z"; // 30 minutes and 1 second before NOW
+    expect(schedulerChip({ lastSeenOn, installed: true }, true, NOW))
+      .toEqual({ text: `Scheduler not running since ${new Date(lastSeenOn).toLocaleString()}`, tone: "warning" });
+  });
+
   it("shows 'not running since {local time}' (warning) past 30 minutes", () => {
     const lastSeenOn = "2026-09-29T11:55:00Z"; // 35 minutes before NOW
     expect(schedulerChip({ lastSeenOn, installed: true }, true, NOW))

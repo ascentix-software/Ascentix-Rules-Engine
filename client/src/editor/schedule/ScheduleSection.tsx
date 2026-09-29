@@ -12,15 +12,27 @@ function formatLocal(iso: string | null): string {
   return Number.isFinite(d.getTime()) ? d.toLocaleString() : "—";
 }
 
+export const SCHEDULE_UNAVAILABLE_NOTE = "You don't have access to rule schedules. Ask an administrator.";
+
 export function ScheduleSection({
-  schedule, onPatch, ruleTimeZone, evaluationContext, onOpenRuns,
+  schedule, onPatch, ruleTimeZone, evaluationContext, onOpenRuns, unavailable,
 }: {
   schedule: RuleSchedule | null;
   onPatch(patch: Partial<RuleSchedule>): void;
   ruleTimeZone: string | null;
   evaluationContext: number | null;
   onOpenRuns(): void;
+  /** The schedule couldn't be read (typically no Rule Schedule privilege): a note, no controls. */
+  unavailable?: boolean;
 }) {
+  if (unavailable) {
+    return (
+      <Field label="Schedule">
+        <Text size={200}>{SCHEDULE_UNAVAILABLE_NOTE}</Text>
+      </Field>
+    );
+  }
+
   const s = schedule ?? emptySchedule();
   const toggleDay = (v: number) => onPatch({ days: s.days.includes(v) ? s.days.filter((x) => x !== v) : [...s.days, v] });
   const error = s.on ? validateSchedule(s) : null;

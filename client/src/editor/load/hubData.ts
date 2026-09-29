@@ -176,9 +176,11 @@ export async function loadSchedulerStatus(
  * The hub header's scheduler status chip (Task 6). Shown only when at least one rule's
  * schedule is On: `anyScheduleOn` gates it regardless of `status`. Otherwise:
  * - no status row (or a row with no heartbeat yet) -> "Scheduler not installed" (warning);
- * - last heartbeat within 30 minutes of `now` -> "Scheduler: last ran {N} minutes ago" (ok);
- * - older than that -> "Scheduler not running since {local time}" (warning).
+ * - last heartbeat at most 30 minutes before `now` -> "Scheduler: last ran {N} minute(s) ago" (ok);
+ * - strictly more than 30 minutes -> "Scheduler not running since {local time}" (warning).
  */
+const SCHEDULER_STALE_AFTER_MS = 30 * 60000;
+
 export function schedulerChip(
   status: { lastSeenOn: string | null; installed: boolean },
   anyScheduleOn: boolean,
@@ -186,7 +188,10 @@ export function schedulerChip(
 ): { text: string; tone: "ok" | "warning" } | null {
   if (!anyScheduleOn) return null;
   if (!status.installed || !status.lastSeenOn) return { text: "Scheduler not installed", tone: "warning" };
-  const minutes = Math.max(0, Math.floor((now - Date.parse(status.lastSeenOn)) / 60000));
-  if (minutes < 30) return { text: `Scheduler: last ran ${minutes} minutes ago`, tone: "ok" };
+  const elapsed = now - Date.parse(status.lastSeenOn);
+  if (elapsed <= SCHEDULER_STALE_AFTER_MS) {
+    const minutes = Math.max(0, Math.floor(elapsed / 60000));
+    return { text: `Scheduler: last ran ${minutes} minute${minutes === 1 ? "" : "s"} ago`, tone: "ok" };
+  }
   return { text: `Scheduler not running since ${new Date(status.lastSeenOn).toLocaleString()}`, tone: "warning" };
 }
