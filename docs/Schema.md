@@ -697,7 +697,16 @@ Field notes:
   during Create), `STRUCT_INVALID_DATEEXPR`, `STRUCT_EXPR_FILTER_MISSING`,
   `STRUCT_INVALID_EXPRESSION_FILTERS`, `STRUCT_INVALID_TIMEZONE`, `STRUCT_APPLY_PREVIOUS_TARGET` (Error: an action's
   "Also Apply To Previous" is ticked but the action is not an Update Record whose target is reached through
-  lookups from the rule's record). Trusted Authors may publish System-context writes without
+  lookups from the rule's record), `STRUCT_ACTION_FILTER_TARGET` (Error: an action's Rows filter must filter the
+  action's own target rows, and only a **set** action — Update/Delete/Deactivate Record on a collection node, or
+  Create Record targeting one — can have a Rows filter at all), `STRUCT_ROW_SOURCE_NOT_SET` (Error: the current
+  row — a `row` field-mapping source, or a `{row.…}` token in a Show Message/Block message text, one of its
+  per-language `asx_localizedmessage` overrides, or a Template condition's comparison value — can only be used by
+  an action that writes a set of rows), `STRUCT_DEACTIVATE_MAPPING` (Error: Deactivate Record's field mapping may
+  only set Status Reason, `statuscode`; any other mapped column is refused), `META_TABLE_NOT_DEACTIVATABLE` (Error:
+  Deactivate Record's target table has no `statecode`, or changes state only through its own dedicated message —
+  `opportunity`, `incident`, `quote`, `salesorder` and `invoice` are refused outright, alongside any table without
+  a `statecode` attribute). Trusted Authors may publish System-context writes without
   holding privileges on the target business tables; see `docs/Security.md`.
 - `kind` is a string enum name: `"Rule"`, `"Group"`, `"Condition"`, or `"Action"`.
 - `field` is the logical-name fragment of the column the issue targets; omitted (`null`) when the

@@ -117,9 +117,12 @@ server engine applies it, on Create/Update/Delete. See *Runtime Enforcement*. A 
 same save can refer to a record created by it.
 
 A fired action against a **set** target (a collection node) instead carries `writes` (the first
-100 writes, in the same shape as `write` above), `writeCount` (the total number of rows written —
-rows skipped as unchanged don't count), and `unchangedCount` (rows the action would have written
-but that already hold the mapped values, so nothing changes):
+100 resolved rows, in the same shape as `write` above), `writeCount` (the total number of rows
+this action resolved — **every** filtered row, including any already unchanged, not only the ones
+that would actually be written), and `unchangedCount` (how many of those already hold the mapped
+values, so nothing would change for them — a subset of `writeCount`, not additional to it). This
+differs from `asx_ApplyRules`' top-level `WriteCount` below, which counts only rows actually
+written.
 
 ```json
 { "ruleId": "…", "actionType": "UpdateRecord", "fireOn": "OnMatch", "targetTable": "contact",

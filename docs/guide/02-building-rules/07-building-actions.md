@@ -121,16 +121,23 @@ its rows. A single-record target behaves as before.
 **Rows.** A set action has a Rows filter (the same editor as a condition's "Only consider records
 where…"). The rule's conditions decide *whether* the action fires; the Rows filter decides *which
 rows* it writes. "Has none" and "has at least" work here, so "contacts with no open follow-up task"
-is one filter.
+is one filter. The filter is evaluated **in memory**, over the collection's rows already fetched in
+full for the rule's own traversal — it doesn't narrow what's queried from Dataverse, only which of
+the fetched rows the action writes. See *Beta Limitations* for the size this puts on a set action.
 
 **Create per row.** Create Record's optional **For each row of** creates one record per filtered row
 of a collection. Map values from the row with the **Current row** source, or `{row.<column>}` in a
 text template; a lookup column can link to the row itself. There is no automatic duplicate check:
-guard with a "has none" Rows filter.
+guard with a "has none" Rows filter. **For each row of** only appears once the rule has at least one
+collection node in its table-config tree; on a rule with none, Create Record only ever creates one
+record.
 
 **How writes are combined.** Every write of one record's evaluation is collected first. Two actions
-writing the same record become one write (the later action wins per column); an update and a
-delete of the same record become the delete. A row that already holds the values is skipped, so
-saving again with nothing changed writes nothing. Writes go out as creates, then updates, then
-deletes, grouped per table, in bulk where the table supports it. A Block anywhere still means
-nothing is written. Also apply to the previous parent is available only on a single-record target.
+writing the same record **in the same evaluation context** (User or System) become one write (the
+later action wins per column); an update and a delete of the same record become the delete. Writes
+in different evaluation contexts stay separate, even for the same record. A row that already holds
+the values is skipped, so saving again with nothing changed writes nothing. Writes go out as
+creates, then updates, then deletes, grouped per table, in bulk where the table supports it — except
+Deactivate Record, whose rows currently go one at a time regardless (*Beta Limitations*). A Block
+anywhere still means nothing is written. Also apply to the previous parent is available only on a
+single-record target.

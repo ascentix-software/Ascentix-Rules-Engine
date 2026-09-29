@@ -238,7 +238,9 @@ export interface ActionCfg {
   message?: string; // ShowMessage / Block text (not used by SetVisible/SetRequired)
   severity?: number; // 1 Information | 2 Warning | 3 Error
   targetTable?: string; // CreateRecord: asx_targettable (logical name, singular)
-  targetNodeId?: string; // Update/Delete: asx_TargetNode @odata.bind (single-cardinality node)
+  targetNodeId?: string; // Update/Delete/Deactivate/CreateRecord: asx_TargetNode @odata.bind — a
+  // single-cardinality node (root/lookup: writes that one record), or a collection node (writes
+  // every filtered row: a set action, docs/Schema.md §2.9/§4)
   fieldMapping?: string; // Create/Update: asx_fieldmapping JSON string
   applyToPrevious?: boolean; // Update Record: asx_applytoprevious
   order?: number; // asx_order: dispatch order among the actions that fire (default 1)
@@ -488,6 +490,8 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
       created.push({ set: ENTITY_SET.action, id: actionId });
 
       if (a.rowFilter) {
+        if (!a.targetNodeId)
+          throw new Error(`authorRule: action ${i + 1} has a rowFilter but no targetNodeId to filter — a Rows filter needs the action's own target node.`);
         const fgId = await api.createRecord(ENTITY_SET.nodeFilterGroup, {
           asx_logicaloperator: 1, // And
           [`${BIND_NAV.filterGroupAction}@odata.bind`]: `/${ENTITY_SET.action}(${actionId})`,

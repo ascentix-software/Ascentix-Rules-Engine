@@ -121,8 +121,17 @@ The outcome layer. Columns not relevant to a given Action Type are left blank.
 
 `asx_comparisonvaluenode` (on a condition) and `asx_targetnode` (on an action) are
 both lookups into the same `asx_tableconfig` tree the rule's conditions traverse.
-Both must resolve to a **single-cardinality** node: the Root node (the triggering
-record) or a Lookup node (one related record), never a Child node.
+
+`asx_comparisonvaluenode` must resolve to a **single-cardinality** node: the Root node (the
+triggering record) or a Lookup node (one related record), never a Child node.
+
+`asx_targetnode` on an Update Record, Delete Record or Deactivate Record action accepts either
+kind of node: a single-cardinality node (Root or Lookup — the action writes that one record, as
+before), or a **collection** node (a Child node, or a node reached through a Child step further
+down the tree) — the action then writes **every** row of that collection that passes its Rows
+filter (a **set action**; see *Building Actions* → *Writing a set of rows*). Create Record's
+`asx_targetnode` is optional; when set it must be a collection node, and the action creates one
+record per filtered row instead of one record overall.
 
 ## Node filters
 
