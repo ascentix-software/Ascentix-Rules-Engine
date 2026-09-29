@@ -360,6 +360,58 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void A_rows_filter_exists_collection_keeps_its_unfiltered_fetch_even_when_a_condition_self_serves_it()
+        {
+            // The sibling (task) node is served by a condition's pushed variant. An action's Rows filter
+            // counts task rows per contact from the UNFILTERED entry, so it must still be fetched.
+            var c = Cond(SiblingId);
+            var groups = new List<ConditionGroup> { Group(c, SelfFilter(SiblingId, c.Id)) };
+            var action = new RuleAction
+            {
+                Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = ChildId,
+                RowFilter = new NodeFilterGroup
+                {
+                    TableConfigNodeId = ChildId, LogicalOperator = LogicalOperator.And,
+                    Criteria = { new NodeFilterCriterion { Kind = CriterionKind.Exists, CollectionNodeId = SiblingId, MaxCount = 0 } },
+                },
+            };
+            var refs = RuleReferences.Compute(groups, new[] { action });
+
+            var plan = Plan(SiblingId);
+            PushdownPlanner.Apply(plan, Configs(), groups, refs.HardReaders.Concat(refs.ActionFilterNodes), refs.FilterDerivedNodes);
+
+            Assert.True(plan.Levels[0][0].DemandsUnfiltered);
+        }
+
+        [Theory]
+        [InlineData(ActionType.UpdateRecord)]
+        [InlineData(ActionType.DeleteRecord)]
+        [InlineData(ActionType.DeactivateRecord)]
+        [InlineData(ActionType.CreateRecord)]
+        public void A_set_actions_target_is_fetched_unfiltered_with_every_column(ActionType type)
+        {
+            // WriteIntentResolver.ResolveSet reads the target's rows off the UNFILTERED entry and
+            // takes their loaded values (the no-op comparison) straight off those rows, so the
+            // target must be fetched whole: unfiltered even when a condition's pushed variant
+            // serves the node, and never column-pruned (no column list = all attributes).
+            var c = Cond(ChildId);
+            var groups = new List<ConditionGroup> { Group(c, SelfFilter(ChildId, c.Id)) };
+            var action = new RuleAction
+            {
+                Id = Guid.NewGuid(), ActionType = type, IsActive = true, TargetNodeId = ChildId, TargetTable = "task",
+                FieldMapping = type == ActionType.DeleteRecord ? null : "[{\"target\":\"statuscode\",\"source\":\"literal\",\"value\":2}]",
+            };
+            var refs = RuleReferences.Compute(groups, new[] { action }, setTargets: Configs());
+            Assert.Contains(ChildId, refs.HardReaders);
+
+            var plan = Plan(ChildId);
+            PushdownPlanner.Apply(plan, Configs(), groups, refs.HardReaders.Concat(refs.ActionFilterNodes), refs.FilterDerivedNodes);
+
+            Assert.True(plan.Levels[0][0].DemandsUnfiltered);
+            Assert.False(TraversalColumnCollector.Collect(Configs(), groups, refs.Unpruneable).ContainsKey(ChildId));
+        }
+
+        [Fact]
         public void Self_filter_targets_are_not_hard_readers_so_the_variant_still_skips_unfiltered()
         {
             // The filter target is filter-derived, not a hard reader: handing the reference set's

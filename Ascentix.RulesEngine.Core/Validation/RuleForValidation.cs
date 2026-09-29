@@ -34,10 +34,11 @@ namespace Ascentix.RulesEngine.Core.Validation
         public IReadOnlyList<string> TriggerColumns { get; set; } = new List<string>();
 
         /// <summary>The rule's reference set (<see cref="RuleReferences"/>) over <see cref="Groups"/>
-        /// and <see cref="Actions"/>. Set by the loader; computed on first read otherwise.</summary>
+        /// and <see cref="Actions"/>. Set by the loader; computed on first read otherwise, with
+        /// <see cref="Configs"/> telling Create per row from a one-record Create.</summary>
         public RuleReferences References
         {
-            get => _references ?? (_references = RuleReferences.Compute(_groups, _actions));
+            get => _references ?? (_references = RuleReferences.Compute(_groups, _actions, setTargets: Configs));
             set => _references = value;
         }
 

@@ -32,7 +32,8 @@ namespace Ascentix.RulesEngine.Core.Validation
             // The validator's config set is the SAME reference set the runtime seeds from
             // (RuleReferences), so a valid rule can never fail TRAV_NODE_NOT_FOUND on a node the
             // runtime would have loaded, and vice versa.
-            var refs = RuleReferences.Compute(groups, actions);
+            // A Create's target is a reference only as Create per row (see RuleReferences).
+            var refs = RuleReferences.Compute(groups, actions, setTargets: new TableConfigLoader(service).LoadCreateTargets(actions));
 
             // Unvalidated on purpose: the loader's seeded-ids check still throws (a node the rule
             // references that did not load is not a shape the validator can reason about), but a

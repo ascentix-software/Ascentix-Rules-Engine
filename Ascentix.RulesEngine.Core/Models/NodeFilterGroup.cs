@@ -7,7 +7,7 @@ namespace Ascentix.RulesEngine.Core.Models
 
     /// <summary>
     /// AND/OR group tree of node filters. Self-referential.
-    /// Scoped to a ConditionGroup, not to a table config node.
+    /// Scoped to a ConditionGroup (condition filters) or to a RuleAction (a set action's Rows filter).
     /// Applied at evaluation time against the in-memory cache.
     /// Can target the condition's own node, its parent, or any ancestor.
     /// </summary>
@@ -21,6 +21,10 @@ namespace Ascentix.RulesEngine.Core.Models
         /// the filter applies group-wide to every condition targeting this node (back-compat).
         /// </summary>
         public Guid? RuleConditionId { get; set; }
+
+        /// <summary>The action that owns this group as its Rows filter (asx_ruleaction), or null.
+        /// Set on the top-level group; an action-owned filter has no condition group.</summary>
+        public Guid? RuleActionId { get; set; }
 
         /// <summary>
         /// Which node in the config tree this filter targets.

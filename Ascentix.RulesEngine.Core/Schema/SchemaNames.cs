@@ -192,6 +192,7 @@ namespace Ascentix.RulesEngine.Schema
             public const string LogicalOperator = "logicaloperator";
             public const string RuleCondition = "rulecondition";        // lookup → rulecondition (owning condition)
             public const string OwningCriterion = "owningcriterion";    // lookup → nodefiltercriterion (Exists sub-filter root)
+            public const string RuleAction = "ruleaction";              // lookup → ruleaction (the action's Rows filter)
         }
 
         public static class NodeFilterCriterion
@@ -341,6 +342,7 @@ namespace Ascentix.RulesEngine.Schema
             public const string NodeFilterCriterionComparisonValueNode = "nodefiltercriterion_comparisonvaluenode";
             public const string NodeFilterCriterionCollectionNode = "nodefiltercriterion_collectionnode";
             public const string NodeFilterGroupOwningCriterion = "nodefiltergroup_owningcriterion";
+            public const string RuleActionNodeFilterGroup = "ruleaction_nodefiltergroup";
         }
     }
 }

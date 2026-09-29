@@ -38,7 +38,7 @@ namespace Ascentix.RulesEngine.Core.Engine
         ExistsCollections,
         /// <summary>A criterion RHS value node inside an EXISTS sub-filter, at any depth.</summary>
         SubFilterNodes,
-        /// <summary>An Update/Delete action's target node.</summary>
+        /// <summary>A write action's target node (Update/Delete/Deactivate; Create per row).</summary>
         ActionTargetNodes,
         /// <summary>A field-mapping single-cardinality source: node/ref, template token,
         /// dateexpr anchor, mathexpr scalar operand.</summary>
@@ -69,7 +69,7 @@ namespace Ascentix.RulesEngine.Core.Engine
         public ReferenceKind Kind { get; }
         /// <summary>The condition that carries the reference (conditions and owned filters), or null.</summary>
         public Guid? ConditionId { get; }
-        /// <summary>The action that carries the reference (targets, mappings, messages), or null.</summary>
+        /// <summary>The action that carries the reference (targets, mappings, Rows filters, messages), or null.</summary>
         public Guid? ActionId { get; }
         /// <summary>Aggregate operands only: the <c>filter:&lt;key&gt;</c> the aggregate names, or null.</summary>
         public string FilterKey { get; }
@@ -79,7 +79,7 @@ namespace Ascentix.RulesEngine.Core.Engine
     /// The rule reference set: ONE computation, per mapped rule (or per bucket of rules), of
     /// everything the rule touches: condition groups (including node-filter groups, EXISTS
     /// criteria and their sub-filters) and ACTIVE actions (targets, parsed field mappings,
-    /// Message and LocalizedMessages). Every downstream consumer (the runner's config seed and
+    /// Rows filters, Message and LocalizedMessages). Every downstream consumer (the runner's config seed and
     /// query plan, the validator's config set, the pushdown demand proof, column pruning, the
     /// root ColumnSet, the step planner's root-only verdict, the rule serializer) reads a named
     /// answer here instead of walking the ConditionGroup / NodeFilterCriterion / FieldMappingEntry
@@ -96,6 +96,9 @@ namespace Ascentix.RulesEngine.Core.Engine
     ///  - <see cref="FilterDerivedNodes"/>: node-filter targets, filter value nodes, EXISTS
     ///    collections and sub-filter nodes. Loaded and planned; the pushdown planner proves their
     ///    demand itself (a self-targeting filter is served by its variant).
+    ///  - <see cref="ActionFilterNodes"/>: Rows-filter nodes, always demanded unfiltered. A set
+    ///    target is a hard reader, fetched whole, so every mapped column's loaded value is known
+    ///    without adding columns.
     ///  - <see cref="Unpruneable"/>: hard readers ∪ filter-derived, never column-pruned.
     ///  - <see cref="RootColumns"/> / <see cref="IsRootOnly"/>: the root ColumnSet and the
     ///    step-gating verdict; both need the tree, so they take it.
@@ -106,6 +109,12 @@ namespace Ascentix.RulesEngine.Core.Engine
     /// so its nodes would be pure over-fetch. A payload that does not parse (mapping JSON,
     /// template, date expression, math expression) contributes no references: the evaluator
     /// surfaces the real error at runtime and <c>StructuralChecks</c> reports it at publish.
+    ///
+    /// A Create's target node is read only when it makes the action Create per row: a collection
+    /// node (<see cref="SetActions.IsSetAction"/>), decided with the tree passed to
+    /// <see cref="Compute"/> (<see cref="Loaders.TableConfigLoader.LoadCreateTargets"/>). A single-record
+    /// target an earlier edit left on a one-record Create is ignored, as it always was, so it
+    /// changes nothing the rule loads, fetches or registers.
     /// </summary>
     public sealed class RuleReferences
     {
@@ -141,26 +150,29 @@ namespace Ascentix.RulesEngine.Core.Engine
         private readonly List<(Guid? node, string column)> _columns = new List<(Guid?, string)>();
         private bool _hasUnboundCondition;
 
-        private HashSet<Guid> _nodesToLoad, _optional, _hard, _filterDerived, _plan, _unpruneable;
+        private HashSet<Guid> _nodesToLoad, _optional, _hard, _filterDerived, _plan, _unpruneable, _actionFilter;
 
         private RuleReferences() { }
 
         /// <summary>Computes the reference set for a set of mapped condition groups and actions
         /// (one rule, or every rule of a bucket). <paramref name="parseMapping"/> lets a caller
-        /// share its parsed-mapping cache; by default <see cref="FieldMappingParser.Parse"/> runs.</summary>
+        /// share its parsed-mapping cache; by default <see cref="FieldMappingParser.Parse"/> runs.
+        /// <paramref name="setTargets"/> decides which Creates are Create per row (their target is a
+        /// collection in it); without it no Create's target is a reference.</summary>
         public static RuleReferences Compute(
             IEnumerable<ConditionGroup> rootGroups,
             IEnumerable<RuleAction> actions,
-            Func<RuleAction, List<FieldMappingEntry>> parseMapping = null)
+            Func<RuleAction, List<FieldMappingEntry>> parseMapping = null,
+            TableConfigTree setTargets = null)
         {
             var refs = new RuleReferences();
             foreach (var group in AllGroups(rootGroups))
             {
                 foreach (var c in group.Conditions ?? new List<RuleCondition>()) refs.AddCondition(c);
-                foreach (var f in AllFilterGroups(group.NodeFilterGroups)) refs.AddFilterGroup(f);
+                foreach (var f in AllFilterGroups(group.NodeFilterGroups)) refs.AddFilterGroup(f, f.RuleConditionId, null);
             }
             foreach (var a in (actions ?? Enumerable.Empty<RuleAction>()).Where(a => a != null && a.IsActive))
-                refs.AddAction(a, parseMapping);
+                refs.AddAction(a, parseMapping, setTargets);
             refs.Seal();
             return refs;
         }
@@ -185,6 +197,11 @@ namespace Ascentix.RulesEngine.Core.Engine
 
         /// <summary>Node-filter targets, filter value nodes, EXISTS collections and sub-filter nodes.</summary>
         public IReadOnlyCollection<Guid> FilterDerivedNodes => _filterDerived;
+
+        /// <summary>Nodes an action's Rows filter reads (its target, value nodes, EXISTS collections,
+        /// sub-filter nodes). A Rows filter runs in memory over UNFILTERED rows, so the gather stage
+        /// hands these to the pushdown planner with the hard readers.</summary>
+        public IReadOnlyCollection<Guid> ActionFilterNodes => _actionFilter;
 
         /// <summary>Hard readers ∪ filter-derived nodes: never column-pruned.</summary>
         public IReadOnlyCollection<Guid> Unpruneable => _unpruneable;
@@ -261,6 +278,9 @@ namespace Ascentix.RulesEngine.Core.Engine
             _plan = new HashSet<Guid>(_hard);
             _plan.UnionWith(_filterDerived);
             _unpruneable = new HashSet<Guid>(_plan);
+            _actionFilter = new HashSet<Guid>(_references
+                .Where(r => r.ActionId.HasValue && Array.IndexOf(FilterDerivedKinds, r.Kind) >= 0)
+                .Select(r => r.NodeId));
         }
 
         private void Add(Guid? nodeId, ReferenceKind kind, Guid? conditionId = null, Guid? actionId = null, string filterKey = null)
@@ -340,38 +360,39 @@ namespace Ascentix.RulesEngine.Core.Engine
                     AddColumn(own, crit.FieldName);
         }
 
-        private void AddFilterGroup(NodeFilterGroup f)
+        // A node-filter group: a condition's filter (conditionId) or a set action's Rows filter (actionId).
+        private void AddFilterGroup(NodeFilterGroup f, Guid? conditionId, Guid? actionId)
         {
             var target = f.TableConfigNodeId;
-            Add(target, ReferenceKind.FilterTargetNodes, f.RuleConditionId);
+            Add(target, ReferenceKind.FilterTargetNodes, conditionId, actionId);
             foreach (var crit in f.Criteria ?? new List<NodeFilterCriterion>())
             {
                 AddColumn(target, crit.FieldName);
-                Add(crit.ComparisonValueNodeId, ReferenceKind.FilterValueNodes, f.RuleConditionId);
+                Add(crit.ComparisonValueNodeId, ReferenceKind.FilterValueNodes, conditionId, actionId);
                 AddCriterionValueColumn(crit, target);
                 if (crit.ValueSource == ComparisonValueSource.DateExpression && DateExprSpec.TryGetAnchorNode(crit.Value, out var anchor))
-                    Add(anchor, ReferenceKind.FilterValueNodes, f.RuleConditionId);
+                    Add(anchor, ReferenceKind.FilterValueNodes, conditionId, actionId);
                 if (crit.Kind == CriterionKind.Exists)
-                    AddExists(crit, f.RuleConditionId);
+                    AddExists(crit, conditionId, actionId);
             }
         }
 
         // An EXISTS criterion counts rows of its collection node; its sub-filter (and any EXISTS
         // nested inside it) reads that collection's rows. The sub-filter hangs off the criterion,
         // not the group's ChildGroups chain, so it is walked here.
-        private void AddExists(NodeFilterCriterion crit, Guid? conditionId)
+        private void AddExists(NodeFilterCriterion crit, Guid? conditionId, Guid? actionId)
         {
-            Add(crit.CollectionNodeId, ReferenceKind.ExistsCollections, conditionId);
+            Add(crit.CollectionNodeId, ReferenceKind.ExistsCollections, conditionId, actionId);
             foreach (var sub in AllFilterGroups(crit.SubFilter == null ? null : new[] { crit.SubFilter }))
                 foreach (var sc in sub.Criteria ?? new List<NodeFilterCriterion>())
                 {
                     AddColumn(crit.CollectionNodeId, sc.FieldName);
-                    Add(sc.ComparisonValueNodeId, ReferenceKind.SubFilterNodes, conditionId);
+                    Add(sc.ComparisonValueNodeId, ReferenceKind.SubFilterNodes, conditionId, actionId);
                     AddCriterionValueColumn(sc, crit.CollectionNodeId);
                     if (sc.ValueSource == ComparisonValueSource.DateExpression && DateExprSpec.TryGetAnchorNode(sc.Value, out var anchor))
-                        Add(anchor, ReferenceKind.SubFilterNodes, conditionId);
+                        Add(anchor, ReferenceKind.SubFilterNodes, conditionId, actionId);
                     if (sc.Kind == CriterionKind.Exists)
-                        AddExists(sc, conditionId);
+                        AddExists(sc, conditionId, actionId);
                 }
         }
 
@@ -429,9 +450,14 @@ namespace Ascentix.RulesEngine.Core.Engine
                 AddFilterTreeColumns(child, filteredNode);
         }
 
-        private void AddAction(RuleAction a, Func<RuleAction, List<FieldMappingEntry>> parseMapping)
+        private void AddAction(RuleAction a, Func<RuleAction, List<FieldMappingEntry>> parseMapping, TableConfigTree setTargets)
         {
-            if ((a.ActionType == ActionType.UpdateRecord || a.ActionType == ActionType.DeleteRecord) && a.TargetNodeId.HasValue)
+            // Update/Delete/Deactivate read their target (a record or a set of rows); a Create reads
+            // its target only as Create per row (see the class summary).
+            var readsTarget = a.TargetNodeId.HasValue && (a.ActionType == ActionType.CreateRecord
+                ? SetActions.IsSetAction(a, setTargets)
+                : ActionDispatcher.IsWriteAction(a.ActionType));
+            if (readsTarget)
                 Add(a.TargetNodeId, ReferenceKind.ActionTargetNodes, actionId: a.Id);
 
             if (!string.IsNullOrWhiteSpace(a.FieldMapping))
@@ -440,9 +466,9 @@ namespace Ascentix.RulesEngine.Core.Engine
                 try { entries = (parseMapping ?? (x => FieldMappingParser.Parse(x.FieldMapping)))(a); }
                 catch (InvalidPluginExecutionException) { entries = null; }
 
-                // Root-source columns are copied by Create/Update only: the one mapping rule
-                // that is action-type dependent, kept explicit.
-                var copiesRoot = a.ActionType == ActionType.CreateRecord || a.ActionType == ActionType.UpdateRecord;
+                // Root-source columns are copied by the write actions that map fields: the one
+                // mapping rule that is action-type dependent, kept explicit.
+                var copiesRoot = ActionDispatcher.MapsFields(a.ActionType);
                 foreach (var entry in entries ?? new List<FieldMappingEntry>())
                 {
                     try
@@ -462,10 +488,18 @@ namespace Ascentix.RulesEngine.Core.Engine
                                 AddColumn(null, col);
                             AddAggregateFilterColumns(entry.Filters, aggregates);
                         }
+                        // Current-row sources and {row.x} tokens read the set target's rows.
+                        if (readsTarget)
+                            foreach (var col in FieldMappingReferences.RowColumns(entry))
+                                AddColumn(a.TargetNodeId, col);
                     }
                     catch (InvalidPluginExecutionException) { /* malformed template/expression: evaluation reports it */ }
                 }
             }
+
+            if (a.RowFilter != null)
+                foreach (var f in AllFilterGroups(new[] { a.RowFilter }))
+                    AddFilterGroup(f, conditionId: null, actionId: a.Id);
 
             AddMessage(a.Message, a.Id);
             if (a.LocalizedMessages != null)
