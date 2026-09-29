@@ -74,9 +74,27 @@ namespace Ascentix.RulesEngine.Core.Models
     {
         OnCreate = 1,
         OnForm = 2,
-        Manual = 3,
+        OnDemand = 3,          // was Manual; runs without a save (asx_ApplyRules, Rule Runs, dry runs)
         OnUpdate = 4,
         OnDelete = 5
+    }
+
+    /// <summary>asx_rule.asx_ondemandscope: what an On demand rule runs for.</summary>
+    public enum OnDemandScope
+    {
+        GivenRecord = 1,   // a record it's given (default)
+        AllRecords = 2     // all records that pass its execution conditions
+    }
+
+    /// <summary>asx_rulerun.asx_status.</summary>
+    public enum RuleRunStatus
+    {
+        Queued = 1,
+        Running = 2,
+        Completed = 3,
+        CompletedWithFailures = 4,
+        Failed = 5,
+        Cancelled = 6
     }
 
     /// <summary>Where a condition's right-hand comparand comes from.</summary>

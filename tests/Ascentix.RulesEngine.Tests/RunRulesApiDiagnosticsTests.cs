@@ -29,7 +29,7 @@ namespace Ascentix.RulesEngine.Tests
                 [Q(SchemaNames.Rule.TableLogicalName)] = "account",
                 ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
                 [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
-                    new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.Manual) }),
+                    new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnDemand) }),
             };
             var group = new Entity(Q(SchemaNames.ConditionGroup.Entity), ids.grp)
             {

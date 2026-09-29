@@ -5,7 +5,7 @@ import type { NodeFilterBlock, NodeFilterGroupModel, NodeFilterLeaf } from "../m
 import { isBlockEmpty } from "../model/nodeFilter";
 import { isNewId } from "../model/ids";
 import { flattenGroups, flattenConditions } from "../model/tree";
-import { logicalOperatorValue, conditionTypeValue, actionTypeValue, encodeMultiSelect, tableConfigTypeValue } from "../model/enums";
+import { logicalOperatorValue, conditionTypeValue, actionTypeValue, encodeMultiSelect, tableConfigTypeValue, ON_DEMAND } from "../model/enums";
 import { operatorToFetchOp } from "../ui/pickers/recordFilter";
 import { serializeExpressionFilters } from "../model/expressionFilters";
 import { isLeafComplete } from "../model/nodeFilter";
@@ -367,7 +367,13 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
   const deletes: Array<DeleteOp & { _depth?: number; _structural?: boolean }> = [];
 
   // ---- Rule (always exists) ----
-  const ruleAttrs = (r: RuleGraph["rule"]): Record<string, any> => ({
+  // `gated` mirrors actionAttrs's tableConfigs param above: true for the working copy, whose
+  // asx_ondemandscope is recomputed off its CURRENT triggers (an On demand-less rule always
+  // saves the default, 1, so an unpublishable/meaningless scope never reaches Dataverse); false
+  // for the snapshot/prev side, which echoes the stored value as-is. Comparing gated "next"
+  // against raw "prev" is what turns a loaded rule's stale scope (e.g. stored 2 without trigger
+  // 3) into a PATCH back to the default.
+  const ruleAttrs = (r: RuleGraph["rule"], gated: boolean): Record<string, any> => ({
     asx_name: r.name,
     asx_triggers: encodeMultiSelect(r.triggers),
     asx_channels: encodeMultiSelect(r.channels),
@@ -376,8 +382,9 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
     asx_evaluationcontext: r.evaluationContext,
     asx_evaluationtimezone: r.evaluationTimeZone ?? null,
     asx_triggercolumns: r.triggerColumns.length ? JSON.stringify(r.triggerColumns) : null,
+    asx_ondemandscope: gated ? (r.triggers.includes(ON_DEMAND) ? (r.onDemandScope ?? 1) : 1) : (r.onDemandScope ?? 1),
   });
-  const ruleChanged = changedAttrs(ruleAttrs(snapshot.rule), ruleAttrs(working.rule));
+  const ruleChanged = changedAttrs(ruleAttrs(snapshot.rule, false), ruleAttrs(working.rule, true));
   const ruleBinds: Bind[] = [];
   // NOTE: the rule update is emitted first in the op array, so this root bind must
   // reference an EXISTING node (full URL), never a $N Content-ID. Safe today because

@@ -10,6 +10,15 @@ only, so the version an administrator sees in their org can never carry the word
 
 ### Added
 
+- **On demand runs.** An On demand rule can now be run outside the editor: **Run now** (in the
+  hub and the Rule Builder) evaluates and enforces it against the records you choose (up to
+  250), or against every record that passes its execution conditions, depending on the rule's
+  new **Runs for** setting (`asx_rule.asx_ondemandscope`). Each run is tracked as a **Rule Run**
+  (new table `asx_rulerun`) and driven page by page via the new `asx_ProcessRunPage` Custom API,
+  with a **Runs** dialog to see a rule's runs, cancel one that hasn't finished, and resume one
+  an abandoned browser tab left behind. A single record can also be run directly through the
+  new `asx_ApplyRules` Custom API. Running rules needs its own privileges on the Rule Run table.
+  See *Administering → Running Rules On Demand*.
 - **Relative dates in filters.** Collection filters, "has related rows" sub-filters and
   aggregate filters accept a date expression ("now minus 12 months", or a date on the row plus
   N days). Filters anchored on "now" are still applied in the Dataverse query.
@@ -35,6 +44,8 @@ only, so the version an administrator sees in their org can never carry the word
 
 ### Changed
 
+- The **Manual** trigger is now labelled **On demand**. The stored choice value (3) is unchanged,
+  and the API trigger name `Manual` is still accepted alongside the new `OnDemand`.
 - Every rule evaluated by one save uses the same "now".
 - `STRUCT_EXPR_FILTER_UNSUPPORTED` is replaced by `STRUCT_EXPR_FILTER_MISSING` (a filter key
   used in the expression but not defined).

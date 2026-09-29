@@ -1,4 +1,4 @@
-import { createDevApi, deleteDevRecord } from "../test-dev/devApi";
+import { createDevApi, deleteDevRecord, processRunPage } from "../test-dev/devApi";
 import { readDevEnv } from "../test-dev/devEnv";
 import { ENTITY_SET, BIND_NAV, LOOKUP } from "../src/editor/load/odata";
 
@@ -76,7 +76,7 @@ export interface RuleFixtureOpts {
 }
 
 // Creates a Draft rule on `account` (root config + optional exec group / comparison
-// condition / ShowMessage action), trigger Manual only, ZZ-prefixed. Options carve out
+// condition / ShowMessage action), trigger On demand only, ZZ-prefixed. Options carve out
 // the variants the e2e specs need: a bare rule to author against in the UI, an
 // incomplete condition for the validation-failure path, or the default fully-valid
 // shape. Returns a cleanup that deletes everything it created (reverse order).
@@ -113,7 +113,7 @@ export async function createRuleFixture(opts: RuleFixtureOpts = {}): Promise<{ r
     }));
     const ruleId = track(ENTITY_SET.rule, await api.createRecord(ENTITY_SET.rule, {
       asx_name: ruleName, asx_tablelogicalname: "account",
-      asx_triggers: "3", // Manual only, never auto-fires
+      asx_triggers: "3", // On demand only, never auto-fires
       [`${BIND_NAV.ruleRootTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${cfgId})`,
     }));
     if (opts.withGroup ?? true) {
@@ -241,8 +241,44 @@ export async function createRuleOnConfig(opts: {
   const ruleId = await api.createRecord(ENTITY_SET.rule, {
     asx_name: ruleName,
     asx_tablelogicalname: opts.table,
-    asx_triggers: opts.triggers ?? "3", // Manual only, never auto-fires
+    asx_triggers: opts.triggers ?? "3", // On demand only, never auto-fires
     [`${BIND_NAV.ruleRootTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${opts.rootConfigId})`,
   });
   return { ruleId, ruleName, cleanup: () => deleteRuleCascade(ruleId) };
+}
+
+// ---- On-demand runs (Run now / Runs dialog e2e specs) --------------------------------------
+// createRuleRun mirrors the browser's own runs/runDriver.ts startRun, driven here directly
+// through createDevApi() (its EditorApi-compatible `api` object, which DOES implement
+// createRecord) for specs that arrange a run via the API instead of the UI.
+//
+// driveRunToCompletion reuses test-dev/devApi.ts's own `processRunPage` — NOT createDevApi()'s
+// `api` object, which (client/scripts/devOrg.mjs:254-321) has no `processRunPage` method at all,
+// despite createDevApi()'s EditorApi return type claiming one (a pre-existing type/implementation
+// mismatch in that script, not something this file works around by re-adding the method itself).
+// `processRunPage` is devOrg.mjs's own POST asx_ProcessRunPage wrapper (the same Custom API
+// runs/runDriver.ts's browser-side driveRun calls through Xrm.WebApi), already proven live by
+// test-dev/ruleRuns.dev.test.ts.
+
+// Creates an asx_rulerun for `ruleId`, scoped to `recordIds` when given.
+export async function createRuleRun(ruleId: string, recordIds?: string[]): Promise<string> {
+  const api = createDevApi();
+  const data: Record<string, unknown> = { [`${BIND_NAV.runRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})` };
+  if (recordIds) data.asx_recordids = JSON.stringify(recordIds);
+  return api.createRecord(ENTITY_SET.ruleRun, data);
+}
+
+export interface RunPageCounts {
+  done: boolean; status: number; evaluated: number; changed: number; blocked: number; failed: number; skipped: number;
+}
+
+// Drives a run to completion by calling asx_ProcessRunPage in a loop. Unlike runDriver.ts's
+// driveRun, this has no record-failed retry protocol: the e2e fixtures that use this only author
+// Update/Block actions, neither of which throws, so a rejected write is never in scope here.
+export async function driveRunToCompletion(runId: string, maxCalls = 50): Promise<RunPageCounts> {
+  for (let i = 0; i < maxCalls; i++) {
+    const last = await processRunPage(runId);
+    if (last.done) return last;
+  }
+  throw new Error(`driveRunToCompletion: run ${runId} did not finish within ${maxCalls} calls.`);
 }

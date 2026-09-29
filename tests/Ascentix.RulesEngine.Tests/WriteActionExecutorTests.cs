@@ -161,5 +161,33 @@ namespace Ascentix.RulesEngine.Tests
                 new List<WriteTarget> { new WriteTarget { RecordId = recId, InPlace = null } },
                 svc, svc, engineInitiated: false, new NullTrace()));
         }
+
+        [Fact]
+        public void A_root_update_without_an_in_flight_target_becomes_a_tagged_update()
+        {
+            var svc = new RecordingService();
+            var recId = Guid.NewGuid();
+            var intent = new WriteIntent { Operation = WriteOperation.Update, TargetTable = "account",
+                TargetId = null, RootTargeted = true, Context = RuleEvaluationContext.User,
+                Values = new Dictionary<string, object> { ["description"] = "x" } };
+            var record = new RecordEvaluationResult
+            {
+                RecordId = recId,
+                FiredActions = new List<FiredActionResult>
+                { new FiredActionResult { ActionType = ActionType.UpdateRecord, WriteIntent = intent } }
+            };
+
+            // No in-flight Target (inPlace == null): the root-targeted intent falls back to the
+            // record it was evaluated for and is issued as a tagged Update, not written in place.
+            var applied = new WriteActionExecutor().ExecuteRecord(record, null, svc, svc,
+                engineInitiated: false, new NullTrace());
+
+            Assert.Equal(1, applied);
+            Assert.Single(svc.Updated);
+            Assert.Equal("account", svc.Updated[0].LogicalName);
+            Assert.Equal(recId, svc.Updated[0].Id);
+            Assert.Equal("x", svc.Updated[0]["description"]);
+            Assert.Equal(PluginReentry.EngineWriteTag, svc.Tags.Single());
+        }
     }
 }

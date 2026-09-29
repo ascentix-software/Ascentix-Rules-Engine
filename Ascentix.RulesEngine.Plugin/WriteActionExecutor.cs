@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xrm.Sdk;
@@ -18,8 +19,11 @@ namespace Ascentix.RulesEngine.Plugin
     /// Delete) carry the <see cref="PluginReentry.EngineWriteTag"/> 'tag' shared variable so a
     /// re-triggered engine execution recognizes its own cascade and skips: a no-op for those when
     /// <paramref name="engineInitiated"/> is true. Root-targeted Update writes onto the in-flight
-    /// Target (no new operation, cannot cascade) and always apply. Any failure propagates → the
-    /// platform rolls back. Block-wins is handled by the caller (it throws before invoking this).
+    /// Target (no new operation, cannot cascade) and always apply. With no in-flight Target (e.g.
+    /// on-demand evaluation), a root-targeted Update instead falls back to a tagged service Update
+    /// on the evaluated record, subject to the same engine-initiated skip as any other write. Any
+    /// failure propagates → the platform rolls back. Block-wins is handled by the caller (it
+    /// throws before invoking this).
     /// </summary>
     public class WriteActionExecutor
     {
@@ -36,30 +40,47 @@ namespace Ascentix.RulesEngine.Plugin
             foreach (var record in outcome.Records)
             {
                 targetsById.TryGetValue(record.RecordId, out var inPlace);
-
-                var intents = record.FiredActions
-                    .Where(a => a.WriteIntent != null)
-                    .Select(a => a.WriteIntent);
-
-                foreach (var intent in intents)
-                {
-                    // Root-in-place writes issue no new operation, so they never re-trigger the
-                    // engine and always apply. Service writes could cascade, so skip them when this
-                    // execution is itself an engine-initiated write.
-                    if (!IsRootInPlace(intent, inPlace) && engineInitiated)
-                    {
-                        trace.Trace($"WriteActionExecutor: engine-initiated re-entry, skipping {intent.Operation} on {intent.TargetTable}.");
-                        continue;
-                    }
-                    Apply(intent, inPlace, userService, systemService, trace);
-                }
+                ExecuteRecord(record, inPlace, userService, systemService, engineInitiated, trace);
             }
+        }
+
+        /// <summary>Applies one record's fired write intents. Returns the number applied (a
+        /// skipped engine-initiated intent is not counted).</summary>
+        public int ExecuteRecord(
+            RecordEvaluationResult record,
+            Entity inPlace,
+            IOrganizationService userService,
+            IOrganizationService systemService,
+            bool engineInitiated,
+            ITracingService trace)
+        {
+            var applied = 0;
+
+            var intents = record.FiredActions
+                .Where(a => a.WriteIntent != null)
+                .Select(a => a.WriteIntent);
+
+            foreach (var intent in intents)
+            {
+                // Root-in-place writes issue no new operation, so they never re-trigger the
+                // engine and always apply. Service writes could cascade, so skip them when this
+                // execution is itself an engine-initiated write.
+                if (!IsRootInPlace(intent, inPlace) && engineInitiated)
+                {
+                    trace.Trace($"WriteActionExecutor: engine-initiated re-entry, skipping {intent.Operation} on {intent.TargetTable}.");
+                    continue;
+                }
+                Apply(intent, inPlace, record.RecordId, userService, systemService, trace);
+                applied++;
+            }
+
+            return applied;
         }
 
         private static bool IsRootInPlace(WriteIntent intent, Entity inPlace) =>
             intent.Operation == WriteOperation.Update && intent.RootTargeted && inPlace != null;
 
-        private void Apply(WriteIntent intent, Entity inPlace,
+        private void Apply(WriteIntent intent, Entity inPlace, Guid recordId,
             IOrganizationService userService, IOrganizationService systemService, ITracingService trace)
         {
             var service = intent.Context == RuleEvaluationContext.System ? systemService : userService;
@@ -81,10 +102,13 @@ namespace Ascentix.RulesEngine.Plugin
                     }
                     else
                     {
-                        var toUpdate = new Entity(intent.TargetTable, intent.TargetId.Value);
+                        // No in-flight Target to write onto (on-demand evaluation, or a related
+                        // table): a root-targeted intent falls back to the record it was evaluated
+                        // for; a related-table intent already carries its own TargetId.
+                        var toUpdate = new Entity(intent.TargetTable, intent.TargetId ?? recordId);
                         CopyValues(intent, toUpdate);
                         Tagged(service, new UpdateRequest { Target = toUpdate });
-                        trace.Trace($"WriteActionExecutor: updated {intent.TargetTable} {intent.TargetId}.");
+                        trace.Trace($"WriteActionExecutor: updated {intent.TargetTable} {toUpdate.Id}.");
                     }
                     break;
 

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { createDevApi, deleteDevRecord } from "./devApi";
 import { BIND_NAV, ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { readDevEnv } from "./devEnv";
+import { authorRule } from "./ruleBehavior/authoring";
 
 // Round-trips every @odata.bind nav prop in BIND_NAV against live DEV: create a
 // child record binding the nav prop to a parent, read back the lookup's
@@ -103,6 +104,44 @@ async function makeFilterCriterion(label: string, filterGroupId: string): Promis
   });
   created.push({ set: ENTITY_SET.nodeFilterCriterion, id });
   return id;
+}
+
+// A dedicated Published On demand rule for the runRule bind check below: RuleRunPlugin resolves
+// the bound rule via OnDemandRules.Resolve (docs/Schema.md §2.13 Lifecycle) before allowing an
+// asx_rulerun create, so the shared ZZ_P2SEED_Rule (not On demand) can't stand in for it here.
+// Built via authorRule (ruleBehavior/authoring.ts), NOT hand-rolled records pushed into the
+// shared `created` array like the other make* helpers: a published rule's own children can't be
+// deleted directly ("Edit this rule's working draft in the Rule Builder", a 400 this file's plain
+// afterEach delete loop can't work around), so cleanup needs authorRule's own cleanup(), which
+// deletes the rule via asx_DeleteRule (a cascade over its owned graph) instead. Scoped to All
+// records (asx_ondemandscope=2) so creating the run below needs no record ids. Named
+// ZZ_RB_bindNav_runRule* (authorRule prefixes ZZ_RB_ automatically) so sweepRuleBehaviorOrphans
+// (ruleBehavior/sweep.ts, which every other live rule-behavior suite runs in its own beforeAll)
+// recovers this fixture's rule/group/condition/action if a run here is interrupted; the root
+// table-config node below shares that ZZ_RB_ prefix for the same reason (sweep.ts sweeps
+// asx_tableconfig by name prefix too).
+async function makeOnDemandRule(): Promise<{ ruleId: string; cleanup: () => Promise<void> }> {
+  const rootId = await api.createRecord(ENTITY_SET.tableConfig, {
+    asx_name: "ZZ_RB_bindNav_runRule_root",
+    asx_tablelogicalname: "sample_order",
+    asx_tableconfigtype: 1, // Root
+  });
+  const rule = await authorRule({
+    name: "bindNav_runRule", // -> ZZ_RB_bindNav_runRule
+    rootNodeId: rootId,
+    tableLogicalName: "sample_order",
+    triggers: "3", // On demand
+    onDemandScope: 2, // All records that pass its execution conditions: a run needs no record ids
+    conditions: [{ nodeId: rootId, conditionType: 1, column: "sample_ordertotal", operator: 10 /* IsNotNull */ }],
+    actions: [{ actionType: 3 /* ShowMessage */, fireOn: 1, message: "runRule bind check" }],
+  });
+  return {
+    ruleId: rule.ruleId,
+    cleanup: async () => {
+      await rule.cleanup(); // asx_DeleteRule cascade: the rule + its owned group/condition/action
+      await deleteDevRecord(ENTITY_SET.tableConfig, rootId).catch(() => {}); // not owned by the rule; shared models survive rule deletion
+    },
+  };
 }
 
 describe("BIND_NAV @odata.bind round-trips against DEV", () => {
@@ -316,4 +355,21 @@ describe("BIND_NAV @odata.bind round-trips against DEV", () => {
       },
     });
   });
+
+  it("runRule binds a rule run to its rule", async () => {
+    const fixture = await makeOnDemandRule();
+    try {
+      // roundTrip creates the asx_rulerun (tracked in `created`, deleted by the shared afterEach —
+      // a Rule Run isn't an owned-graph child of the rule, so a plain DELETE works), reads back
+      // _asx_rule_value, and asserts it resolved to the rule id.
+      await roundTrip({
+        label: "runRule",
+        set: ENTITY_SET.ruleRun, navProp: BIND_NAV.runRule, // PascalCase: asx_Rule
+        parentSet: ENTITY_SET.rule, parentId: fixture.ruleId,
+        lookupValueField: LOOKUP.ruleOfRun, // "_asx_rule_value"
+      });
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 30000);
 });

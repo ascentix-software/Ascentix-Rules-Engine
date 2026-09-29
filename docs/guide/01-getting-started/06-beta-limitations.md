@@ -149,7 +149,25 @@ The engine stores and renders localized rule messages, and each release is
 spot-checked on one non-English base-language org. Localization is not
 systematically verified across languages during the beta.
 
-## 15. The "apply inverse" flag is reserved
+## 15. On-demand Rule Run limits
+
+A Rule Run (*Administering → Running Rules On Demand*) processes at most **500
+records** or **60 seconds** per `asx_ProcessRunPage` call, whichever comes first,
+and keeps only its **first 50** Blocked/Failed records, each message cut to
+**1,000 characters**. A write that fails rolls its whole page back: one extra
+call records the failure, and the page is then processed again without that
+record, so a page with many failing writes is processed many times over and
+takes many calls to finish. A **Given records** run
+is capped at **250** record ids. A rule can have at most **one** run Queued or
+Running at a time; starting a second is refused until the first is cancelled or
+reaches a terminal status. An **All records** run's execution conditions are
+**not** pushed into the Dataverse query during the beta — the run reads the whole
+table, a page at a time, and relies on the execution conditions (evaluated
+per record, same as any other rule evaluation) to skip records it shouldn't
+touch, rather than a server-side pre-filter. Scope such a rule with a tight
+execution condition on a large table.
+
+## 16. The "apply inverse" flag is reserved
 
 The `asx_applyinversewhennotfired` column exists in the schema and is settable,
 on a Set Visible or Set Required action's classic form and through the API, but

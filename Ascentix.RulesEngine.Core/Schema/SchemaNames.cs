@@ -58,6 +58,7 @@ namespace Ascentix.RulesEngine.Schema
             public const string DraftStamp = "draftstamp";
             public const string DraftOf = "draftof";
             public const string DraftBaseVersion = "draftbaseversion";
+            public const string OnDemandScope = "ondemandscope";
         }
 
         public static class RuleRevision
@@ -74,6 +75,28 @@ namespace Ascentix.RulesEngine.Schema
         public static class PublicationLock
         {
             public const string Entity = "publicationlock";
+        }
+
+        /// <summary>An On demand run: one rule, processed page by page via asx_ProcessRunPage.</summary>
+        public static class RuleRun
+        {
+            public const string Entity = "rulerun";
+            public const string Name = "name";
+            public const string Rule = "rule";                  // lookup → rule
+            public const string Scope = "scope";                // asx_ondemandscope
+            public const string RecordIds = "recordids";
+            public const string Status = "status";              // asx_rulerunstatus
+            public const string Evaluated = "evaluated";
+            public const string Changed = "changed";
+            public const string Blocked = "blocked";
+            public const string Failed = "failed";
+            public const string Skipped = "skipped";
+            public const string Failures = "failures";
+            public const string Bookmark = "bookmark";
+            public const string RuleVersions = "ruleversions";
+            public const string StartedOn = "startedon";
+            public const string LastPageOn = "lastpageon";
+            public const string FinishedOn = "finishedon";
         }
 
         public static class TableConfig
@@ -209,6 +232,48 @@ namespace Ascentix.RulesEngine.Schema
             // Output parameters: must equal OutputParameters keys the handler writes.
             public const string PropIsValid = "IsValid";
             public const string PropIssues  = "Issues";
+        }
+
+        /// <summary>
+        /// asx_ApplyRules: unbound Action that evaluates one On demand rule against one record
+        /// and enforces it: a fired Block throws; otherwise the rule's fired writes are applied.
+        /// </summary>
+        public static class ApplyRulesApi
+        {
+            /// <summary>Custom API message / unique name (registered in Dataverse).</summary>
+            public const string MessageName = "ApplyRules";       // full: asx_ApplyRules
+
+            // Input parameters: must equal InputParameters keys the handler reads.
+            public const string ParamRuleId = "RuleId";
+            public const string ParamRecordId = "RecordId";
+
+            // Output parameters: must equal OutputParameters keys the handler writes.
+            public const string PropIsValid = "IsValid";
+            public const string PropResults = "Results";
+            public const string PropWriteCount = "WriteCount";
+        }
+
+        /// <summary>
+        /// asx_ProcessRunPage: unbound Action that advances one Rule Run by a page of records.
+        /// </summary>
+        public static class ProcessRunPageApi
+        {
+            /// <summary>Custom API message / unique name (registered in Dataverse).</summary>
+            public const string MessageName = "ProcessRunPage";   // full: asx_ProcessRunPage
+
+            // Input parameters: must equal InputParameters keys the handler reads.
+            public const string ParamRunId = "RunId";
+            public const string ParamFailedRecordId = "FailedRecordId";
+            public const string ParamFailedMessage = "FailedMessage";
+
+            // Output parameters: must equal OutputParameters keys the handler writes.
+            public const string PropDone = "Done";
+            public const string PropStatus = "Status";
+            public const string PropEvaluated = "Evaluated";
+            public const string PropChanged = "Changed";
+            public const string PropBlocked = "Blocked";
+            public const string PropFailed = "Failed";
+            public const string PropSkipped = "Skipped";
         }
 
         /// <summary>Relationship (schema) name fragments.</summary>

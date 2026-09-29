@@ -35,8 +35,8 @@ describe("dialog Fields keep naming their own controls through the OutsideField 
     expect(await screen.findByRole("textbox", { name: "Name" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Use an existing configuration" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Configuration" })).toBeInTheDocument();
-    // A trigger checkbox: hubActions.e2e checks "Manual" by name.
-    expect(screen.getByRole("checkbox", { name: "Manual" })).toBeInTheDocument();
+    // A trigger checkbox: hubActions.e2e checks "On demand" by name.
+    expect(screen.getByRole("checkbox", { name: "On demand" })).toBeInTheDocument();
   });
 
   it("NewConfigDialog: Name and Root table", async () => {

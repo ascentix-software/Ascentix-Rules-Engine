@@ -7,5 +7,9 @@
   "Ascentix.RulesEngine.Plugin.RulesEnginePlugin",
   "Ascentix.RulesEngine.Plugin.RunRulesApi",
   "Ascentix.RulesEngine.Plugin.SyncStepsApi",
-  "Ascentix.RulesEngine.Plugin.ValidateRuleApi"
+  "Ascentix.RulesEngine.Plugin.ValidateRuleApi",
+  "Ascentix.RulesEngine.Plugin.ApplyRulesApi",
+  "Ascentix.RulesEngine.Plugin.ProcessRunPageApi",
+  "Ascentix.RulesEngine.Plugin.RuleRunPlugin",
+  "Ascentix.RulesEngine.Plugin.RuleRunUpdatePlugin"
 ]

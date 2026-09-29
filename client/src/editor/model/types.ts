@@ -22,6 +22,11 @@ export interface RuleHeader {
   evaluationContext: number | null;
   /** Windows time zone id for date comparisons (asx_evaluationtimezone); null/absent = UTC. */
   evaluationTimeZone?: string | null;
+  /** Which records an On demand run processes (asx_ondemandscope); 1 = "a record it's given",
+   *  2 = "all records that pass its execution conditions". Meaningful only when triggers
+   *  includes ON_DEMAND; null/absent (optional like evaluationTimeZone above, so existing rule
+   *  literals need not be touched) defaults to 1. */
+  onDemandScope?: number | null;
   rootTableConfigId: string | null;
   /** Root-table column logical names that fire OnUpdate evaluation (asx_triggercolumns, JSON array). */
   triggerColumns: string[];

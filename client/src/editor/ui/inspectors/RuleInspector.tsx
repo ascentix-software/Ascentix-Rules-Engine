@@ -1,6 +1,6 @@
 import { Dropdown, Option, Input, Field, Badge } from "@fluentui/react-components";
 import type { RuleHeader } from "../../model/types";
-import { TRIGGER_OPTIONS, CHANNEL_OPTIONS, EVALUATION_CONTEXT_OPTIONS, triggerLabel, channelLabel } from "../../model/enums";
+import { TRIGGER_OPTIONS, CHANNEL_OPTIONS, EVALUATION_CONTEXT_OPTIONS, ON_DEMAND_SCOPE_OPTIONS, ON_DEMAND, triggerLabel, channelLabel } from "../../model/enums";
 import { TIME_ZONE_OPTIONS, UTC_OPTION, timeZoneLabel } from "../../model/timeZones";
 import { MultiColumnPicker } from "../pickers/MetadataPickers";
 import { EffectiveWindowFields } from "./EffectiveWindowFields";
@@ -28,6 +28,18 @@ export function RuleInspector({
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
         {rule.triggers.map((t) => <Badge key={t} appearance="tint">{triggerLabel(t)}</Badge>)}
       </div>
+
+      {rule.triggers.includes(ON_DEMAND) && (
+        <Field label="Runs for" hint="Which records the rule runs for when it's started on demand.">
+          <Dropdown
+            value={ON_DEMAND_SCOPE_OPTIONS.find((o) => o.value === (rule.onDemandScope ?? 1))?.label}
+            selectedOptions={[String(rule.onDemandScope ?? 1)]}
+            onOptionSelect={(_e, d) => onPatch({ onDemandScope: Number(d.optionValue) })}
+          >
+            {ON_DEMAND_SCOPE_OPTIONS.map((o) => <Option key={o.value} value={String(o.value)}>{o.label}</Option>)}
+          </Dropdown>
+        </Field>
+      )}
 
       <Field label="Channels (none = all)">
         <Dropdown multiselect

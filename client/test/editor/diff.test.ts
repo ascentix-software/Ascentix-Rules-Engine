@@ -286,6 +286,28 @@ describe("diffRuleGraph — rule fields", () => {
   });
 });
 
+describe("diffRuleGraph — asx_ondemandscope", () => {
+  it("a rule with trigger 3 (On demand) and scope 2 emits asx_ondemandscope: 2", () => {
+    const snap = baseGraph();
+    const w = patchRule(clone(snap), { triggers: [3], onDemandScope: 2 });
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_rule") as any;
+    expect(op.attrs.asx_ondemandscope).toBe(2);
+  });
+
+  it("a rule without trigger 3 and scope 2 emits asx_ondemandscope: 1 (the hidden option saves as the default)", () => {
+    const snap: RuleGraph = { ...baseGraph(), rule: { ...baseGraph().rule, onDemandScope: 2 } };
+    const w = clone(snap);
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_rule") as any;
+    expect(op.attrs.asx_ondemandscope).toBe(1);
+  });
+
+  it("an unchanged loaded rule (On demand ticked, scope already stored) emits no update", () => {
+    const snap: RuleGraph = { ...baseGraph(), rule: { ...baseGraph().rule, triggers: [3], onDemandScope: 2 } };
+    const w = clone(snap);
+    expect(diffRuleGraph(snap, w).some((o) => o.entity === "asx_rule")).toBe(false);
+  });
+});
+
 describe("diffRuleGraph — localized messages", () => {
   beforeEach(() => resetTempIds());
 

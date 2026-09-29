@@ -39,3 +39,23 @@ export async function runRules(
   const { tokenOverride, ...rest } = opts;
   return devOrg("user", tokenOverride ? { tokenOverride } : {}).runRules(tableName, rest);
 }
+
+// Enforcing one-record on-demand evaluation (docs/Schema.md §6): a fired Block throws, every
+// other fired write applies inside the call's own transaction. tokenOverride: same seam as above.
+export async function applyRules(
+  ruleId: string,
+  recordId: string,
+  tokenOverride?: string,
+): Promise<{ isValid: boolean; firedActions: any[]; writeCount: number }> {
+  return devOrg("user", tokenOverride ? { tokenOverride } : {}).applyRules(ruleId, recordId);
+}
+
+// Advances one Rule Run by a page (docs/Schema.md §7). `failed` is sent only on the call right
+// after a `asx_ProcessRunPage:record-failed:<guid>:<message>` error. tokenOverride: same seam as above.
+export async function processRunPage(
+  runId: string,
+  failed?: { recordId: string; message: string },
+  tokenOverride?: string,
+): Promise<{ done: boolean; status: number; evaluated: number; changed: number; blocked: number; failed: number; skipped: number }> {
+  return devOrg("user", tokenOverride ? { tokenOverride } : {}).processRunPage(runId, failed);
+}

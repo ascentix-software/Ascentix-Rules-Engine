@@ -6,12 +6,26 @@ export interface ApiIssue {
   target: { kind: string; id: string; field?: string };
 }
 
+/** Camel-cased outputs of the asx_ProcessRunPage Custom API (docs/Schema.md §7). */
+export interface RunPageResult {
+  done: boolean;
+  status: number;
+  evaluated: number;
+  changed: number;
+  blocked: number;
+  failed: number;
+  skipped: number;
+}
+
 // Thin port over the read operations the editor needs. All editor load logic
 // depends on this interface, never on Xrm directly, so it is mockable in tests.
 export interface WebApiPort {
   retrieveRecord(entity: string, id: string, options?: string): Promise<any>;
   retrieveMultipleRecords(entity: string, options?: string): Promise<{ entities: any[] }>;
   createRecord(entity: string, data: Record<string, any>): Promise<string>;
+  updateRecord(entitySet: string, id: string, data: Record<string, unknown>): Promise<void>;
+  /** Call asx_ProcessRunPage and return the camel-cased result (docs/Schema.md §7). */
+  processRunPage(runId: string, failed?: { recordId: string; message: string }): Promise<RunPageResult>;
   /** Call asx_ValidateRule and return the parsed verdict. */
   validateRule(ruleId: string): Promise<{ isValid: boolean; issues: ApiIssue[]; draftHash?: string }>;
   /** PATCH the rule's statuscode to Published (753840000). */
@@ -34,6 +48,15 @@ function resolveXrm(): any {
 }
 
 const API_VERSION = "v9.2";
+
+// Shared headers for a raw PATCH against the Web API (used by patchStatus and updateRecord).
+const PATCH_HEADERS = {
+  "Content-Type": "application/json; charset=utf-8",
+  Accept: "application/json",
+  "OData-MaxVersion": "4.0",
+  "OData-Version": "4.0",
+  "If-Match": "*",
+} as const;
 
 export interface BatchApi {
   getClientUrl(): string;
@@ -60,6 +83,33 @@ export function createWebApiPort(): EditorApi {
     createRecord: async (entity, data) => {
       const r = await xrm.WebApi.createRecord(entity, data);
       return String(r.id).replace(/[{}]/g, "");
+    },
+    async updateRecord(entitySet, id, data) {
+      const res = await fetch(`${base}/api/data/${API_VERSION}/${entitySet}(${id})`, {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: PATCH_HEADERS,
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const raw = await res.json().catch(() => null);
+        throw new Error(raw?.error?.message ?? `updateRecord PATCH failed (${res.status})`);
+      }
+    },
+    async processRunPage(runId, failed) {
+      const raw = await revisionRequest(base, "asx_ProcessRunPage", {
+        RunId: runId,
+        ...(failed ? { FailedRecordId: failed.recordId, FailedMessage: failed.message } : {}),
+      });
+      return {
+        done: !!raw.Done,
+        status: raw.Status,
+        evaluated: raw.Evaluated,
+        changed: raw.Changed,
+        blocked: raw.Blocked,
+        failed: raw.Failed,
+        skipped: raw.Skipped,
+      };
     },
     getClientUrl: () => base,
     async fetchJson(path) {
@@ -124,13 +174,7 @@ async function patchStatus(base: string, op: string, ruleId: string, statuscode:
   const res = await fetch(`${base}/api/data/${API_VERSION}/asx_rules(${ruleId})`, {
     method: "PATCH",
     credentials: "same-origin",
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      Accept: "application/json",
-      "OData-MaxVersion": "4.0",
-      "OData-Version": "4.0",
-      "If-Match": "*",
-    },
+    headers: PATCH_HEADERS,
     body: JSON.stringify({ statuscode }),
   });
   if (!res.ok) { const raw = await res.json().catch(() => null); throw new Error(`${op} PATCH failed (${res.status}): ${raw?.error?.message ?? "Request failed"}`); }

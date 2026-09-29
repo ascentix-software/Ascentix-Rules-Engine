@@ -4,7 +4,7 @@ import {
   Input,
   Dialog, DialogSurface, DialogBody, DialogTitle, DialogContent, DialogActions,
 } from "@fluentui/react-components";
-import { Edit16Regular } from "@fluentui/react-icons";
+import { Edit16Regular, Play16Regular, History16Regular } from "@fluentui/react-icons";
 import { AppProvider } from "./AppProvider";
 import { formatError } from "./errors";
 import { ScreenShell } from "./ScreenShell";
@@ -46,6 +46,9 @@ import { recoveryKey, useRuleRecovery } from "./useRuleRecovery";
 import { ReviewChangesDialog } from "./ReviewChangesDialog";
 import { reserveTempIds } from "../model/ids";
 import { loadPublishedGraph } from "../load/publishedGraph";
+import { canRunNow, RunNowDialog } from "../runs/RunNowDialog";
+import { RunsDialog } from "../runs/RunsDialog";
+import { executionConditionNames } from "../runs/runsData";
 
 const clone = (g: RuleGraph): RuleGraph => JSON.parse(JSON.stringify(g));
 // Deterministic-enough unique ids for batch/changeset boundaries.
@@ -107,6 +110,12 @@ export function RuleEditorApp({
   const [nameDraft, setNameDraft] = React.useState("");
   const [panelOpen, setPanelOpen] = React.useState(false);
   const [unpublishOpen, setUnpublishOpen] = React.useState(false);
+  const [runNowRule, setRunNowRule] = React.useState<{
+    id: string; name: string; table: string; scope: number; executionConditions: string[];
+  } | null>(null);
+  const [loadingRunNow, setLoadingRunNow] = React.useState(false);
+  const [runsOpen, setRunsOpen] = React.useState(false);
+  const [publishedTriggers, setPublishedTriggers] = React.useState<number[] | null>(null);
   const [validationResult, setValidationResult] = React.useState<{
     isValid: boolean; issues: ApiIssue[]; draftHash?: string;
   } | null>(null);
@@ -286,6 +295,54 @@ export function RuleEditorApp({
     finally { setBusy(false); }
   }
 
+  // The Run now dialog must describe what actually runs — the PUBLISHED definition,
+  // not the draft being edited — so load it the same way "View published" (onViewPublished,
+  // above) does; fall back to the working graph if that load fails (or the port can't read
+  // published rules). Also uses activeRuleId, the rule id the run itself must be created
+  // against: RuleRunPlugin/OnDemandRules.Resolve only resolve Published rules, and while a
+  // draft is open working.rule.id is the DRAFT's id, not the published one.
+  // Run now is offered from the PUBLISHED triggers, as the hub does: with a draft open, the
+  // draft's triggers may not be what's enforced (it can add or drop On demand). Loaded once
+  // per published revision; until it loads, or if it can't, the published view (when shown)
+  // or the working graph stands in. Without a draft, the working graph is the published one.
+  const activeRuleId = working.rule.activeRuleId;
+  const publishedRevisionId = working.rule.publishedRevisionId;
+  React.useEffect(() => {
+    setPublishedTriggers(null);
+    const read = api.readPublishedRule;
+    if (!activeRuleId || !(published || publishedRevisionId) || !read) return;
+    let live = true;
+    (async () => {
+      try {
+        const graph = await loadPublishedGraph(await read(activeRuleId), activeRuleId);
+        if (live) setPublishedTriggers(graph.rule.triggers);
+      } catch {
+        // keep the fallback below
+      }
+    })();
+    return () => { live = false; };
+  }, [api, activeRuleId, publishedRevisionId, published]);
+  const runNowTriggers = publishedTriggers ?? publishedView?.rule.triggers ?? working.rule.triggers;
+
+  async function onOpenRunNow() {
+    setLoadingRunNow(true);
+    const activeId = working.rule.activeRuleId ?? working.rule.id;
+    let scope = working.rule.onDemandScope ?? 1;
+    let executionConditions = executionConditionNames(displayed);
+    try {
+      if (api.readPublishedRule) {
+        const publishedGraph = await loadPublishedGraph(await api.readPublishedRule(activeId), activeId);
+        scope = publishedGraph.rule.onDemandScope ?? 1;
+        executionConditions = executionConditionNames(publishedGraph);
+        if (working.rule.activeRuleId) setPublishedTriggers(publishedGraph.rule.triggers);
+      }
+    } catch {
+      // fall back to the working graph's values already assigned above
+    }
+    setRunNowRule({ id: activeId, name: working.rule.name, table: working.rule.tableLogicalName, scope, executionConditions });
+    setLoadingRunNow(false);
+  }
+
   async function onRestoreDraft() {
     setRestoreOpen(false);
     if (!api.restoreRuleDraft) return;
@@ -433,6 +490,16 @@ export function RuleEditorApp({
                   >
                     Unpublish
                   </Button>
+                  {canRunNow(serverStatus, runNowTriggers) && (
+                    <Button icon={<Play16Regular />} disabled={busy || loadingRunNow} onClick={onOpenRunNow}>
+                      Run now
+                    </Button>
+                  )}
+                  {(published || !!working.rule.publishedRevisionId) && (
+                    <Button icon={<History16Regular />} disabled={busy} onClick={() => setRunsOpen(true)}>
+                      Runs
+                    </Button>
+                  )}
                 </div>
               }
             />
@@ -505,6 +572,17 @@ export function RuleEditorApp({
             onConfirm={onUnpublish}
           />
           <ReviewChangesDialog open={reviewOpen} snapshot={snapshot} working={working} onClose={() => setReviewOpen(false)} />
+          {runNowRule && (
+            <RunNowDialog open={!!runNowRule} api={api} rule={runNowRule} onClose={() => setRunNowRule(null)} />
+          )}
+          <RunsDialog
+            open={runsOpen}
+            api={api}
+            ruleId={working.rule.activeRuleId ?? working.rule.id}
+            ruleName={working.rule.name}
+            table={working.rule.tableLogicalName}
+            onClose={() => setRunsOpen(false)}
+          />
           <Dialog open={restoreOpen} onOpenChange={(_e, d) => setRestoreOpen(d.open)}><DialogSurface><DialogBody>
             <DialogTitle>Restore the published version to your draft?</DialogTitle>
             <DialogContent>This replaces saved and unsaved draft changes, including its data model, with a private copy of the published revision. The published rule and other rules keep enforcing unchanged.</DialogContent>

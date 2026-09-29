@@ -34,7 +34,7 @@ namespace Ascentix.RulesEngine.Plugin
             if (string.IsNullOrWhiteSpace(tableName))
                 throw new InvalidPluginExecutionException("asx_ReadRules: TableName is required.");
 
-            var trigger = ParseTrigger(GetString(context, "Triggers"));
+            var trigger = TriggerNames.Parse(GetString(context, "Triggers"), "asx_ReadRules", RuleTrigger.OnForm);
 
             var languageId = LanguageResolver.Resolve(systemService, context.InitiatingUserId);
             var context2 = localPluginContext.PluginExecutionContext2;
@@ -81,16 +81,5 @@ namespace Ascentix.RulesEngine.Plugin
 
         private static string GetString(IPluginExecutionContext context, string name)
             => context.InputParameters.TryGetValue(name, out var v) ? v as string : null;
-
-        // Default OnForm; case-insensitive; unknown → argument error.
-        private static RuleTrigger ParseTrigger(string raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw)) return RuleTrigger.OnForm;
-            if (Enum.TryParse<RuleTrigger>(raw.Trim(), ignoreCase: true, out var trigger))
-                return trigger;
-            throw new InvalidPluginExecutionException(
-                $"asx_ReadRules: unknown Triggers value '{raw}'. Expected one of " +
-                "OnCreate, OnForm, Manual, OnUpdate, OnDelete.");
-        }
     }
 }

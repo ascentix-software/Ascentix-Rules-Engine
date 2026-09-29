@@ -360,5 +360,39 @@ export function devOrg(identity = "user", opts = {}) {
     };
   }
 
-  return { identity, url, token, tokenSync, request, api, updateRecord, deleteRecord, runRules };
+  // Enforcing one-record on-demand evaluation via asx_ApplyRules (docs/Schema.md §6). Unlike
+  // runRules, a fired Block throws and every other fired write is applied inside the call's own
+  // transaction. RuleId/RecordId ∈ On demand rule id / an existing record of its table.
+  async function applyRules(ruleId, recordId) {
+    const r = await request("POST", "asx_ApplyRules", { RuleId: ruleId, RecordId: recordId });
+    if (!r.ok) throw shapeError("asx_ApplyRules", r.status, r.text);
+    const raw = r.json ?? {};
+    return {
+      isValid: raw.IsValid ?? true,
+      firedActions: raw.Results ? JSON.parse(raw.Results) : [],
+      writeCount: raw.WriteCount ?? 0,
+    };
+  }
+
+  // Advances one Rule Run by a page via asx_ProcessRunPage (docs/Schema.md §7). `failed` is sent
+  // only on the call right after a `asx_ProcessRunPage:record-failed:<guid>:<message>` error.
+  async function processRunPage(runId, failed) {
+    const body = { RunId: runId };
+    if (failed?.recordId) body.FailedRecordId = failed.recordId;
+    if (failed?.message !== undefined) body.FailedMessage = failed.message;
+    const r = await request("POST", "asx_ProcessRunPage", body);
+    if (!r.ok) throw shapeError("asx_ProcessRunPage", r.status, r.text);
+    const raw = r.json ?? {};
+    return {
+      done: !!raw.Done,
+      status: raw.Status,
+      evaluated: raw.Evaluated ?? 0,
+      changed: raw.Changed ?? 0,
+      blocked: raw.Blocked ?? 0,
+      failed: raw.Failed ?? 0,
+      skipped: raw.Skipped ?? 0,
+    };
+  }
+
+  return { identity, url, token, tokenSync, request, api, updateRecord, deleteRecord, runRules, applyRules, processRunPage };
 }

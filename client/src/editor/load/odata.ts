@@ -9,6 +9,10 @@ export const ENTITY = {
   localizedMessage: "asx_localizedmessage",
   nodeFilterGroup: "asx_nodefiltergroup",
   nodeFilterCriterion: "asx_nodefiltercriterion",
+  // asx_rulerun (docs/Schema.md §2.13): Xrm.WebApi's retrieveRecord / retrieveMultipleRecords /
+  // createRecord all take the table's LOGICAL name, unlike ENTITY_SET below (the plural
+  // collection name used for @odata.bind targets and raw Web API PATCH URLs).
+  ruleRun: "asx_rulerun",
 } as const;
 
 export const LOOKUP = {
@@ -30,6 +34,9 @@ export const LOOKUP = {
   // the GROUP (the sub-filter's root); collection-node is on the CRITERION (Exists target).
   filterGroupOwningCriterion: "_asx_owningcriterion_value",
   filterCriterionCollectionNode: "_asx_collectionnode_value",
+  // asx_rulerun.asx_rule (docs/Schema.md §2.13): same Web API lookup-value field name as every
+  // other "asx_rule" attribute above, just on a different owning entity.
+  ruleOfRun: "_asx_rule_value",
 } as const;
 
 export const NAV = {
@@ -43,7 +50,7 @@ export const NAV = {
 
 export const RULE_SELECT =
   "asx_ruleid,asx_name,asx_tablelogicalname,statuscode,_asx_publishedrevision_value,asx_publishedversion,_asx_draftof_value," +
-  "asx_triggers,asx_channels,asx_effectivefrom,asx_effectiveto,asx_evaluationcontext,asx_evaluationtimezone,asx_triggercolumns," +
+  "asx_triggers,asx_channels,asx_effectivefrom,asx_effectiveto,asx_evaluationcontext,asx_evaluationtimezone,asx_triggercolumns,asx_ondemandscope," +
   LOOKUP.ruleOfTableConfig;
 export const GROUP_SELECT =
   "asx_conditiongroupid,asx_name,asx_logicaloperator,asx_isexecutioncondition," +
@@ -83,6 +90,7 @@ export const ENTITY_SET = {
   localizedMessage: "asx_localizedmessages",
   nodeFilterGroup: "asx_nodefiltergroups",
   nodeFilterCriterion: "asx_nodefiltercriterions",
+  ruleRun: "asx_ruleruns",
 } as const;
 
 // @odata.bind navigation-property names. The referencing-side navigation
@@ -116,4 +124,9 @@ export const BIND_NAV = {
   // lowercase lookups above.
   filterCriterionCollectionNode: "asx_collectionnode",
   filterGroupOwningCriterion: "asx_owningcriterion",
+  // asx_rulerun.asx_rule: provisioned by EnsureLookup with SchemaName "asx_Rule"
+  // (pipelines/Configure-RuleAuthoring.ps1) and no ReferencingEntityNavigationPropertyName
+  // override, so the nav property is PascalCased, unlike the plain-lowercase asx_rule lookups
+  // on asx_conditiongroup/asx_ruleaction above. Round-tripped by bindNav.dev.test.ts.
+  runRule: "asx_Rule",
 } as const;

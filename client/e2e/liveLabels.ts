@@ -54,7 +54,7 @@ export const CHOICE = {
   severity: { information: "Information", warning: "Warning", error: "Error" },
   channel: { standard: "Standard", portal: "Portal" },
   trigger: {
-    onCreate: "On Create", onForm: "On Form", manual: "Manual",
+    onCreate: "On Create", onForm: "On Form", manual: "On demand",
     onUpdate: "On Update", onDelete: "On Delete",
   },
 } as const;

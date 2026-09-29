@@ -26,43 +26,6 @@ namespace Ascentix.RulesEngine.Tests
     {
         private static string Q(string f) => SchemaNames.Qualify(f);
 
-        // ── Fake message executor: answers RetrieveEntityRequest for "task" ─────
-
-        /// <summary>
-        /// Implements IFakeMessageExecutor so XrmFakedContext intercepts
-        /// RetrieveEntityRequest for "task" and returns attribute metadata
-        /// (subject → String), enabling literal coercion inside the runner.
-        /// </summary>
-        private sealed class TaskMetadataExecutor : IFakeMessageExecutor
-        {
-            public bool CanExecute(OrganizationRequest request)
-                => request is RetrieveEntityRequest req && req.LogicalName == "task";
-
-            public Type GetResponsibleRequestType() => typeof(RetrieveEntityRequest);
-
-            public OrganizationResponse Execute(OrganizationRequest request, XrmFakedContext ctx)
-            {
-                var subjectAttr = new StringAttributeMetadata { LogicalName = "subject" };
-                var entityMeta = new EntityMetadata { LogicalName = "task" };
-
-                // Inject Attributes via reflection (setters are sealed in the SDK).
-                var attrsProp = typeof(EntityMetadata).GetProperty("Attributes");
-                if (attrsProp != null)
-                    attrsProp.SetValue(entityMeta, new AttributeMetadata[] { subjectAttr });
-                else
-                {
-                    var field = typeof(EntityMetadata).GetField("_attributes",
-                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    field?.SetValue(entityMeta, new AttributeMetadata[] { subjectAttr });
-                }
-
-                return new RetrieveEntityResponse
-                {
-                    Results = new ParameterCollection { { "EntityMetadata", entityMeta } }
-                };
-            }
-        }
-
         // ── Seed data ────────────────────────────────────────────────────────────
 
         /// <summary>
@@ -141,7 +104,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var ctx = new XrmFakedContext();
             ctx.Initialize(Seed());
-            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new TaskMetadataExecutor());
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("task", new StringAttributeMetadata { LogicalName = "subject" }));
 
             var target = new Entity("account", Guid.NewGuid()) { ["name"] = "Acme Corp" };
 
@@ -162,7 +125,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var ctx = new XrmFakedContext();
             ctx.Initialize(Seed());
-            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new TaskMetadataExecutor());
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("task", new StringAttributeMetadata { LogicalName = "subject" }));
 
             var target = new Entity("account", Guid.NewGuid()) { ["name"] = "Acme Corp" };
 
@@ -182,7 +145,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var ctx = new XrmFakedContext();
             ctx.Initialize(Seed());
-            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new TaskMetadataExecutor());
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("task", new StringAttributeMetadata { LogicalName = "subject" }));
 
             var target = new Entity("account", Guid.NewGuid()) { ["name"] = "Acme Corp" };
 

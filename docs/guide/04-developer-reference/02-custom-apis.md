@@ -7,9 +7,9 @@ slug: custom-apis
 
 # Custom APIs
 
-The engine exposes four **unbound Dataverse Custom APIs** for integrating with rules
+The engine exposes seven **unbound Dataverse Custom APIs** for integrating with rules
 outside the built-in save enforcement and form behavior described in *How Rules Run*.
-All four are callable through the standard Dataverse Web API
+All seven are callable through the standard Dataverse Web API
 (`Xrm.WebApi.online.execute` from client code, or a plain HTTP request from a
 server-side integration), and none requires a custom output table. Results come back
 as JSON in the response parameters.
@@ -59,9 +59,10 @@ model but no check in this version emits it. `code` is a stable machine token;
 
 Evaluates the rules engine against a single record (saved, unsaved, or a mix of
 both) and reports back every action that fired, without writing anything or
-enforcing anything. This is the **Manual** trigger's API described in *How Rules
-Run*, and what the client form library round-trips to for every rule it
-evaluates on a form. See *Client Form Library*.
+enforcing anything. This is the **On demand** trigger's dry-run API described in
+*How Rules Run*, and what the client form library round-trips to for every rule
+it evaluates on a form. See *Client Form Library*. For the **enforcing**
+on-demand path, see `asx_ApplyRules` below.
 
 **Request**
 
@@ -70,7 +71,7 @@ evaluates on a form. See *Client Form Library*.
 | `TableName` | String | No | Logical name of the record's table |
 | `RecordId` | String | Yes | GUID of an existing record |
 | `RecordJson` | String | Yes | Unsaved field values as a flat JSON object `{ "<logicalname>": <value> }` |
-| `Triggers` | String | Yes | Single trigger name; defaults to `Manual` |
+| `Triggers` | String | Yes | Single trigger name; defaults to `Manual`. Both `OnDemand` and the older `Manual` name are accepted for trigger value 3 (*Triggers & Channels*) |
 | `IncludeDiagnostics` | Boolean | Yes | When `true`, the response also carries `Diagnostics` (timings and fetch counts for this evaluation). Default `false` |
 
 At least one of `RecordId` / `RecordJson` is required. Supplying both retrieves the
@@ -133,6 +134,145 @@ for support conversations and your own sizing against the *Beta Limitations* bud
 `stages` are the engine's internal phases; the names may change between releases, so
 treat them as labels, not an API. `nodes` is one entry per traversed configuration
 node. The numbers are server-side evaluation cost only, not end-user save latency.
+
+## `asx_ApplyRules`: enforcing on-demand evaluation
+
+Evaluates one **On demand** rule against one persisted record and, unlike
+`asx_RunRules`, **enforces** the result: a fired `Block` throws, and every other
+fired write action runs inside the call's own transaction. It's what a script or
+a command button calls directly for a single record (see the recipe below).
+**Run now** doesn't call it: Run now creates a Rule Run and drives it with
+`asx_ProcessRunPage` (below), even for one record.
+
+**Request**
+
+| Parameter | Type | Optional | Notes |
+|---|---|---|---|
+| `RuleId` | Guid | No | The On demand rule to evaluate; must be Published with the On demand trigger |
+| `RecordId` | Guid | No | An existing record of the rule's table; for a User-context rule, one the caller can read |
+
+**Response**
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `IsValid` | Boolean | `true` when no `Block` action fired |
+| `Results` | String | JSON array of every fired action, in the `asx_RunRules` `Results` shape above |
+| `WriteCount` | Integer | Number of write actions applied |
+
+Calling it requires the **Rule Run Create** privilege (`prvCreateasx_RuleRun`),
+the same gate as starting a Rule Run; *Running Rules On Demand* lists the rest of
+what running rules needs. A record that doesn't exist, or that a User-context
+rule's caller can't read, is refused: "Record … was not found in …, or you can't
+read it." The rule's **Runs for** setting doesn't restrict `asx_ApplyRules`: it's
+allowed against a rule scoped either way, since it always targets exactly one
+record.
+
+## `asx_ProcessRunPage`: advance a Rule Run
+
+Processes the next page of an existing Rule Run (`asx_rulerun`), driven from
+**outside** Dataverse by repeated calls so every page starts fresh. **Run now**
+and the **Runs** dialog (*Running Rules On Demand*) call this in a loop; a flow
+or an integration can call it the same way (see the recipe below).
+
+**Request**
+
+| Parameter | Type | Optional | Notes |
+|---|---|---|---|
+| `RunId` | Guid | No | The Rule Run to process |
+| `FailedRecordId` | Guid | Yes | The record named by the previous call's record-failed error (see below); the call only counts it Failed once |
+| `FailedMessage` | String | Yes | The message from that error, stored on the run; default `"The write failed."` |
+
+**Response**
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `Done` | Boolean | `true` when the run has no further pages to process |
+| `Status` | Integer | Current `asx_status` of the run: Queued (1), Running (2), Completed (3), Completed with failures (4), Failed (5), Cancelled (6) |
+| `Evaluated` / `Changed` / `Blocked` / `Failed` / `Skipped` | Integer | Running totals as of this page (see *Running Rules On Demand*) |
+
+If the run isn't Queued or Running (it already reached a terminal status, or was
+Cancelled), the call returns `Done = true` with that status and does nothing.
+Otherwise it processes up to **500 records** or **60 seconds**, whichever comes
+first, then saves its progress and returns. Calling it needs the same privileges
+as `asx_ApplyRules`. Two callers driving the same run take turns: each call locks
+the run while it works, so the second one continues from what the first saved.
+
+**Retrying a failed write.** A write that throws fails the whole call with an
+error whose message contains the marker
+`asx_ProcessRunPage:record-failed:<record guid>:<message>` (Dataverse may wrap it
+in a longer message, so search for the marker rather than expecting it at the
+start), and the platform rolls that call back — no writes and no run update from
+it are kept. Call again with `FailedRecordId` and `FailedMessage` set from that
+marker: that call **only** records the failure (the record is counted Evaluated
+and Failed once, the message cut to 1,000 characters, and both kept among the
+run's first 50 recorded failures) and returns, without processing further
+records. The next call,
+made **without** `FailedRecordId`, resumes normal processing, skipping the
+records already reported this way. Send `FailedRecordId` only on the call right
+after a record-failed error — any other error means stop and try again later;
+the run stays Queued or Running and resumes from its bookmark.
+
+```http
+POST /api/data/v9.2/asx_ProcessRunPage
+Content-Type: application/json
+
+{"RunId":"00000000-0000-0000-0000-000000000000"}
+```
+
+```json
+{ "Done": false, "Status": 2, "Evaluated": 500, "Changed": 210, "Blocked": 4, "Failed": 0, "Skipped": 286 }
+```
+
+### Recipe: a command button that runs a rule for the open record
+
+A ribbon or command-bar button calling `asx_ApplyRules` against whatever record
+is open, using `Xrm.WebApi.online.execute`:
+
+```javascript
+async function runRuleForRecord(ruleId, recordId) {
+  const request = {
+    RuleId: ruleId,
+    RecordId: recordId,
+    getMetadata: () => ({
+      boundParameter: null,
+      parameterTypes: {
+        RuleId: { typeName: "Edm.Guid", structuralProperty: 1 },
+        RecordId: { typeName: "Edm.Guid", structuralProperty: 1 },
+      },
+      operationType: 0, // Action
+      operationName: "asx_ApplyRules",
+    }),
+  };
+  try {
+    const response = await Xrm.WebApi.online.execute(request);
+    const result = await response.json();
+    console.log(`Applied: ${result.WriteCount} write(s).`);
+  } catch (error) {
+    // A fired Block throws here with the rendered block message.
+    Xrm.Navigation.openAlertDialog({ text: error.message });
+  }
+}
+```
+
+### Recipe: a flow that runs a rule for every matching record
+
+A cloud flow that starts a Rule Run and drives it to completion:
+
+1. **Create a row** — table `Rule Runs` (`asx_rulerun`), with `Rule`
+   (`asx_Rule@odata.bind`, note the capital `R`) set to the rule, and — for a
+   rule scoped to **a record it's given** — `Record Ids` (`asx_recordids`) set to
+   a JSON array of the record ids to run it for.
+2. **Initialize variable** `Done` = `false`.
+3. **Do until** `Done` is `true`:
+   1. **Perform an unbound action** — `asx_ProcessRunPage`, `RunId` = the row
+      created in step 1. On failure, check whether the error message contains
+      `asx_ProcessRunPage:record-failed:`; if it does, parse out the record guid
+      and the message and call `asx_ProcessRunPage` again with `FailedRecordId`
+      / `FailedMessage` set, then loop back to the top of **Do until** without
+      setting `Done` (so the next iteration retries the page). Any other failure
+      should end the flow — the run stays Queued or Running and can be resumed
+      by running this flow (or **Resume** in the Runs dialog) again later.
+   2. **Set variable** `Done` = the action's `Done` output.
 
 ## `asx_ReadRules`: runtime projection
 

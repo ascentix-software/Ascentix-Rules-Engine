@@ -75,8 +75,8 @@ export async function loadConfigGraph(api: WebApiPort, recordId: string): Promis
     rule: {
       id: CONFIG_RULE_SENTINEL_ID, name: "", tableLogicalName: root?.tableLogicalName ?? "",
       statusCode: null, etag: null, triggers: [], channels: [],
-      effectiveFrom: null, effectiveTo: null, evaluationContext: null, rootTableConfigId: rootId,
-      triggerColumns: [],
+      effectiveFrom: null, effectiveTo: null, evaluationContext: null, onDemandScope: null,
+      rootTableConfigId: rootId, triggerColumns: [],
     },
     executionGroups: [], validationGroups: [], actions: [], tableConfigs,
   };

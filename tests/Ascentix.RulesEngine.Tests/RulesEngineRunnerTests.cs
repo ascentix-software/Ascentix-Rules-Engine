@@ -33,7 +33,7 @@ namespace Ascentix.RulesEngine.Tests
                 [Q(SchemaNames.Rule.TableLogicalName)] = "account",
                 ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
                 [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
-                    new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.Manual) }),
+                    new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnDemand) }),
             };
             if (ctx.HasValue)
                 rule[Q(SchemaNames.Rule.EvaluationContext)] = new OptionSetValue((int)ctx.Value);
@@ -73,7 +73,7 @@ namespace Ascentix.RulesEngine.Tests
                 userService: service,
                 logicalName: "account",
                 inputs: new List<RootInput> { new RootInput { Id = overlay.Id, Overlay = overlay } },
-                trigger: RuleTrigger.Manual,
+                trigger: RuleTrigger.OnDemand,
                 channel: RuleChannel.Standard,
                 languageId: 1033,
                 buildMode: RootBuildMode.UseTarget,
@@ -183,7 +183,7 @@ namespace Ascentix.RulesEngine.Tests
             var outcome = new RulesEngineRunner().Run(
                 service, service, "account",
                 new List<RootInput> { new RootInput { Id = overlay.Id, Overlay = overlay } },
-                RuleTrigger.Manual, RuleChannel.Standard, 1033, RootBuildMode.UseTarget,
+                RuleTrigger.OnDemand, RuleChannel.Standard, 1033, RootBuildMode.UseTarget,
                 new XrmFakedTracingService(), new DateTime(2026, 9, 26, 12, 0, 0, DateTimeKind.Utc));
 
             Assert.True(outcome.IsValid);
@@ -208,7 +208,7 @@ namespace Ascentix.RulesEngine.Tests
             RuleEvaluationOutcome RunAt(DateTime utcNow) => new RulesEngineRunner().Run(
                 service, service, "account",
                 new List<RootInput> { new RootInput { Id = overlay.Id, Overlay = overlay } },
-                RuleTrigger.Manual, RuleChannel.Standard, 1033, RootBuildMode.UseTarget,
+                RuleTrigger.OnDemand, RuleChannel.Standard, 1033, RootBuildMode.UseTarget,
                 new XrmFakedTracingService(), utcNow);
 
             Assert.True(RunAt(new DateTime(2026, 9, 26, 12, 0, 0, DateTimeKind.Utc)).IsValid);

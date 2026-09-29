@@ -213,6 +213,7 @@ export interface ActionCfg {
   targetNodeId?: string; // Update/Delete: asx_TargetNode @odata.bind (single-cardinality node)
   fieldMapping?: string; // Create/Update: asx_fieldmapping JSON string
   applyToPrevious?: boolean; // Update Record: asx_applytoprevious
+  order?: number; // asx_order: dispatch order among the actions that fire (default 1)
 }
 
 export interface RuleConfig {
@@ -223,12 +224,14 @@ export interface RuleConfig {
   channels?: number[]; // asx_channels (1 Standard | 2 Portal); empty/omitted ⇒ all channels
   groupOp?: number; // 1 And (default) | 2 Or
   conditions: ConditionCfg[];
+  executionConditions?: ConditionCfg[]; // rule gate (asx_isexecutioncondition=true), its own group evaluated before `conditions` (docs/Schema.md §2.3)
   actions: ActionCfg[];
   publish?: boolean; // default true; false leaves the rule Draft (e2e specs publish via the UI)
   requireValid?: boolean; // default true; false skips the asx_ValidateRule gate (e2e invalid-rule fixtures)
   settleProbe?: () => Promise<boolean>; // post-publish enforcement settle (see awaitEnforcement)
   evaluationContext?: number; // asx_evaluationcontext: 1 User (default) | 2 System
   evaluationTimeZone?: string; // asx_evaluationtimezone: Windows time zone id (blank = UTC)
+  onDemandScope?: number; // asx_ondemandscope: 1 Given record (default) | 2 All records that pass its execution conditions; On demand rules only
 }
 
 // Enforcement settle: repeat a sacrificial violating probe until the block is observed (the
@@ -256,35 +259,14 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
   const api = createDevApi();
   const created: TrackedRecord[] = [];
 
-  try {
-    const ruleName = cfg.name.startsWith("ZZ_RB_") ? cfg.name : `ZZ_RB_${cfg.name}`;
-
-    const ruleId = await api.createRecord(ENTITY_SET.rule, {
-      asx_name: ruleName,
-      asx_tablelogicalname: cfg.tableLogicalName ?? "sample_order",
-      // No statuscode here: the rule is born Draft, exactly like the editor's createRule
-      // (client/src/editor/save/operations.ts). Published happens later via publishRule below.
-      asx_triggers: cfg.triggers ?? "1,2,4",
-      // Multi-select choice: Web API wants a comma-separated string of the int values. Empty ⇒ omit ⇒ all channels.
-      ...(cfg.channels && cfg.channels.length ? { asx_channels: cfg.channels.join(",") } : {}),
-      ...(cfg.evaluationContext ? { asx_evaluationcontext: cfg.evaluationContext } : {}),
-      ...(cfg.evaluationTimeZone ? { asx_evaluationtimezone: cfg.evaluationTimeZone } : {}),
-      [`${BIND_NAV.ruleRootTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${cfg.rootNodeId})`,
-    });
-    created.push({ set: ENTITY_SET.rule, id: ruleId });
-
-    const groupId = await api.createRecord(ENTITY_SET.group, {
-      asx_name: `${ruleName}_g`,
-      asx_logicaloperator: cfg.groupOp ?? 1, // And
-      asx_isexecutioncondition: false,
-      [`${BIND_NAV.groupRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})`,
-    });
-    created.push({ set: ENTITY_SET.group, id: groupId });
-
-    for (let i = 0; i < cfg.conditions.length; i++) {
-      const c = cfg.conditions[i];
+  // Creates one asx_rulecondition (+ any node filter) per entry in `conditions`, all parented to
+  // `groupId`, named `${namePrefix}<n>`. Shared by the validation group and an optional
+  // execution-condition gate group (RuleConfig.executionConditions) below.
+  async function addConditions(groupId: string, conditions: ConditionCfg[], namePrefix: string): Promise<void> {
+    for (let i = 0; i < conditions.length; i++) {
+      const c = conditions[i];
       const data: Record<string, unknown> = {
-        asx_name: `${ruleName}_c${i + 1}`,
+        asx_name: `${namePrefix}${i + 1}`,
         asx_conditiontype: c.conditionType,
         [`${BIND_NAV.conditionGroup}@odata.bind`]: `/${ENTITY_SET.group}(${groupId})`,
         [`${BIND_NAV.conditionTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${c.nodeId})`,
@@ -382,6 +364,47 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
         }
       }
     }
+  }
+
+  try {
+    const ruleName = cfg.name.startsWith("ZZ_RB_") ? cfg.name : `ZZ_RB_${cfg.name}`;
+
+    const ruleId = await api.createRecord(ENTITY_SET.rule, {
+      asx_name: ruleName,
+      asx_tablelogicalname: cfg.tableLogicalName ?? "sample_order",
+      // No statuscode here: the rule is born Draft, exactly like the editor's createRule
+      // (client/src/editor/save/operations.ts). Published happens later via publishRule below.
+      asx_triggers: cfg.triggers ?? "1,2,4",
+      // Multi-select choice: Web API wants a comma-separated string of the int values. Empty ⇒ omit ⇒ all channels.
+      ...(cfg.channels && cfg.channels.length ? { asx_channels: cfg.channels.join(",") } : {}),
+      ...(cfg.evaluationContext ? { asx_evaluationcontext: cfg.evaluationContext } : {}),
+      ...(cfg.evaluationTimeZone ? { asx_evaluationtimezone: cfg.evaluationTimeZone } : {}),
+      ...(cfg.onDemandScope ? { asx_ondemandscope: cfg.onDemandScope } : {}),
+      [`${BIND_NAV.ruleRootTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${cfg.rootNodeId})`,
+    });
+    created.push({ set: ENTITY_SET.rule, id: ruleId });
+
+    const groupId = await api.createRecord(ENTITY_SET.group, {
+      asx_name: `${ruleName}_g`,
+      asx_logicaloperator: cfg.groupOp ?? 1, // And
+      asx_isexecutioncondition: false,
+      [`${BIND_NAV.groupRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})`,
+    });
+    created.push({ set: ENTITY_SET.group, id: groupId });
+    await addConditions(groupId, cfg.conditions, `${ruleName}_c`);
+
+    // Optional execution-condition gate group (asx_isexecutioncondition=true), evaluated before
+    // the validation group above: a record that doesn't pass it never reaches match/no-match.
+    if (cfg.executionConditions && cfg.executionConditions.length) {
+      const execGroupId = await api.createRecord(ENTITY_SET.group, {
+        asx_name: `${ruleName}_eg`,
+        asx_logicaloperator: 1, // And
+        asx_isexecutioncondition: true,
+        [`${BIND_NAV.groupRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})`,
+      });
+      created.push({ set: ENTITY_SET.group, id: execGroupId });
+      await addConditions(execGroupId, cfg.executionConditions, `${ruleName}_ec`);
+    }
 
     for (let i = 0; i < cfg.actions.length; i++) {
       const a = cfg.actions[i];
@@ -389,7 +412,7 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
         asx_name: `${ruleName}_a${i + 1}`,
         asx_actiontype: a.actionType,
         asx_fireon: a.fireOn,
-        asx_order: 1,
+        asx_order: a.order ?? 1,
         asx_isactive: true,
         ...(a.targetColumn ? { asx_targetcolumn: a.targetColumn } : {}),
         ...(a.valueBool !== undefined ? { asx_valuebool: a.valueBool } : {}),

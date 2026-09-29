@@ -32,7 +32,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
                 userService: service,
                 logicalName: "account",
                 inputs: new List<RootInput> { new RootInput { Id = overlay.Id, Overlay = overlay } },
-                trigger: RuleTrigger.Manual,
+                trigger: RuleTrigger.OnDemand,
                 channel: RuleChannel.Standard,
                 languageId: languageId,
                 buildMode: RootBuildMode.UseTarget,
@@ -65,7 +65,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
                 [Q(SchemaNames.Rule.TableLogicalName)] = "account",
                 ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
                 [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
-                    new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.Manual) }),
+                    new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnDemand) }),
             };
             var group = new Entity(Q(SchemaNames.ConditionGroup.Entity), ids.grp)
             {
