@@ -112,7 +112,9 @@ test("Runs dialog: a completed run's blocked failure links its record, and a Que
     const link = runsDialogA.getByRole("link", { name: exactly(blockId) });
     await expect(link).toBeVisible();
     await expect(link).toHaveAttribute("href", new RegExp(`etn=sample_order&id=${escapeRe(blockId)}`, "i"));
-    await expect(runsDialogA.getByText(/Blocked: ZZ_E2E_rd too small/)).toBeVisible();
+    // The engine renders a Block's failure as its standard formatted message — a header line
+    // plus a bulleted list of the fired Block(s)' own text — not the bare message alone.
+    await expect(runsDialogA.getByText(/Blocked:[\s\S]*ZZ_E2E_rd too small/)).toBeVisible();
 
     // --- Part 2: a Queued run always offers Cancel -------------------------------------------
     const frameB = await openRuleFromHub(page, appId, ruleB.ruleName);
