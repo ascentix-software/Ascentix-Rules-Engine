@@ -182,7 +182,7 @@
               "type": "SetVariable",
               "inputs": {
                 "name": "failedRecordId",
-                "value": "@null"
+                "value": "@{null}"
               }
             },
             "Reset_failed_message": {
@@ -194,7 +194,7 @@
               "type": "SetVariable",
               "inputs": {
                 "name": "failedMessage",
-                "value": "@null"
+                "value": "@{null}"
               }
             },
             "Within_budget": {
@@ -235,7 +235,9 @@
                         },
                         "parameters": {
                           "actionName": "asx_ProcessRunPage",
-                          "item": "@if(empty(variables('failedRecordId')), setProperty(json('{}'), 'RunId', items('For_each_run')), setProperty(setProperty(setProperty(json('{}'), 'RunId', items('For_each_run')), 'FailedRecordId', variables('failedRecordId')), 'FailedMessage', variables('failedMessage')))"
+                          "item/RunId": "@items('For_each_run')",
+                          "item/FailedRecordId": "@if(empty(variables('failedRecordId')), null, variables('failedRecordId'))",
+                          "item/FailedMessage": "@variables('failedMessage')"
                         },
                         "authentication": "@parameters('$authentication')",
                         "retryPolicy": {
@@ -256,7 +258,7 @@
                           "type": "SetVariable",
                           "inputs": {
                             "name": "failedRecordId",
-                            "value": "@null"
+                            "value": "@{null}"
                           }
                         },
                         "Clear_failed_message": {
@@ -268,7 +270,7 @@
                           "type": "SetVariable",
                           "inputs": {
                             "name": "failedMessage",
-                            "value": "@null"
+                            "value": "@{null}"
                           }
                         },
                         "Set_done_from_page": {
@@ -460,9 +462,6 @@
                     }
                   }
                 }
-              },
-              "else": {
-                "actions": {}
               }
             }
           }

@@ -123,7 +123,12 @@ $until = @($actions.Values | Where-Object { $_.type -eq 'Until' })
 Assert ($until.Count -eq 1 -and $until[0].limit.count -eq 500 -and $until[0].limit.timeout -eq 'PT12M') 'Expected one Until loop limited to 500 pages and 12 minutes.'
 Assert ($until[0].expression -match "variables\('done'\)" -and $until[0].expression -match "addMinutes\(variables\('start'\), 12\)") 'The loop must stop when done or after the 12-minute budget.'
 Assert ($null -ne $until[0].actions.Process_page) 'Process_page must run inside the loop.'
-Assert (($actions.Process_page.inputs.parameters | ConvertTo-Json -Depth 10 -Compress) -match 'failedRecordId' ) 'Process_page must pass the failed record from the variables.'
+# One key per API parameter: the flow designer drops a whole-object 'item' expression when it saves.
+$pageParameters = $actions.Process_page.inputs.parameters
+Assert ($pageParameters.PSObject.Properties.Name -notcontains 'item')'Process_page must not pass item as one object; the designer drops it on save.'
+Assert ($pageParameters.'item/RunId' -ceq "@items('For_each_run')") 'Process_page must pass the run id.'
+Assert ($pageParameters.'item/FailedRecordId' -ceq "@if(empty(variables('failedRecordId')), null, variables('failedRecordId'))") 'Process_page must pass the failed record, or null (the parameter is a Guid).'
+Assert ($pageParameters.'item/FailedMessage' -ceq "@variables('failedMessage')") 'Process_page must pass the failed message.'
 $failure = @($until[0].actions.Values | Where-Object { $_.type -eq 'Scope' -and $_.runAfter.Process_page -contains 'Failed' })
 Assert ($failure.Count -eq 1) 'Expected a failure scope after Process_page.'
 $failureJson = $failure[0] | ConvertTo-Json -Depth 30 -Compress
@@ -145,7 +150,7 @@ Assert ($actions.Within_budget.type -eq 'If' -and $null -ne $actions.Within_budg
 $success = @($until[0].actions.Values | Where-Object { $_.type -eq 'Scope' -and $_.runAfter.Process_page -contains 'Succeeded' })
 Assert ($success.Count -eq 1 -and ($success[0] | ConvertTo-Json -Depth 30 -Compress) -match 'body/Done') 'Expected the success scope to set done from body/Done.'
 foreach ($name in @('failedRecordId', 'failedMessage')) {
-    Assert (@($success[0].actions.Values | Where-Object { $_.type -eq 'SetVariable' -and $_.inputs.name -eq $name -and $_.inputs.value -eq '@null' }).Count -eq 1) "The success scope must clear $name."
+    Assert (@($success[0].actions.Values | Where-Object { $_.type -eq 'SetVariable' -and $_.inputs.name -eq $name -and $_.inputs.value -eq '@{null}' }).Count -eq 1) "The success scope must clear $name."
 }
 
 # Evaluate the flow's own extraction arithmetic on sample error texts.
