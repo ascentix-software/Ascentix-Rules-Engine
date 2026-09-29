@@ -492,7 +492,8 @@ namespace Ascentix.RulesEngine.Core.Engine
             List<TemplateRenderer.Segment> segs;
             try { segs = TemplateRenderer.Tokenize(template, "reference"); }
             catch (InvalidPluginExecutionException) { return Enumerable.Empty<TemplateRenderer.Segment>(); }
-            return segs.Where(s => !s.IsLiteral);
+            // A row token names no root column and no node.
+            return segs.Where(s => !s.IsLiteral && !s.IsRow);
         }
 
         private static MathExprNode ParseLenient(string expression, string context)

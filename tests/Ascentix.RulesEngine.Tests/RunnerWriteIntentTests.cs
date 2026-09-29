@@ -4,6 +4,7 @@ using System.Linq;
 using Ascentix.RulesEngine.Core.Engine;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
+using Ascentix.RulesEngine.Core.Resolution;
 using Ascentix.RulesEngine.Schema;
 using FakeXrmEasy;
 using Microsoft.Xrm.Sdk;
@@ -448,6 +449,42 @@ namespace Ascentix.RulesEngine.Tests
             Assert.NotNull(fired.WriteIntent);
             Assert.Equal("task", fired.WriteIntent.TargetTable);
             Assert.Equal("Hello", fired.WriteIntent.Values["subject"]);
+        }
+
+        [Fact]
+        public void A_set_action_fires_with_one_intent_per_row_and_a_single_action_keeps_WriteIntent()
+        {
+            Guid root = Guid.NewGuid(), contacts = Guid.NewGuid(), ruleId = Guid.NewGuid();
+            var tree = TestTree.Tree(
+                TestTree.Node(root, "account", TableConfigType.RootTable, null),
+                TestTree.Node(contacts, "contact", TableConfigType.ChildTable, root, "parentcustomerid"));
+            var account = new Entity("account", Guid.NewGuid()) { ["name"] = "Acme" };
+            var cache = TestTree.Cache((root, new List<Entity> { account }),
+                (contacts, new List<Entity> { new Entity("contact", Guid.NewGuid()), new Entity("contact", Guid.NewGuid()) }));
+            var group = new ConditionGroup
+            {
+                Id = Guid.NewGuid(), RuleId = ruleId, LogicalOperator = CoreModels.LogicalOperator.And,
+                Conditions = new List<RuleCondition> { new RuleCondition { Id = Guid.NewGuid(), TableConfigNodeId = root,
+                    ConditionType = ConditionType.FieldComparison, ComparisonColumn = "name", ComparisonOperator = ComparisonOperator.IsNotNull } },
+            };
+            var set = new RuleAction { Id = Guid.NewGuid(), RuleId = ruleId, ActionType = ActionType.DeleteRecord, FireOn = ActionFireOn.OnMatch,
+                TargetNodeId = contacts, IsActive = true, Order = 1 };
+            var single = new RuleAction { Id = Guid.NewGuid(), RuleId = ruleId, ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch,
+                TargetNodeId = root, IsActive = true, Order = 2, FieldMapping = "[{\"target\":\"description\",\"source\":\"literal\",\"value\":\"x\"}]" };
+            var metadata = new StringMetadata();
+
+            var verdict = BucketEvaluator.Evaluate(TestTree.Input(tree, cache, account, new[] { group }, new[] { set, single }, metadata), null);
+
+            var fired = verdict.FiredByRecord[0];
+            Assert.True(fired[0].IsSetAction);
+            Assert.Equal(2, fired[0].WriteIntents.Count);
+            Assert.False(fired[1].IsSetAction);
+            Assert.True(fired[1].WriteIntent.AlwaysWrite);
+        }
+
+        private sealed class StringMetadata : IAttributeMetadataProvider
+        {
+            public AttributeTypeCode? GetAttributeType(string table, string column) => AttributeTypeCode.String;
         }
     }
 }

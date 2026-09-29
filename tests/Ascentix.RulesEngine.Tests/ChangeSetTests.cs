@@ -167,6 +167,34 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void A_delete_of_the_record_being_created_wins_over_its_in_place_update()
+        {
+            // A Create message: the in-flight record has no id yet, so its RootRecord carries
+            // Guid.Empty, and a set Delete over that same (not-yet-persisted) row resolves with
+            // TargetId Guid.Empty too.
+            var rootInPlace = new RootRecord("task", Guid.Empty);
+            var inPlaceUpdate = new WriteIntent
+            {
+                Operation = WriteOperation.Update, TargetTable = "task", TargetId = Guid.Empty, RootTargeted = true,
+                Context = RuleEvaluationContext.User, SourceActionOrder = 1, AlwaysWrite = true,
+                Values = new Dictionary<string, object> { ["description"] = "x" },
+            };
+            var deleteOfSameRow = new WriteIntent
+            {
+                Operation = WriteOperation.Delete, TargetTable = "task", TargetId = Guid.Empty,
+                Context = RuleEvaluationContext.User, SourceActionOrder = 2,
+            };
+
+            var cs = ChangeSet.Build(new[] { inPlaceUpdate, deleteOfSameRow }, rootInPlace);
+
+            Assert.False(cs.HasRootInPlace);
+            Assert.Empty(cs.RootInPlaceValues);
+            var batch = Assert.Single(cs.Batches);
+            Assert.Equal(WriteOperation.Delete, batch.Operation);
+            Assert.Single(batch.Writes);
+        }
+
+        [Fact]
         public void Without_an_in_flight_target_a_root_update_is_an_ordinary_update_of_the_evaluated_record()
         {
             var rootUpdate = new WriteIntent
