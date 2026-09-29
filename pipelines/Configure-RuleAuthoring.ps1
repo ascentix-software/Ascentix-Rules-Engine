@@ -136,7 +136,46 @@ if ($Phase -eq 'Schema') {
         Options = @(@{ Value = 1; Label = (Label "A record it's given") }, @{ Value = 2; Label = (Label 'All records that pass its execution conditions') }) }
     EnsureField 'asx_rule' $onDemandScope
     EnsureOptionLabel 'asx_triggers' 3 'On demand'
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity></entities><optionsets><optionset>asx_triggers</optionset></optionsets></importexportxml>' } | Out-Null
+    EnsureTable 'asx_RuleSchedule' 'Rule Schedule'
+    EnsureTable 'asx_SchedulerStatus' 'Scheduler Status'
+    $on = Field 'asx_On' 'Boolean' 'On'
+    $on.DefaultValue = $true
+    $on.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.BooleanOptionSetMetadata';
+        TrueOption = @{ Value = 1; Label = (Label 'Yes') }; FalseOption = @{ Value = 0; Label = (Label 'No') } }
+    EnsureField 'asx_ruleschedule' $on
+    $pattern = Field 'asx_Pattern' 'Picklist' 'Pattern'
+    $pattern.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.OptionSetMetadata'; IsGlobal = $false; OptionSetType = 'Picklist';
+        Options = @(@{ Value = 1; Label = (Label 'Every N minutes') }, @{ Value = 2; Label = (Label 'Every N hours') },
+            @{ Value = 3; Label = (Label 'Daily') }, @{ Value = 4; Label = (Label 'Weekly') }, @{ Value = 5; Label = (Label 'Monthly') }) }
+    EnsureField 'asx_ruleschedule' $pattern
+    $every = Field 'asx_Every' 'Integer' 'Every'; $every.MinValue = 1; $every.MaxValue = 59
+    EnsureField 'asx_ruleschedule' $every
+    $timeOfDay = Field 'asx_TimeOfDay' 'String' 'Time of day'; $timeOfDay.MaxLength = 5
+    EnsureField 'asx_ruleschedule' $timeOfDay
+    $daysOfWeek = Field 'asx_DaysOfWeek' 'MultiSelectPicklist' 'Days of week'
+    $daysOfWeek.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.OptionSetMetadata'; IsGlobal = $false; OptionSetType = 'Picklist';
+        Options = @(@{ Value = 0; Label = (Label 'Sunday') }, @{ Value = 1; Label = (Label 'Monday') }, @{ Value = 2; Label = (Label 'Tuesday') },
+            @{ Value = 3; Label = (Label 'Wednesday') }, @{ Value = 4; Label = (Label 'Thursday') }, @{ Value = 5; Label = (Label 'Friday') },
+            @{ Value = 6; Label = (Label 'Saturday') }) }
+    EnsureField 'asx_ruleschedule' $daysOfWeek
+    $dayOfMonth = Field 'asx_DayOfMonth' 'Integer' 'Day of month'; $dayOfMonth.MinValue = 1; $dayOfMonth.MaxValue = 31
+    EnsureField 'asx_ruleschedule' $dayOfMonth
+    $nextRunOn = Field 'asx_NextRunOn' 'DateTime' 'Next run on'; $nextRunOn.Format = 'DateAndTime'; $nextRunOn.DateTimeBehavior = @{ Value = 'TimeZoneIndependent' }
+    EnsureField 'asx_ruleschedule' $nextRunOn
+    $lastRunOn = Field 'asx_LastRunOn' 'DateTime' 'Last run on'; $lastRunOn.Format = 'DateAndTime'; $lastRunOn.DateTimeBehavior = @{ Value = 'UserLocal' }
+    EnsureField 'asx_ruleschedule' $lastRunOn
+    $lastOutcome = Field 'asx_LastOutcome' 'Picklist' 'Last outcome'
+    $lastOutcome.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.OptionSetMetadata'; IsGlobal = $false; OptionSetType = 'Picklist';
+        Options = @(@{ Value = 1; Label = (Label 'Started a run') }, @{ Value = 2; Label = (Label 'Continued the active run') }, @{ Value = 3; Label = (Label 'Rule not runnable') }) }
+    EnsureField 'asx_ruleschedule' $lastOutcome
+    EnsureLookup 'asx_ruleschedule' 'asx_rule' 'asx_Rule' 'Rule' 'Cascade'
+    EnsureLookup 'asx_ruleschedule' 'asx_rulerun' 'asx_LastRun' 'Last run' 'RemoveLink'
+    $lastSeenOn = Field 'asx_LastSeenOn' 'DateTime' 'Last seen on'; $lastSeenOn.Format = 'DateAndTime'; $lastSeenOn.DateTimeBehavior = @{ Value = 'UserLocal' }
+    EnsureField 'asx_schedulerstatus' $lastSeenOn
+    $callsToday = Field 'asx_CallsToday' 'Integer' 'Calls today'; $callsToday.MinValue = 0; $callsToday.MaxValue = 2147483647
+    EnsureField 'asx_schedulerstatus' $callsToday
+    EnsureLookup 'asx_schedulerstatus' 'systemuser' 'asx_LastSeenBy' 'Last seen by' 'RemoveLink'
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity></entities><optionsets><optionset>asx_triggers</optionset></optionsets></importexportxml>' } | Out-Null
     # Only configure the product's shipped views; personal/customer views are not selected.
     foreach ($spec in @(@('asx_rule','asx_draftof'), @('asx_tableconfig','asx_isprivate'))) {
         $viewFolder = Join-Path $PSScriptRoot "../Solutions/$SolutionName/${SolutionName}_unmanaged/Entities/$($spec[0])/SavedQueries"
@@ -170,7 +209,7 @@ if ($Phase -eq 'Schema') {
             }
         }
     }
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity></entities></importexportxml>' } | Out-Null
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity></entities></importexportxml>' } | Out-Null
     Write-Host '[revisions] additive schema ready'
     return
 }
@@ -304,4 +343,11 @@ EnsureParameter $id 'Skipped' 7 $true 'Running total of records that did not pas
 EnsureStep 'asx_rulerun' 'Create' (PluginType 'RuleRunPlugin') 1 20
 # Outside asx_ProcessRunPage, a run may only be cancelled.
 EnsureStep 'asx_rulerun' 'Update' (PluginType 'RuleRunUpdatePlugin') 1 20
+$startDueSchedulesType = PluginType 'StartDueSchedulesApi'
+$id = EnsureApi 'asx_StartDueSchedules' 'prvCreateasx_RuleRun' 'Starts or continues runs for due rule schedules and returns the run ids to drive.' 'Start Due Schedules' $startDueSchedulesType
+EnsureParameter $id 'RunIds' 10 $true 'Comma-separated identifiers of the Rule Runs started or continued by this call.'
+EnsureParameter $id 'ScheduledCount' 7 $true 'Number of due schedules processed by this call.'
+$scheduleType = PluginType 'RuleSchedulePlugin'
+EnsureStep 'asx_ruleschedule' 'Create' $scheduleType 1 20
+EnsureStep 'asx_ruleschedule' 'Update' $scheduleType 1 20
 Write-Host '[revisions] guards, lifecycle ordering, and APIs registered'

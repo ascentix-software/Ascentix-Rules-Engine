@@ -308,6 +308,40 @@ refuses every change made outside `asx_ProcessRunPage` except cancelling (settin
 from Queued or Running to Cancelled, and nothing else) with `"Only cancelling a run is
 allowed."`. `asx_ProcessRunPage` (§7) advances the run page by page.
 
+### 2.14 Rule Schedule (`asx_ruleschedule`)
+
+Organization-owned. At most one row per rule, driving the schedule that starts or continues its
+Rule Runs. A synchronous pre-operation plug-in (`Ascentix.RulesEngine.Plugin.RuleSchedulePlugin`)
+is registered on Create and Update. `asx_StartDueSchedules` (§9) reads and advances these rows,
+driven from outside Dataverse on a timer.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (200, primary) | |
+| `asx_rule` | Lookup → `asx_rule` | Required; delete cascade (deleting the rule deletes its schedule) |
+| `asx_on` | Boolean (default `true`) | Whether the schedule is currently active |
+| `asx_pattern` | Choice (local) | Every N minutes (1), Every N hours (2), Daily (3), Weekly (4), Monthly (5) |
+| `asx_every` | Integer (1–59) | The N in **Every N minutes** / **Every N hours** |
+| `asx_timeofday` | Text (5) | `HH:mm`, used by Daily/Weekly/Monthly patterns |
+| `asx_daysofweek` | Choice (local, **multi-select**) | Sunday (0) … Saturday (6); used by the Weekly pattern |
+| `asx_dayofmonth` | Integer (1–31) | Used by the Monthly pattern |
+| `asx_nextrunon` | DateTime (`TimeZoneIndependent`) | When the schedule is next due; compared as a wall-clock value regardless of the caller's time zone |
+| `asx_lastrunon` | DateTime (UserLocal) | Set after the schedule last started or continued a run |
+| `asx_lastrun` | Lookup → `asx_rulerun`, RemoveLink | The most recent Rule Run this schedule drove |
+| `asx_lastoutcome` | Choice (local) | Started a run (1), Continued the active run (2), Rule not runnable (3) |
+
+### 2.15 Scheduler Status (`asx_schedulerstatus`)
+
+Organization-owned. Tracks the health of whatever calls `asx_StartDueSchedules` on a timer (for
+example the scheduler add-on flow), for hub indicators; the engine does not read it.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (200, primary) | |
+| `asx_lastseenon` | DateTime (UserLocal) | Last time a caller reported in |
+| `asx_lastseenby` | Lookup → `systemuser`, RemoveLink | Identity of the last caller |
+| `asx_callstoday` | Integer (min 0) | Calls made so far in the current day |
+
 ## 3. `asx_RunRules` Custom API
 
 An **unbound (global) Dataverse Custom API** that evaluates the rules engine against a single
@@ -868,7 +902,31 @@ as the system user, exactly like `RuleRegistrationPlugin`. In the `AscentixRules
 
 ---
 
-## 9. Relationships (explicit schema names)
+## 9. `asx_StartDueSchedules` Custom API
+
+An **unbound (global) Dataverse Custom API Action** (`IsFunction = false`) that finds due Rule
+Schedules (§2.14) and starts or continues each one's Rule Run, driven from **outside** Dataverse
+by a caller on a timer (for example the scheduler add-on flow).
+
+**Registration:** bound to plugin type `Ascentix.RulesEngine.Plugin.StartDueSchedulesApi`;
+`ExecutePrivilegeName = prvCreateasx_RuleRun` (the same gate as `asx_ApplyRules`, §6, and
+`asx_ProcessRunPage`, §7). No additional custom processing steps. In the `AscentixRulesEngine`
+solution.
+
+### Request parameters
+
+None.
+
+### Response parameters
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `RunIds` | String | Comma-separated identifiers of the Rule Runs started or continued by this call |
+| `ScheduledCount` | Integer | Number of due schedules processed by this call |
+
+---
+
+## 10. Relationships (explicit schema names)
 
 | Relationship | Parent (1) | Child (N), holds the lookup |
 |---|---|---|
@@ -895,7 +953,7 @@ as the system user, exactly like `RuleRegistrationPlugin`. In the `AscentixRules
 
 ---
 
-## 10. Test fixture schema (not shipped)
+## 11. Test fixture schema (not shipped)
 
 The live client suites (`client/test-dev`, `client/e2e`, `client/scripts/seed-*`) run against a
 disposable **`sample_*` Order-domain model** that is **not part of the product**. It lives in the
