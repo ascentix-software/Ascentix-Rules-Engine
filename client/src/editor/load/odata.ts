@@ -38,6 +38,8 @@ export const LOOKUP = {
   // the GROUP (the sub-filter's root); collection-node is on the CRITERION (Exists target).
   filterGroupOwningCriterion: "_asx_owningcriterion_value",
   filterCriterionCollectionNode: "_asx_collectionnode_value",
+  // asx_nodefiltergroup.asx_ruleaction: a set action's Rows filter, on every group of its tree
+  filterGroupAction: "_asx_ruleaction_value",
   // asx_rulerun.asx_rule (docs/Schema.md §2.13): same Web API lookup-value field name as every
   // other "asx_rule" attribute above, just on a different owning entity.
   ruleOfRun: "_asx_rule_value",
@@ -79,7 +81,7 @@ export const LOCALIZEDMSG_SELECT =
 export const NODEFILTERGROUP_SELECT =
   "asx_nodefiltergroupid,asx_logicaloperator," +
   LOOKUP.filterGroupCondition + "," + LOOKUP.filterGroupTargetNode + "," + LOOKUP.filterParentGroup + "," +
-  LOOKUP.filterGroupOwningCriterion;
+  LOOKUP.filterGroupOwningCriterion + "," + LOOKUP.filterGroupAction;
 export const NODEFILTERCRITERION_SELECT =
   "asx_nodefiltercriterionid,asx_fieldname,asx_operator,asx_value," +
   "asx_comparisonvaluesource,asx_comparisonvaluecolumn," +
@@ -132,6 +134,8 @@ export const BIND_NAV = {
   // lowercase lookups above.
   filterCriterionCollectionNode: "asx_collectionnode",
   filterGroupOwningCriterion: "asx_owningcriterion",
+  // EnsureLookup SchemaName asx_RuleAction ⇒ PascalCase nav, like localizedMessageAction
+  filterGroupAction: "asx_RuleAction",
   // asx_rulerun.asx_rule: provisioned by EnsureLookup with SchemaName "asx_Rule"
   // (pipelines/Configure-RuleAuthoring.ps1) and no ReferencingEntityNavigationPropertyName
   // override, so the nav property is PascalCased, unlike the plain-lowercase asx_rule lookups

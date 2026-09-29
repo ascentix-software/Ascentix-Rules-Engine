@@ -83,6 +83,9 @@ describe("actionWhatHappens", () => {
   it("describes a block", () => {
     expect(actionWhatHappens(act({ actionType: "Block" }))).toContain("prevents the save");
   });
+  it("describes Deactivate Record", () => {
+    expect(actionWhatHappens(act({ actionType: "DeactivateRecord" }))).toContain("deactivates the target record(s)");
+  });
 });
 
 describe("actionSummary localization hook", () => {

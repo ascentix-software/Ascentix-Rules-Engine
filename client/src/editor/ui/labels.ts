@@ -150,7 +150,8 @@ export function actionEffect(a: ActionNode): { kind: ActionEffectKind; label: st
         : { kind: "info", label: "Notice · won't block" };
     case "CreateRecord":
     case "UpdateRecord":
-    case "DeleteRecord": return { kind: "write", label: "Server" };
+    case "DeleteRecord":
+    case "DeactivateRecord": return { kind: "write", label: "Server" };
     default: return { kind: "form", label: "" };
   }
 }
@@ -167,7 +168,8 @@ export function actionSummary(
     case "ShowMessage": return `${t}: "${a.message ?? ""}"`;
     case "CreateRecord": return `${t} → ${a.targetTable ?? "?"}`;
     case "UpdateRecord":
-    case "DeleteRecord": return `${t} → ${nodeName(a.targetNodeId, tcs)}`;
+    case "DeleteRecord":
+    case "DeactivateRecord": return `${t} → ${nodeName(a.targetNodeId, tcs)}`;
     default: return t;
   }
 }
@@ -175,7 +177,7 @@ export function actionSummary(
 const ACTION_VERB: Record<string, string> = {
   SetVisible: "Set visible", SetRequired: "Set required", ShowMessage: "Show message",
   Block: "Block save", CreateRecord: "Create record", UpdateRecord: "Update record",
-  DeleteRecord: "Delete record",
+  DeleteRecord: "Delete record", DeactivateRecord: "Deactivate record",
 };
 
 export function actionVerb(a: ActionNode, labelFor: (token: string) => string = (x) => x): string {
@@ -197,6 +199,7 @@ export function actionDetail(a: ActionNode, tcs: Record<string, TableConfigRef>)
       return dash(a.targetTable ? `to ${a.targetTable}` : null);
     case "UpdateRecord":
     case "DeleteRecord":
+    case "DeactivateRecord":
       return a.targetNodeId ? `— ${tcs[a.targetNodeId]?.name ?? a.targetNodeId}` : "";
     default:
       return "";
@@ -221,8 +224,9 @@ export function actionWhatHappens(a: ActionNode): string {
     case "SetRequired":
       return `${when} → makes "${a.targetColumn ?? "(field)"}" ${a.value ? "required" : "optional"}.`;
     case "CreateRecord": return `${when} → creates a ${a.targetTable ?? "?"} record (server).`;
-    case "UpdateRecord": return `${when} → updates the target record (server).`;
-    case "DeleteRecord": return `${when} → deletes the target record (server).`;
+    case "UpdateRecord": return `${when} → updates the target record(s) (server).`;
+    case "DeleteRecord": return `${when} → deletes the target record(s) (server).`;
+    case "DeactivateRecord": return `${when} → deactivates the target record(s) (server).`;
     default: return "Choose an action type to see what it does.";
   }
 }

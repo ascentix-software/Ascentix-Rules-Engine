@@ -7,7 +7,7 @@ const CONDITION_TYPE: Record<number, ConditionTypeLabel> = {
 };
 const ACTION_TYPE: Record<number, ActionTypeLabel> = {
   1: "SetVisible", 2: "SetRequired", 3: "ShowMessage", 4: "Block",
-  5: "CreateRecord", 6: "UpdateRecord", 7: "DeleteRecord",
+  5: "CreateRecord", 6: "UpdateRecord", 7: "DeleteRecord", 8: "DeactivateRecord",
 };
 const TABLE_CONFIG_TYPE: Record<number, TableConfigTypeLabel> = {
   1: "RootTable", 2: "LookupTable", 3: "ChildTable",
@@ -47,7 +47,7 @@ export function conditionTypeValue(label: ConditionTypeLabel): number {
 export function actionTypeValue(label: ActionTypeLabel): number {
   const map: Record<ActionTypeLabel, number> = {
     SetVisible: 1, SetRequired: 2, ShowMessage: 3, Block: 4,
-    CreateRecord: 5, UpdateRecord: 6, DeleteRecord: 7,
+    CreateRecord: 5, UpdateRecord: 6, DeleteRecord: 7, DeactivateRecord: 8,
   };
   return map[label];
 }

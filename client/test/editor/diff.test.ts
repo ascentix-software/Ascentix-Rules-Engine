@@ -243,6 +243,49 @@ describe("diffRuleGraph — applyToPrevious", () => {
   });
 });
 
+describe("diffRuleGraph — clearing an action's target node (unbind)", () => {
+  const configs: Record<string, TableConfigRef> = {
+    root: { id: "root", name: "Account", tableLogicalName: "account", tableConfigType: "RootTable", parentTableConfigId: null,
+      lookupColumnLogicalName: null, childLinkField: null, lookupTargetIdAttribute: null },
+    contacts: { id: "contacts", name: "Contacts", tableLogicalName: "contact", tableConfigType: "ChildTable", parentTableConfigId: "root",
+      lookupColumnLogicalName: null, childLinkField: "parentcustomerid", lookupTargetIdAttribute: null },
+  };
+
+  it("a Create-per-row action switched to a one-record Create unbinds asx_TargetNode", () => {
+    const action = {
+      id: "a1", name: "", order: 1, actionType: "CreateRecord" as const, fireOn: 1,
+      targetColumn: null, targetTable: "contact", targetNodeId: "contacts", message: null,
+      fieldMapping: null, value: null, applyInverseWhenNotFired: null,
+      severity: null, isActive: true, localizedMessages: [],
+    };
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs, actions: [action] };
+    const w: RuleGraph = { ...snap, actions: [{ ...action, targetNodeId: null }] };
+    const ops = diffRuleGraph(snap, w);
+    expect(ops).toContainEqual({
+      kind: "unbind", entity: "asx_ruleaction", set: "asx_ruleactions", id: "a1", navProp: BIND_NAV.actionTargetNode,
+    });
+  });
+
+  it("a new action never emits an unbind (nothing to clear)", () => {
+    const snap = baseGraph();
+    const w = addAction(clone(snap));
+    const ops = diffRuleGraph(snap, w);
+    expect(ops.some((o) => o.kind === "unbind")).toBe(false);
+  });
+
+  it("an unchanged loaded action (target still set) emits no unbind", () => {
+    const action = {
+      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, fireOn: 1,
+      targetColumn: null, targetTable: null, targetNodeId: "contacts", message: null,
+      fieldMapping: null, value: null, applyInverseWhenNotFired: null,
+      severity: null, isActive: true, localizedMessages: [],
+    };
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs, actions: [action] };
+    const w = clone(snap);
+    expect(diffRuleGraph(snap, w).some((o) => o.kind === "unbind")).toBe(false);
+  });
+});
+
 describe("diffRuleGraph — rule fields", () => {
   it("emits encoded multi-selects, dates and eval context on change", () => {
     const snap = baseGraph();

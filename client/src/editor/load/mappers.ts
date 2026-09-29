@@ -314,3 +314,17 @@ export function mapNodeFilterTrees(rows: any[], subFilterRows: any[] = []): Reco
   }
   return result;
 }
+
+// A set action's Rows filter: asx_nodefiltergroup rows carrying asx_ruleaction (denormalized on every
+// group of the tree, like asx_rulecondition), one top-level group per action. EXISTS sub-filters come
+// in `subFilterRows`, fetched and BFS-walked exactly as for condition filters.
+export function mapActionRowFilters(rows: any[], subFilterRows: any[] = []): Record<string, NodeFilterBlock> {
+  const subFiltersByCriterion = mapExistsSubFilters(subFilterRows);
+  const forest = buildFilterGroupForest(rows, LOOKUP.filterGroupAction, subFiltersByCriterion);
+  const result: Record<string, NodeFilterBlock> = {};
+  for (const [actionId, roots] of forest) {
+    const first = roots[0];
+    if (first) result[actionId] = { targetNodeId: strOrNull(first.raw[LOOKUP.filterGroupTargetNode]), root: first.node };
+  }
+  return result;
+}

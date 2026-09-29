@@ -2,7 +2,7 @@ import * as React from "react";
 import { Tooltip } from "@fluentui/react-components";
 import {
   Info16Regular, Prohibited16Regular, Warning16Regular, Eye16Regular,
-  Important16Regular, Add16Regular, Edit16Regular, Delete16Regular,
+  Important16Regular, Add16Regular, Edit16Regular, Delete16Regular, CircleOff16Regular,
 } from "@fluentui/react-icons";
 import type { ActionTypeLabel } from "../model/types";
 import { statusReasonLabel } from "../model/enums";
@@ -77,12 +77,14 @@ export const ACTION_CHIP: Record<ActionTypeLabel, { bg: string; fg: string }> = 
   CreateRecord: { bg: color.actionTint, fg: color.action },
   UpdateRecord: { bg: color.actionTint, fg: color.action },
   DeleteRecord: { bg: color.actionTint, fg: color.action },
+  DeactivateRecord: { bg: color.actionTint, fg: color.action },
 };
 
 const ACTION_ICON: Record<ActionTypeLabel, React.ReactElement> = {
   Block: <Prohibited16Regular />, ShowMessage: <Warning16Regular />,
   SetVisible: <Eye16Regular />, SetRequired: <Important16Regular />,
   CreateRecord: <Add16Regular />, UpdateRecord: <Edit16Regular />, DeleteRecord: <Delete16Regular />,
+  DeactivateRecord: <CircleOff16Regular />,
 };
 
 export const ActionIcon: React.FC<{ actionType: ActionTypeLabel | null }> = ({ actionType }) => {

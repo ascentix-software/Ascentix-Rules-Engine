@@ -62,8 +62,12 @@ export function buildBatch(ops: Operation[], opts: BatchOptions): { boundary: st
       lines.push("If-Match: *");
       lines.push("");
       lines.push(jsonBody(op.attrs, op.binds, opts, contentIdByTemp));
-    } else {
+    } else if (op.kind === "delete") {
       lines.push(`DELETE ${recordUrl(opts, op.set, op.id)} HTTP/1.1`);
+      lines.push("");
+    } else {
+      // unbind: clears a single-valued lookup without deleting the row (see diff.ts's UnbindOp).
+      lines.push(`DELETE ${recordUrl(opts, op.set, op.id)}/${op.navProp}/$ref HTTP/1.1`);
       lines.push("");
     }
     parts.push(lines.join("\r\n"));

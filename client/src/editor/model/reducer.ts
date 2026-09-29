@@ -7,6 +7,7 @@ import {
   updateGroup as treeUpdateGroup, removeGroup as treeRemoveGroup, insertGroup,
   updateCondition as treeUpdateCondition, removeCondition as treeRemoveCondition, insertCondition,
 } from "./tree";
+import { isCollectionNode, isSetAction, targetsNode } from "./setActions";
 
 export function setRuleName(graph: RuleGraph, name: string): RuleGraph {
   return { ...graph, rule: { ...graph.rule, name } };
@@ -50,6 +51,19 @@ export function addAction(graph: RuleGraph): RuleGraph {
   return { ...graph, actions: [...graph.actions, next] };
 }
 
+// Keep the target and the Rows filter consistent with the action type: a type that takes no node
+// drops it; Create keeps only a collection ("For each row of"); a Rows filter survives only on a
+// set action, and a new target starts without one (its columns belong to the old table).
+function withTargetForType(prev: ActionNode, next: ActionNode, nodes: Record<string, TableConfigRef>): ActionNode {
+  let a = next;
+  if (a.targetNodeId && !targetsNode(a.actionType) && a.actionType !== "CreateRecord") a = { ...a, targetNodeId: null };
+  if (a.actionType === "CreateRecord" && a.targetNodeId && !isCollectionNode(nodes, a.targetNodeId)) a = { ...a, targetNodeId: null };
+  if (a.rowFilter && (a.targetNodeId !== prev.targetNodeId || !isSetAction(a, nodes))) a = { ...a, rowFilter: null };
+  if (a.actionType !== prev.actionType && (a.actionType === "DeactivateRecord" || prev.actionType === "DeactivateRecord"))
+    a = { ...a, fieldMapping: null };
+  return a;
+}
+
 export function updateAction(graph: RuleGraph, id: string, patch: Partial<ActionNode>): RuleGraph {
   // A type change re-seeds/clears the two-state boolean; any other patch is passed through as-is.
   const fix = "actionType" in patch
@@ -57,7 +71,7 @@ export function updateAction(graph: RuleGraph, id: string, patch: Partial<Action
     : (a: ActionNode) => a;
   return {
     ...graph,
-    actions: graph.actions.map((a) => (a.id === id ? fix({ ...a, ...patch, id: a.id }) : a)),
+    actions: graph.actions.map((a) => (a.id === id ? withTargetForType(a, fix({ ...a, ...patch, id: a.id }), graph.tableConfigs) : a)),
   };
 }
 

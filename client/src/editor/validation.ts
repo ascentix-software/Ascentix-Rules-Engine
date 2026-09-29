@@ -238,6 +238,7 @@ function collectActionHints(a: ActionNode, issues: HintIssue[]): void {
       break;
     case "UpdateRecord":
     case "DeleteRecord":
+    case "DeactivateRecord":
       if (!a.targetNodeId) {
         issues.push({ code: "HINT_MISSING_TARGET_NODE", message: "Target node is required.", nodeId: a.id });
       }

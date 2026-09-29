@@ -13,7 +13,7 @@ import {
 } from "./InsertFieldMenu";
 import { AggregateFilterDialog } from "./inspectors/AggregateFilterDialog";
 import {
-  emptyGroup, isLeafComplete, isExistsComplete, type NodeFilterGroupModel, type NodeFilterNode,
+  emptyGroup, countCompleteCriteria, type NodeFilterGroupModel,
 } from "../model/nodeFilter";
 import { color } from "./tokens";
 import { Pill, Eyebrow } from "./primitives";
@@ -73,14 +73,6 @@ export function TemplateEditor({ value, ruleTable, tableConfigs, onChange }: {
       )}
     </div>
   );
-}
-
-// Counts complete (evaluable) criteria in a filter tree, same rule as ConditionInspector's
-// node-filter summary, reused here for the per-aggregate filter summary.
-function countCompleteCriteria(node: NodeFilterNode): number {
-  if (node.kind === "rule") return isLeafComplete(node) ? 1 : 0;
-  if (node.kind === "exists") return isExistsComplete(node) ? 1 : 0;
-  return node.rules.reduce((n, r) => n + countCompleteCriteria(r), 0);
 }
 
 // Locates the `(`/`)` span of the Nth (0-based) aggregate call (`sum(...)`, `count(...)`, ...)

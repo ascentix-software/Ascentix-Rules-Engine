@@ -10,6 +10,7 @@ import { operatorToFetchOp } from "../ui/pickers/recordFilter";
 import { serializeExpressionFilters } from "../model/expressionFilters";
 import { isLeafComplete } from "../model/nodeFilter";
 import { previousParentLookup } from "../model/tableConfigOps";
+import { isSetAction } from "../model/setActions";
 import { ENTITY, ENTITY_SET, BIND_NAV } from "../load/odata";
 
 export type BindRef = { kind: "existing"; id: string } | { kind: "new"; tempId: string };
@@ -27,7 +28,13 @@ export interface UpdateOp {
 // Retain the loaded row metadata when describing a diff.
 const etagOf = (prev: { etag?: string | null } | null | undefined): string | null => prev?.etag ?? null;
 export interface DeleteOp { kind: "delete"; entity: string; set: string; id: string; }
-export type Operation = CreateOp | UpdateOp | DeleteOp;
+// Clears a single-valued lookup on an EXISTING row without deleting the row itself: Dataverse's
+// DELETE .../<set>(<id>)/<navProp>/$ref. A PATCH that simply omits the nav property leaves the old
+// bind in place (an absent key means "no change", not "clear"), so a target the author cleared
+// (e.g. Create switched from "for each row of a collection" back to a one-record create) needs
+// this explicit unbind to reach the server.
+export interface UnbindOp { kind: "unbind"; entity: string; set: string; id: string; navProp: string; }
+export type Operation = CreateOp | UpdateOp | DeleteOp | UnbindOp;
 
 const ref = (id: string): BindRef => (isNewId(id) ? { kind: "new", tempId: id } : { kind: "existing", id });
 
@@ -361,6 +368,84 @@ function topoFilterCreates(filterCreates: CreateOp[]): CreateOp[] {
   return out;
 }
 
+// Diffs one owner's filter blocks (a condition's list, or a set action's single Rows filter).
+// `ownerBinds` are carried by every non-sub-filter group (root and nested): the owner lookup(s)
+// plus nothing else; sub-filter groups hang off their criterion and never carry them.
+function diffOwnedFilters(
+  snapBlocks: NodeFilterBlock[] | null, workBlocks: NodeFilterBlock[] | null, ownerBinds: Bind[],
+  creates: CreateOp[], updates: UpdateOp[], deletes: Array<DeleteOp & { _depth?: number; _structural?: boolean }>,
+): void {
+  const { groups: fgSnapGroups, criteria: fgSnapCriteria } = flattenFilterBlocks(snapBlocks);
+  const { groups: fgWorkGroups, criteria: fgWorkCriteria } = flattenFilterBlocks(workBlocks);
+  const snapGroupById = new Map(fgSnapGroups.map((g) => [g.persistedId, g]));
+  const workGroupIds = new Set(fgWorkGroups.map((g) => g.persistedId));
+  const snapCritById = new Map(fgSnapCriteria.map((c) => [c.persistedId, c]));
+  const workCritIds = new Set(fgWorkCriteria.map((c) => c.persistedId));
+
+  for (const g of fgWorkGroups) {
+    // Sub-filter groups (an exists node's `sub` tree) are owned by their criterion, NOT the
+    // owner: they never carry the owner binds. Only the sub-tree ROOT carries
+    // filterGroupOwningCriterion; nested sub-groups link via filterGroupParent like any nested group.
+    const binds: Bind[] = [];
+    if (g.isSubFilter) {
+      if (g.owningCriterionId) binds.push({ navProp: BIND_NAV.filterGroupOwningCriterion, targetSet: ENTITY_SET.nodeFilterCriterion, ref: ref(g.owningCriterionId) });
+      if (g.parentPersistedId) binds.push({ navProp: BIND_NAV.filterGroupParent, targetSet: ENTITY_SET.nodeFilterGroup, ref: ref(g.parentPersistedId) });
+    } else {
+      binds.push(...ownerBinds);
+      if (g.targetNodeId) binds.push({ navProp: BIND_NAV.filterGroupTargetNode, targetSet: ENTITY_SET.tableConfig, ref: ref(g.targetNodeId) });
+      if (g.parentPersistedId) binds.push({ navProp: BIND_NAV.filterGroupParent, targetSet: ENTITY_SET.nodeFilterGroup, ref: ref(g.parentPersistedId) });
+    }
+
+    if (isNewId(g.persistedId)) {
+      creates.push({ kind: "create", entity: ENTITY.nodeFilterGroup, set: ENTITY_SET.nodeFilterGroup, tempId: g.persistedId, attrs: filterGroupAttrs(g), binds });
+    } else {
+      const prev = snapGroupById.get(g.persistedId);
+      const attrs = prev ? changedAttrs(filterGroupAttrs(prev), filterGroupAttrs(g)) : filterGroupAttrs(g);
+      const bindChanges = prev ? filterGroupBindChanges(prev, g) : binds;
+      if (Object.keys(attrs).length > 0 || bindChanges.length > 0) {
+        updates.push({ kind: "update", entity: ENTITY.nodeFilterGroup, set: ENTITY_SET.nodeFilterGroup, id: g.persistedId, attrs, binds: bindChanges, etag: etagOf(prev) });
+      }
+    }
+  }
+  for (const g of fgSnapGroups) {
+    if (!workGroupIds.has(g.persistedId)) {
+      deletes.push({ kind: "delete", entity: ENTITY.nodeFilterGroup, set: ENTITY_SET.nodeFilterGroup, id: g.persistedId,
+        _depth: filterDeleteDepth(fgSnapGroups, fgSnapCriteria, "group", g.persistedId) });
+    }
+  }
+
+  for (const c of fgWorkCriteria) {
+    const binds: Bind[] = [
+      { navProp: BIND_NAV.filterCriterionGroup, targetSet: ENTITY_SET.nodeFilterGroup, ref: ref(c.groupPersistedId) },
+    ];
+    if (c.isExists) {
+      if (c.collectionNodeId) binds.push({ navProp: BIND_NAV.filterCriterionCollectionNode, targetSet: ENTITY_SET.tableConfig, ref: ref(c.collectionNodeId) });
+    } else if (c.valueSource === 2 && c.valueNodeId) {
+      binds.push({ navProp: BIND_NAV.filterCriterionValueNode, targetSet: ENTITY_SET.tableConfig, ref: ref(c.valueNodeId) });
+    }
+    if (isNewId(c.persistedId)) {
+      creates.push({ kind: "create", entity: ENTITY.nodeFilterCriterion, set: ENTITY_SET.nodeFilterCriterion, tempId: c.persistedId, attrs: filterCriterionAttrs(c), binds });
+    } else {
+      const prev = snapCritById.get(c.persistedId);
+      const attrs = prev ? changedAttrs(filterCriterionAttrs(prev), filterCriterionAttrs(c)) : filterCriterionAttrs(c);
+      const bindChanges = prev ? filterCriterionBindChanges(prev, c) : binds;
+      if (Object.keys(attrs).length > 0 || bindChanges.length > 0) {
+        updates.push({ kind: "update", entity: ENTITY.nodeFilterCriterion, set: ENTITY_SET.nodeFilterCriterion, id: c.persistedId, attrs, binds: bindChanges, etag: etagOf(prev) });
+      }
+    }
+  }
+  for (const c of fgSnapCriteria) {
+    if (!workCritIds.has(c.persistedId)) {
+      // Exists criteria are "structural" for delete ordering: a sub-root group's
+      // owningcriterion FK means the criterion must be deleted AFTER its owned sub-groups, so
+      // it can't unconditionally join the (always-safe-first) scalar-criterion bucket below.
+      deletes.push({ kind: "delete", entity: ENTITY.nodeFilterCriterion, set: ENTITY_SET.nodeFilterCriterion, id: c.persistedId,
+        _depth: filterDeleteDepth(fgSnapGroups, fgSnapCriteria, "criterion", c.persistedId),
+        _structural: c.isExists });
+    }
+  }
+}
+
 export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operation[] {
   const creates: CreateOp[] = [];
   const updates: UpdateOp[] = [];
@@ -483,6 +568,7 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
   // ---- Actions ----
   const snapActById = new Map(snapshot.actions.map((a) => [a.id, a]));
   const workActIds = new Set(working.actions.map((a) => a.id));
+  const unbinds: UnbindOp[] = [];
   for (const a of working.actions) {
     const binds: Bind[] = [
       { navProp: BIND_NAV.actionRule, targetSet: ENTITY_SET.rule, ref: { kind: "existing", id: working.rule.id } },
@@ -496,6 +582,12 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
       const changedBinds = prev ? actionBindChanges(prev, a) : binds;
       if (Object.keys(attrs).length > 0 || changedBinds.length > 0) {
         updates.push({ kind: "update", entity: ENTITY.action, set: ENTITY_SET.action, id: a.id, attrs, binds: changedBinds, etag: etagOf(prev) });
+      }
+      // A PATCH that omits asx_TargetNode leaves the old bind in place, so a target the author
+      // cleared (single-record Update/Delete/Deactivate losing its node, or Create dropping "for
+      // each row of") needs an explicit unbind to actually reach the server.
+      if (prev && prev.targetNodeId && !a.targetNodeId) {
+        unbinds.push({ kind: "unbind", entity: ENTITY.action, set: ENTITY_SET.action, id: a.id, navProp: BIND_NAV.actionTargetNode });
       }
     }
 
@@ -543,79 +635,36 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
     const workBlocks = normalizeFilter(workEntry?.condition.filter);
     if (!snapBlocks && !workBlocks) continue;
 
-    const { groups: fgSnapGroups, criteria: fgSnapCriteria } = flattenFilterBlocks(snapBlocks);
-    const { groups: fgWorkGroups, criteria: fgWorkCriteria } = flattenFilterBlocks(workBlocks);
-    const snapGroupById = new Map(fgSnapGroups.map((g) => [g.persistedId, g]));
-    const workGroupIds = new Set(fgWorkGroups.map((g) => g.persistedId));
-    const snapCritById = new Map(fgSnapCriteria.map((c) => [c.persistedId, c]));
-    const workCritIds = new Set(fgWorkCriteria.map((c) => c.persistedId));
+    // `workEntry` is only missing when the condition itself was removed (workBlocks is then
+    // always null, so its group is never needed), so the second bind is safe to add only when
+    // workEntry exists — evaluating workEntry.groupId unconditionally would throw on that path.
+    const ownerBinds: Bind[] = [
+      { navProp: BIND_NAV.filterGroupCondition, targetSet: ENTITY_SET.condition, ref: ref(condId) },
+    ];
+    if (workEntry) {
+      ownerBinds.push({ navProp: BIND_NAV.filterGroupConditionGroup, targetSet: ENTITY_SET.group, ref: ref(workEntry.groupId) });
+    }
+    diffOwnedFilters(snapBlocks, workBlocks, ownerBinds, creates, updates, deletes);
+  }
 
-    for (const g of fgWorkGroups) {
-      // Sub-filter groups (an exists node's `sub` tree) are owned by their criterion, NOT the
-      // condition: they never carry filterGroupCondition/filterGroupConditionGroup/
-      // filterGroupTargetNode. Only the sub-tree ROOT carries filterGroupOwningCriterion; nested
-      // sub-groups link via filterGroupParent like any nested group.
-      const binds: Bind[] = [];
-      if (g.isSubFilter) {
-        if (g.owningCriterionId) binds.push({ navProp: BIND_NAV.filterGroupOwningCriterion, targetSet: ENTITY_SET.nodeFilterCriterion, ref: ref(g.owningCriterionId) });
-        if (g.parentPersistedId) binds.push({ navProp: BIND_NAV.filterGroupParent, targetSet: ENTITY_SET.nodeFilterGroup, ref: ref(g.parentPersistedId) });
-      } else {
-        binds.push(
-          { navProp: BIND_NAV.filterGroupCondition, targetSet: ENTITY_SET.condition, ref: ref(condId) },
-          { navProp: BIND_NAV.filterGroupConditionGroup, targetSet: ENTITY_SET.group, ref: ref(workEntry!.groupId) },
-        );
-        if (g.targetNodeId) binds.push({ navProp: BIND_NAV.filterGroupTargetNode, targetSet: ENTITY_SET.tableConfig, ref: ref(g.targetNodeId) });
-        if (g.parentPersistedId) binds.push({ navProp: BIND_NAV.filterGroupParent, targetSet: ENTITY_SET.nodeFilterGroup, ref: ref(g.parentPersistedId) });
-      }
-
-      if (isNewId(g.persistedId)) {
-        creates.push({ kind: "create", entity: ENTITY.nodeFilterGroup, set: ENTITY_SET.nodeFilterGroup, tempId: g.persistedId, attrs: filterGroupAttrs(g), binds });
-      } else {
-        const prev = snapGroupById.get(g.persistedId);
-        const attrs = prev ? changedAttrs(filterGroupAttrs(prev), filterGroupAttrs(g)) : filterGroupAttrs(g);
-        const bindChanges = prev ? filterGroupBindChanges(prev, g) : binds;
-        if (Object.keys(attrs).length > 0 || bindChanges.length > 0) {
-          updates.push({ kind: "update", entity: ENTITY.nodeFilterGroup, set: ENTITY_SET.nodeFilterGroup, id: g.persistedId, attrs, binds: bindChanges, etag: etagOf(prev) });
-        }
-      }
-    }
-    for (const g of fgSnapGroups) {
-      if (!workGroupIds.has(g.persistedId)) {
-        deletes.push({ kind: "delete", entity: ENTITY.nodeFilterGroup, set: ENTITY_SET.nodeFilterGroup, id: g.persistedId,
-          _depth: filterDeleteDepth(fgSnapGroups, fgSnapCriteria, "group", g.persistedId) });
-      }
-    }
-
-    for (const c of fgWorkCriteria) {
-      const binds: Bind[] = [
-        { navProp: BIND_NAV.filterCriterionGroup, targetSet: ENTITY_SET.nodeFilterGroup, ref: ref(c.groupPersistedId) },
-      ];
-      if (c.isExists) {
-        if (c.collectionNodeId) binds.push({ navProp: BIND_NAV.filterCriterionCollectionNode, targetSet: ENTITY_SET.tableConfig, ref: ref(c.collectionNodeId) });
-      } else if (c.valueSource === 2 && c.valueNodeId) {
-        binds.push({ navProp: BIND_NAV.filterCriterionValueNode, targetSet: ENTITY_SET.tableConfig, ref: ref(c.valueNodeId) });
-      }
-      if (isNewId(c.persistedId)) {
-        creates.push({ kind: "create", entity: ENTITY.nodeFilterCriterion, set: ENTITY_SET.nodeFilterCriterion, tempId: c.persistedId, attrs: filterCriterionAttrs(c), binds });
-      } else {
-        const prev = snapCritById.get(c.persistedId);
-        const attrs = prev ? changedAttrs(filterCriterionAttrs(prev), filterCriterionAttrs(c)) : filterCriterionAttrs(c);
-        const bindChanges = prev ? filterCriterionBindChanges(prev, c) : binds;
-        if (Object.keys(attrs).length > 0 || bindChanges.length > 0) {
-          updates.push({ kind: "update", entity: ENTITY.nodeFilterCriterion, set: ENTITY_SET.nodeFilterCriterion, id: c.persistedId, attrs, binds: bindChanges, etag: etagOf(prev) });
-        }
-      }
-    }
-    for (const c of fgSnapCriteria) {
-      if (!workCritIds.has(c.persistedId)) {
-        // Exists criteria are "structural" for delete ordering: a sub-root group's
-        // owningcriterion FK means the criterion must be deleted AFTER its owned sub-groups, so
-        // it can't unconditionally join the (always-safe-first) scalar-criterion bucket below.
-        deletes.push({ kind: "delete", entity: ENTITY.nodeFilterCriterion, set: ENTITY_SET.nodeFilterCriterion, id: c.persistedId,
-          _depth: filterDeleteDepth(fgSnapGroups, fgSnapCriteria, "criterion", c.persistedId),
-          _structural: c.isExists });
-      }
-    }
+  // ---- Action Rows filters ----
+  // Bound to the action and to its CURRENT target (a set action only); an action that is no longer a
+  // set action, or is removed, has its filter rows deleted here, before the action delete below.
+  // Creates collect separately (actionFilterCreates): a Rows filter group binds to its owning
+  // action, so when the action itself is new, the filter creates must follow the action's own
+  // create (see the Content-ID ordering in "---- Ordering ----" below).
+  const actionFilterCreates: CreateOp[] = [];
+  const workActById = new Map(working.actions.map((a) => [a.id, a]));
+  for (const actionId of new Set([...snapActById.keys(), ...workActById.keys()])) {
+    const snap = snapActById.get(actionId);
+    const work = workActById.get(actionId);
+    const snapBlocks = normalizeFilter(snap?.rowFilter ? [snap.rowFilter] : null);
+    const workBlocks = work?.rowFilter && isSetAction(work, working.tableConfigs)
+      ? normalizeFilter([{ ...work.rowFilter, targetNodeId: work.targetNodeId }]) : null;
+    if (!snapBlocks && !workBlocks) continue;
+    diffOwnedFilters(snapBlocks, workBlocks,
+      [{ navProp: BIND_NAV.filterGroupAction, targetSet: ENTITY_SET.action, ref: ref(actionId) }],
+      actionFilterCreates, updates, deletes);
   }
 
   // ---- Ordering ----
@@ -655,8 +704,8 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
   return [
     ...ruleUpdate, ...nodeCreates, ...groupCreates, ...condCreates,
     ...filterCreates,
-    ...actionCreatesOnly, ...localizedCreates,
-    ...otherUpdates,
+    ...actionCreatesOnly, ...topoFilterCreates(actionFilterCreates), ...localizedCreates,
+    ...otherUpdates, ...unbinds,
     ...scalarFilterCriterionDeletes, ...structuralFilterDeletes,
     ...condDeletes, ...groupDeletes, ...nodeDeletes, ...actionDeletes, ...localizedDeletes,
   ];
