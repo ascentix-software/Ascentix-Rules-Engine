@@ -139,5 +139,4 @@ in different evaluation contexts stay separate, even for the same record. A row 
 the values is skipped, so saving again with nothing changed writes nothing. Writes go out as
 creates, then updates, then deletes, grouped per table, in bulk where the table supports it —
 Deactivate Record included. A Block anywhere still means nothing is written. Also apply to the
-previous parent is available only on a
-single-record target.
+previous parent is available only on a single-record target.

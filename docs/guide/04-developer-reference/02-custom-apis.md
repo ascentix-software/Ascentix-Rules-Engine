@@ -144,6 +144,10 @@ rows*):
 { "creates": 1, "updates": 12, "deletes": 0, "unchanged": 3 }
 ```
 
+A record with a fired `Block` counts zero in every field (`IsValid` is `false`): enforcement
+would write nothing for it. An update of the evaluated record itself counts as an update here,
+although a form save applies it to the record in place rather than as a separate write.
+
 This is the same summary the Rule Builder's **Test** dialog renders as "Change set: 1 create, 12
 updates, 0 deletes · 3 unchanged".
 

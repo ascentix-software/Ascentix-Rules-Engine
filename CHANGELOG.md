@@ -84,6 +84,21 @@ only, so the version an administrator sees in their org can never carry the word
   Row Count condition's own search criteria compare dates as text and keep the widened form:
   before/after comparisons are applied in the query, equals and not equals after the rows are
   loaded.
+- Writes of the same table in one evaluation are sent in bulk. An existing rule whose fired
+  actions create, or update, two or more records of the same table in one save (two Create
+  Record actions on task, or updates of two different contacts through two lookups) now sends
+  them as one `CreateMultiple` / `UpdateMultiple` where the table supports it, instead of one
+  request each; deletes are still sent one at a time. A plug-in registered on the bulk message
+  sees one execution for them. A failed bulk request names the operation and the table rather
+  than the action, for example `UpdateMultiple contact: <error>`; a single request reads
+  `Update contact (action "<action name>"): <error>`.
+- A Create Record action that already holds a collection target (`asx_targetnode` pointing at a
+  child-collection node, which only the API could set; the Rule Builder never did) becomes a
+  **Create per row** on upgrade: it creates one record for each row of that collection instead
+  of one record. A target on a single-record node (the record itself or a lookup) is still
+  ignored by Create Record. Before upgrading, look for `asx_ruleaction` rows with
+  `asx_actiontype` 5 and an `asx_targetnode`, and clear the target on any that should keep
+  creating one record.
 
 ### Fixed
 

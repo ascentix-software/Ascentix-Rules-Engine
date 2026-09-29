@@ -34,11 +34,13 @@ trigger:
 - If **any** `Block` action fires (across any rule on that record), the
   plugin throws before any writes happen. **No** part of the operation
   commits, including any `Create Record` / `Update Record` / `Delete
-  Record` write actions that also fired: **block wins**.
+  Record` / `Deactivate Record` write actions that also fired, on one
+  record or on a set of rows: **block wins**.
 - If no `Block` fires, any fired write actions (`Create Record`, `Update
-  Record`, `Delete Record`) are applied atomically in the same transaction
-  as the triggering operation. A write failure throws and rolls back the
-  whole operation.
+  Record`, `Delete Record`, `Deactivate Record`, each on a single record or
+  on a set of rows) are applied atomically in the same transaction as the
+  triggering operation. A write failure throws and rolls back the whole
+  operation.
 - Write actions don't cascade into rules triggered by their own writes; they
   execute only at the top level of the operation.
 - This holds identically across all three triggers, including **On
@@ -49,7 +51,32 @@ trigger:
   every other origin to **Standard**, and each is enforced (or excluded) as
   such. The engine does not distinguish a human from an integration.
 
-**Message format.** The exception message aggregates **every** fired
+**How the writes go out.** The writes of one record's evaluation are
+collected first and merged, as *Building Actions* → *Writing a set of rows*
+describes:
+
+- Two writes of the same record in the same evaluation context (User or
+  System) become one write, the later action winning per column; an update
+  and a delete of the same record become the delete. A row that already holds
+  the values is skipped, so saving again with nothing changed writes nothing.
+- An update of the record being saved, whether from a single-record action or
+  from a set whose rows include that record, is applied to the record in
+  place, as part of the save itself.
+- The rest are sent as creates, then updates, then deletes, each grouped per
+  table, rather than one at a time in action order. Two or more creates or
+  updates of the same table (and evaluation context) go as one
+  `CreateMultiple` / `UpdateMultiple` where the table supports it; deletes
+  are always sent one at a time.
+
+**Write failure messages.** A failed write rolls the save back and names what
+failed. A single request names the operation, the table and the first action
+that wrote it (its name, or its id when it has none): `Update contact (action
+"Stop bulk email"): <error>`. A bulk
+request names the operation and the table only, because it carries rows from
+several actions: `UpdateMultiple contact: <error>`. A Rule Run records the same
+text (shortened if long) for a Failed record.
+
+**Block message format.** The exception message aggregates **every** fired
 `Block` message across all rules on the record as a deduped, bulleted list
 under a header, for example:
 

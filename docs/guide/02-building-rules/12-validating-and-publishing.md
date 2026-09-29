@@ -101,4 +101,7 @@ whether or not it's currently Published or has unsaved Draft edits. Test opens a
 record and an **Evaluate as** trigger, then reports what would fire — the same report-only,
 nothing-is-saved evaluation as `asx_RunRules`, always against the **published** version of the
 rule, never the unsaved draft you're looking at. See *Custom APIs* → `asx_RunRules` for the
-underlying report shape, including the `ChangeSet` summary Test renders for set actions.
+underlying report shape, including the `ChangeSet` summary Test renders for set actions. When a
+Block fires on the record, from this rule or another rule on the same record, Test says "A Block
+fired, so nothing would be written.", lists each Block's message, and marks this rule's writes as
+not written.
