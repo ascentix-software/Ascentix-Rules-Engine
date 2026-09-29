@@ -172,11 +172,13 @@ Run the same way Run now does, so the limits above apply equally to a scheduled 
 On top of those: a schedule fires **within 15 minutes** of its scheduled time, not at
 the exact minute, since the shipped scheduler add-on's flow calls
 `asx_StartDueSchedules` on that interval. Each call to `asx_StartDueSchedules`
-processes at most **50** due schedules; a larger backlog is picked up across further
-calls. The add-on's flow budgets about **12 minutes** per wake-up to drive the runs it
-started or continued before ending, so it finishes a large backlog of due schedules or
-slow-running rules across more than one wake-up rather than blocking indefinitely. A
-rule can have at most **one** schedule.
+takes at most **50** due schedules and stops taking more after about **60 seconds**; a
+larger backlog is picked up across further calls. The add-on's flow budgets about **12
+minutes** per wake-up to drive the runs it started or continued before ending, so it
+finishes a large backlog of due schedules or slow-running rules across more than one
+wake-up rather than blocking indefinitely. Each wake-up drives the runs it just started
+first, then the runs it continued, then leftovers, so one very long run can't hold up
+newly started ones. A rule can have at most **one** schedule.
 
 ## 16. The "apply inverse" flag is reserved
 

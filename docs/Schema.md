@@ -315,6 +315,15 @@ Rule Runs. A synchronous pre-operation plug-in (`Ascentix.RulesEngine.Plugin.Rul
 is registered on Create and Update. `asx_StartDueSchedules` (§9) reads and advances these rows,
 driven from outside Dataverse on a timer.
 
+The plug-in treats a Create without `asx_on` as On (the column's default), so validation and
+`asx_nextrunon` always apply to a new schedule. It refuses a second schedule for the same rule
+(`"This rule already has a schedule."`) and a schedule whose `asx_rule` is a draft row (one with
+`asx_draftof` set): `"Schedules belong to the published rule."`. While On, the recurrence must
+be valid, the rule (or its open draft) must be On demand with **All records** scope (`"Only On
+demand rules that run for all records can be scheduled."`) and its time zone recognized (`"The
+rule's time zone is not recognized."`). `asx_nextrunon`, `asx_lastrunon`, `asx_lastrun` and
+`asx_lastoutcome` are dropped from any caller's Target outside `asx_StartDueSchedules`.
+
 | Column | Type | Notes |
 |---|---|---|
 | `asx_name` | Text (200, primary) | |
@@ -921,8 +930,36 @@ None.
 
 | Parameter | Type | Notes |
 |---|---|---|
-| `RunIds` | String | Comma-separated identifiers of the Rule Runs started or continued by this call |
-| `ScheduledCount` | Integer | Number of due schedules processed by this call |
+| `RunIds` | String | JSON array of Rule Run ids (e.g. `["…","…"]`): the runs this call started, then the runs it continued, then any other Queued/Running run of a rule with an On schedule; each id once |
+| `ScheduledCount` | Integer | Number of due schedules this call found (at most 50), including any the call budget left for the next call |
+
+### Semantics
+
+- **Heartbeat:** every call first writes `asx_schedulerstatus` (§2.15). It is part of the call's
+  transaction, so a call that fails rolls its heartbeat back too.
+- **Due schedules:** On, with `asx_nextrunon` at or before now, oldest first, at most **50** per
+  call. For each: a rule that has an active (Queued/Running) run is **continued** (outcome 2,
+  `asx_nextrunon` unchanged); otherwise a new all-records run is **started** (outcome 1) and
+  `asx_nextrunon` advances. A rule that isn't runnable (not Published, not On demand + All
+  records, unknown time zone) gets outcome 3 and advances, staying On; an invalid recurrence or a
+  schedule without a rule is switched Off (outcome 3); a schedule whose rule has just been
+  deleted is skipped (the delete cascade removes it).
+- **Next run:** a missed occurrence is never queued: one run is started however far behind the
+  schedule is. For **Every N minutes/hours** the next run is anchored on the schedule's previous
+  `asx_nextrunon`: the first `previous + k·N` (k ≥ 1) strictly after now, so the rhythm doesn't
+  drift with the caller's timing; without a previous value it is now + N. Daily, Weekly and
+  Monthly take the next matching time of day in the rule's time zone after now.
+- **Run ownership:** runs are created by the engine but owned by the **caller** (the identity
+  that called the API), like a run started by hand.
+- **Call budget:** once about **60 seconds** of wall-clock time have passed, the call takes no
+  further due schedules; those not reached keep their `asx_nextrunon` and are taken by the next
+  call. `RunIds` still lists every run to drive.
+- **Ordering:** new runs come first in `RunIds`, so a long run that keeps being continued never
+  starves the rules started after it; continued runs follow, then leftovers.
+- **Concurrent callers:** a second call made while another is running waits on or collides with
+  the first (both write the heartbeat row and may pick the same rule); if it fails, it fails as a
+  whole (its writes roll back) and its caller simply tries again on its next wake-up. Nothing is
+  lost.
 
 ---
 

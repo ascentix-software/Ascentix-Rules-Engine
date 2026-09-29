@@ -9,7 +9,7 @@ slug: custom-apis
 
 The engine exposes eight **unbound Dataverse Custom APIs** for integrating with rules
 outside the built-in save enforcement and form behavior described in *How Rules Run*.
-All seven are callable through the standard Dataverse Web API
+All eight are callable through the standard Dataverse Web API
 (`Xrm.WebApi.online.execute` from client code, or a plain HTTP request from a
 server-side integration), and none requires a custom output table. Results come back
 as JSON in the response parameters.
@@ -290,8 +290,8 @@ None.
 
 | Parameter | Type | Notes |
 |---|---|---|
-| `RunIds` | String | JSON array of every Rule Run id started or continued by this call, plus any other active run of a scheduled rule left over from a previous wake-up |
-| `ScheduledCount` | Integer | Number of due schedules this call processed |
+| `RunIds` | String | JSON array of Rule Run ids (not a comma-separated list): the runs this call started, then the runs it continued, then any other active run of a scheduled rule left over from a previous wake-up; each id once |
+| `ScheduledCount` | Integer | Number of due schedules this call found (at most 50) |
 
 ```http
 POST /api/data/v9.2/asx_StartDueSchedules
@@ -304,15 +304,25 @@ Content-Type: application/json
 { "RunIds": "[\"00000000-0000-0000-0000-000000000000\"]", "ScheduledCount": 1 }
 ```
 
-At most **50** due schedules are processed per call; a larger backlog is picked up
-across further calls (further wake-ups of the add-on's flow, on its own 15-minute
-interval). Calling it requires the same **Rule Run Create** privilege
-(`prvCreateasx_RuleRun`) as `asx_ApplyRules`/`asx_ProcessRunPage`, plus **Read**/**Write**
-on Rule Schedule and **Create**/**Read**/**Write** on Scheduler Status (*Administering →
-Scheduling Rules* lists the full set). Drive each returned id with `asx_ProcessRunPage`
-(above) the same way Run now does; a schedule whose rule already has an active run is
+At most **50** due schedules are taken per call, and a call stops taking more once about
+**60 seconds** have passed; whatever it didn't reach stays due and is picked up by
+further calls (further wake-ups of the add-on's flow, on its own 15-minute interval).
+Every **Every N minutes/hours** schedule keeps its rhythm: its next run is the next step
+after its previous **Next run on**, not N from the moment of the call.
+
+The runs it starts are **owned by the caller**, like a run started by hand. Calling it
+requires the same run privileges as `asx_ApplyRules`/`asx_ProcessRunPage` (the gate is
+**Rule Run Create**, `prvCreateasx_RuleRun`; *Administering → Scheduling Rules* lists the
+full set). The caller needs no privileges on Rule Schedule or Scheduler Status: the
+engine writes those itself.
+
+Drive each returned id with `asx_ProcessRunPage` (above) the same way Run now does, in
+the order given: new runs come first, so a long run that keeps being continued never
+holds up the rules started after it. A schedule whose rule already has an active run is
 reported as **continued**, not started again, so an id in `RunIds` may already be
-partway through.
+partway through. A call that fails rolls back entirely, heartbeat included, and two
+callers at the same moment may make one of them fail; simply call again on the next
+interval — nothing is lost.
 
 ## `asx_ReadRules`: runtime projection
 
