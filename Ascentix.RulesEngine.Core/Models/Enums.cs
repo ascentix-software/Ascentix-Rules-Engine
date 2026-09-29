@@ -45,7 +45,8 @@ namespace Ascentix.RulesEngine.Core.Models
         Block = 4,
         CreateRecord = 5,
         UpdateRecord = 6,
-        DeleteRecord = 7
+        DeleteRecord = 7,
+        DeactivateRecord = 8   // appended: writes statecode = 1 and a status reason (never renumber)
     }
 
     /// <summary>The record-write operation a write-action performs.</summary>

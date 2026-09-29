@@ -396,6 +396,15 @@ namespace Ascentix.RulesEngine.Core.Models
         public bool TrySingleCardinality(Guid id) =>
             Contains(id) && ChainDiagnosis(id).IsSingleCardinality;
 
+        /// <summary>True when the node's chain reaches a root and crosses a ChildTable (the node itself
+        /// or an ancestor): a set of rows per root. Never throws; an unknown id or a broken chain is false.</summary>
+        public bool IsCollection(Guid id)
+        {
+            if (!Contains(id)) return false;
+            var diagnosis = ChainDiagnosis(id);
+            return diagnosis.IsOk && diagnosis.ChildOnPath;
+        }
+
         // ─── Errors ─────────────────────────────────────────────────────────
 
         private TableConfig ParentOrNoCommonAncestor(TableConfig node, Guid otherId)
