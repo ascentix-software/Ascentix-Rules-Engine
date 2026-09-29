@@ -61,9 +61,8 @@ namespace Ascentix.RulesEngine.Plugin
     {
         public const int BulkChunkSize = 100;
 
-        /// <summary>Proven on DEV (see the multi-record actions plan, Task 11): does UpdateMultiple
-        /// accept a statecode change? While false, a Deactivate goes as a single Update.</summary>
-        public const bool UpdateMultipleAcceptsStateChange = false;
+        /// <summary>Proven on DEV 2026-09-29: UpdateMultiple accepts a statecode change.</summary>
+        public const bool UpdateMultipleAcceptsStateChange = true;
 
         private readonly IBulkWriteSupport _support;
         private readonly IWriteRequestSender _sender;

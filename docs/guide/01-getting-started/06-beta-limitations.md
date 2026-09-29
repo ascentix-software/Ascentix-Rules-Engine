@@ -192,7 +192,6 @@ does not show it. It is reserved for possible future use.
 A set action writes every filtered row of its collection, and nothing caps how many. A very large set
 can exceed the platform's 2-minute limit for a synchronous save, which fails the save. Keep sets
 bounded with the Rows filter and the rule's conditions, and use the Rule Builder's **Test** to see
-how many rows a record would write. Update, Delete and Create send their rows in bulk where the
-target table supports it; **Deactivate Record currently sends its rows one at a time**, regardless
-of bulk support, until a state change through `UpdateMultiple` is proven safe on a live
-environment.
+how many rows a record would write. Update, Delete, Create and Deactivate Record all send their rows
+in bulk where the target table supports it (proven on DEV 2026-09-29: `UpdateMultiple` accepts a
+state change).

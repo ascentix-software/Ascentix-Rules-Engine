@@ -137,7 +137,7 @@ writing the same record **in the same evaluation context** (User or System) beco
 later action wins per column); an update and a delete of the same record become the delete. Writes
 in different evaluation contexts stay separate, even for the same record. A row that already holds
 the values is skipped, so saving again with nothing changed writes nothing. Writes go out as
-creates, then updates, then deletes, grouped per table, in bulk where the table supports it — except
-Deactivate Record, whose rows currently go one at a time regardless (*Beta Limitations*). A Block
-anywhere still means nothing is written. Also apply to the previous parent is available only on a
+creates, then updates, then deletes, grouped per table, in bulk where the table supports it —
+Deactivate Record included. A Block anywhere still means nothing is written. Also apply to the
+previous parent is available only on a
 single-record target.
