@@ -19,8 +19,13 @@ const api = createDevApi();
 // sweepRuleBehaviorOrphans-style tooling (and a human in Advanced Find) can recognise leftovers —
 // account/contact aren't in sweep.ts's own table list, so a crashed run's rows have to be
 // findable by name alone.
+// telephone1 is always non-empty: DEV has a live, user-owned published rule ("Account must have a
+// phone number") that Blocks an account save when it's blank. It is not test data and is never
+// changed — every account this suite creates or updates keeps a non-empty telephone1 instead.
+const PHONE = "555-0100";
+
 async function account(suffix: string): Promise<string> {
-  const id = await createSubject("accounts", { name: `ZZ_RB_set_${STAMP}_${suffix}`, creditonhold: false });
+  const id = await createSubject("accounts", { name: `ZZ_RB_set_${STAMP}_${suffix}`, creditonhold: false, telephone1: PHONE });
   cleanups.push(() => deleteDevRecord("accounts", id));
   return id;
 }
@@ -42,7 +47,7 @@ async function followUps(contactIds: string[]): Promise<any[]> {
 // account+contact is toggled on -> off each retry so a genuinely dead rule still fails, at the
 // cap, rather than the first real test racing the cache.
 async function settleHoldOnObserved(): Promise<boolean> {
-  const accId = await createSubject("accounts", { name: `ZZ_RB_set_${STAMP}_settle_${Date.now()}`, creditonhold: false });
+  const accId = await createSubject("accounts", { name: `ZZ_RB_set_${STAMP}_settle_${Date.now()}`, creditonhold: false, telephone1: PHONE });
   const contactId = await createSubject("contacts", { lastname: `ZZ_RB_set_${STAMP}_settle`, donotbulkemail: false,
     "parentcustomerid_account@odata.bind": `/accounts(${accId})` });
   try {
