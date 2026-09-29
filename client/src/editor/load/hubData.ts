@@ -2,6 +2,7 @@ import type { WebApiPort } from "../webapi";
 import { ENTITY, LOOKUP } from "./odata";
 import { parseMultiSelect } from "../model/enums";
 import { loadPublishedGraph } from "./publishedGraph";
+import { scheduleSummary } from "../schedule/scheduleModel";
 
 const FV = "@OData.Community.Display.V1.FormattedValue";
 
@@ -18,6 +19,11 @@ export interface RuleListItem {
    *  (its runs outlive an unpublish). */
   publishedRevisionId?: string | null;
   modifiedOn: string | null; modifiedBy: string | null;
+  /** Whether the rule has an On (asx_on = true) asx_ruleschedule row (Task 6 hub indicator).
+   *  Optional so pre-Task-6 fixtures keep compiling without the field. */
+  scheduled?: boolean;
+  /** A short summary of that schedule ("Daily at 02:00"), present iff `scheduled`. */
+  scheduleSummary?: string;
 }
 export interface ConfigListItem {
   id: string; name: string; rootTableLogicalName: string;
@@ -80,18 +86,31 @@ export function groupUsedBy(rules: { rootConfigId: string | null }[]): Map<strin
   return m;
 }
 
-// Three bulk queries, each followed to the last page; all counts derived client-side.
+// Four bulk queries, each followed to the last page; all counts derived client-side.
 export async function loadHubData(api: WebApiPort): Promise<HubData> {
-  const [ruleResp, actionResp, nodeResp] = await Promise.all([
+  const [ruleResp, actionResp, nodeResp, scheduleResp] = await Promise.all([
     retrieveAll(api, ENTITY.rule,
       `?$select=asx_ruleid,asx_name,asx_tablelogicalname,statuscode,asx_triggers,asx_ondemandscope,_asx_publishedrevision_value,${LOOKUP.ruleOfTableConfig},modifiedon,_modifiedby_value&$filter=_asx_draftof_value eq null&$orderby=modifiedon desc`),
     retrieveAll(api, ENTITY.action, `?$select=${LOOKUP.ruleOfAction}`),
     retrieveAll(api, ENTITY.tableConfig,
       `?$select=asx_tableconfigid,asx_name,asx_tablelogicalname,asx_tableconfigtype,${LOOKUP.parentTableOfConfig},modifiedon,_modifiedby_value&$filter=asx_isprivate ne true&$orderby=modifiedon desc`),
+    retrieveAll(api, ENTITY.ruleSchedule,
+      `?$select=${LOOKUP.ruleOfSchedule},asx_pattern,asx_every,asx_timeofday,asx_daysofweek,asx_dayofmonth&$filter=asx_on eq true`),
   ]);
-  const truncated = ruleResp.truncated || actionResp.truncated || nodeResp.truncated;
+  const truncated = ruleResp.truncated || actionResp.truncated || nodeResp.truncated || scheduleResp.truncated;
 
   const actionCounts = countByRule(actionResp.entities);
+
+  // rule id -> short summary, for the clock-icon tooltip on the hub row (Task 6).
+  const scheduleSummaryByRule = new Map<string, string>();
+  for (const s of scheduleResp.entities) {
+    const ruleId = s[LOOKUP.ruleOfSchedule];
+    if (!ruleId) continue;
+    scheduleSummaryByRule.set(ruleId, scheduleSummary({
+      pattern: s.asx_pattern, every: s.asx_every ?? null, timeOfDay: s.asx_timeofday ?? null,
+      days: parseMultiSelect(s.asx_daysofweek), dayOfMonth: s.asx_dayofmonth ?? null,
+    }));
+  }
 
   const nodeName = new Map<string, string>();
   const parentToChildren = new Map<string, string[]>();
@@ -120,6 +139,8 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
       publishedRevisionId: r._asx_publishedrevision_value ?? null,
       rootConfigName: published ? (publishedRoot ? published.tableConfigs[publishedRoot]?.name ?? null : null) : (rootConfigId ? nodeName.get(rootConfigId) ?? r[LOOKUP.ruleOfTableConfig + FV] ?? null : null),
       modifiedOn: r.modifiedon ?? null, modifiedBy: r["_modifiedby_value" + FV] ?? null,
+      scheduled: scheduleSummaryByRule.has(r.asx_ruleid),
+      scheduleSummary: scheduleSummaryByRule.get(r.asx_ruleid),
     };
   }));
 
@@ -134,4 +155,33 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
     }));
 
   return { rules, configs, truncated };
+}
+
+/** Loads the (at most one, global) asx_schedulerstatus row the scheduler add-on's flow
+ *  heartbeats on every run. No row means the add-on was never installed/run. */
+export async function loadSchedulerStatus(
+  api: WebApiPort,
+): Promise<{ lastSeenOn: string | null; installed: boolean }> {
+  const resp = await api.retrieveMultipleRecords(ENTITY.schedulerStatus, "?$select=asx_lastseenon&$top=1");
+  const raw = resp.entities[0];
+  return { lastSeenOn: raw?.asx_lastseenon ?? null, installed: !!raw };
+}
+
+/**
+ * The hub header's scheduler status chip (Task 6). Shown only when at least one rule's
+ * schedule is On: `anyScheduleOn` gates it regardless of `status`. Otherwise:
+ * - no status row (or a row with no heartbeat yet) -> "Scheduler not installed" (warning);
+ * - last heartbeat within 30 minutes of `now` -> "Scheduler: last ran {N} minutes ago" (ok);
+ * - older than that -> "Scheduler not running since {local time}" (warning).
+ */
+export function schedulerChip(
+  status: { lastSeenOn: string | null; installed: boolean },
+  anyScheduleOn: boolean,
+  now: number,
+): { text: string; tone: "ok" | "warning" } | null {
+  if (!anyScheduleOn) return null;
+  if (!status.installed || !status.lastSeenOn) return { text: "Scheduler not installed", tone: "warning" };
+  const minutes = Math.max(0, Math.floor((now - Date.parse(status.lastSeenOn)) / 60000));
+  if (minutes < 30) return { text: `Scheduler: last ran ${minutes} minutes ago`, tone: "ok" };
+  return { text: `Scheduler not running since ${new Date(status.lastSeenOn).toLocaleString()}`, tone: "warning" };
 }

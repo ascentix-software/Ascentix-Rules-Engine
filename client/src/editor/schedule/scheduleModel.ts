@@ -101,3 +101,27 @@ export function validateSchedule(s: RuleSchedule): string | null {
 export function scheduleApplies(rule: RuleHeader): boolean {
   return rule.triggers.includes(ON_DEMAND) && (rule.onDemandScope ?? 1) === 2;
 }
+
+/**
+ * A short, human-readable summary of an On schedule (Hub rows, Task 6): "Daily at 02:00",
+ * "Every 15 minutes", "Weekly on Mon, Wed at 09:00", "Monthly on day 31 at 06:00". Takes a
+ * loosely-shaped row (not the strict RuleSchedule pattern union) since callers build it
+ * straight from an OData row's asx_pattern/asx_every/... columns.
+ */
+export function scheduleSummary(s: {
+  pattern: number; every: number | null; timeOfDay: string | null; days: number[]; dayOfMonth: number | null;
+}): string {
+  const time = s.timeOfDay ?? "?";
+  switch (s.pattern) {
+    case 1: return `Every ${s.every ?? "?"} minutes`;
+    case 2: return `Every ${s.every ?? "?"} hour${s.every === 1 ? "" : "s"}`;
+    case 3: return `Daily at ${time}`;
+    case 4: {
+      const days = [...s.days].sort((a, b) => a - b)
+        .map((v) => DAY_OPTIONS.find((o) => o.value === v)?.label.slice(0, 3) ?? String(v));
+      return `Weekly on ${days.join(", ")} at ${time}`;
+    }
+    case 5: return `Monthly on day ${s.dayOfMonth ?? "?"} at ${time}`;
+    default: return "Scheduled";
+  }
+}

@@ -1,6 +1,6 @@
 import * as React from "react";
-import { SearchBox, Dropdown, Option, Button, TabList, Tab } from "@fluentui/react-components";
-import { Add16Regular, Copy16Regular, Delete16Regular, Play16Regular, History16Regular } from "@fluentui/react-icons";
+import { SearchBox, Dropdown, Option, Button, TabList, Tab, Tooltip } from "@fluentui/react-components";
+import { Add16Regular, Copy16Regular, Delete16Regular, Play16Regular, History16Regular, Clock16Regular } from "@fluentui/react-icons";
 import { AppProvider } from "./AppProvider";
 import { ScreenShell } from "./ScreenShell";
 import { navigate } from "./router";
@@ -14,7 +14,7 @@ import { ListFooter } from "./ListFooter";
 import type { RuleListItem, ConfigListItem } from "../load/hubData";
 import type { EditorApi } from "../webapi";
 import type { RuleGraph } from "../model/types";
-import { loadHubData } from "../load/hubData";
+import { loadHubData, loadSchedulerStatus, schedulerChip } from "../load/hubData";
 import { loadRuleEditorGraph } from "../load/ruleEditorGraph";
 import { loadPublishedGraph } from "../load/publishedGraph";
 import {
@@ -108,7 +108,17 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   const [runNowRule, setRunNowRule] = React.useState<RunNowRule | null>(null);
   const [loadingRunNowId, setLoadingRunNowId] = React.useState<string | null>(null);
   const [runsRule, setRunsRule] = React.useState<{ id: string; name: string; table: string } | null>(null);
+  const [schedulerStatus, setSchedulerStatus] = React.useState<{ lastSeenOn: string | null; installed: boolean } | null>(null);
   const now = Date.now();
+
+  // Loaded once on mount; the chip itself only shows once some rule is scheduled (below).
+  React.useEffect(() => {
+    let live = true;
+    loadSchedulerStatus(api)
+      .then((s) => { if (live) setSchedulerStatus(s); })
+      .catch(() => { if (live) setSchedulerStatus({ lastSeenOn: null, installed: false }); });
+    return () => { live = false; };
+  }, [api]);
   const [tab, setTab] = React.useState<"rules" | "configs">("rules");
   const [search, setSearch] = React.useState("");
   const [ruleTable, setRuleTable] = React.useState("all");
@@ -128,6 +138,9 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   const filteredConfigs = configs.filter((c) =>
     (!q || c.name.toLowerCase().includes(q)) &&
     (configRoot === "all" || c.rootTableLogicalName === configRoot));
+
+  const anyScheduleOn = rules.some((r) => r.scheduled);
+  const chip = schedulerStatus ? schedulerChip(schedulerStatus, anyScheduleOn, now) : null;
 
   const list = tab === "rules" ? filteredRules : filteredConfigs;
   const total = list.length;
@@ -230,7 +243,8 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
           )}
 
           {/* Tabs */}
-          <div style={{ borderBottom: `1px solid ${color.line}`, margin: "18px 0 16px" }}>
+          <div style={{ borderBottom: `1px solid ${color.line}`, margin: "18px 0 16px",
+            display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <TabList selectedValue={tab} onTabSelect={(_e, d) => switchTab(d.value as "rules" | "configs")}>
               <Tab value="rules">
                 Rules <Pill tone={tab === "rules" ? "info" : "neutral"}>{rules.length}</Pill>
@@ -239,6 +253,11 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                 Table configurations <Pill tone={tab === "configs" ? "info" : "neutral"}>{configs.length}</Pill>
               </Tab>
             </TabList>
+            {chip && (
+              <span data-testid="scheduler-chip">
+                <Pill tone={chip.tone === "ok" ? "published" : "warn"}>{chip.text}</Pill>
+              </span>
+            )}
           </div>
 
           {/* Command bar */}
@@ -289,7 +308,14 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                   const cells: RowCell[] = [
                     { label: "Rule", node: (
                       <div>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: color.ink }}>{r.name}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: color.ink, display: "flex", alignItems: "center", gap: 6 }}>
+                          {r.name}
+                          {r.scheduled && r.scheduleSummary && (
+                            <Tooltip content={`Scheduled: ${r.scheduleSummary}`} relationship="label">
+                              <Clock16Regular style={{ color: color.inkMuted }} />
+                            </Tooltip>
+                          )}
+                        </div>
                         <div style={{ fontSize: 12, color: color.inkMuted }}>uses{" "}
                           {r.rootConfigReadOnly ? <span>{r.rootConfigName ?? "Published data model"}</span> : r.rootConfigId
                             ? <button type="button" className={styles.focusRing} onClick={(e) => { e.stopPropagation(); navigate("tableconfig", r.rootConfigId!); }}

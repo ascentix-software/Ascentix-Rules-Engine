@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { loadHubData, retrieveAll, MAX_PAGES, countByRule, subtreeSize, groupUsedBy } from "../../src/editor/load/hubData";
+import {
+  loadHubData, retrieveAll, MAX_PAGES, countByRule, subtreeSize, groupUsedBy,
+  loadSchedulerStatus, schedulerChip,
+} from "../../src/editor/load/hubData";
 import type { WebApiPort } from "../../src/editor/webapi";
 import { ENTITY, LOOKUP } from "../../src/editor/load/odata";
 
@@ -64,6 +67,7 @@ function port(): WebApiPort {
         { asx_tableconfigid: ROOT2, asx_name: "Lead tree", asx_tablelogicalname: "lead",
           asx_tableconfigtype: 1, [LOOKUP.parentTableOfConfig]: null, modifiedon: "2026-06-17T00:00:00Z" },
       ] };
+      if (entity === ENTITY.ruleSchedule) return { entities: [] };
       throw new Error("unexpected " + entity);
     },
   };
@@ -96,6 +100,49 @@ describe("loadHubData", () => {
     expect(ruleOptions).toContain("asx_ondemandscope");
     expect(rules.find((r) => r.id === RULE1)!.onDemandScope).toBe(2);
     expect(rules.find((r) => r.id === RULE2)!.onDemandScope).toBeNull();
+  });
+
+  it("has no scheduled rules when the rule has no On asx_ruleschedule row", async () => {
+    const { rules } = await loadHubData(port());
+    expect(rules.every((r) => !r.scheduled)).toBe(true);
+    expect(rules.every((r) => r.scheduleSummary === undefined)).toBe(true);
+  });
+
+  it("maps scheduled + scheduleSummary from an On asx_ruleschedule row", async () => {
+    const base = port();
+    const scheduledPort: WebApiPort = {
+      ...base,
+      retrieveMultipleRecords: async (entity, options) => {
+        if (entity === ENTITY.ruleSchedule) return { entities: [
+          { [LOOKUP.ruleOfSchedule]: RULE1, asx_pattern: 4, asx_every: null, asx_timeofday: "09:00",
+            asx_daysofweek: "1,3", asx_dayofmonth: null },
+        ] };
+        return base.retrieveMultipleRecords(entity, options);
+      },
+    };
+    const { rules } = await loadHubData(scheduledPort);
+    const r1 = rules.find((r) => r.id === RULE1)!;
+    expect(r1.scheduled).toBe(true);
+    expect(r1.scheduleSummary).toBe("Weekly on Mon, Wed at 09:00");
+    const r2 = rules.find((r) => r.id === RULE2)!;
+    expect(r2.scheduled).toBe(false);
+    expect(r2.scheduleSummary).toBeUndefined();
+  });
+
+  it("selects asx_on eq true and the pattern fields on the schedule query", async () => {
+    let scheduleOptions = "";
+    const base = port();
+    const capturing: WebApiPort = {
+      ...base,
+      retrieveMultipleRecords: async (entity, options) => {
+        if (entity === ENTITY.ruleSchedule) scheduleOptions = options ?? "";
+        return base.retrieveMultipleRecords(entity, options);
+      },
+    };
+    await loadHubData(capturing);
+    expect(scheduleOptions).toContain("asx_on eq true");
+    expect(scheduleOptions).toContain(LOOKUP.ruleOfSchedule);
+    expect(scheduleOptions).toContain("asx_pattern");
   });
 
   it("assembles configs (roots only) with node and used-by counts", async () => {
@@ -171,5 +218,58 @@ describe("retrieveAll (nextLink paging)", () => {
     const data = await loadHubData(truncatingPort);
     expect(data.truncated).toBe(true);
     expect((await loadHubData(port())).truncated).toBe(false);
+  });
+});
+
+function statusPort(rows: any[]): WebApiPort {
+  return {
+    retrieveRecord: async () => { throw new Error("unused"); },
+    createRecord: async () => { throw new Error("unused"); },
+    updateRecord: async () => { throw new Error("unused"); },
+    processRunPage: async () => { throw new Error("unused"); },
+    validateRule: async () => { throw new Error("unused"); },
+    publishRule: async () => { throw new Error("unused"); },
+    unpublishRule: async () => { throw new Error("unused"); },
+    retrieveMultipleRecords: async (entity) => {
+      if (entity === ENTITY.schedulerStatus) return { entities: rows };
+      throw new Error("unexpected " + entity);
+    },
+  };
+}
+
+describe("loadSchedulerStatus", () => {
+  it("reports installed: false when there is no status row", async () => {
+    const status = await loadSchedulerStatus(statusPort([]));
+    expect(status).toEqual({ lastSeenOn: null, installed: false });
+  });
+
+  it("reports the last-seen timestamp from the (single) status row", async () => {
+    const status = await loadSchedulerStatus(statusPort([{ asx_lastseenon: "2026-09-29T12:00:00Z" }]));
+    expect(status).toEqual({ lastSeenOn: "2026-09-29T12:00:00Z", installed: true });
+  });
+});
+
+describe("schedulerChip", () => {
+  const NOW = Date.parse("2026-09-29T12:30:00Z");
+
+  it("is null when nothing is scheduled, regardless of status", () => {
+    expect(schedulerChip({ lastSeenOn: null, installed: false }, false, NOW)).toBeNull();
+    expect(schedulerChip({ lastSeenOn: "2026-09-29T12:29:00Z", installed: true }, false, NOW)).toBeNull();
+  });
+
+  it("shows 'Scheduler not installed' when there is no status row", () => {
+    expect(schedulerChip({ lastSeenOn: null, installed: false }, true, NOW))
+      .toEqual({ text: "Scheduler not installed", tone: "warning" });
+  });
+
+  it("shows 'last ran N minutes ago' (ok) within 30 minutes of now", () => {
+    expect(schedulerChip({ lastSeenOn: "2026-09-29T12:15:00Z", installed: true }, true, NOW))
+      .toEqual({ text: "Scheduler: last ran 15 minutes ago", tone: "ok" });
+  });
+
+  it("shows 'not running since {local time}' (warning) past 30 minutes", () => {
+    const lastSeenOn = "2026-09-29T11:55:00Z"; // 35 minutes before NOW
+    expect(schedulerChip({ lastSeenOn, installed: true }, true, NOW))
+      .toEqual({ text: `Scheduler not running since ${new Date(lastSeenOn).toLocaleString()}`, tone: "warning" });
   });
 });
