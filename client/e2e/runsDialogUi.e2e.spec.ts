@@ -32,9 +32,14 @@ test("Runs dialog: a completed run's blocked failure links its record, and a Que
 
   // Rule A: a Given-records run with one matching (Changed) and one non-matching (Blocked)
   // record, driven to completion before the UI ever sees it.
-  const rootA = await createZzRootConfig(`rdA_${stamp}`, "sample_order");
+  // Distinct base names for the config and the rule: createZzRootConfig and authorRule both just
+  // ZZ_RB_-prefix whatever they're given (authorRule does NOT append "_rule" itself), so sharing
+  // one base string makes the hub render the rule's own name and its "uses <config>" name
+  // IDENTICALLY — a strict-mode trap for getByText(exact:true) inside openRuleFromHub (hit live:
+  // two elements with that exact text in the same hub row, the name div and the "uses" span).
+  const rootA = await createZzRootConfig(`rdA_${stamp}_cfg`, "sample_order");
   const ruleA = await authorRule({
-    name: `rdA_${stamp}`,
+    name: `rdA_${stamp}_rule`,
     rootNodeId: rootA.id,
     triggers: "3",
     conditions: [
@@ -56,11 +61,17 @@ test("Runs dialog: a completed run's blocked failure links its record, and a Que
   // the caller sends, so a Queued row can't be backdated past the 2-minute staleness window here.
   // Resume (which only appears on a stale Queued/Running row) is therefore not exercised by this
   // spec; Cancel, which every active row always offers regardless of age, is.
-  const rootB = await createZzRootConfig(`rdB_${stamp}`, "sample_order");
+  // onDemandScope: 2 (All records), not the default 1 (Given record): RuleRunPlugin.cs rejects a
+  // Create with zero record ids outright when the rule's OWN scope is "Given record" ("This rule
+  // runs for records it's given. Choose the records to run it for."), before it ever gets to
+  // stamping the run Queued — so a no-recordIds run needs an All-records rule to create at all,
+  // even though this run is only ever left Queued, never driven.
+  const rootB = await createZzRootConfig(`rdB_${stamp}_cfg`, "sample_order");
   const ruleB = await authorRule({
-    name: `rdB_${stamp}`,
+    name: `rdB_${stamp}_rule`,
     rootNodeId: rootB.id,
     triggers: "3",
+    onDemandScope: 2,
     conditions: [
       { nodeId: rootB.id, conditionType: 1, column: "sample_ordertotal", operator: 4 /* GreaterThanOrEqual */, valueSource: 1, literal: "0" },
     ],

@@ -30,9 +30,14 @@ test("Run now, all records: the dialog lists the execution condition, Start runs
   const prefix = `ZZ_E2E_run_${stamp}`;
   const NOTE = "ZZ_E2E note (all records)";
 
-  const root = await createZzRootConfig(`rnAll_${stamp}`, "sample_order");
+  // Distinct base names for the config and the rule: createZzRootConfig and authorRule both just
+  // ZZ_RB_-prefix whatever they're given (authorRule does NOT append "_rule" itself), so sharing
+  // one base string here makes the hub render the rule's own name and its "uses <config>" name
+  // IDENTICALLY — a real strict-mode trap for getByText(exact:true) (hit live: two elements with
+  // that exact text in the same hub row, the name div and the "uses" span).
+  const root = await createZzRootConfig(`rnAll_${stamp}_cfg`, "sample_order");
   const rule = await authorRule({
-    name: `rnAll_${stamp}`,
+    name: `rnAll_${stamp}_rule`,
     rootNodeId: root.id,
     triggers: "3", // On demand only
     onDemandScope: 2, // All records that pass its execution conditions
@@ -102,9 +107,11 @@ test("Run now, given records: the picker's selection survives a second search, a
   const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const NOTE = "ZZ_E2E note (given records)";
 
-  const root = await createZzRootConfig(`rnGiven_${stamp}`, "sample_order");
+  // See the comment on the first test's root/rule names: distinct base strings avoid the hub
+  // rendering an identical rule-name / "uses <config>" text pair.
+  const root = await createZzRootConfig(`rnGiven_${stamp}_cfg`, "sample_order");
   const rule = await authorRule({
-    name: `rnGiven_${stamp}`,
+    name: `rnGiven_${stamp}_rule`,
     rootNodeId: root.id,
     triggers: "3", // On demand only
     onDemandScope: 1, // A record it's given (default)

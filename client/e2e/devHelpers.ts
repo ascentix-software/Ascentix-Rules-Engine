@@ -1,4 +1,4 @@
-import { createDevApi, deleteDevRecord } from "../test-dev/devApi";
+import { createDevApi, deleteDevRecord, processRunPage } from "../test-dev/devApi";
 import { readDevEnv } from "../test-dev/devEnv";
 import { ENTITY_SET, BIND_NAV, LOOKUP } from "../src/editor/load/odata";
 
@@ -248,10 +248,17 @@ export async function createRuleOnConfig(opts: {
 }
 
 // ---- On-demand runs (Run now / Runs dialog e2e specs) --------------------------------------
-// No e2e spec yet imports the applyRules/processRunPage wrappers from test-dev/devApi, so these
-// stay local rather than reaching into that module, per the e2e-new brief's convention note.
-// They mirror the browser's own runs/runDriver.ts (startRun / driveRun), just driven here
-// directly through createDevApi() for specs that arrange a run via the API instead of the UI.
+// createRuleRun mirrors the browser's own runs/runDriver.ts startRun, driven here directly
+// through createDevApi() (its EditorApi-compatible `api` object, which DOES implement
+// createRecord) for specs that arrange a run via the API instead of the UI.
+//
+// driveRunToCompletion reuses test-dev/devApi.ts's own `processRunPage` — NOT createDevApi()'s
+// `api` object, which (client/scripts/devOrg.mjs:254-321) has no `processRunPage` method at all,
+// despite createDevApi()'s EditorApi return type claiming one (a pre-existing type/implementation
+// mismatch in that script, not something this file works around by re-adding the method itself).
+// `processRunPage` is devOrg.mjs's own POST asx_ProcessRunPage wrapper (the same Custom API
+// runs/runDriver.ts's browser-side driveRun calls through Xrm.WebApi), already proven live by
+// test-dev/ruleRuns.dev.test.ts.
 
 // Creates an asx_rulerun for `ruleId`, scoped to `recordIds` when given.
 export async function createRuleRun(ruleId: string, recordIds?: string[]): Promise<string> {
@@ -269,9 +276,8 @@ export interface RunPageCounts {
 // driveRun, this has no record-failed retry protocol: the e2e fixtures that use this only author
 // Update/Block actions, neither of which throws, so a rejected write is never in scope here.
 export async function driveRunToCompletion(runId: string, maxCalls = 50): Promise<RunPageCounts> {
-  const api = createDevApi();
   for (let i = 0; i < maxCalls; i++) {
-    const last = await api.processRunPage(runId);
+    const last = await processRunPage(runId);
     if (last.done) return last;
   }
   throw new Error(`driveRunToCompletion: run ${runId} did not finish within ${maxCalls} calls.`);
