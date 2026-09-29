@@ -77,6 +77,11 @@ describe("diffSchedule", () => {
     expect(diffSchedule(loaded, { ...loaded }, "rule-1", true)).toEqual([]);
   });
 
+  it("creates nothing for a never-persisted draft that is Off (flipped On then back Off before saving)", () => {
+    const draft: RuleSchedule = { ...on(), on: false };
+    expect(diffSchedule(null, draft, "rule-1", true)).toEqual([]);
+  });
+
   it("creates a new schedule bound to the active rule", () => {
     const ops = diffSchedule(null, on(), "rule-1", true);
     expect(ops).toHaveLength(1);

@@ -88,6 +88,10 @@ export function diffSchedule(
   if (!next) return [];
 
   if (!prev) {
+    // Nothing to create when the draft was never turned on: an author who flips On and back
+    // Off before saving must not get a brand-new Off/Daily row (there is nothing for an Off
+    // schedule to do, and no engine-owned state to preserve since none was ever persisted).
+    if (!next.on) return [];
     const binds: Bind[] = [
       { navProp: BIND_NAV.scheduleRule, targetSet: ENTITY_SET.rule, ref: { kind: "existing", id: activeRuleId } },
     ];

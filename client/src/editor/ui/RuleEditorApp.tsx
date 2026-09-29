@@ -29,9 +29,7 @@ import { navigate } from "./router";
 import { useUnsavedGuard } from "./useUnsavedGuard";
 import { ConfirmUnpublishDialog } from "./ConfirmUnpublishDialog";
 import { makeValueLabelResolver, type ValueLabelSnapshot } from "../load/valueLabels";
-import type { SaveResult } from "../save/index";
-import { diffRuleGraph } from "../save/diff";
-import { buildBatch, parseBatchOutcome } from "../save/batch";
+import { saveRuleGraph, type SaveResult } from "../save/index";
 import { GraphTree, type GraphTreeHandlers } from "./GraphTree";
 import { InspectorShell } from "./InspectorShell";
 import { ruleEditorInspectorContent, IssueCallout } from "./inspectors/ruleEditorInspectorContent";
@@ -63,9 +61,6 @@ function nextIds() {
   const stamp = `${boundaryCounter}_${Date.now()}`;
   return { batchId: `b${stamp}`, changesetId: `c${stamp}` };
 }
-
-// Matches save/index.ts's own copy: batch/save requests target this Web API version.
-const SAVE_API_VERSION = "v9.2";
 
 function PropCell({ label, value, bold, first }: { label: string; value: string; bold?: boolean; first?: boolean }) {
   return (
@@ -265,21 +260,10 @@ export function RuleEditorApp({
     return false;
   }
 
-  // Diffs the rule graph AND the schedule into ONE Operation[] and sends them in the same
-  // $batch changeset (save/index.ts's saveRuleGraph only knows about the graph, so this
-  // inlines its same three steps — diff, buildBatch, executeBatch — over the combined ops).
+  // saveRuleGraph's extraOps parameter appends the schedule's ops to the rule's own, in the
+  // SAME $batch changeset — see save/index.ts.
   async function performSave(): Promise<SaveResult> {
-    const ops = [...diffRuleGraph(snapshot, workingRef.current), ...scheduleOps];
-    if (ops.length === 0) return { status: "noop" };
-    const ids = nextIds();
-    const { boundary, body } = buildBatch(ops, {
-      clientUrl: api.getClientUrl(), apiVersion: SAVE_API_VERSION,
-      batchId: ids.batchId, changesetId: ids.changesetId,
-    });
-    const { httpStatus, text } = await api.executeBatch(boundary, body);
-    const outcome = parseBatchOutcome(text);
-    if (outcome.ok && httpStatus < 400) return { status: "saved" };
-    return { status: "error", message: outcome.message };
+    return saveRuleGraph(api, snapshot, workingRef.current, nextIds(), scheduleOps);
   }
 
   async function onSave() {
