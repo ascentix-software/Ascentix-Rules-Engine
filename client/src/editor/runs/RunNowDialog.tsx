@@ -106,16 +106,27 @@ export function RunNowDialog({ open, api, rule, onClose }: {
                 </Button>
               </DialogActions>
             )}
+            {/* Rendered INSIDE this Dialog's own React tree (not as a sibling after it closes)
+                so Fluent's isNestedDialog (useHasParentContext(DialogContext)) picks it up as a
+                nested dialog rather than an unrelated top-level one. Both DialogSurfaces still
+                portal to document.body regardless of where they sit in the React tree, but
+                tabster's modalizer walks from the currently-open modal up through its DOM
+                ancestors and hides every OTHER sibling it passes; a modal that Fluent doesn't
+                know is nested has no such relationship recorded, so opening the picker stamped
+                aria-hidden="true" on this dialog's own surface and never lifted it once the
+                picker closed (it stayed visible, just removed from the accessibility tree). See
+                InsertFieldMenu.tsx's InsertMenuMountNode for the equivalent fix for nested
+                MENUS, and test/editor/runNowPickerNesting.dom.test.tsx for this case. */}
+            <MultiRecordPickerDialog
+              open={pickerOpen}
+              table={rule.table}
+              max={MAX_GIVEN_RECORDS}
+              onSelect={(ids) => { setRecordIds(ids); setPickerOpen(false); }}
+              onCancel={() => setPickerOpen(false)}
+            />
           </DialogBody>
         </DialogSurface>
       </Dialog>
-      <MultiRecordPickerDialog
-        open={pickerOpen}
-        table={rule.table}
-        max={MAX_GIVEN_RECORDS}
-        onSelect={(ids) => { setRecordIds(ids); setPickerOpen(false); }}
-        onCancel={() => setPickerOpen(false)}
-      />
       <RunsDialog
         open={runsOpen}
         api={api}
