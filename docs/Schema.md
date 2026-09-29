@@ -25,7 +25,7 @@ establish that these additions are already installed in an environment.
 | `asx_conditiontype` | Condition Type | Field Comparison = 1, Row Count = 2, Regex Match = 3, Calculation = 4 |
 | `asx_comparisonoperator` | Comparison Operator | Equals = 1, Not Equals = 2, Greater Than = 3, Greater Than Or Equal = 4, Less Than = 5, Less Than Or Equal = 6, Contains = 7, Does Not Contain = 8, Is Null = 9, Is Not Null = 10 |
 | `asx_severity` | Severity | Information = 1, Warning = 2, Error = 3 |
-| `asx_actiontype` | Action Type | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7 |
+| `asx_actiontype` | Action Type | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7, Deactivate Record = 8 |
 | `asx_actionfireon` | Action Fire On | On Match = 1, On No Match = 2 |
 | `asx_triggers` | Triggers | On Create = 1, On Form = 2, On demand = 3, On Update = 4, On Delete = 5 (**multi-select**). Value 3 was labelled "Manual"; the stored value is unchanged and API trigger strings accept both `OnDemand` and the old `Manual` alias |
 | `asx_channel` | Channel | Standard = 1, Portal = 2 (**multi-select**). 3 "Application" was retired 2026-08-23; the engine reads a stored 3 as Standard |
@@ -156,6 +156,9 @@ AND/OR filters scoped to a condition group, targeting any node in the tree. Self
 | Logical Operator | `asx_logicaloperator` | Choice → `asx_logicaloperator` | ✔ | |
 | Rule Condition | `asx_rulecondition` | Lookup → `asx_rulecondition` | | Owning condition of a per-condition filter; null ⇒ legacy group-wide |
 | Owning Criterion | `asx_owningcriterion` | Lookup → `asx_nodefiltercriterion` | | Exists sub-filter root (this group is the collection's filter); null ⇒ legacy or comparison-criterion |
+| Rule Action | `asx_ruleaction` | Lookup → `asx_ruleaction` | | A set action's Rows filter: set on every group of the action's filter tree (root and nested). Such a group has no condition group and no condition; its `asx_tableconfignode` is the action's target node. Relationship `asx_ruleaction_nodefiltergroup`, delete Cascade |
+
+> An EXISTS sub-filter inside a Rows filter hangs off its criterion (`asx_owningcriterion`) as elsewhere. An action owns at most one top-level group.
 
 ### 2.8 Node Filter Criterion (`asx_nodefiltercriterion`)
 
@@ -190,8 +193,8 @@ requirements at the application level).
 | Message | `asx_message` | Multiline | | ShowMessage / Block text (**default/fallback**); per-language overrides live in `asx_localizedmessage` |
 | Severity | `asx_severity` | Choice → `asx_severity` | | Notification level / message severity |
 | Target Table | `asx_targettable` | Text (100) | | CreateRecord target table |
-| Target Node | `asx_targetnode` | Lookup → `asx_tableconfig` | | Update/Delete target record: a single-cardinality node (root = triggering record; lookup = one related record) |
-| Field Mapping | `asx_fieldmapping` | Multiline (JSON) | | Create/Update value map (see format below) |
+| Target Node | `asx_targetnode` | Lookup → `asx_tableconfig` | | Update/Delete/Deactivate: a single-cardinality node (one record) or a collection node (every row, filtered by the Rows filter). Create Record: optional; a collection node means one record per filtered row. |
+| Field Mapping | `asx_fieldmapping` | Multiline (JSON) | | Create/Update value map; Deactivate: `statuscode` only (see format below) |
 | Order | `asx_order` | Whole Number | | Execution order |
 | Is Active | `asx_isactive` | Yes/No | | Default Yes |
 | Also Apply To Previous | `asx_applytoprevious` | Yes/No | | Update Record only: when the save changes the lookup above the target node, also apply the action to the record the lookup pointed to before the save. Default No |
@@ -203,7 +206,9 @@ requirements at the application level).
 > and performs **no** writes (block wins). `asx_RunRules` **reports** the resolved write (see §3)
 > but never executes it. An UpdateRecord targeting the root node on a Create/Update applies its
 > values to the in-flight record in place. That in-place path does not cover
-> `UpdateMultiple`/`DeleteMultiple`.
+> `UpdateMultiple`/`DeleteMultiple`. A set action writes every filtered row; one record's writes
+> are merged, unchanged rows skipped, and sent as creates, then updates, then deletes per table
+> (see the guide's *Building Actions*).
 
 **Field-mapping format (`asx_fieldmapping`)** is a JSON array, one entry per target column:
 
@@ -213,6 +218,7 @@ requirements at the application level).
   { "target": "statuscode",  "source": "literal", "value": 2 },
   { "target": "regardingid", "source": "root",    "column": "accountid" },
   { "target": "ownerid",     "source": "node",    "node": "<tableconfig-guid>", "column": "manager" },
+  { "target": "regardingobjectid", "source": "row", "column": "contactid" },
   { "target": "subject2",    "source": "template", "template": "Follow up: {root.name} — {node:<tableconfig-guid>.fullname}" },
   { "target": "followupby",  "source": "dateexpr", "anchor": { "kind": "now" }, "op": "add", "amount": 3, "unit": "days" }
 ]
@@ -220,10 +226,11 @@ requirements at the application level).
 
 `literal` values use the RecordJson encoding (see §3) and are coerced to the target column's CLR type
 via attribute metadata; `root`/`node` copy a raw attribute value off the triggering record or a
-single-cardinality related node. DeleteRecord ignores `asx_fieldmapping`.
+single-cardinality related node. `row` (set actions only) copies a column of the current row; a
+lookup target naming the row's own id column links to the row. DeleteRecord ignores `asx_fieldmapping`.
 
 `template` (String/Memo targets only) renders literal text with `{root.<column>}` /
-`{node:<tableconfig-guid>.<column>}` tokens (`{{`/`}}` escape braces); values format for humans
+`{node:<tableconfig-guid>.<column>}` / `{row.<column>}` tokens (`{{`/`}}` escape braces); values format for humans
 (option-set labels, lookup names, formatted values), null fields render empty, and malformed or
 unknown tokens are configuration errors. `dateexpr` (DateTime targets only) computes
 anchor ± amount unit (`minutes|hours|days|weeks|months|years`; weeks = 7 days; months/years clamp
@@ -987,6 +994,7 @@ None.
 | `asx_nodefiltergroup_owningcriterion` | `asx_nodefiltercriterion` | `asx_nodefiltergroup` |
 | `asx_rule_ruleaction` | `asx_rule` | `asx_ruleaction` |
 | `asx_ruleaction_localizedmessage` | `asx_ruleaction` | `asx_localizedmessage` |
+| `asx_ruleaction_nodefiltergroup` | `asx_ruleaction` | `asx_nodefiltergroup` (Cascade) |
 
 ---
 

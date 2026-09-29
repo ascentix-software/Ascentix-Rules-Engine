@@ -196,6 +196,7 @@ function Register {
 foreach ($interrupt in @($false, $true)) {
     $apis.Clear()
     $apis['asx_ValidateRule'] = @{ customapiid = $fixtureId; uniquename = 'asx_ValidateRule' }
+    $apis['asx_RunRules'] = @{ customapiid = '33333333-3333-3333-3333-333333333333'; uniquename = 'asx_RunRules' }
     $apis['asx_RetiredAuthoringOperation'] = @{ customapiid = [guid]::NewGuid().ToString(); uniquename = 'asx_RetiredAuthoringOperation'
         'PluginTypeId@odata.bind' = "/plugintypes($(TypeId 'RuleRevisionApi'))" }
     $parameters.Clear()
@@ -211,15 +212,15 @@ foreach ($interrupt in @($false, $true)) {
             $interrupted = $true
         }
         Assert $interrupted 'Partial-deployment scenario did not interrupt.'
-        Assert ($apis.Count -eq 2 -and $parameters.Count -eq 0) 'Unexpected partial-deployment state.'
+        Assert ($apis.Count -eq 3 -and $parameters.Count -eq 0) 'Unexpected partial-deployment state.'
     }
     Register
-    Assert ($apis.Count -eq 9 -and $parameters.Count -eq 26) 'Expected eight new APIs and twenty-six parameters/properties.'
-    Assert ($state.Creates -eq 38) 'Expected exactly thirty-eight successful creates.'
+    Assert ($apis.Count -eq 10 -and $parameters.Count -eq 27) 'Expected eight new APIs and twenty-seven parameters/properties.'
+    Assert ($state.Creates -eq 39) 'Expected exactly thirty-nine successful creates.'
     foreach ($spec in @(
         @('asx_ReadPublishedRule', 'RuleId', 10), @('asx_ReadPublishedRule', 'Definition', 10),
         @('asx_RestoreRuleDraft', 'RuleId', 10),
-        @('asx_OpenRuleDraft', 'RuleId', 10), @('asx_OpenRuleDraft', 'DraftId', 10), @('asx_CopyRule', 'RuleId', 10), @('asx_CopyRule', 'NewRuleId', 10), @('asx_DeleteRule', 'RuleId', 10), @('asx_ValidateRule', 'DraftHash', 10)
+        @('asx_OpenRuleDraft', 'RuleId', 10), @('asx_OpenRuleDraft', 'DraftId', 10), @('asx_CopyRule', 'RuleId', 10), @('asx_CopyRule', 'NewRuleId', 10), @('asx_DeleteRule', 'RuleId', 10), @('asx_ValidateRule', 'DraftHash', 10), @('asx_RunRules', 'ChangeSet', 10)
     )) {
         $binding = "/customapis($($apis[$spec[0]].customapiid))"
         $match = @($parameters.Values | Where-Object { $_.uniquename -eq $spec[1] -and $_['CustomAPIId@odata.bind'] -eq $binding })
@@ -257,7 +258,7 @@ foreach ($interrupt in @($false, $true)) {
     Assert ($parameters.ContainsKey($otherVersionKey)) 'Registration removed another API parameter.'
     $parameters.Remove($otherVersionKey)
     Register
-    Assert ($parameters.Count -eq 26 -and $state.Creates -eq 38) 'Completed deployment retry changed the API contract.'
+    Assert ($parameters.Count -eq 27 -and $state.Creates -eq 39) 'Completed deployment retry changed the API contract.'
     Assert ($state.GuardCreates -eq 1 -and $state.DeleteStages.Count -eq 3 -and $state.DeleteStages.ContainsKey(10) -and $state.DeleteStages.ContainsKey(20) -and $state.DeleteStages.ContainsKey(40)) 'Expected capture in PreValidation and transactional cleanup in PreOperation/PostOperation.'
     Assert (!$state.RevisionGuard) 'Revision-table plugin vetoes must be removed.'
     Assert ($apis['asx_OpenRuleDraft'].executeprivilegename -eq 'prvWriteasx_rule') 'Opening a draft requires the platform Write privilege.'
@@ -339,6 +340,13 @@ foreach ($interrupt in @($false, $true)) {
                     $schemaState.Writes++
                     return
                 }
+                '^InsertOptionValue$' {
+                    Assert ($record.OptionSetName -eq 'asx_actiontype' -and $record.Value -eq 8 -and $record.SolutionUniqueName -eq 'AscentixRulesEngine') 'Unexpected option insert.'
+                    Assert ($optionSets['asx_actiontype'].Value -ne 8) 'Duplicate option insert.'
+                    $optionSets['asx_actiontype'] = @{ Value = 8; Label = ($record.Label.LocalizedLabels | Where-Object { $_.LanguageCode -eq 1033 }).Label }
+                    $schemaState.Writes++
+                    return
+                }
             }
         }
         if ($Method -eq 'PUT' -and $path -match '^EntityDefinitions\(([\w-]+)\)$') {
@@ -392,6 +400,7 @@ foreach ($interrupt in @($false, $true)) {
     foreach ($interrupt in @($false, $true)) {
         $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear(); $relationships.Clear()
         $optionSets.Clear(); $optionSets['asx_triggers'] = @{ Value = 3; Label = 'Manual' }
+        $optionSets['asx_actiontype'] = @{ Value = 7; Label = 'Delete Record' }
         $schemaState.Writes = 0; $schemaState.FailViewOnce = $interrupt; $schemaState.TableUpdates = 0
         foreach ($table in @('asx_rule', 'asx_tableconfig')) {
             $folder = Join-Path $PSScriptRoot "../../Solutions/AscentixRulesEngine/AscentixRulesEngine_unmanaged/Entities/$table/SavedQueries"
@@ -415,7 +424,12 @@ foreach ($interrupt in @($false, $true)) {
             Assert $interrupted 'Schema retry scenario did not interrupt.'
         }
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($tables.Count -eq 5 -and $fields.Count -eq 46) 'Expected additive authoring tables and fields.'
+        Assert ($tables.Count -eq 5 -and $fields.Count -eq 47) 'Expected additive authoring tables and fields.'
+        Assert ($null -ne $fields['asx_nodefiltergroup/asx_ruleaction']) 'Expected the Rows filter action lookup.'
+        $rowFilterRelation = @($relationships.Values | Where-Object { $_.ReferencingEntity -eq 'asx_nodefiltergroup' -and $_.ReferencingAttribute -eq 'asx_ruleaction' })
+        Assert ($rowFilterRelation.Count -eq 1 -and $rowFilterRelation[0].SchemaName -eq 'asx_ruleaction_nodefiltergroup' -and $rowFilterRelation[0].ReferencedEntity -eq 'asx_ruleaction') 'Rows filter relationship must be asx_ruleaction_nodefiltergroup.'
+        Assert ($rowFilterRelation[0].CascadeConfiguration.Delete -eq 'Cascade') 'Deleting an action must delete its Rows filter.'
+        Assert ($optionSets['asx_actiontype'].Value -eq 8 -and $optionSets['asx_actiontype'].Label -eq 'Deactivate Record') 'Expected action type 8 Deactivate Record appended.'
         Assert ($fields['asx_rulecondition/asx_expressionfilters'].MaxLength -eq 100000) 'Expected the Calculation expression filters column.'
         Assert ($fields['asx_rule/asx_evaluationtimezone'].MaxLength -eq 100) 'Expected the rule evaluation time zone column.'
         Assert ($null -ne $fields['asx_ruleaction/asx_applytoprevious']) 'Expected the apply-to-previous action column.'
@@ -444,7 +458,7 @@ foreach ($interrupt in @($false, $true)) {
         Assert ((($patternOptions | Where-Object { $_.Value -eq 3 }).Label.LocalizedLabels[0].Label) -eq 'Daily') 'Incorrect label for pattern 3.'
         Assert ((($patternOptions | Where-Object { $_.Value -eq 4 }).Label.LocalizedLabels[0].Label) -eq 'Weekly') 'Incorrect label for pattern 4.'
         Assert ((($patternOptions | Where-Object { $_.Value -eq 5 }).Label.LocalizedLabels[0].Label) -eq 'Monthly') 'Incorrect label for pattern 5.'
-        Assert ($schemaState.Writes -eq (52 + $views.Count)) 'Unexpected metadata write count.'
+        Assert ($schemaState.Writes -eq (54 + $views.Count)) 'Unexpected metadata write count.'
         $writes = $schemaState.Writes
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
         Assert ($schemaState.Writes -eq $writes) 'Schema retry changed already configured metadata.'
@@ -453,24 +467,25 @@ foreach ($interrupt in @($false, $true)) {
         # publisher ownership or any non-delete cascade setting.
         foreach ($relation in $relationships.Values) { $relation.CascadeConfiguration.Delete = 'Restrict' }
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 7) 'Expected exactly seven relationship upgrades.'
+        Assert ($schemaState.Writes -eq $writes + 8) 'Expected exactly eight relationship upgrades.'
         foreach ($relation in $relationships.Values) {
             $expected = if ($relation.ReferencingAttribute -eq 'asx_publisher') { 'Restrict' }
                 elseif ($relation.ReferencingAttribute -eq 'asx_rule' -and $relation.ReferencingEntity -in @('asx_rulerun', 'asx_ruleschedule')) { 'Cascade' }
+                elseif ($relation.ReferencingAttribute -eq 'asx_ruleaction' -and $relation.ReferencingEntity -eq 'asx_nodefiltergroup') { 'Cascade' }
                 else { 'RemoveLink' }
             Assert ($relation.CascadeConfiguration.Delete -eq $expected) 'Incorrect native delete relationship behavior.'
             Assert ($relation.CascadeConfiguration.Assign -eq 'NoCascade') 'Unrelated cascade setting changed.'
         }
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 7) 'Relationship upgrade is not idempotent.'
+        Assert ($schemaState.Writes -eq $writes + 8) 'Relationship upgrade is not idempotent.'
         # An environment provisioned before the set name was fixed converges: exactly one table
         # update, only for Scheduler Status, then nothing on a re-run.
         $tables['asx_schedulerstatus'].EntitySetName = 'asx_schedulerstatuss'
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 8 -and $schemaState.TableUpdates -eq 1) 'Expected exactly one table update for the mismatched set name.'
+        Assert ($schemaState.Writes -eq $writes + 9 -and $schemaState.TableUpdates -eq 1) 'Expected exactly one table update for the mismatched set name.'
         Assert ($tables['asx_schedulerstatus'].EntitySetName -ceq 'asx_schedulerstatuses') 'The mismatched Scheduler Status set name was not reconciled.'
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 8 -and $schemaState.TableUpdates -eq 1) 'Set-name reconciliation is not idempotent.'
+        Assert ($schemaState.Writes -eq $writes + 9 -and $schemaState.TableUpdates -eq 1) 'Set-name reconciliation is not idempotent.'
         Write-Host "PASS: schema and shipped views, filter preservation, idempotent retry (interrupted=$interrupt)."
     }
 }

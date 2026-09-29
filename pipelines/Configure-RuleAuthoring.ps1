@@ -67,7 +67,13 @@ function EnsureOptionLabel([string]$OptionSet, [int]$Value, [string]$Text) {
         Request POST 'UpdateOptionValue' @{ OptionSetName = $OptionSet; Value = $Value; Label = (Label $Text); MergeLabels = $true } | Out-Null
     }
 }
-function EnsureLookup([string]$From, [string]$To, [string]$Name, [string]$Display, [string]$Delete = 'Restrict') {
+# Appends an option to a global choice (never renumbers), or relabels it when it exists.
+function EnsureOptionValue([string]$OptionSet, [int]$Value, [string]$Text) {
+    $definition = Request GET "GlobalOptionSetDefinitions(Name='$OptionSet')/Microsoft.Dynamics.CRM.OptionSetMetadata?`$select=Options"
+    if (@($definition.Options | Where-Object { $_.Value -eq $Value }).Count -gt 0) { EnsureOptionLabel $OptionSet $Value $Text; return }
+    Request POST 'InsertOptionValue' @{ OptionSetName = $OptionSet; Value = $Value; Label = (Label $Text); SolutionUniqueName = $SolutionName } | Out-Null
+}
+function EnsureLookup([string]$From, [string]$To, [string]$Name, [string]$Display, [string]$Delete = 'Restrict', [string]$Relationship = '') {
     $logical = $Name.ToLowerInvariant()
     $existing = Request GET "EntityDefinitions(LogicalName='$From')/Attributes?`$select=LogicalName&`$filter=LogicalName eq '$logical'"
     if ($existing.value.Count -gt 0) {
@@ -83,7 +89,7 @@ function EnsureLookup([string]$From, [string]$To, [string]$Name, [string]$Displa
         return
     }
     Request POST 'RelationshipDefinitions' @{
-        '@odata.type' = 'Microsoft.Dynamics.CRM.OneToManyRelationshipMetadata'; SchemaName = "${From}_${logical}_revision";
+        '@odata.type' = 'Microsoft.Dynamics.CRM.OneToManyRelationshipMetadata'; SchemaName = $(if ($Relationship) { $Relationship } else { "${From}_${logical}_revision" });
         ReferencedEntity = $To; ReferencingEntity = $From; Lookup = (Field $Name 'Lookup' $Display);
         CascadeConfiguration = @{ Assign = 'NoCascade'; Delete = $Delete; Merge = 'NoCascade'; Reparent = 'NoCascade'; Share = 'NoCascade'; Unshare = 'NoCascade' }
     } | Out-Null
@@ -191,7 +197,9 @@ if ($Phase -eq 'Schema') {
     $callsToday = Field 'asx_CallsToday' 'Integer' 'Calls today'; $callsToday.MinValue = 0; $callsToday.MaxValue = 2147483647
     EnsureField 'asx_schedulerstatus' $callsToday
     EnsureLookup 'asx_schedulerstatus' 'systemuser' 'asx_LastSeenBy' 'Last seen by' 'RemoveLink'
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity></entities><optionsets><optionset>asx_triggers</optionset></optionsets></importexportxml>' } | Out-Null
+    EnsureLookup 'asx_nodefiltergroup' 'asx_ruleaction' 'asx_RuleAction' 'Rule action' 'Cascade' 'asx_ruleaction_nodefiltergroup'
+    EnsureOptionValue 'asx_actiontype' 8 'Deactivate Record'
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_nodefiltergroup</entity></entities><optionsets><optionset>asx_triggers</optionset><optionset>asx_actiontype</optionset></optionsets></importexportxml>' } | Out-Null
     # Only configure the product's shipped views; personal/customer views are not selected.
     foreach ($spec in @(@('asx_rule','asx_draftof'), @('asx_tableconfig','asx_isprivate'))) {
         $viewFolder = Join-Path $PSScriptRoot "../Solutions/$SolutionName/${SolutionName}_unmanaged/Entities/$($spec[0])/SavedQueries"
@@ -225,7 +233,7 @@ if ($Phase -eq 'Schema') {
             }
         }
     }
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity></entities></importexportxml>' } | Out-Null
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_nodefiltergroup</entity></entities></importexportxml>' } | Out-Null
     Write-Host '[revisions] additive schema ready'
     return
 }
@@ -337,6 +345,9 @@ EnsureParameter $id 'RuleId' 10 $false 'Identifier of the rule or working draft 
 $validate = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq 'asx_ValidateRule'"
 if ($validate.value.Count -ne 1) { throw 'Missing asx_ValidateRule API.' }
 EnsureParameter $validate.value[0].customapiid 'DraftHash' 10 $true 'SHA-256 hash of the saved draft configuration checked by validation.'
+$runRules = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq 'asx_RunRules'"
+if ($runRules.value.Count -ne 1) { throw 'Missing asx_RunRules API.' }
+EnsureParameter $runRules.value[0].customapiid 'ChangeSet' 10 $true 'JSON change-set summary: creates, updates, deletes and unchanged rows.'
 $applyRulesType = PluginType 'ApplyRulesApi'
 $id = EnsureApi 'asx_ApplyRules' 'prvCreateasx_RuleRun' 'Evaluates one On demand rule for one record and applies its results (enforcing).' 'Apply Rules' $applyRulesType
 EnsureParameter $id 'RuleId' 12 $false 'Identifier of the On demand rule to evaluate.'
