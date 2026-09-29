@@ -31,6 +31,10 @@ variables:
     value: DataverseRulesEngine-DEV
   - name: outDir
     value: $(Build.ArtifactStagingDirectory)
+  # The optional scheduler add-on (a cloud flow and its connection reference), provisioned
+  # in DEV by pipelines/scheduler/Deploy-Scheduler.ps1 and shipped as its own solution.
+  - name: SCHEDULER_SOLUTION_NAME
+    value: AscentixRulesEngineScheduler
 
 stages:
   # Release gate (Tier B): nothing exports without a green L2 against the exact DEV state being
@@ -88,6 +92,24 @@ stages:
               PowerPlatformSPN: $(serviceConnection)
               SolutionName: $(SOLUTION_NAME)
               SolutionOutputFile: $(outDir)/$(SOLUTION_NAME)_managed.zip
+              Managed: true
+
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.export-solution.PowerPlatformExportSolution@2
+            displayName: Export scheduler add-on unmanaged
+            inputs:
+              authenticationType: PowerPlatformSPN
+              PowerPlatformSPN: $(serviceConnection)
+              SolutionName: $(SCHEDULER_SOLUTION_NAME)
+              SolutionOutputFile: $(outDir)/$(SCHEDULER_SOLUTION_NAME)_unmanaged.zip
+              Managed: false
+
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.export-solution.PowerPlatformExportSolution@2
+            displayName: Export scheduler add-on managed
+            inputs:
+              authenticationType: PowerPlatformSPN
+              PowerPlatformSPN: $(serviceConnection)
+              SolutionName: $(SCHEDULER_SOLUTION_NAME)
+              SolutionOutputFile: $(outDir)/$(SCHEDULER_SOLUTION_NAME)_managed.zip
               Managed: true
 
           # Release runs get semver-named copies, the exact filenames shipped to the
@@ -153,6 +175,7 @@ stages:
           #     also disappear from the repo. The folders are an exact mirror of this export.
           - pwsh: |
               Remove-Item -Recurse -Force "Solutions/$(SOLUTION_NAME)" -ErrorAction SilentlyContinue
+              Remove-Item -Recurse -Force "Solutions/$(SCHEDULER_SOLUTION_NAME)" -ErrorAction SilentlyContinue
             workingDirectory: $(Build.SourcesDirectory)
             displayName: Clean previous unpacked solution
 
@@ -168,6 +191,20 @@ stages:
             inputs:
               SolutionInputFile: $(outDir)/$(SOLUTION_NAME)_managed.zip
               SolutionTargetFolder: $(Build.SourcesDirectory)/Solutions/$(SOLUTION_NAME)/$(SOLUTION_NAME)_managed
+              SolutionType: Managed
+
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.unpack-solution.PowerPlatformUnpackSolution@2
+            displayName: Unpack scheduler add-on unmanaged
+            inputs:
+              SolutionInputFile: $(outDir)/$(SCHEDULER_SOLUTION_NAME)_unmanaged.zip
+              SolutionTargetFolder: $(Build.SourcesDirectory)/Solutions/$(SCHEDULER_SOLUTION_NAME)/$(SCHEDULER_SOLUTION_NAME)_unmanaged
+              SolutionType: Unmanaged
+
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.unpack-solution.PowerPlatformUnpackSolution@2
+            displayName: Unpack scheduler add-on managed
+            inputs:
+              SolutionInputFile: $(outDir)/$(SCHEDULER_SOLUTION_NAME)_managed.zip
+              SolutionTargetFolder: $(Build.SourcesDirectory)/Solutions/$(SCHEDULER_SOLUTION_NAME)/$(SCHEDULER_SOLUTION_NAME)_managed
               SolutionType: Managed
 
           # The mirror lands on its own branch, never straight onto the target branch.
