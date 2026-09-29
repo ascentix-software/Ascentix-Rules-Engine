@@ -104,6 +104,10 @@ export function ActionInspector({
   // mapping's Current row source (rowTable). Neither shows on a single-record action.
   const setAction = isSetAction(action, tableConfigs);
   const rowTable = setAction && action.targetNodeId ? tableConfigs[action.targetNodeId]?.tableLogicalName ?? null : null;
+  const collections = tcList.filter((tc) => isCollectionNode(tableConfigs, tc.id));
+  // Create's target is a collection ("For each row of") or nothing. A stale single-record target
+  // (saved before; the loader keeps it) still means one record, so it reads as "(one record)".
+  const createPerRow = isCollectionNode(tableConfigs, action.targetNodeId) ? action.targetNodeId : null;
   const nodeName = (id: string) => (isCollectionNode(tableConfigs, id) ? `${tableConfigs[id]?.name ?? id} (each row)` : tableConfigs[id]?.name ?? id);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -231,15 +235,18 @@ export function ActionInspector({
           <Field label="Target table">
             <TablePicker value={action.targetTable} onChange={(v) => onPatch({ targetTable: v })} />
           </Field>
-          <Field label="For each row of" hint="Optional. One record per row of this collection.">
-            <Dropdown aria-label="For each row of"
-              value={action.targetNodeId ? tableConfigs[action.targetNodeId]?.name ?? action.targetNodeId : "(one record)"}
-              selectedOptions={[action.targetNodeId ?? ""]}
-              onOptionSelect={(_e, d) => onPatch({ targetNodeId: d.optionValue ? d.optionValue : null })}>
-              <Option value="">(one record)</Option>
-              {tcList.filter((tc) => isCollectionNode(tableConfigs, tc.id)).map((tc) => <Option key={tc.id} value={tc.id}>{tc.name}</Option>)}
-            </Dropdown>
-          </Field>
+          {/* Hidden on a rule with no collection node: "(one record)" is the only possibility. */}
+          {collections.length > 0 && (
+            <Field label="For each row of" hint="Optional. One record per row of this collection.">
+              <Dropdown aria-label="For each row of"
+                value={createPerRow ? tableConfigs[createPerRow]?.name ?? createPerRow : "(one record)"}
+                selectedOptions={[createPerRow ?? ""]}
+                onOptionSelect={(_e, d) => onPatch({ targetNodeId: d.optionValue ? d.optionValue : null })}>
+                <Option value="">(one record)</Option>
+                {collections.map((tc) => <Option key={tc.id} value={tc.id}>{tc.name}</Option>)}
+              </Dropdown>
+            </Field>
+          )}
           <Field label="Columns to set">
             <FieldMappingControl
               fieldMapping={action.fieldMapping}

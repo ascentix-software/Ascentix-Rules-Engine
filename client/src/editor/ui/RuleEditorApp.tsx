@@ -605,7 +605,7 @@ export function RuleEditorApp({
                       Run now
                     </Button>
                   )}
-                  {published && api.dryRun && (
+                  {(published || !!working.rule.publishedRevisionId) && api.dryRun && (
                     <Button disabled={busy} onClick={() => setTestOpen(true)}>Test</Button>
                   )}
                   {(published || !!working.rule.publishedRevisionId) && (

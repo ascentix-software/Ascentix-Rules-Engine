@@ -27,8 +27,8 @@ function handlers(): RuleEditorInspectorHandlers {
   return { onPatchRule: vi.fn(), onPatchGroup: vi.fn(), onPatchCondition: vi.fn(), onPatchAction: vi.fn(),
     onAddTranslation: vi.fn(), onUpdateTranslation: vi.fn(), onRemoveTranslation: vi.fn() };
 }
-function renderAction(over: Partial<ActionNode>, h = handlers()) {
-  const graph = makeGraph({ tableConfigs: NODES, actions: [makeAction({ id: "a1", ...over })] });
+function renderAction(over: Partial<ActionNode>, h = handlers(), nodes: Record<string, TableConfigRef> = NODES) {
+  const graph = makeGraph({ tableConfigs: nodes, actions: [makeAction({ id: "a1", ...over })] });
   const { body } = ruleEditorInspectorContent(graph, { kind: "action", id: "a1" }, h);
   return { ...renderWithMeta(<SystemChoicesProvider>{body}</SystemChoicesProvider>, META), h };
 }
@@ -68,6 +68,17 @@ describe("set actions in the action inspector", () => {
     expect(screen.queryByRole("option", { name: "Owner" })).toBeNull();
     fireEvent.click(screen.getByRole("option", { name: "Contacts" }));
     expect(h.onPatchAction).toHaveBeenCalledWith("a1", { targetNodeId: C });
+  });
+
+  it("Create on a rule with no collection node has no For each row of picker", () => {
+    renderAction({ actionType: "CreateRecord", targetTable: "task" }, handlers(), { [R]: NODES[R], [O]: NODES[O] });
+    expect(screen.getByText("Target table")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "For each row of" })).toBeNull();
+  });
+
+  it("Create with a stale single-record target shows one record", () => {
+    renderAction({ actionType: "CreateRecord", targetTable: "task", targetNodeId: O });
+    expect(screen.getByRole("combobox", { name: "For each row of" })).toHaveTextContent("(one record)");
   });
 
   it("Deactivate is an action type and edits only the status reason", () => {

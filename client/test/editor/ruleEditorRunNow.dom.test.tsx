@@ -163,6 +163,14 @@ describe("RuleEditorApp Run now / Runs, with a draft open on a published rule", 
     expect(readPublishedRule).toHaveBeenCalledWith(ACTIVE_ID);
   });
 
+  it("shows Test, like Runs, on a Draft-status draft of a rule with a published revision", () => {
+    const draft = draftGraph();
+    draft.rule.statusCode = 1;
+    renderApp({ dryRun: vi.fn() }, draft);
+    expect(screen.getByRole("button", { name: "Runs" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Test" })).toBeInTheDocument();
+  });
+
   it("hides Test when the dry run isn't available", () => {
     renderApp({});
     expect(screen.queryByRole("button", { name: "Test" })).not.toBeInTheDocument();
