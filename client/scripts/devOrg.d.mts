@@ -48,6 +48,8 @@ export interface RunRulesResult {
   isValid: boolean;
   failedRuleCount: number;
   firedActions: any[];
+  /** asx_RunRules ChangeSet output. */
+  changeSet: { creates: number; updates: number; deletes: number; unchanged: number } | null;
   /** Parsed Diagnostics payload when includeDiagnostics was set (null otherwise). */
   diagnostics: { nodes?: Array<{ table?: string; nodeId?: string; rows: number }> } | null;
 }

@@ -1,5 +1,5 @@
 import type { EditorApi } from "../src/editor/webapi";
-import { devOrg } from "./devOrg";
+import { devOrg, type RunRulesResult } from "./devOrg";
 
 // Adapters over devOrg("user") (the DevOrg module owns URL/token/header plumbing and the
 // "<op> <set> failed (<status>): <body>" error shape). Kept so the ~25 existing suites and the
@@ -35,7 +35,7 @@ export async function deleteDevRecord(entitySet: string, id: string, tokenOverri
 export async function runRules(
   tableName: string,
   opts: { recordId?: string; recordJson?: string; triggers?: string; tokenOverride?: string } = {},
-): Promise<{ isValid: boolean; failedRuleCount: number; firedActions: any[] }> {
+): Promise<RunRulesResult> {
   const { tokenOverride, ...rest } = opts;
   return devOrg("user", tokenOverride ? { tokenOverride } : {}).runRules(tableName, rest);
 }

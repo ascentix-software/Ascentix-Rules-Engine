@@ -90,6 +90,7 @@ an ISO-8601 string; and `null` clears/omits the attribute.
 | `IsValid` | Boolean | `true` when no `Block` action fired |
 | `FailedRuleCount` | Integer | Count of distinct rules with a fired `Block` action |
 | `Results` | String | JSON array of every fired action |
+| `ChangeSet` | String | JSON object summarizing the writes this evaluation would make (see below) |
 | `Diagnostics` | String | Only when `IncludeDiagnostics` was `true`: a JSON object describing the evaluation (see below) |
 
 ```json
@@ -108,15 +109,40 @@ an ISO-8601 string; and `null` clears/omits the attribute.
 ```
 
 Enums serialize as string names; fields irrelevant to a given action type are
-`null`. A fired `CreateRecord` / `UpdateRecord` / `DeleteRecord` action also carries
-a `write` object, the fully-resolved write intent (`operation`, `targetTable`,
-`targetId`, `values`). `asx_RunRules` reports that intent; only the server engine
-applies it, on Create/Update/Delete. See *Runtime Enforcement*.
+`null`. A fired `CreateRecord` / `UpdateRecord` / `DeleteRecord` / `DeactivateRecord` action
+against a **single-record** target also carries a `write` object, the fully-resolved write intent
+(`operation`, `targetTable`, `targetId`, `values`). `asx_RunRules` reports that intent; only the
+server engine applies it, on Create/Update/Delete. See *Runtime Enforcement*. A create's
+`targetId` is always `null`: the engine never reports the id it will assign, and nothing in the
+same save can refer to a record created by it.
+
+A fired action against a **set** target (a collection node) instead carries `writes` (the first
+100 writes, in the same shape as `write` above), `writeCount` (the total number of rows written —
+rows skipped as unchanged don't count), and `unchangedCount` (rows the action would have written
+but that already hold the mapped values, so nothing changes):
+
+```json
+{ "ruleId": "…", "actionType": "UpdateRecord", "fireOn": "OnMatch", "targetTable": "contact",
+  "writes": [ { "operation": "Update", "targetTable": "contact", "targetId": "…", "values": { "donotbulkemail": true } } ],
+  "writeCount": 12, "unchangedCount": 3 }
+```
 
 A fired action also carries `previousOf`: the id of the root-level lookup node when the action
 fired for the previous value of a changed lookup ("Also apply to the previous"), absent
 otherwise. It appears only when the dry run evaluates an Update — `Triggers` is `OnUpdate` and
-both `RecordId` and `RecordJson` are supplied.
+both `RecordId` and `RecordJson` are supplied. `previousOf` doesn't apply to a set target: "Also
+apply to the previous" is available only on a single-record target.
+
+**`ChangeSet`** summarizes every write this evaluation would make, across every rule and action
+that fired, after writes to the same record are merged (see *Building Actions* → *Writing a set of
+rows*):
+
+```json
+{ "creates": 1, "updates": 12, "deletes": 0, "unchanged": 3 }
+```
+
+This is the same summary the Rule Builder's **Test** dialog renders as "Change set: 1 create, 12
+updates, 0 deletes · 3 unchanged".
 
 **Diagnostics** (opt-in, `IncludeDiagnostics: true`) report what the evaluation cost,
 for support conversations and your own sizing against the *Beta Limitations* budget:
@@ -157,7 +183,7 @@ a command button calls directly for a single record (see the recipe below).
 |---|---|---|
 | `IsValid` | Boolean | `true` when no `Block` action fired |
 | `Results` | String | JSON array of every fired action, in the `asx_RunRules` `Results` shape above |
-| `WriteCount` | Integer | Number of write actions applied |
+| `WriteCount` | Integer | Number of rows written (rows skipped as unchanged don't count) |
 
 Calling it requires the **Rule Run Create** privilege (`prvCreateasx_RuleRun`),
 the same gate as starting a Rule Run; *Running Rules On Demand* lists the rest of

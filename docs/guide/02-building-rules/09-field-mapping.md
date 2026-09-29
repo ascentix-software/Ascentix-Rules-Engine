@@ -14,7 +14,9 @@ screenshots:
 **Create Record** and **Update Record** actions write values onto the
 target record's columns, configured through the **Map columns** dialog,
 opened from the action's **"Edit columns…"** button in the action
-inspector.
+inspector. **Deactivate Record** uses the same dialog, but only to set the
+optional **Status Reason** (`statuscode`) column; leave it unmapped and the
+table's default inactive status applies.
 
 ## The Map columns dialog
 
@@ -33,9 +35,16 @@ The detail pane sets the mapped **Column** and its **Source**:
 - **From this record**: a column's value from the triggering record.
 - **From related record**: a column's value from a related table-config
   node.
+- **Current row** (set actions only): a column's value from the row of the collection this
+  write is for — the source available on a set Update/Delete/Deactivate action's mapping, or on a
+  Create Record's mapping when it creates **For each row of** a collection. For a lookup-family
+  target, a **"Link to the current row itself"** switch replaces the column picker: it points the
+  lookup at the row record itself rather than one of its column values, for example a follow-up
+  task's Regarding lookup pointing back at the contact row that produced it.
 - **Text template**: literal text combined with `{root.<column>}` /
-  `{node:<tableconfig-guid>.<column>}` tokens. A live preview beneath the
-  template shows the rendered result as you type.
+  `{node:<tableconfig-guid>.<column>}` / `{row.<column>}` tokens (`{row.…}` only where a **Current
+  row** source is available). A live preview beneath the template shows the rendered result as you
+  type.
 - **Date calculation**, for DateTime targets only: an anchor (either "now"
   or a date column) plus or minus an amount and a unit.
 - **Link to a record**, for lookup-family targets only (Lookup,

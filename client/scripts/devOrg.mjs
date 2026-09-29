@@ -356,6 +356,7 @@ export function devOrg(identity = "user", opts = {}) {
       isValid: raw.IsValid ?? true,
       failedRuleCount: raw.FailedRuleCount ?? 0,
       firedActions: raw.Results ? JSON.parse(raw.Results) : [],
+      changeSet: raw.ChangeSet ? parseJson(raw.ChangeSet) : null,
       diagnostics: raw.Diagnostics ? parseJson(raw.Diagnostics) : null,
     };
   }

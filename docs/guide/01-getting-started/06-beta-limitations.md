@@ -186,3 +186,10 @@ The `asx_applyinversewhennotfired` column exists in the schema and is settable,
 on a Set Visible or Set Required action's classic form and through the API, but
 nothing reads it: no runtime behaviour depends on its value. The Rule Builder
 does not show it. It is reserved for possible future use.
+
+## 17. No write limit on set actions
+
+A set action writes every filtered row of its collection, and nothing caps how many. A very large set
+can exceed the platform's 2-minute limit for a synchronous save, which fails the save. Keep sets
+bounded with the Rows filter and the rule's conditions, and use the Rule Builder's **Test** to see
+how many rows a record would write.

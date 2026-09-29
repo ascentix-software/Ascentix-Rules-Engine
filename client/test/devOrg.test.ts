@@ -262,13 +262,22 @@ describe("web api", () => {
     ]);
     const org = devOrg("user", { ...base, fetch: fn });
     const v = await org.runRules("sample_order", { recordId: "id" });
-    expect(v).toEqual({ isValid: false, failedRuleCount: 1, firedActions: [{ Message: "Too big." }], diagnostics: null });
+    expect(v).toEqual({ isValid: false, failedRuleCount: 1, firedActions: [{ Message: "Too big." }], changeSet: null, diagnostics: null });
     expect(JSON.parse(String(calls[0].init.body))).toEqual({ TableName: "sample_order", RecordId: "id", Triggers: "Manual" });
     const d = await org.runRules("sample_order", { recordJson: "{}", triggers: "4", includeDiagnostics: true });
     expect(d.diagnostics).toEqual({ nodes: [{ table: "sample_order", rows: 1 }] });
     expect(JSON.parse(String(calls[1].init.body))).toEqual({
       TableName: "sample_order", RecordJson: "{}", Triggers: "4", IncludeDiagnostics: true,
     });
+  });
+
+  it("runRules: parses the ChangeSet payload when present", async () => {
+    const { fn } = fakeFetch([{ status: 200, body: JSON.stringify({
+      IsValid: true, Results: "[]", ChangeSet: '{"creates":1,"updates":12,"deletes":0,"unchanged":3}',
+    }) }]);
+    const org = devOrg("user", { ...base, fetch: fn });
+    const v = await org.runRules("sample_order", { recordId: "id" });
+    expect(v.changeSet).toEqual({ creates: 1, updates: 12, deletes: 0, unchanged: 3 });
   });
 
   it("validateRule parses the Issues payload", async () => {

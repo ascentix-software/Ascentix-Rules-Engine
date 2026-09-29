@@ -52,6 +52,15 @@ only, so the version an administrator sees in their org can never carry the word
   `asx_schedulerstatus`, tracks a heartbeat for whatever calls `asx_StartDueSchedules`, shown as a
   status chip in the hub alongside a clock icon on scheduled rules. See *Administering →
   Scheduling Rules*.
+- **Actions on a set of records.** Update, Delete and the new **Deactivate Record** action can
+  target a related collection and write every row that passes the action's **Rows** filter;
+  Create Record can create one record **for each row** of a collection, with values from the
+  **Current row** (`row` source, `{row.<column>}` tokens). One record's writes are merged, rows
+  that already hold the values are skipped, and the rest are sent in bulk (creates, then updates,
+  then deletes). New column `asx_nodefiltergroup.asx_ruleaction`, action type 8, and the
+  `asx_RunRules` output `ChangeSet`. The Rule Builder's new **Test** runs a published rule
+  against a record without saving. Writes now go out in that order rather than one at a time in
+  action order; only other plug-ins reacting to each write can observe the difference.
 
 ### Changed
 

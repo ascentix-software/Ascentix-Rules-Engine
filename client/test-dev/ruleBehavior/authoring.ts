@@ -1,3 +1,4 @@
+import type { EditorApi } from "../../src/editor/webapi";
 import { createDevApi, deleteDevRecord } from "../devApi";
 import { ENTITY_SET, BIND_NAV } from "../../src/editor/load/odata";
 import { configsVisible, enforcementSettled } from "./settle";
@@ -167,6 +168,33 @@ export async function ensureLineRootedConfig(): Promise<LineRootedGraph> {
   }
 }
 
+export interface AccountSetGraph { account: string; contacts: string; tasks: string; cleanup: () => Promise<void>; }
+
+// account (root) → contacts (child, parentcustomerid) → tasks (child of contact, regardingobjectid).
+// The set-action shape (spec §1.1): a two-level child collection off a standard-entity root, for
+// ruleBehaviorSetActions.dev.test.ts's account-keeps-contacts-and-tasks-in-step scenario.
+export async function ensureAccountSetConfig(): Promise<AccountSetGraph> {
+  const api = createDevApi();
+  const created: TrackedRecord[] = [];
+  async function createNode(data: Record<string, unknown>): Promise<string> {
+    const id = await api.createRecord(ENTITY_SET.tableConfig, data);
+    created.push({ set: ENTITY_SET.tableConfig, id });
+    return id;
+  }
+  try {
+    const account = await createNode({ asx_name: "ZZ_RB_TC_set_account", asx_tablelogicalname: "account", asx_tableconfigtype: 1 });
+    const contacts = await createNode({ asx_name: "ZZ_RB_TC_set_contacts", asx_tablelogicalname: "contact", asx_tableconfigtype: 3,
+      asx_childlinkfield: "parentcustomerid", [`${BIND_NAV.tableConfigParent}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${account})` });
+    const tasks = await createNode({ asx_name: "ZZ_RB_TC_set_tasks", asx_tablelogicalname: "task", asx_tableconfigtype: 3,
+      asx_childlinkfield: "regardingobjectid", [`${BIND_NAV.tableConfigParent}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${contacts})` });
+    await awaitConfigsVisible([account, contacts, tasks]);
+    return { account, contacts, tasks, cleanup: () => deleteInReverse(created) };
+  } catch (err) {
+    await deleteInReverse(created).catch((e) => console.warn("Fixture cleanup failed:", e));
+    throw err;
+  }
+}
+
 export interface ConditionCfg {
   nodeId: string; // the node this condition evaluates on (from ensureTableConfig)
   conditionType: number; // 1 FieldComparison | 2 RowCount | 3 RegexMatch | 4 Expression
@@ -214,6 +242,20 @@ export interface ActionCfg {
   fieldMapping?: string; // Create/Update: asx_fieldmapping JSON string
   applyToPrevious?: boolean; // Update Record: asx_applytoprevious
   order?: number; // asx_order: dispatch order among the actions that fire (default 1)
+  // a set action's Rows filter: one AND group on targetNodeId (asx_RuleAction bind), criteria like ConditionCfg.nodeFilter
+  rowFilter?: {
+    criteria: Array<{
+      fieldName?: string;
+      operator?: string; // TEXT token: eq/ne/gt/ge/lt/le/like/not-like/null/not-null/contains/not-contains
+      value?: string;
+      exists?: {
+        collectionNodeId: string;
+        minCount?: number;
+        maxCount?: number;
+        sub: Array<{ fieldName: string; operator: string; value?: string }>;
+      };
+    }>;
+  };
 }
 
 export interface RuleConfig {
@@ -249,6 +291,70 @@ export interface AuthoredRule {
   ruleId: string;
   ruleName: string;
   cleanup: () => Promise<void>;
+}
+
+type FilterCriteriaCfg = NonNullable<ConditionCfg["nodeFilter"]>["criteria"];
+
+// Creates the criteria (Comparison or Exists, with a nested sub-filter group for Exists) of one
+// already-created `asx_nodefiltergroup` (`fgId`). Shared by a condition's nodeFilter ("Only
+// consider records where…") and an action's rowFilter (Rows filter): both are one flat AND group
+// with the same criterion shape, just parented to a different owner (the condition group vs. the
+// action, via BIND_NAV.filterGroupCondition vs. BIND_NAV.filterGroupAction).
+async function createFilterCriteria(
+  api: EditorApi,
+  fgId: string,
+  criteria: FilterCriteriaCfg,
+  created: TrackedRecord[],
+): Promise<void> {
+  for (const crit of criteria) {
+    if (crit.exists) {
+      const ex = crit.exists;
+      const exCritId = await api.createRecord(ENTITY_SET.nodeFilterCriterion, {
+        asx_criteriontype: 2, // Exists
+        asx_mincount: ex.minCount,
+        ...(ex.maxCount !== undefined ? { asx_maxcount: ex.maxCount } : {}),
+        [`${BIND_NAV.filterCriterionGroup}@odata.bind`]: `/${ENTITY_SET.nodeFilterGroup}(${fgId})`,
+        [`${BIND_NAV.filterCriterionCollectionNode}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${ex.collectionNodeId})`,
+      });
+      created.push({ set: ENTITY_SET.nodeFilterCriterion, id: exCritId });
+      // Sub-filter group owned by the Exists criterion (NOT scoped to the condition group).
+      const subFgId = await api.createRecord(ENTITY_SET.nodeFilterGroup, {
+        asx_logicaloperator: 1, // And
+        [`${BIND_NAV.filterGroupOwningCriterion}@odata.bind`]: `/${ENTITY_SET.nodeFilterCriterion}(${exCritId})`,
+      });
+      created.push({ set: ENTITY_SET.nodeFilterGroup, id: subFgId });
+      for (const sc of ex.sub) {
+        const scId = await api.createRecord(ENTITY_SET.nodeFilterCriterion, {
+          asx_fieldname: sc.fieldName,
+          asx_operator: sc.operator,
+          asx_criteriontype: 1, // Comparison
+          asx_value: sc.value,
+          [`${BIND_NAV.filterCriterionGroup}@odata.bind`]: `/${ENTITY_SET.nodeFilterGroup}(${subFgId})`,
+        });
+        created.push({ set: ENTITY_SET.nodeFilterCriterion, id: scId });
+      }
+    } else {
+      const critData: Record<string, unknown> = {
+        asx_fieldname: crit.fieldName,
+        asx_operator: crit.operator,
+        asx_criteriontype: 1, // Comparison
+        [`${BIND_NAV.filterCriterionGroup}@odata.bind`]: `/${ENTITY_SET.nodeFilterGroup}(${fgId})`,
+      };
+      if ((crit.valueSource ?? 1) === 2) {
+        critData.asx_comparisonvaluesource = 2; // FieldReference
+        critData.asx_comparisonvaluecolumn = crit.valueColumn;
+        if (crit.valueNodeId)
+          critData[`${BIND_NAV.filterCriterionValueNode}@odata.bind`] = `/${ENTITY_SET.tableConfig}(${crit.valueNodeId})`;
+      } else if (crit.valueSource === 4) {
+        critData.asx_comparisonvaluesource = 4; // DateExpression
+        critData.asx_value = crit.value;
+      } else {
+        critData.asx_value = crit.value;
+      }
+      const critId = await api.createRecord(ENTITY_SET.nodeFilterCriterion, critData);
+      created.push({ set: ENTITY_SET.nodeFilterCriterion, id: critId });
+    }
+  }
 }
 
 // Assembles a rule + one exec group + its conditions + actions, then validates via
@@ -313,55 +419,7 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
           [`${BIND_NAV.filterGroupTargetNode}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${c.nodeFilter.targetNodeId})`,
         });
         created.push({ set: ENTITY_SET.nodeFilterGroup, id: fgId });
-        for (const crit of c.nodeFilter.criteria) {
-          if (crit.exists) {
-            const ex = crit.exists;
-            const exCritId = await api.createRecord(ENTITY_SET.nodeFilterCriterion, {
-              asx_criteriontype: 2, // Exists
-              asx_mincount: ex.minCount,
-              ...(ex.maxCount !== undefined ? { asx_maxcount: ex.maxCount } : {}),
-              [`${BIND_NAV.filterCriterionGroup}@odata.bind`]: `/${ENTITY_SET.nodeFilterGroup}(${fgId})`,
-              [`${BIND_NAV.filterCriterionCollectionNode}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${ex.collectionNodeId})`,
-            });
-            created.push({ set: ENTITY_SET.nodeFilterCriterion, id: exCritId });
-            // Sub-filter group owned by the Exists criterion (NOT scoped to the condition group).
-            const subFgId = await api.createRecord(ENTITY_SET.nodeFilterGroup, {
-              asx_logicaloperator: 1, // And
-              [`${BIND_NAV.filterGroupOwningCriterion}@odata.bind`]: `/${ENTITY_SET.nodeFilterCriterion}(${exCritId})`,
-            });
-            created.push({ set: ENTITY_SET.nodeFilterGroup, id: subFgId });
-            for (const sc of ex.sub) {
-              const scId = await api.createRecord(ENTITY_SET.nodeFilterCriterion, {
-                asx_fieldname: sc.fieldName,
-                asx_operator: sc.operator,
-                asx_criteriontype: 1, // Comparison
-                asx_value: sc.value,
-                [`${BIND_NAV.filterCriterionGroup}@odata.bind`]: `/${ENTITY_SET.nodeFilterGroup}(${subFgId})`,
-              });
-              created.push({ set: ENTITY_SET.nodeFilterCriterion, id: scId });
-            }
-          } else {
-            const critData: Record<string, unknown> = {
-              asx_fieldname: crit.fieldName,
-              asx_operator: crit.operator,
-              asx_criteriontype: 1, // Comparison
-              [`${BIND_NAV.filterCriterionGroup}@odata.bind`]: `/${ENTITY_SET.nodeFilterGroup}(${fgId})`,
-            };
-            if ((crit.valueSource ?? 1) === 2) {
-              critData.asx_comparisonvaluesource = 2; // FieldReference
-              critData.asx_comparisonvaluecolumn = crit.valueColumn;
-              if (crit.valueNodeId)
-                critData[`${BIND_NAV.filterCriterionValueNode}@odata.bind`] = `/${ENTITY_SET.tableConfig}(${crit.valueNodeId})`;
-            } else if (crit.valueSource === 4) {
-              critData.asx_comparisonvaluesource = 4; // DateExpression
-              critData.asx_value = crit.value;
-            } else {
-              critData.asx_value = crit.value;
-            }
-            const critId = await api.createRecord(ENTITY_SET.nodeFilterCriterion, critData);
-            created.push({ set: ENTITY_SET.nodeFilterCriterion, id: critId });
-          }
-        }
+        await createFilterCriteria(api, fgId, c.nodeFilter.criteria, created);
       }
     }
   }
@@ -428,6 +486,16 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
       };
       const actionId = await api.createRecord(ENTITY_SET.action, data);
       created.push({ set: ENTITY_SET.action, id: actionId });
+
+      if (a.rowFilter) {
+        const fgId = await api.createRecord(ENTITY_SET.nodeFilterGroup, {
+          asx_logicaloperator: 1, // And
+          [`${BIND_NAV.filterGroupAction}@odata.bind`]: `/${ENTITY_SET.action}(${actionId})`,
+          [`${BIND_NAV.filterGroupTargetNode}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${a.targetNodeId})`,
+        });
+        created.push({ set: ENTITY_SET.nodeFilterGroup, id: fgId });
+        await createFilterCriteria(api, fgId, a.rowFilter.criteria, created);
+      }
     }
 
     // Validate before publishing: reaching this point proves the rule is structurally sound.

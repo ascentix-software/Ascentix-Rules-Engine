@@ -25,7 +25,7 @@ stable integers. Do not assume label text; match on the value.
 | Condition Type | `asx_conditiontype` | Field Comparison = 1, Row Count = 2, Regex Match = 3, Calculation = 4 |
 | Comparison Operator | `asx_comparisonoperator` | Equals = 1, Not Equals = 2, Greater Than = 3, Greater Than Or Equal = 4, Less Than = 5, Less Than Or Equal = 6, Contains = 7, Does Not Contain = 8, Is Null = 9, Is Not Null = 10 |
 | Severity | `asx_severity` | Information = 1, Warning = 2, Error = 3 |
-| Action Type | `asx_actiontype` | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7 |
+| Action Type | `asx_actiontype` | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7, Deactivate Record = 8 |
 | Action Fire On | `asx_actionfireon` | On Match = 1, On No Match = 2 |
 | Triggers *(multi-select)* | `asx_triggers` | On Create = 1, On Form = 2, On demand = 3 (formerly Manual), On Update = 4, On Delete = 5 |
 | Runs for | `asx_ondemandscope` | A record it's given = 1 (default), All records that pass its execution conditions = 2 |
@@ -111,8 +111,8 @@ The outcome layer. Columns not relevant to a given Action Type are left blank.
 | Message | `asx_message` | Multiline text | No | Show Message / Block text (default/fallback; see `asx_localizedmessage` for per-language overrides) |
 | Severity | `asx_severity` | Choice → `asx_severity` | No | Notification level |
 | Target Table | `asx_targettable` | Text | No | Create Record target |
-| Target Node | `asx_targetnode` | Lookup → `asx_tableconfig` | No | Update / Delete Record target (see *Value nodes* below) |
-| Field Mapping | `asx_fieldmapping` | Multiline text (JSON) | No | Create/Update value map |
+| Target Node | `asx_targetnode` | Lookup → `asx_tableconfig` | No | Update / Delete / Deactivate target: a single-cardinality node (one record) or a collection node (every row, filtered by the Rows filter). Create Record: optional; a collection node means one record per filtered row (see *Value nodes* below) |
+| Field Mapping | `asx_fieldmapping` | Multiline text (JSON) | No | Create/Update value map; Deactivate Record: `statuscode` only |
 | Order | `asx_order` | Whole Number | No | Execution order |
 | Is Active | `asx_isactive` | Yes/No | No | Default Yes |
 | Also Apply To Previous | `asx_applytoprevious` | Yes/No | No | Update Record only: when the save changes the lookup above the target node, also apply the action to the record the lookup pointed to before the save. Default No |
@@ -142,6 +142,10 @@ An AND/OR node in a node filter's tree (self-referential).
 | Logical Operator | `asx_logicaloperator` | Choice → `asx_logicaloperator` | Yes | And / Or |
 | Rule Condition | `asx_rulecondition` | Lookup → `asx_rulecondition` | No | Owning condition of a per-condition filter; null = legacy group-wide |
 | Owning Criterion | `asx_owningcriterion` | Lookup → `asx_nodefiltercriterion` | No | Exists sub-filter root: this group is the collection's filter |
+| Rule Action | `asx_ruleaction` | Lookup → `asx_ruleaction` | No | A set action's Rows filter: set on every group of the action's filter tree (root and nested). Such a group has no condition group and no condition; its `asx_tableconfignode` is the action's target node |
+
+An EXISTS sub-filter inside a Rows filter hangs off its criterion (`asx_owningcriterion`) as
+elsewhere. An action owns at most one top-level group.
 
 ### Node Filter Criterion (`asx_nodefiltercriterion`)
 
