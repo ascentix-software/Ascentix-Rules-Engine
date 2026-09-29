@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { resolveAppId, hubDeepLink, createThrowawayRule } from "./devHelpers";
-import { armReauthGuard } from "./editorHarness";
+import { armReauthGuard, toolbar } from "./editorHarness";
 import { createDevApi } from "../test-dev/devApi";
 import { loadPublishedGraph } from "../src/editor/load/publishedGraph";
 
@@ -70,7 +70,7 @@ test("author → publish → edit live draft → republish preserves the active 
     await expect(frame.getByText("Viewing the published revision — read-only", { exact: true })).toBeVisible();
     await expect(frame.getByRole("button", { name: "Rename rule" })).toBeDisabled();
     await frame.getByRole("button", { name: "Back to draft", exact: true }).click();
-    await expect(frame.getByText(secondName, { exact: true })).toBeVisible();
+    await expect(toolbar(frame).getByText(secondName, { exact: true })).toBeVisible();
 
     await frame.getByRole("button", { name: "Validate", exact: true }).click();
     await expect(frame.getByText("Validation passed. The rule is valid.")).toBeVisible();
