@@ -310,4 +310,85 @@ describe("DEV probes (Task 11 unknowns)", () => {
       await deleteDevRecord(ENTITY_SET.tableConfig, contactRootId).catch(() => {});
     }
   }, 180_000); // IMPORTANT 3: explicit timeout — two settle rounds plus a bulk write and cleanup.
+
+  it("probe: the engine's own CreateMultiple of tasks runs a task OnCreate rule with a server action on every task", async () => {
+    // Final review Important 1: a Create per row of >= 2 contacts goes out as ONE engine-issued
+    // CreateMultiple of tasks, with no ids. When task has an engine rule with an OnCreate server
+    // action, that CreateMultiple runs the engine on task; pairing its records with their Targets
+    // by id collided on Guid.Empty and failed the account save. The task rule here writes each
+    // task's own subject into its description (an in-place root Update), so both the save
+    // succeeding AND each task getting ITS OWN value are checked.
+    const supported = (await api.retrieveMultipleRecords("sdkmessagefilters",
+      "?$select=sdkmessagefilterid&$filter=primaryobjecttypecode eq 'task' and sdkmessageid/name eq 'CreateMultiple'")).entities;
+    if (supported.length === 0) {
+      throw new Error(
+        "probe precondition failed: CreateMultiple is not registered for 'task' on this org, so the " +
+        "account rule's creates fall back to single Creates and this probe cannot reach the bulk path.",
+      );
+    }
+
+    const cmStamp = `${STAMP}_cm`;
+    const marker = `ZZ_RB_set_${STAMP}`; // every follow-up subject (SUBJECT) and every probe task below carries it
+    const taskRootId = await api.createRecord(ENTITY_SET.tableConfig, {
+      asx_name: `ZZ_RB_TC_set_taskroot_${cmStamp}`, asx_tablelogicalname: "task", asx_tableconfigtype: 1,
+    });
+    await configsVisible([taskRootId]); // same lag as the tag probe's contact root
+    const probeTaskIds: string[] = [];
+    let contactIds: string[] = [];
+    let taskRule: AuthoredRule | undefined;
+    const description = async (id: string) =>
+      (await api.retrieveRecord("tasks", id, "?$select=subject,description")) as { subject: string; description: string | null };
+    try {
+      taskRule = await authorRule({
+        name: `ZZ_RB_set_cm_${cmStamp}`, rootNodeId: taskRootId, tableLogicalName: "task", triggers: "1",
+        conditions: [{ nodeId: taskRootId, conditionType: 1, column: "subject", operator: 7, valueSource: 1, literal: marker }],
+        actions: [{ actionType: 6, fireOn: 1, targetNodeId: taskRootId,
+          fieldMapping: JSON.stringify([{ target: "description", source: "root", column: "subject" }]) }],
+        // Enforcement settle: a single task create until the engine stamps its description.
+        settleProbe: async () => {
+          const id = await createSubject("tasks", { subject: `${marker}_cm_settle_${Date.now()}` });
+          probeTaskIds.push(id);
+          const row = await description(id);
+          return row.description === row.subject;
+        },
+      });
+
+      // A user-issued CreateMultiple with no ids reaches the same path; each task gets its own subject.
+      const org = devOrg("user");
+      const bulk = await org.request("POST", "tasks/Microsoft.Dynamics.CRM.CreateMultiple", {
+        Targets: [1, 2].map((n) => ({ "@odata.type": "Microsoft.Dynamics.CRM.task", subject: `${marker}_cm_user_${n}` })),
+      });
+      console.log(`PROBE user CreateMultiple of tasks without ids: status=${bulk.status}${bulk.ok ? "" : ` ${bulk.text}`}`);
+      expect(bulk.ok).toBe(true);
+      const userIds: string[] = bulk.json?.Ids ?? [];
+      probeTaskIds.push(...userIds);
+      expect(userIds.length).toBe(2);
+      for (const id of userIds) {
+        const row = await description(id);
+        expect(row.description).toBe(row.subject);
+      }
+
+      // The engine-issued CreateMultiple: the suite's account rule creates one follow-up per active contact.
+      const acc = await account("cm");
+      contactIds = [await contact(acc, "cm_Ann"), await contact(acc, "cm_Bob")];
+      await updateDevRecord("accounts", acc, { creditonhold: true }); // must not fail the save
+
+      const created = (await api.retrieveMultipleRecords("tasks",
+        `?$select=activityid,subject,description&$filter=(${contactIds.map((c) => `_regardingobjectid_value eq ${c}`).join(" or ")})`)).entities;
+      console.log(`PROBE engine CreateMultiple of follow-ups under a task OnCreate rule: ${created.length} task(s), ` +
+        `descriptions ${created.map((t) => (t.description === t.subject ? "own" : JSON.stringify(t.description))).join(",")}`);
+      expect(created.length).toBe(2);
+      for (const t of created) expect(t.description).toBe(t.subject);
+    } finally {
+      const leftovers = contactIds.length
+        ? await api.retrieveMultipleRecords("tasks",
+          `?$select=activityid&$filter=(${contactIds.map((c) => `_regardingobjectid_value eq ${c}`).join(" or ")})`)
+          .catch(() => ({ entities: [] as any[] }))
+        : { entities: [] as any[] };
+      for (const t of leftovers.entities) await deleteDevRecord("tasks", t.activityid).catch(() => {});
+      for (const id of probeTaskIds) await deleteDevRecord("tasks", id).catch(() => {});
+      try { await taskRule?.cleanup(); } catch (e) { console.warn("taskRule cleanup failed:", e); }
+      await deleteDevRecord(ENTITY_SET.tableConfig, taskRootId).catch(() => {});
+    }
+  }, 180_000);
 });

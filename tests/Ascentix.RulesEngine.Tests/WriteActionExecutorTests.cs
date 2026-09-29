@@ -84,7 +84,7 @@ namespace Ascentix.RulesEngine.Tests
                 Values = new Dictionary<string, object> { ["subject"] = "Hi" } };
 
             new WriteActionExecutor().Execute(Outcome(recId, intent),
-                new List<WriteTarget> { new WriteTarget { RecordId = recId, InPlace = null } },
+                new List<Entity> { null },
                 svcUser, svcSystem, engineInitiated: false, new NullTrace());
 
             Assert.Single(svcUser.Created);
@@ -103,7 +103,7 @@ namespace Ascentix.RulesEngine.Tests
                 Context = RuleEvaluationContext.User, Values = new Dictionary<string, object>() };
 
             new WriteActionExecutor().Execute(Outcome(recId, intent),
-                new List<WriteTarget> { new WriteTarget { RecordId = recId, InPlace = null } },
+                new List<Entity> { null },
                 svc, svc, engineInitiated: true, new NullTrace());
 
             Assert.Empty(svc.Created);
@@ -122,7 +122,7 @@ namespace Ascentix.RulesEngine.Tests
             // Root-in-place writes onto the in-flight Target: they issue no new operation
             // and cannot cascade, so they apply regardless of engine-initiated re-entry.
             new WriteActionExecutor().Execute(Outcome(recId, intent),
-                new List<WriteTarget> { new WriteTarget { RecordId = recId, InPlace = target } },
+                new List<Entity> { target },
                 svc, svc, engineInitiated: true, new NullTrace());
 
             Assert.Equal("X", target["name"]); // written onto Target
@@ -141,7 +141,7 @@ namespace Ascentix.RulesEngine.Tests
                 TargetId = Guid.NewGuid(), Context = RuleEvaluationContext.System };
 
             new WriteActionExecutor().Execute(Outcome(recId, upd, del),
-                new List<WriteTarget> { new WriteTarget { RecordId = recId, InPlace = new Entity("account", recId) } },
+                new List<Entity> { new Entity("account", recId) },
                 sys, sys, engineInitiated: false, new NullTrace());
 
             Assert.Single(sys.Updated);
@@ -158,7 +158,7 @@ namespace Ascentix.RulesEngine.Tests
                 Context = RuleEvaluationContext.User, Values = new Dictionary<string, object>() };
 
             Assert.ThrowsAny<Exception>(() => new WriteActionExecutor().Execute(Outcome(recId, intent),
-                new List<WriteTarget> { new WriteTarget { RecordId = recId, InPlace = null } },
+                new List<Entity> { null },
                 svc, svc, engineInitiated: false, new NullTrace()));
         }
 
@@ -226,7 +226,7 @@ namespace Ascentix.RulesEngine.Tests
             var b = new WriteIntent { Operation = WriteOperation.Update, TargetTable = "contact", TargetId = id, SourceActionOrder = 2, AlwaysWrite = true,
                 Values = new Dictionary<string, object> { ["donotbulkemail"] = true } };
 
-            new WriteActionExecutor(_ => new NoBulk(), null).Execute(Outcome(Guid.NewGuid(), a, b), new List<WriteTarget>(), svc, svc, false, new NullTrace());
+            new WriteActionExecutor(_ => new NoBulk(), null).Execute(Outcome(Guid.NewGuid(), a, b), new List<Entity>(), svc, svc, false, new NullTrace());
 
             var update = Assert.Single(svc.Updated);
             Assert.Equal("one", update["description"]);
@@ -265,7 +265,7 @@ namespace Ascentix.RulesEngine.Tests
             var create = new WriteIntent { Operation = WriteOperation.Create, TargetTable = "task", TargetId = Guid.NewGuid(), SourceActionName = "Make follow-up",
                 Values = new Dictionary<string, object> { ["subject"] = "x" } };
             var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
-                new WriteActionExecutor(_ => new NoBulk(), null).Execute(Outcome(Guid.NewGuid(), create), new List<WriteTarget>(), svc, svc, false, new NullTrace()));
+                new WriteActionExecutor(_ => new NoBulk(), null).Execute(Outcome(Guid.NewGuid(), create), new List<Entity>(), svc, svc, false, new NullTrace()));
             Assert.Equal("Create task (action \"Make follow-up\"): boom", ex.Message);
         }
     }

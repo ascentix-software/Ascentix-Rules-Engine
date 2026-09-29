@@ -281,6 +281,50 @@ namespace Ascentix.RulesEngine.Tests
             Assert.All(cs.Batches.SelectMany(b => b.Writes), w => Assert.NotEqual(Guid.Empty, w.Id));
         }
 
+        [Theory]
+        [InlineData(ActionType.UpdateRecord)]
+        [InlineData(ActionType.DeleteRecord)]
+        public void In_a_create_multiple_without_ids_only_the_evaluated_rows_own_copy_is_the_record_being_saved(ActionType type)
+        {
+            // Two lines created together, both Guid.Empty; the reconciler adds a copy of each into
+            // the sibling collection. Evaluating the first line: its copy is the record being saved
+            // (in place); the second line's copy has no id to write to and gets no intent.
+            Guid lineRoot = Guid.NewGuid(), order = Guid.NewGuid(), siblings = Guid.NewGuid(), orderId = Guid.NewGuid();
+            var tree = TestTree.Tree(
+                TestTree.Node(lineRoot, "sample_orderline", TableConfigType.RootTable, null),
+                TestTree.Node(order, "sample_order", TableConfigType.LookupTable, lineRoot),
+                TestTree.Node(siblings, "sample_orderline", TableConfigType.ChildTable, order, "sample_orderid"));
+            Entity Line(string name) => new Entity("sample_orderline") { ["sample_name"] = name, ["sample_orderid"] = new EntityReference("sample_order", orderId) };
+            var first = Line("First");
+            var second = Line("Second");
+            var persisted = new Entity("sample_orderline", Guid.NewGuid()) { ["sample_name"] = "Persisted" };
+            var rows = new List<Entity> { persisted };
+            var batch = new InFlightBatch { LogicalName = "sample_orderline", Operation = InFlightOperation.Create };
+            batch.Records.Add(new InFlightRecord { Id = Guid.Empty, Target = first, Root = first });
+            batch.Records.Add(new InFlightRecord { Id = Guid.Empty, Target = second, Root = second });
+            InFlightReconciler.Apply(rows, tree.Node(siblings), batch, new HashSet<Guid> { orderId });
+            Assert.Equal(3, rows.Count);
+            var cache = TestTree.Cache((lineRoot, new List<Entity> { first }), (order, new List<Entity>()), (siblings, rows));
+            const string mapping = "[{\"target\":\"sample_description\",\"source\":\"row\",\"column\":\"sample_name\"}]";
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = type, TargetNodeId = siblings, IsActive = true,
+                FieldMapping = type == ActionType.UpdateRecord ? mapping : null };
+            var m = new FakeMetadata();
+
+            var intents = new WriteIntentResolver(tree, m, m, Now).ResolveSet(action, type == ActionType.UpdateRecord ? Map(mapping) : new List<FieldMappingEntry>(),
+                first, cache, RuleEvaluationContext.User);
+
+            Assert.Equal(2, intents.Count); // the persisted line and the evaluated line; never the other in-flight line
+            Assert.Single(intents, i => i.TargetId == persisted.Id);
+            var own = Assert.Single(intents, i => i.TargetId == Guid.Empty);
+            if (type == ActionType.UpdateRecord)
+            {
+                Assert.True(own.RootTargeted);
+                Assert.Equal("First", own.Values["sample_description"]);
+                var cs = ChangeSet.Build(intents, new RootRecord("sample_orderline", Guid.Empty));
+                Assert.Equal("First", cs.RootInPlaceValues["sample_description"]);
+            }
+        }
+
         [Fact]
         public void A_create_with_a_stale_single_target_stays_one_plain_create()
         {

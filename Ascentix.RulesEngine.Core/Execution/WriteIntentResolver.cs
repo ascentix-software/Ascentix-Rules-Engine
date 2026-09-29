@@ -55,7 +55,9 @@ namespace Ascentix.RulesEngine.Core.Execution
         /// A row that IS the evaluated record (the in-flight row, including a Create message whose
         /// id may still be Guid.Empty) is marked <see cref="WriteIntent.RootTargeted"/> so the
         /// change set applies its Update/Deactivate in place instead of sending a request against
-        /// that not-yet-real id.</summary>
+        /// that not-yet-real id. Another in-flight row with no id (a sibling in the same
+        /// CreateMultiple) gets no Update/Deactivate/Delete: there is no id to send it to, and its
+        /// own evaluation writes it in place.</summary>
         public List<WriteIntent> ResolveSet(RuleAction action, List<FieldMappingEntry> mapping, Entity root, QueryResultCache cache,
             RuleEvaluationContext context, DateSemantics dates = null)
         {
@@ -66,6 +68,7 @@ namespace Ascentix.RulesEngine.Core.Execution
             var intents = new List<WriteIntent>();
             foreach (var row in FilterRows(action, node, cache, dates))
             {
+                if (action.ActionType != ActionType.CreateRecord && row.Id == Guid.Empty && !IsEvaluatedRow(row, root)) continue;
                 WriteIntent intent;
                 switch (action.ActionType)
                 {
@@ -112,10 +115,12 @@ namespace Ascentix.RulesEngine.Core.Execution
             };
 
         // The row IS the evaluated record: the in-flight reconciler's copy of the record being
-        // saved (added into every collection it belongs to), including a Create message where the
-        // in-flight id is still Guid.Empty on both sides.
+        // saved (added into every collection it belongs to). With no id yet (a Create message
+        // whose Target carries none) every in-flight row of a CreateMultiple is Guid.Empty, so the
+        // row must be the reconciler's copy of THIS root, not merely share its empty id.
         private static bool IsEvaluatedRow(Entity row, Entity root) =>
-            root != null && row.Id == root.Id && string.Equals(row.LogicalName, root.LogicalName, StringComparison.OrdinalIgnoreCase);
+            root != null && string.Equals(row.LogicalName, root.LogicalName, StringComparison.OrdinalIgnoreCase)
+            && (row.Id != Guid.Empty ? row.Id == root.Id : InFlightReconciler.IsRowOf(row, root));
 
         // A set target is a hard reader, fetched with every column: a column absent from its row is
         // null. The row that IS the evaluated record may be the in-flight reconciler's copy of a

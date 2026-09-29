@@ -1,19 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
 
 namespace Ascentix.RulesEngine.Plugin
 {
-    /// <summary>Pairs an evaluated record to its in-flight Target entity (for root-in-place writes).</summary>
-    public class WriteTarget
-    {
-        public System.Guid RecordId { get; set; }
-        public Entity InPlace { get; set; } // the Create/Update Target; null on Delete messages
-    }
-
     /// <summary>
     /// Fired actions → <see cref="ChangeSet"/> → <see cref="ChangeSetDispatcher"/>, one change set per
     /// evaluated record. An update of the record being saved is written onto the in-flight Target and
@@ -40,14 +32,17 @@ namespace Ascentix.RulesEngine.Plugin
             _sender = sender ?? new ServiceWriteRequestSender();
         }
 
-        public void Execute(RuleEvaluationOutcome outcome, IList<WriteTarget> records, IOrganizationService userService,
+        /// <param name="inPlaceTargets">The in-flight Target of each evaluated record, index-aligned with
+        /// <c>outcome.Records</c> (the runner returns one result per input, in input order); a missing or
+        /// null entry means no Target (Delete messages). Paired by position, not by id: the Targets of
+        /// a CreateMultiple may all carry Guid.Empty.</param>
+        public void Execute(RuleEvaluationOutcome outcome, IList<Entity> inPlaceTargets, IOrganizationService userService,
             IOrganizationService systemService, bool engineInitiated, ITracingService trace)
         {
-            var targetsById = records.ToDictionary(r => r.RecordId, r => r.InPlace);
-            foreach (var record in outcome.Records)
+            for (var i = 0; i < outcome.Records.Count; i++)
             {
-                targetsById.TryGetValue(record.RecordId, out var inPlace);
-                ExecuteRecord(record, inPlace, userService, systemService, engineInitiated, trace);
+                var inPlace = inPlaceTargets != null && i < inPlaceTargets.Count ? inPlaceTargets[i] : null;
+                ExecuteRecord(outcome.Records[i], inPlace, userService, systemService, engineInitiated, trace);
             }
         }
 
