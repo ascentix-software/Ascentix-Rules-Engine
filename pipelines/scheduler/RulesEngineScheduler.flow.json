@@ -182,7 +182,7 @@
               "type": "SetVariable",
               "inputs": {
                 "name": "failedRecordId",
-                "value": ""
+                "value": "@null"
               }
             },
             "Reset_failed_message": {
@@ -194,7 +194,7 @@
               "type": "SetVariable",
               "inputs": {
                 "name": "failedMessage",
-                "value": ""
+                "value": "@null"
               }
             },
             "Within_budget": {
@@ -256,7 +256,7 @@
                           "type": "SetVariable",
                           "inputs": {
                             "name": "failedRecordId",
-                            "value": ""
+                            "value": "@null"
                           }
                         },
                         "Clear_failed_message": {
@@ -268,7 +268,7 @@
                           "type": "SetVariable",
                           "inputs": {
                             "name": "failedMessage",
-                            "value": ""
+                            "value": "@null"
                           }
                         },
                         "Set_done_from_page": {
@@ -389,7 +389,7 @@
                                   {
                                     "equals": [
                                       "@toLower(outputs('Failed_record_id'))",
-                                      "@toLower(variables('failedRecordId'))"
+                                      "@toLower(coalesce(variables('failedRecordId'), ''))"
                                     ]
                                   }
                                 ]

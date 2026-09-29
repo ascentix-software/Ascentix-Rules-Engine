@@ -137,6 +137,7 @@ function SetsDoneTrue($Action) { $Action.type -eq 'SetVariable' -and $Action.inp
 Assert (@($actions.Is_record_failed.else.actions.Values | Where-Object { SetsDoneTrue $_ }).Count -eq 1) 'Any other error must leave the run for the next wake-up.'
 $repeat = $actions.Is_repeat
 Assert ($null -ne $repeat -and ($repeat.expression | ConvertTo-Json -Depth 10 -Compress) -match "outputs\('Failed_record_id'\)" -and ($repeat.expression | ConvertTo-Json -Depth 10 -Compress) -match "variables\('failedRecordId'\)") 'A repeated record-failed id must be recognised.'
+Assert (($repeat.expression | ConvertTo-Json -Depth 10 -Compress).Contains("coalesce(variables('failedRecordId'), '')")) 'The repeat check must tolerate a null failedRecordId (the resets set it to null).'
 Assert (@($repeat.actions.Values | Where-Object { SetsDoneTrue $_ }).Count -eq 1) 'A repeated record-failed id must stop driving the run.'
 $fallback = @($until[0].actions.Values | Where-Object { $_.runAfter.Page_failed -contains 'Failed' -and $_.runAfter.Page_failed -contains 'TimedOut' })
 Assert ($fallback.Count -eq 1 -and (SetsDoneTrue $fallback[0])) 'A failing failure scope must stop driving the run.'
@@ -144,7 +145,7 @@ Assert ($actions.Within_budget.type -eq 'If' -and $null -ne $actions.Within_budg
 $success = @($until[0].actions.Values | Where-Object { $_.type -eq 'Scope' -and $_.runAfter.Process_page -contains 'Succeeded' })
 Assert ($success.Count -eq 1 -and ($success[0] | ConvertTo-Json -Depth 30 -Compress) -match 'body/Done') 'Expected the success scope to set done from body/Done.'
 foreach ($name in @('failedRecordId', 'failedMessage')) {
-    Assert (@($success[0].actions.Values | Where-Object { $_.type -eq 'SetVariable' -and $_.inputs.name -eq $name -and $_.inputs.value -eq '' }).Count -eq 1) "The success scope must clear $name."
+    Assert (@($success[0].actions.Values | Where-Object { $_.type -eq 'SetVariable' -and $_.inputs.name -eq $name -and $_.inputs.value -eq '@null' }).Count -eq 1) "The success scope must clear $name."
 }
 
 # Evaluate the flow's own extraction arithmetic on sample error texts.
