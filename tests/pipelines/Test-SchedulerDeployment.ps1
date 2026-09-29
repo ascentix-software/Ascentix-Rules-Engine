@@ -112,6 +112,9 @@ foreach ($spec in @(@('Start_due_schedules', 'asx_StartDueSchedules'), @('Proces
     Assert ($null -ne $action -and $action.type -eq 'OpenApiConnection') "Missing Dataverse action $($spec[0])."
     Assert ($action.inputs.host.operationId -eq 'PerformUnboundAction' -and $action.inputs.host.connectionName -eq 'shared_commondataserviceforapps') "$($spec[0]) must perform an unbound action."
     Assert ($action.inputs.parameters.actionName -ceq $spec[1]) "$($spec[0]) must call $($spec[1])."
+    # The loop re-drives a failed page and the next wake-up re-calls the API: a platform retry
+    # would only repeat the same work inside the time budget.
+    Assert ($action.inputs.retryPolicy.type -ceq 'none') "$($spec[0]) must not retry (retryPolicy none)."
 }
 Assert ($actions.Parse_run_ids.inputs -match "json\(.*outputs\('Start_due_schedules'\)\?\['body/RunIds'\]") 'Parse_run_ids must parse RunIds.'
 $loop = $actions.For_each_run

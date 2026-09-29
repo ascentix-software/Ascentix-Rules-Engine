@@ -136,7 +136,10 @@
             "parameters": {
               "actionName": "asx_StartDueSchedules"
             },
-            "authentication": "@parameters('$authentication')"
+            "authentication": "@parameters('$authentication')",
+            "retryPolicy": {
+              "type": "none"
+            }
           }
         },
         "Parse_run_ids": {
@@ -234,7 +237,10 @@
                           "actionName": "asx_ProcessRunPage",
                           "item": "@if(empty(variables('failedRecordId')), setProperty(json('{}'), 'RunId', items('For_each_run')), setProperty(setProperty(setProperty(json('{}'), 'RunId', items('For_each_run')), 'FailedRecordId', variables('failedRecordId')), 'FailedMessage', variables('failedMessage')))"
                         },
-                        "authentication": "@parameters('$authentication')"
+                        "authentication": "@parameters('$authentication')",
+                        "retryPolicy": {
+                          "type": "none"
+                        }
                       }
                     },
                     "Page_processed": {
