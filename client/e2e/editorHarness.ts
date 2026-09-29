@@ -109,7 +109,14 @@ export function hubRow(frame: FrameLocator, name: string): Locator {
 export async function openRuleFromHub(page: Page, appId: string, ruleName: string): Promise<FrameLocator> {
   const frame = await openHub(page, appId);
   await frame.getByPlaceholder("Search rules").fill(ruleName);
-  await frame.getByText(ruleName, { exact: true }).click();
+  // Click the row itself (via hubRow, not a raw exact-text locator): a rule whose root config
+  // happens to share its name (e.g. an e2e fixture that names both the same) renders that name
+  // TWICE in the row — once as the rule name, once in the "uses <config>" nav button — and a
+  // frame-wide getByText(ruleName, { exact: true }) strict-mode-fails on the two matches.
+  // hubRow's filter({has:…}) only needs one match inside the row, so it stays unambiguous, and
+  // it resolves to the row itself (role="button", onClick navigates to the rule), not the nested
+  // config-nav button.
+  await hubRow(frame, ruleName).click();
   await expect(frame.getByRole("button", { name: "Rename rule" })).toBeVisible({ timeout: 30_000 });
   return frame;
 }
@@ -118,7 +125,9 @@ export async function openConfigFromHub(page: Page, appId: string, cfgName: stri
   const frame = await openHub(page, appId);
   await frame.getByRole("tab", { name: /Table configurations/ }).click();
   await frame.getByPlaceholder("Search configurations").fill(cfgName);
-  await frame.getByText(cfgName, { exact: true }).click();
+  // Same reasoning as openRuleFromHub above: click the row via hubRow, not a raw exact-text
+  // locator, so it can't strict-mode-fail on a coincidental second match inside the row.
+  await hubRow(frame, cfgName).click();
   await expect(frame.getByRole("button", { name: "Rename configuration" })).toBeVisible({ timeout: 30_000 });
   return frame;
 }
