@@ -7,36 +7,57 @@ import { RecordPickerDialog } from "../ui/pickers/RecordPickerDialog";
 import { Callout } from "../ui/primitives";
 import { formatError } from "../ui/errors";
 import { triggerLabel } from "../model/enums";
-import { describeFiredAction, describeWrite, summarizeChangeSet, triggerName, type DryRunResult } from "./dryRunFormat";
+import { describeFiredAction, describeWrite, summarizeChangeSet, triggerName, type DryRunAction, type DryRunResult } from "./dryRunFormat";
 
 export interface TestRunRule { id: string; name: string; table: string; triggers: number[]; }
 
-/** This rule's fired actions from a dry run (set actions expandable) and the record's change set. */
+/** This rule's fired actions from a dry run (set actions expandable) and the record's change set.
+ *  A blocked record (a Block fired, from this rule or another) writes nothing, and says so. */
 export function TestRunResults({ result, ruleId }: { result: DryRunResult; ruleId: string }) {
   const [expanded, setExpanded] = React.useState<Record<number, boolean>>({});
-  const mine = result.actions.filter((a) => a.ruleId.toLowerCase() === ruleId.toLowerCase());
+  const listId = React.useId();
+  const isMine = (a: DryRunAction) => a.ruleId.toLowerCase() === ruleId.toLowerCase();
+  const mine = result.actions.filter(isMine);
+  const blocked = !result.isValid;
+  const blocks = result.actions.filter((a) => a.actionType === "Block");
+  const writes = (a: DryRunAction) => Boolean(a.write || a.writes);
   return (
-    <div aria-live="polite" data-testid="test-results" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {blocked && (
+        <Callout intent="info" title="A Block fired, so nothing would be written.">
+          {blocks.length > 0
+            ? blocks.map((b) => `${b.message ?? "Block"}${isMine(b) ? "" : " (another rule)"}`).join(" · ")
+            : "The record is blocked."}
+        </Callout>
+      )}
       {mine.length === 0 ? <div>No action of this rule fired.</div> : (
         <ul style={{ margin: 0, paddingLeft: 18 }}>
-          {mine.map((a, i) => (
-            <li key={i}>
-              <span>{describeFiredAction(a)}</span>
-              {a.writes && a.writes.length > 0 && (
-                <>
-                  {" "}
-                  <Button size="small" appearance="transparent" onClick={() => setExpanded({ ...expanded, [i]: !expanded[i] })}>
-                    {expanded[i] ? "Hide rows" : "Show rows"}
-                  </Button>
-                  {expanded[i] && <ul>{a.writes.map((w, j) => <li key={j}>{describeWrite(w)}</li>)}</ul>}
-                </>
-              )}
-            </li>
-          ))}
+          {mine.map((a, i) => {
+            const description = describeFiredAction(a);
+            const rowsId = `${listId}-rows-${i}`;
+            return (
+              <li key={i}>
+                <span>{description}{blocked && writes(a) ? " (not written: the record is blocked)" : ""}</span>
+                {a.writes && a.writes.length > 0 && (
+                  <>
+                    {" "}
+                    <Button size="small" appearance="transparent" aria-expanded={Boolean(expanded[i])} aria-controls={rowsId}
+                      aria-label={`${expanded[i] ? "Hide" : "Show"} rows of ${description}`}
+                      onClick={() => setExpanded({ ...expanded, [i]: !expanded[i] })}>
+                      {expanded[i] ? "Hide rows" : "Show rows"}
+                    </Button>
+                    {expanded[i] && <ul id={rowsId}>{a.writes.map((w, j) => <li key={j}>{describeWrite(w)}</li>)}</ul>}
+                  </>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
       {result.changeSet && (
-        <div>{summarizeChangeSet(result.changeSet)} (every rule that fired on this record)</div>
+        <div>{blocked
+          ? "Change set: nothing would be written (the record is blocked)."
+          : `${summarizeChangeSet(result.changeSet)} (every rule that fired on this record)`}</div>
       )}
     </div>
   );
@@ -55,6 +76,7 @@ export function TestRunDialog({ open, api, rule, onClose }: {
   const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<DryRunResult | null>(null);
+  const recordNameId = React.useId();
 
   React.useEffect(() => {
     if (!open) return;
@@ -83,10 +105,13 @@ export function TestRunDialog({ open, api, rule, onClose }: {
               <div>Evaluates the published version of <strong>{rule.name}</strong>. Nothing is saved.</div>
               {error && <Callout intent="danger">{error}</Callout>}
               <Field label="Record">
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <Button onClick={() => setPickerOpen(true)}>Choose record…</Button>
-                  <span>{recordName}</span>
-                </div>
+                {(field) => (
+                  <div role="group" id={field.id} aria-labelledby={field["aria-labelledby"]}
+                    style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <Button aria-describedby={recordName ? recordNameId : undefined} onClick={() => setPickerOpen(true)}>Choose record…</Button>
+                    <span id={recordNameId}>{recordName}</span>
+                  </div>
+                )}
               </Field>
               <Field label="Evaluate as">
                 <Dropdown aria-label="Evaluate as" value={triggerLabel(trigger)} selectedOptions={[String(trigger)]}
@@ -94,7 +119,10 @@ export function TestRunDialog({ open, api, rule, onClose }: {
                   {triggers.map((t) => <Option key={t} value={String(t)}>{triggerLabel(t)}</Option>)}
                 </Dropdown>
               </Field>
-              {result && <TestRunResults result={result} ruleId={rule.id} />}
+              {/* Mounted from the start, so the first result is announced as it arrives. */}
+              <div aria-live="polite" data-testid="test-results">
+                {result && <TestRunResults result={result} ruleId={rule.id} />}
+              </div>
             </div>
           </DialogContent>
           <DialogActions>

@@ -23,8 +23,40 @@ describe("TestRunResults", () => {
     expect(screen.getByText("Update contact × 12 (3 unchanged)")).toBeInTheDocument();
     expect(screen.queryByText("Block: Other rule")).toBeNull();
     expect(screen.getByText(/Change set: 0 creates, 9 updates, 0 deletes · 3 unchanged/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Show rows" }));
+    const toggle = screen.getByRole("button", { name: "Show rows of Update contact × 12 (3 unchanged)" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
     expect(screen.getByText("Update contact c-1")).toBeInTheDocument();
+    const hide = screen.getByRole("button", { name: "Hide rows of Update contact × 12 (3 unchanged)" });
+    expect(hide).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById(hide.getAttribute("aria-controls")!)).toHaveTextContent("Update contact c-1");
+  });
+
+  it("names each action's Show rows button after its own action", () => {
+    const two = { ...result, actions: [
+      result.actions[0],
+      { ruleId: "r1", actionType: "CreateRecord", fireOn: "OnMatch", message: null, targetTable: "task",
+        writes: [{ operation: "Create", targetTable: "task", targetId: null }], writeCount: 1, unchangedCount: 0 },
+    ] };
+    renderWithFluent(<TestRunResults result={two} ruleId="r1" />);
+    const names = screen.getAllByRole("button", { name: /^Show rows/ }).map((b) => b.getAttribute("aria-label"));
+    expect(names).toEqual(["Show rows of Update contact × 12 (3 unchanged)", "Show rows of Create task × 1"]);
+  });
+
+  it("says plainly that a blocked record writes nothing, naming a Block from another rule", () => {
+    const blocked = { ...result, isValid: false, changeSet: { creates: 0, updates: 0, deletes: 0, unchanged: 0 } };
+    renderWithFluent(<TestRunResults result={blocked} ruleId="r1" />);
+    expect(screen.getByText("A Block fired, so nothing would be written.")).toBeInTheDocument();
+    expect(screen.getByText("Other rule (another rule)")).toBeInTheDocument();
+    expect(screen.getByText("Update contact × 12 (3 unchanged) (not written: the record is blocked)")).toBeInTheDocument();
+    expect(screen.getByText("Change set: nothing would be written (the record is blocked).")).toBeInTheDocument();
+    expect(screen.queryByText(/Change set: 0 creates/)).toBeNull();
+  });
+
+  it("does not mention a Block when the record is not blocked", () => {
+    renderWithFluent(<TestRunResults result={result} ruleId="r1" />);
+    expect(screen.queryByText(/A Block fired/)).toBeNull();
+    expect(screen.queryByText(/not written/)).toBeNull();
   });
 
   it("lists a set Create's rows without an id (the dry run never reports one)", () => {
@@ -34,7 +66,7 @@ describe("TestRunResults", () => {
     ] };
     renderWithFluent(<TestRunResults result={creates} ruleId="r1" />);
     expect(screen.getByText("Create task × 1")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Show rows" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show rows of Create task × 1" }));
     expect(screen.getByText("Create task")).toBeInTheDocument();
   });
 
@@ -67,6 +99,12 @@ describe("TestRunDialog", () => {
     );
 
     expect(screen.getByRole("button", { name: "Run test" })).toBeDisabled();
+    // The results region is mounted (and empty) before the first run, so that run is announced.
+    const region = screen.getByTestId("test-results");
+    expect(region).toHaveAttribute("aria-live", "polite");
+    expect(region).toBeEmptyDOMElement();
+    // "Record" names the group holding the picker button.
+    expect(screen.getByRole("group", { name: "Record" })).toContainElement(screen.getByRole("button", { name: "Choose record…" }));
     fireEvent.click(screen.getByRole("button", { name: "Choose record…" }));
     fireEvent.click(await screen.findByText("Acme"));
     fireEvent.click(screen.getByRole("button", { name: /^select$/i }));
@@ -75,5 +113,9 @@ describe("TestRunDialog", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Run test" }));
     await waitFor(() => expect(within(dialog).getByText("Update contact × 1")).toBeInTheDocument());
     expect(dryRun).toHaveBeenCalledWith("account", "g1", "OnUpdate");
+    expect(within(dialog).getByTestId("test-results")).toBe(region); // the same live region, now holding the result
+    expect(region).toHaveTextContent("Update contact × 1");
+    // The picker button is described by the chosen record.
+    expect(within(dialog).getByRole("button", { name: "Choose record…" })).toHaveAccessibleDescription("Acme");
   });
 });
