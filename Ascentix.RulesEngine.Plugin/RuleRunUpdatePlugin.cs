@@ -34,7 +34,7 @@ namespace Ascentix.RulesEngine.Plugin
 
             // The page processor's own saves. A parent context can't be supplied by a Web API
             // caller (unlike the 'tag' shared variable), so this can't be spoofed from outside.
-            if (IsInsideProcessRunPage(context)) return;
+            if (PluginReentry.IsInsideMessage(context, Q(SchemaNames.ProcessRunPageApi.MessageName))) return;
 
             var target = context.InputParameters.TryGetValue("Target", out var input) ? input as Entity : null;
             if (target == null) return;
@@ -52,14 +52,6 @@ namespace Ascentix.RulesEngine.Plugin
                 .GetAttributeValue<OptionSetValue>(status)?.Value;
             if (current != (int)RuleRunStatus.Queued && current != (int)RuleRunStatus.Running)
                 throw new InvalidPluginExecutionException(OnlyCancelMessage);
-        }
-
-        private static bool IsInsideProcessRunPage(IPluginExecutionContext context)
-        {
-            var message = Q(SchemaNames.ProcessRunPageApi.MessageName);
-            for (var ctx = context.ParentContext; ctx != null; ctx = ctx.ParentContext)
-                if (string.Equals(ctx.MessageName, message, StringComparison.OrdinalIgnoreCase)) return true;
-            return false;
         }
     }
 }
