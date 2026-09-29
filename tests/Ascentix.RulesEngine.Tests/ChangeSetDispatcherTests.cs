@@ -69,14 +69,14 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
-        public void Two_creates_for_a_bulk_table_go_as_one_CreateMultiple_with_their_ids()
+        public void Two_creates_for_a_bulk_table_go_as_one_CreateMultiple_without_their_ids()
         {
             var (d, s) = Make("CreateMultiple|task");
             var a = Crt("task"); var b = Crt("task");
             Assert.Equal(2, d.SendBatches(ChangeSet.Build(new[] { a, b }), User, SystemService));
             var request = Assert.IsType<CreateMultipleRequest>(s.Sent.Single().Request);
             Assert.Equal("task", request.Targets.EntityName);
-            Assert.Equal(new[] { a.TargetId.Value, b.TargetId.Value }, request.Targets.Entities.Select(e => e.Id));
+            Assert.All(request.Targets.Entities, e => Assert.Equal(Guid.Empty, e.Id));
         }
 
         [Fact]
@@ -86,7 +86,7 @@ namespace Ascentix.RulesEngine.Tests
             var a = Crt("task");
             d.SendBatches(ChangeSet.Build(new[] { a }), User, SystemService);
             var request = Assert.IsType<CreateRequest>(s.Sent.Single().Request);
-            Assert.Equal(a.TargetId.Value, request.Target.Id);
+            Assert.Equal(Guid.Empty, request.Target.Id);
         }
 
         [Fact]
@@ -137,8 +137,16 @@ namespace Ascentix.RulesEngine.Tests
         [Fact]
         public void Every_request_carries_the_engine_tag()
         {
-            var (d, s) = Make("CreateMultiple|task");
-            d.SendBatches(ChangeSet.Build(new[] { Crt("task"), Crt("task"), Upd("contact", Guid.NewGuid()), Del("task") }), User, SystemService);
+            var (d, s) = Make("CreateMultiple|task", "UpdateMultiple|contact");
+            d.SendBatches(ChangeSet.Build(new[]
+            {
+                Crt("task"), Crt("task"),
+                Upd("contact", Guid.NewGuid()), Upd("contact", Guid.NewGuid()),
+                Del("task"),
+            }), User, SystemService);
+            Assert.Contains(s.Sent, x => x.Request is CreateMultipleRequest);
+            Assert.Contains(s.Sent, x => x.Request is UpdateMultipleRequest);
+            Assert.Contains(s.Sent, x => x.Request is DeleteRequest);
             Assert.All(s.Sent, x => Assert.Equal(PluginReentry.EngineWriteTag, x.Request["tag"]));
         }
 
@@ -164,10 +172,12 @@ namespace Ascentix.RulesEngine.Tests
         public void A_failed_bulk_request_names_the_message_and_table()
         {
             var (d, s) = Make("UpdateMultiple|contact");
-            s.FailWith = (r, i) => i == 1 ? new InvalidPluginExecutionException("Row 12 failed.") : null; // the second chunk
+            var inner = new InvalidPluginExecutionException("Row 12 failed.");
+            s.FailWith = (r, i) => i == 1 ? inner : null; // the second chunk
             var intents = Enumerable.Range(0, 150).Select(_ => Upd("contact", Guid.NewGuid())).ToList();
             var ex = Assert.Throws<InvalidPluginExecutionException>(() => d.SendBatches(ChangeSet.Build(intents), User, SystemService));
             Assert.Equal("UpdateMultiple contact: Row 12 failed.", ex.Message);
+            Assert.Same(inner, ex.InnerException);
         }
 
         [Fact]

@@ -154,9 +154,12 @@ namespace Ascentix.RulesEngine.Plugin
             _sender.Send(service, request);
         }
 
+        // A Create is never sent with an id: the ChangeSet's engine-assigned id is an internal
+        // merge key only (Dataverse assigns sequential ids), exactly as the pre-existing
+        // WriteActionExecutor always created with no id. Updates and Deletes keep their id.
         private static Entity ToEntity(ChangeSetWrite write)
         {
-            var entity = write.Id == Guid.Empty ? new Entity(write.Table) : new Entity(write.Table, write.Id);
+            var entity = write.Operation == WriteOperation.Create ? new Entity(write.Table) : new Entity(write.Table, write.Id);
             foreach (var kv in write.Values) entity[kv.Key] = kv.Value;
             return entity;
         }
