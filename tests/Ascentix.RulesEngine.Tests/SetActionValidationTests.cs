@@ -170,5 +170,47 @@ namespace Ascentix.RulesEngine.Tests
             };
             Assert.Contains("STRUCT_ROW_SOURCE_NOT_SET", Codes(Model(action)));
         }
+
+        // A Block/ShowMessage message's per-language text carries the same token grammar as
+        // Message and is never gated to a set action either; pins that half of
+        // UsesRowTokenInMessage explicitly (Message itself is covered by the test above).
+        [Fact]
+        public void A_row_token_in_a_localized_message_is_rejected()
+        {
+            var action = new RuleAction
+            {
+                Id = Guid.NewGuid(), ActionType = ActionType.Block, FireOn = ActionFireOn.OnMatch, IsActive = true,
+                Message = "Blocked",
+                LocalizedMessages = new Dictionary<int, string> { { 1036, "Bloqué {row.fullname}" } },
+            };
+            Assert.Contains("STRUCT_ROW_SOURCE_NOT_SET", Codes(Model(action)));
+        }
+
+        // A condition never has a current row (ComparisonValueResolver.Resolve renders a Template
+        // value with no row), so a {row.…} token in one throws at evaluation
+        // ("...can only be used by an action that writes a set of rows"); publish must catch it,
+        // unconditionally, the same way a set action's field mapping/message is checked.
+        [Fact]
+        public void A_row_token_in_a_template_condition_value_is_rejected()
+        {
+            var group = new ConditionGroup
+            {
+                Id = Guid.NewGuid(), LogicalOperator = LogicalOperator.And, ChildGroups = new List<ConditionGroup>(),
+                Conditions = new List<RuleCondition> { new RuleCondition
+                {
+                    Id = Guid.NewGuid(), TableConfigNodeId = Root, ConditionType = ConditionType.FieldComparison,
+                    ComparisonColumn = "name", ComparisonOperator = ComparisonOperator.Equals,
+                    ValueSource = ComparisonValueSource.Template, ComparisonValue = "{row.fullname}",
+                } },
+            };
+            var model = new RuleForValidation
+            {
+                RuleId = Guid.NewGuid(), PrimaryTable = "account",
+                Groups = new List<ConditionGroup> { group },
+                Configs = TestTree.RawTree(TestTree.Node(Root, "account", TableConfigType.RootTable, null)),
+                Actions = new List<RuleAction> { Act(ActionType.DeleteRecord, Root) },
+            };
+            Assert.Contains("STRUCT_ROW_SOURCE_NOT_SET", Codes(model));
+        }
     }
 }

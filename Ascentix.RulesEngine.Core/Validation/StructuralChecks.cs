@@ -182,6 +182,14 @@ namespace Ascentix.RulesEngine.Core.Validation
                 case ConditionType.FieldComparison:
                     if (string.IsNullOrWhiteSpace(c.ComparisonColumn)) Missing("ComparisonColumn", "Comparison column is required.");
                     if (c.ComparisonOperator == null) Missing("ComparisonOperator", "Comparison operator is required.");
+                    // A condition never has a current row (only a set action's field mapping/message
+                    // does): ComparisonValueResolver.Resolve renders a Template value with no row, so
+                    // a {row.…} token here would throw at evaluation. Checked unconditionally, ahead
+                    // of the needsValue gate below, since it doesn't depend on the operator.
+                    if (c.ValueSource == ComparisonValueSource.Template && HasRowToken(c.ComparisonValue))
+                        issues.Add(ValidationIssue.Error("STRUCT_ROW_SOURCE_NOT_SET",
+                            "The current row can only be used by an action that writes a set of rows.",
+                            IssueTarget.Condition(c.Id, "ComparisonValue")));
                     var needsValue = c.ComparisonOperator != ComparisonOperator.IsNull
                                      && c.ComparisonOperator != ComparisonOperator.IsNotNull;
                     if (needsValue)
