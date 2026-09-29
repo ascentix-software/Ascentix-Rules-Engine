@@ -54,10 +54,19 @@ export function addAction(graph: RuleGraph): RuleGraph {
 // Keep the target and the Rows filter consistent with the action type: a type that takes no node
 // drops it; Create keeps only a collection ("For each row of"); a Rows filter survives only on a
 // set action, and a new target starts without one (its columns belong to the old table).
-function withTargetForType(prev: ActionNode, next: ActionNode, nodes: Record<string, TableConfigRef>): ActionNode {
+// `targetOrTypeChanged` (R7): the clear-a-mismatched-target rules below only fire when THIS patch
+// actually touches actionType or targetNodeId — never on an unrelated edit (e.g. a rename). A
+// loaded action can carry a stale target that no longer fits its type (the node tree changed
+// since it was saved); an unrelated edit must not silently clear it out from under the author
+// (and, via save/diff.ts, send an unbind the author never asked for).
+function withTargetForType(
+  prev: ActionNode, next: ActionNode, nodes: Record<string, TableConfigRef>, targetOrTypeChanged: boolean,
+): ActionNode {
   let a = next;
-  if (a.targetNodeId && !targetsNode(a.actionType) && a.actionType !== "CreateRecord") a = { ...a, targetNodeId: null };
-  if (a.actionType === "CreateRecord" && a.targetNodeId && !isCollectionNode(nodes, a.targetNodeId)) a = { ...a, targetNodeId: null };
+  if (targetOrTypeChanged) {
+    if (a.targetNodeId && !targetsNode(a.actionType) && a.actionType !== "CreateRecord") a = { ...a, targetNodeId: null };
+    if (a.actionType === "CreateRecord" && a.targetNodeId && !isCollectionNode(nodes, a.targetNodeId)) a = { ...a, targetNodeId: null };
+  }
   if (a.rowFilter && (a.targetNodeId !== prev.targetNodeId || !isSetAction(a, nodes))) a = { ...a, rowFilter: null };
   if (a.actionType !== prev.actionType && (a.actionType === "DeactivateRecord" || prev.actionType === "DeactivateRecord"))
     a = { ...a, fieldMapping: null };
@@ -69,9 +78,12 @@ export function updateAction(graph: RuleGraph, id: string, patch: Partial<Action
   const fix = "actionType" in patch
     ? withValueBoolForType
     : (a: ActionNode) => a;
+  const targetOrTypeChanged = "actionType" in patch || "targetNodeId" in patch;
   return {
     ...graph,
-    actions: graph.actions.map((a) => (a.id === id ? withTargetForType(a, fix({ ...a, ...patch, id: a.id }), graph.tableConfigs) : a)),
+    actions: graph.actions.map((a) => (a.id === id
+      ? withTargetForType(a, fix({ ...a, ...patch, id: a.id }), graph.tableConfigs, targetOrTypeChanged)
+      : a)),
   };
 }
 

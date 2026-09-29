@@ -4,7 +4,7 @@ import { diffRuleGraph } from "../../src/editor/save/diff";
 import {
   setRuleName, addGroup, updateGroup, deleteGroup, addCondition, addAction, deleteAction, updateCondition, patchRule,
   addTranslation, updateTranslation, removeTranslation,
-  addNode, setRoot, renameNode,
+  addNode, setRoot, renameNode, updateAction,
 } from "../../src/editor/model/reducer";
 import { resetTempIds } from "../../src/editor/model/ids";
 import { BIND_NAV } from "../../src/editor/load/odata";
@@ -249,7 +249,26 @@ describe("diffRuleGraph — clearing an action's target node (unbind)", () => {
       lookupColumnLogicalName: null, childLinkField: null, lookupTargetIdAttribute: null },
     contacts: { id: "contacts", name: "Contacts", tableLogicalName: "contact", tableConfigType: "ChildTable", parentTableConfigId: "root",
       lookupColumnLogicalName: null, childLinkField: "parentcustomerid", lookupTargetIdAttribute: null },
+    owner: { id: "owner", name: "Owner", tableLogicalName: "systemuser", tableConfigType: "LookupTable", parentTableConfigId: "root",
+      lookupColumnLogicalName: "ownerid", childLinkField: null, lookupTargetIdAttribute: "systemuserid" },
   };
+
+  it("R7: renaming a Create action with a stale single-record target keeps the target and emits no unbind", () => {
+    // "owner" is a LookupTable (single-record), a stale target for Create as if the node tree
+    // changed since this action was saved. A rename must not silently clear it or unbind it.
+    const action = {
+      id: "a1", name: "Old name", order: 1, actionType: "CreateRecord" as const, fireOn: 1,
+      targetColumn: null, targetTable: "systemuser", targetNodeId: "owner", message: null,
+      fieldMapping: null, value: null, applyInverseWhenNotFired: null,
+      severity: null, isActive: true, localizedMessages: [],
+    };
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs, actions: [action] };
+    const w = updateAction(clone(snap), "a1", { name: "New name" });
+
+    expect(w.actions[0].targetNodeId).toBe("owner");
+    const ops = diffRuleGraph(snap, w);
+    expect(ops.some((o) => o.kind === "unbind")).toBe(false);
+  });
 
   it("a Create-per-row action switched to a one-record Create unbinds asx_TargetNode", () => {
     const action = {

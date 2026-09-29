@@ -48,4 +48,22 @@ describe("set actions", () => {
     const g = makeGraph({ tableConfigs: NODES, actions: [makeAction({ actionType: "UpdateRecord", targetNodeId: "tasks", fieldMapping: "[]" })] });
     expect(updateAction(g, "a1", { actionType: "DeactivateRecord" }).actions[0].fieldMapping).toBeNull();
   });
+
+  it("R7: an unrelated edit never clears a target that doesn't fit the action type", () => {
+    // "owner" is a LookupTable (single-record), not a collection — a stale target for Create,
+    // as if the node tree changed after this action was saved. A rename must not touch it.
+    const g = makeGraph({ tableConfigs: NODES, actions: [makeAction({ actionType: "CreateRecord", targetNodeId: "owner" })] });
+    expect(updateAction(g, "a1", { name: "Renamed" }).actions[0].targetNodeId).toBe("owner");
+    expect(updateAction(g, "a1", { message: "unrelated" }).actions[0].targetNodeId).toBe("owner");
+  });
+
+  it("R7: a patch touching actionType or targetNodeId still clears a target that no longer fits", () => {
+    const g = makeGraph({ tableConfigs: NODES, actions: [makeAction({ actionType: "UpdateRecord", targetNodeId: "owner" })] });
+    expect(updateAction(g, "a1", { actionType: "CreateRecord" }).actions[0].targetNodeId).toBeNull();
+
+    const g2 = makeGraph({ tableConfigs: NODES, actions: [makeAction({ actionType: "CreateRecord", targetNodeId: "owner" })] });
+    // targetNodeId is present in the patch even though its value is unchanged — the patch still
+    // "touches" it, so the mismatched (non-collection) target is cleared.
+    expect(updateAction(g2, "a1", { targetNodeId: "owner" }).actions[0].targetNodeId).toBeNull();
+  });
 });
