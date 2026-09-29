@@ -76,6 +76,15 @@ stages:
                   SolutionName: $(SOLUTION_NAME)
                   SolutionVersionNumber: 0.0.0.${{ parameters.betaNumber }}
 
+              # The add-on ships in step with the core, so it carries the same version.
+              - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.set-solution-version.PowerPlatformSetSolutionVersion@2
+                displayName: Set scheduler add-on version 0.0.0.${{ parameters.betaNumber }} (beta ${{ parameters.betaNumber }})
+                inputs:
+                  authenticationType: PowerPlatformSPN
+                  PowerPlatformSPN: $(serviceConnection)
+                  SolutionName: $(SCHEDULER_SOLUTION_NAME)
+                  SolutionVersionNumber: 0.0.0.${{ parameters.betaNumber }}
+
           - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.export-solution.PowerPlatformExportSolution@2
             displayName: Export unmanaged
             inputs:
@@ -151,6 +160,8 @@ stages:
                   $v = "0.0.0.${{ parameters.betaNumber }}"
                   Copy-Item "$(outDir)/$(SOLUTION_NAME)_managed.zip"   "$(outDir)/$(SOLUTION_NAME)_${v}_managed.zip"
                   Copy-Item "$(outDir)/$(SOLUTION_NAME)_unmanaged.zip" "$(outDir)/$(SOLUTION_NAME)_${v}_unmanaged.zip"
+                  Copy-Item "$(outDir)/$(SCHEDULER_SOLUTION_NAME)_managed.zip"   "$(outDir)/$(SCHEDULER_SOLUTION_NAME)_${v}_managed.zip"
+                  Copy-Item "$(outDir)/$(SCHEDULER_SOLUTION_NAME)_unmanaged.zip" "$(outDir)/$(SCHEDULER_SOLUTION_NAME)_${v}_unmanaged.zip"
                   Copy-Item "distribution/LICENSE" "$(outDir)/LICENSE"
                   Copy-Item "distribution/NOTICE"  "$(outDir)/NOTICE"
                   # sha256sum format: <lowercase hex><two spaces><filename>, LF line endings,

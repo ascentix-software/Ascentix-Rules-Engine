@@ -103,9 +103,26 @@
             ]
           }
         },
-        "Start_due_schedules": {
+        "Initialize_error_text": {
           "runAfter": {
             "Initialize_failed_message": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "errorText",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          }
+        },
+        "Start_due_schedules": {
+          "runAfter": {
+            "Initialize_error_text": [
               "Succeeded"
             ]
           },
@@ -271,19 +288,59 @@
                       },
                       "type": "Scope",
                       "actions": {
-                        "Error_text": {
+                        "Error_body": {
                           "runAfter": {},
                           "type": "Compose",
-                          "inputs": "@{coalesce(outputs('Process_page')?['body/error/message'], '')}"
+                          "inputs": "@coalesce(actions('Process_page')?['outputs']?['body'], '')"
+                        },
+                        "Read_error_text": {
+                          "runAfter": {
+                            "Error_body": [
+                              "Succeeded"
+                            ]
+                          },
+                          "type": "If",
+                          "expression": {
+                            "and": [
+                              {
+                                "startsWith": [
+                                  "@string(outputs('Error_body'))",
+                                  "{"
+                                ]
+                              }
+                            ]
+                          },
+                          "actions": {
+                            "Error_text_from_json": {
+                              "runAfter": {},
+                              "type": "SetVariable",
+                              "inputs": {
+                                "name": "errorText",
+                                "value": "@{coalesce(outputs('Error_body')?['error']?['message'], string(outputs('Error_body')))}"
+                              }
+                            }
+                          },
+                          "else": {
+                            "actions": {
+                              "Error_text_from_text": {
+                                "runAfter": {},
+                                "type": "SetVariable",
+                                "inputs": {
+                                  "name": "errorText",
+                                  "value": "@{outputs('Error_body')}"
+                                }
+                              }
+                            }
+                          }
                         },
                         "Marker_at": {
                           "runAfter": {
-                            "Error_text": [
+                            "Read_error_text": [
                               "Succeeded"
                             ]
                           },
                           "type": "Compose",
-                          "inputs": "@indexOf(outputs('Error_text'), 'asx_ProcessRunPage:record-failed:')"
+                          "inputs": "@indexOf(variables('errorText'), 'asx_ProcessRunPage:record-failed:')"
                         },
                         "Is_record_failed": {
                           "runAfter": {
@@ -296,37 +353,74 @@
                             "and": [
                               {
                                 "contains": [
-                                  "@outputs('Error_text')",
+                                  "@variables('errorText')",
                                   "asx_ProcessRunPage:record-failed:"
                                 ]
                               },
                               {
                                 "greaterOrEquals": [
-                                  "@length(outputs('Error_text'))",
+                                  "@length(variables('errorText'))",
                                   "@add(outputs('Marker_at'), 69)"
                                 ]
                               }
                             ]
                           },
                           "actions": {
-                            "Set_failed_record_id": {
+                            "Failed_record_id": {
                               "runAfter": {},
-                              "type": "SetVariable",
-                              "inputs": {
-                                "name": "failedRecordId",
-                                "value": "@{substring(outputs('Error_text'), add(outputs('Marker_at'), 33), 36)}"
-                              }
+                              "type": "Compose",
+                              "inputs": "@{substring(variables('errorText'), add(outputs('Marker_at'), 33), 36)}"
                             },
-                            "Set_failed_message": {
+                            "Is_repeat": {
                               "runAfter": {
-                                "Set_failed_record_id": [
+                                "Failed_record_id": [
                                   "Succeeded"
                                 ]
                               },
-                              "type": "SetVariable",
-                              "inputs": {
-                                "name": "failedMessage",
-                                "value": "@{substring(outputs('Error_text'), min(add(outputs('Marker_at'), 70), length(outputs('Error_text'))), max(0, sub(length(outputs('Error_text')), add(outputs('Marker_at'), 70))))}"
+                              "type": "If",
+                              "expression": {
+                                "and": [
+                                  {
+                                    "equals": [
+                                      "@toLower(outputs('Failed_record_id'))",
+                                      "@toLower(variables('failedRecordId'))"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "actions": {
+                                "Stop_on_repeated_failure": {
+                                  "runAfter": {},
+                                  "type": "SetVariable",
+                                  "inputs": {
+                                    "name": "done",
+                                    "value": true
+                                  }
+                                }
+                              },
+                              "else": {
+                                "actions": {
+                                  "Set_failed_record_id": {
+                                    "runAfter": {},
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                      "name": "failedRecordId",
+                                      "value": "@{outputs('Failed_record_id')}"
+                                    }
+                                  },
+                                  "Set_failed_message": {
+                                    "runAfter": {
+                                      "Set_failed_record_id": [
+                                        "Succeeded"
+                                      ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                      "name": "failedMessage",
+                                      "value": "@{substring(variables('errorText'), min(add(outputs('Marker_at'), 70), length(variables('errorText'))), max(0, sub(length(variables('errorText')), add(outputs('Marker_at'), 70))))}"
+                                    }
+                                  }
+                                }
                               }
                             }
                           },
@@ -343,6 +437,19 @@
                             }
                           }
                         }
+                      }
+                    },
+                    "Stop_driving_run": {
+                      "runAfter": {
+                        "Page_failed": [
+                          "Failed",
+                          "TimedOut"
+                        ]
+                      },
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "done",
+                        "value": true
                       }
                     }
                   }

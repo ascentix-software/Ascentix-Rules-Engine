@@ -124,10 +124,54 @@ Assert (($actions.Process_page.inputs.parameters | ConvertTo-Json -Depth 10 -Com
 $failure = @($until[0].actions.Values | Where-Object { $_.type -eq 'Scope' -and $_.runAfter.Process_page -contains 'Failed' })
 Assert ($failure.Count -eq 1) 'Expected a failure scope after Process_page.'
 $failureJson = $failure[0] | ConvertTo-Json -Depth 30 -Compress
-Assert ($failureJson.Contains('asx_ProcessRunPage:record-failed:') -and $failureJson -match "body/error/message") 'The failure scope must recognise the record-failed marker.'
-Assert ($failureJson -match "SetVariable" -and $failureJson -match "failedRecordId" -and $failureJson -match "failedMessage" -and $failureJson -match '"name":"done"') 'The failure scope must set the failed record or finish the run.'
+Assert ($failureJson.Contains('asx_ProcessRunPage:record-failed:')) 'The failure scope must recognise the record-failed marker.'
+# A plain-text or missing error body must not make the failure scope itself fail: read the body
+# through actions() and only select properties once it is known to be an object.
+Assert ($actions.Error_body.inputs -ceq "@coalesce(actions('Process_page')?['outputs']?['body'], '')") 'The error body must be read without assuming its shape.'
+Assert ($actions.Read_error_text.type -eq 'If' -and ($actions.Read_error_text.expression | ConvertTo-Json -Depth 10 -Compress).Contains('startsWith')) 'Properties must only be selected from an object error body.'
+Assert ($failureJson -notmatch 'body/error/message') 'The failure scope must not select error properties from a body of unknown shape.'
+function SetsDoneTrue($Action) { $Action.type -eq 'SetVariable' -and $Action.inputs.name -eq 'done' -and $Action.inputs.value -eq $true }
+Assert (@($actions.Is_record_failed.else.actions.Values | Where-Object { SetsDoneTrue $_ }).Count -eq 1) 'Any other error must leave the run for the next wake-up.'
+$repeat = $actions.Is_repeat
+Assert ($null -ne $repeat -and ($repeat.expression | ConvertTo-Json -Depth 10 -Compress) -match "outputs\('Failed_record_id'\)" -and ($repeat.expression | ConvertTo-Json -Depth 10 -Compress) -match "variables\('failedRecordId'\)") 'A repeated record-failed id must be recognised.'
+Assert (@($repeat.actions.Values | Where-Object { SetsDoneTrue $_ }).Count -eq 1) 'A repeated record-failed id must stop driving the run.'
+$fallback = @($until[0].actions.Values | Where-Object { $_.runAfter.Page_failed -contains 'Failed' -and $_.runAfter.Page_failed -contains 'TimedOut' })
+Assert ($fallback.Count -eq 1 -and (SetsDoneTrue $fallback[0])) 'A failing failure scope must stop driving the run.'
+Assert ($actions.Within_budget.type -eq 'If' -and $null -ne $actions.Within_budget.actions.Drive_run -and ($actions.Within_budget.expression | ConvertTo-Json -Depth 10 -Compress) -match "addMinutes\(variables\('start'\), 12\)") 'Runs must be skipped once the budget is spent.'
 $success = @($until[0].actions.Values | Where-Object { $_.type -eq 'Scope' -and $_.runAfter.Process_page -contains 'Succeeded' })
 Assert ($success.Count -eq 1 -and ($success[0] | ConvertTo-Json -Depth 30 -Compress) -match 'body/Done') 'Expected the success scope to set done from body/Done.'
+foreach ($name in @('failedRecordId', 'failedMessage')) {
+    Assert (@($success[0].actions.Values | Where-Object { $_.type -eq 'SetVariable' -and $_.inputs.name -eq $name -and $_.inputs.value -eq '' }).Count -eq 1) "The success scope must clear $name."
+}
+
+# Evaluate the flow's own extraction arithmetic on sample error texts.
+Assert ($actions.Marker_at.inputs -match "^@indexOf\(variables\('errorText'\), '([^']+)'\)$") 'Unexpected marker search.'
+$marker = $Matches[1]
+Assert ($marker -ceq 'asx_ProcessRunPage:record-failed:') 'The marker must match the server contract.'
+Assert (($actions.Is_record_failed.expression.and[1].greaterOrEquals[1]) -match "^@add\(outputs\('Marker_at'\), (\d+)\)$") 'Unexpected length guard.'
+$minLength = [int]$Matches[1]
+Assert ($actions.Failed_record_id.inputs -match "^@\{substring\(variables\('errorText'\), add\(outputs\('Marker_at'\), (\d+)\), (\d+)\)\}$") 'Unexpected record id extraction.'
+$idStart = [int]$Matches[1]; $idLength = [int]$Matches[2]
+Assert ($actions.Set_failed_message.inputs.value -match "add\(outputs\('Marker_at'\), (\d+)\)") 'Unexpected message extraction.'
+$messageStart = [int]$Matches[1]
+Assert ($actions.Set_failed_message.inputs.value -ceq "@{substring(variables('errorText'), min(add(outputs('Marker_at'), $messageStart), length(variables('errorText'))), max(0, sub(length(variables('errorText')), add(outputs('Marker_at'), $messageStart))))}") 'Unexpected message extraction.'
+function Extract([string]$Text) {
+    $at = $Text.IndexOf($marker, [StringComparison]::Ordinal)
+    if (!($Text.Contains($marker) -and $Text.Length -ge $at + $minLength)) { return $null }
+    $start = [Math]::Min($at + $messageStart, $Text.Length)
+    @{ Id = $Text.Substring($at + $idStart, $idLength); Message = $Text.Substring($start, [Math]::Max(0, $Text.Length - ($at + $messageStart))) }
+}
+$sampleId = [guid]::NewGuid().ToString()
+foreach ($sample in @(
+    @("${marker}${sampleId}:Field X is required.", 'Field X is required.'),
+    @("Plugin execution failed: ${marker}${sampleId}:Field X is required. (trace 42)", 'Field X is required. (trace 42)'),
+    @("${marker}${sampleId}:", ''),
+    @("${marker}${sampleId}", '')
+)) {
+    $parsed = Extract $sample[0]
+    Assert ($null -ne $parsed -and $parsed.Id -ceq $sampleId -and $parsed.Message -ceq $sample[1]) "Wrong extraction from: $($sample[0])"
+}
+foreach ($sample in @('Gateway timeout', "${marker}1234")) { Assert ($null -eq (Extract $sample)) "Not a record failure: $sample" }
 Write-Host 'PASS: first deployment creates the solution, connection reference and flow.'
 
 # A second run changes nothing.
