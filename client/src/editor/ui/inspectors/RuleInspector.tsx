@@ -16,7 +16,8 @@ const plainFieldset: React.CSSProperties = {
 /** `disabled` makes the rule's own fields read-only; `scheduleDisabled` does the same for the
  *  Schedule section alone, which stays editable on a published rule without a draft. */
 export function RuleInspector({
-  rule, onPatch, schedule, onPatchSchedule, ruleTimeZone, onOpenRuns, disabled, scheduleDisabled, scheduleUnavailable,
+  rule, onPatch, schedule, onPatchSchedule, ruleTimeZone, onOpenRuns, disabled, scheduleDisabled,
+  scheduleUnavailable, scheduleLoadError, onRetrySchedule,
 }: {
   rule: RuleHeader; onPatch(patch: Partial<RuleHeader>): void;
   schedule?: RuleSchedule | null;
@@ -26,6 +27,8 @@ export function RuleInspector({
   disabled?: boolean;
   scheduleDisabled?: boolean;
   scheduleUnavailable?: boolean;
+  scheduleLoadError?: boolean;
+  onRetrySchedule?(): void;
 }) {
   const toggleIn = (list: number[], v: number): number[] =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
@@ -117,6 +120,8 @@ export function RuleInspector({
             evaluationContext={rule.evaluationContext}
             onOpenRuns={onOpenRuns ?? (() => {})}
             unavailable={scheduleUnavailable}
+            loadError={scheduleLoadError}
+            onRetry={onRetrySchedule}
           />
         </fieldset>
       )}

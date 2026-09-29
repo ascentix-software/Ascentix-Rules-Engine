@@ -102,6 +102,18 @@ describe("ScheduleSection", () => {
     expect(screen.queryByText("Every N minutes must be 15, 30 or 45.")).not.toBeInTheDocument();
   });
 
+  it("shows a load-failure note with Try again, hiding the controls, when loadError is set", () => {
+    const onRetry = vi.fn();
+    renderWithFluent(
+      <ScheduleSection schedule={null} onPatch={vi.fn()} ruleTimeZone={null} evaluationContext={null}
+        onOpenRuns={vi.fn()} loadError onRetry={onRetry} />,
+    );
+    expect(screen.getByText("Could not load the schedule.")).toBeInTheDocument();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
   it("shows Next run and Last run, and opens Runs when clicked", () => {
     const { onOpenRuns } = mountSection({
       nextRunOn: "2026-10-01T09:00:00Z", lastRunOn: "2026-09-24T09:00:00Z", lastOutcome: 1,

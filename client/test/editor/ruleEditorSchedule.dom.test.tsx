@@ -57,6 +57,25 @@ function publishedGraph(): RuleGraph {
   return { ...graph, rule: { ...graph.rule, id: ACTIVE_ID, activeRuleId: undefined } };
 }
 
+// The draft, plus one condition to select — so a test can move the panel away from the rule
+// (where the Schedule section itself lives) and still check Save's disabled reason is visible.
+function draftGraphWithCondition(): RuleGraph {
+  const graph = draftGraph();
+  return {
+    ...graph,
+    executionGroups: [{
+      id: "g1", name: "Exec group", parentGroupId: null, logicalOperator: "And", isExecutionCondition: true,
+      groups: [],
+      conditions: [{
+        id: "c1", name: "Cond", tableConfigId: null, conditionType: "FieldComparison",
+        comparisonColumn: "name", comparisonOperator: 1, valueSource: 1,
+        comparisonValue: "x", comparisonValueColumn: null, comparisonValueNodeId: null,
+        minExpectedRows: null, maxExpectedRows: null,
+      }],
+    }],
+  };
+}
+
 function onSchedule(): RuleSchedule {
   return {
     id: "sched-1", on: true, pattern: 3, every: null, timeOfDay: "02:00", days: [], dayOfMonth: null,
@@ -212,5 +231,83 @@ describe("RuleEditorApp Schedule, loading", () => {
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
     expect(screen.queryByText(/Could not load the schedule/)).not.toBeInTheDocument();
     expect(screen.queryByText(/prvReadasx_RuleSchedule/)).not.toBeInTheDocument();
+  });
+
+  it("a 403 also shows the access note, however the rejection carries the status", async () => {
+    vi.mocked(loadRuleSchedule).mockRejectedValue({ httpStatus: 403, message: "Forbidden" });
+    renderApp({ getClientUrl: () => CLIENT_URL });
+
+    expect(await screen.findByText("You don't have access to rule schedules. Ask an administrator.")).toBeInTheDocument();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+  });
+
+  it("a non-privilege failure (network/500) shows Could not load the schedule, with a Try again that retries and succeeds", async () => {
+    vi.mocked(loadRuleSchedule).mockRejectedValueOnce(new Error("Network request failed"));
+    renderApp({ getClientUrl: () => CLIENT_URL });
+
+    expect(await screen.findByText("Could not load the schedule.")).toBeInTheDocument();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    expect(screen.queryByText("You don't have access to rule schedules. Ask an administrator.")).not.toBeInTheDocument();
+
+    vi.mocked(loadRuleSchedule).mockResolvedValueOnce(onSchedule());
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(screen.getByRole("switch")).toBeInTheDocument());
+    expect(screen.getByRole("switch")).toBeChecked();
+    expect(screen.queryByText("Could not load the schedule.")).not.toBeInTheDocument();
+  });
+
+  it("Reload retries a failed load and succeeds, in either the denied or the error state", async () => {
+    vi.mocked(loadRuleSchedule).mockRejectedValueOnce(new Error("Principal user is missing prvReadasx_RuleSchedule privilege"));
+    renderApp({ getClientUrl: () => CLIENT_URL });
+    expect(await screen.findByText("You don't have access to rule schedules. Ask an administrator.")).toBeInTheDocument();
+
+    vi.mocked(loadRuleSchedule).mockResolvedValueOnce(onSchedule());
+    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+
+    await waitFor(() => expect(screen.getByRole("switch")).toBeInTheDocument());
+    expect(screen.getByRole("switch")).toBeChecked();
+  });
+
+  it("re-qualifying in the same session doesn't reload and overwrite unsaved schedule edits", async () => {
+    vi.mocked(loadRuleSchedule).mockResolvedValue(onSchedule());
+    renderApp({ getClientUrl: () => CLIENT_URL });
+    await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("switch")).toBeChecked();
+
+    // Edit the schedule.
+    fireEvent.change(screen.getByLabelText("Time of day"), { target: { value: "05:30" } });
+    expect(screen.getByLabelText("Time of day")).toHaveValue("05:30");
+
+    // Move the rule out of On demand + All records...
+    fireEvent.click(screen.getByRole("combobox", { name: "Runs for" }));
+    fireEvent.click(await screen.findByText("A record it's given"));
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+
+    // ...and back in, in the same editing session.
+    fireEvent.click(screen.getByRole("combobox", { name: "Runs for" }));
+    fireEvent.click(await screen.findByText("All records that pass its execution conditions"));
+
+    // The unsaved edit survived, and the schedule was never reloaded a second time.
+    expect(screen.getByLabelText("Time of day")).toHaveValue("05:30");
+    expect(loadRuleSchedule).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("RuleEditorApp Schedule, blocking Save from another panel", () => {
+  it("shows why Save is blocked next to the button even while a condition (not the rule panel) is selected", async () => {
+    renderApp({ getClientUrl: () => CLIENT_URL }, draftGraphWithCondition());
+    await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("switch")); // On, Daily, no time yet: schedule invalid
+    expect(screen.getByText("Choose a time of day for a daily, weekly or monthly schedule.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(/^Edit condition/));
+    // The Schedule section (and its own message) is gone now that a condition is selected...
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    expect(screen.queryByText("Choose a time of day for a daily, weekly or monthly schedule.")).not.toBeInTheDocument();
+    // ...but the reason Save is disabled is still visible next to it.
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByText("Fix the schedule before saving: Choose a time of day for a daily, weekly or monthly schedule.")).toBeInTheDocument();
   });
 });

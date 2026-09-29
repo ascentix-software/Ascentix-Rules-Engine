@@ -38,6 +38,9 @@ export interface ScheduleInspectorProps {
   scheduleDisabled?: boolean;
   /** The schedule couldn't be read (no privilege): the section shows a note, not controls. */
   scheduleUnavailable?: boolean;
+  /** The schedule couldn't be read for any other reason: a note with a retry, not controls. */
+  scheduleLoadError?: boolean;
+  onRetrySchedule?(): void;
 }
 
 const tintIcon = <div style={{ width: 28, height: 28, borderRadius: 7, background: color.brandTint }} />;
@@ -99,7 +102,9 @@ export function ruleEditorInspectorContent(
       onOpenRuns={schedule?.onOpenRuns}
       disabled={schedule?.ruleFieldsDisabled}
       scheduleDisabled={schedule?.scheduleDisabled}
-      scheduleUnavailable={schedule?.scheduleUnavailable} />,
+      scheduleUnavailable={schedule?.scheduleUnavailable}
+      scheduleLoadError={schedule?.scheduleLoadError}
+      onRetrySchedule={schedule?.onRetrySchedule} />,
   };
 }
 
