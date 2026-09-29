@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Ascentix.RulesEngine.Core.Engine;
 using Ascentix.RulesEngine.Core.Models;
 using Microsoft.Xrm.Sdk;
@@ -9,6 +10,13 @@ namespace Ascentix.RulesEngine.Tests
 {
     public class RunRulesResultSerializerTests
     {
+        private static WriteIntent SetRow(Guid id, bool loaded) => new WriteIntent
+        {
+            Operation = WriteOperation.Update, TargetTable = "contact", TargetId = id,
+            Values = new Dictionary<string, object> { ["donotbulkemail"] = true },
+            LoadedValues = new Dictionary<string, object> { ["donotbulkemail"] = loaded },
+        };
+
         private static RuleEvaluationOutcome OutcomeWith(params FiredActionResult[] actions)
         {
             return new RuleEvaluationOutcome
@@ -113,6 +121,95 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Contains("\"targetTable\":\"task\"", json);
             Assert.Contains("\"subject\":\"Hi\"", json);
             Assert.Contains("\"statuscode\":2", json);   // OptionSetValue → int
+        }
+
+        [Fact]
+        public void A_create_reports_a_null_targetId_even_though_the_intent_carries_the_engine_assigned_id()
+        {
+            // R5: the engine-assigned id on a Create intent is the ChangeSet's internal merge key
+            // only; it never becomes the created record's id, so the dry run must not report it —
+            // for both a single-record create and a set create.
+            var singleJson = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
+            {
+                ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch,
+                WriteIntent = new WriteIntent { Operation = WriteOperation.Create, TargetTable = "task", TargetId = Guid.NewGuid() },
+            }));
+            Assert.Contains("\"targetId\":null", singleJson);
+
+            var setJson = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
+            {
+                ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch,
+                WriteIntents = new List<WriteIntent>
+                {
+                    new WriteIntent { Operation = WriteOperation.Create, TargetTable = "task", TargetId = Guid.NewGuid() },
+                },
+            }));
+            Assert.Contains("\"targetId\":null", setJson);
+        }
+
+        [Fact]
+        public void A_set_action_reports_its_rows_count_and_unchanged_count()
+        {
+            var fired = new FiredActionResult
+            {
+                RuleId = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch,
+                WriteIntents = new List<WriteIntent> { SetRow(Guid.NewGuid(), true), SetRow(Guid.NewGuid(), false), SetRow(Guid.NewGuid(), false) },
+            };
+
+            var json = RunRulesResultSerializer.Serialize(OutcomeWith(fired));
+
+            Assert.Contains("\"writeCount\":3", json);
+            Assert.Contains("\"unchangedCount\":1", json);
+            Assert.Contains("\"writes\":[{\"operation\":\"Update\",\"targetTable\":\"contact\"", json);
+            Assert.Contains("\"targetTable\":\"contact\"", json);
+            Assert.DoesNotContain("\"write\":", json);
+        }
+
+        [Fact]
+        public void A_set_action_with_no_rows_reports_an_empty_list()
+        {
+            var json = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
+            {
+                RuleId = Guid.NewGuid(), ActionType = ActionType.DeleteRecord, WriteIntents = new List<WriteIntent>(),
+            }));
+            Assert.Contains("\"writes\":[]", json);
+            Assert.Contains("\"writeCount\":0", json);
+        }
+
+        [Fact]
+        public void Only_the_first_100_rows_are_listed()
+        {
+            var rows = Enumerable.Range(0, 130).Select(_ => SetRow(Guid.NewGuid(), false)).ToList();
+            var json = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
+            {
+                RuleId = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, WriteIntents = rows,
+            }));
+            Assert.Equal(100, System.Text.RegularExpressions.Regex.Matches(json, "\"operation\":\"Update\"").Count);
+            Assert.Contains("\"writeCount\":130", json);
+        }
+
+        [Fact]
+        public void The_change_set_summary_counts_after_merging()
+        {
+            var id = Guid.NewGuid();
+            var outcome = OutcomeWith(
+                new FiredActionResult { ActionType = ActionType.UpdateRecord, WriteIntents = new List<WriteIntent> { SetRow(id, false), SetRow(Guid.NewGuid(), true) } },
+                new FiredActionResult { ActionType = ActionType.DeleteRecord, WriteIntents = new List<WriteIntent>
+                    { new WriteIntent { Operation = WriteOperation.Delete, TargetTable = "contact", TargetId = id } } },
+                new FiredActionResult { ActionType = ActionType.CreateRecord, WriteIntent = new WriteIntent
+                    { Operation = WriteOperation.Create, TargetTable = "task", TargetId = Guid.NewGuid() } });
+
+            Assert.Equal("{\"creates\":1,\"updates\":0,\"deletes\":1,\"unchanged\":1}", RunRulesResultSerializer.SerializeChangeSet(outcome));
+        }
+
+        [Fact]
+        public void A_blocked_record_contributes_nothing_to_the_change_set()
+        {
+            var outcome = OutcomeWith(
+                new FiredActionResult { ActionType = ActionType.Block, Message = "no" },
+                new FiredActionResult { ActionType = ActionType.UpdateRecord, WriteIntents = new List<WriteIntent> { SetRow(Guid.NewGuid(), false) } });
+            Assert.Equal("{\"creates\":0,\"updates\":0,\"deletes\":0,\"unchanged\":0}", RunRulesResultSerializer.SerializeChangeSet(outcome));
+            Assert.Contains("\"writeCount\":1", RunRulesResultSerializer.Serialize(outcome));
         }
     }
 }

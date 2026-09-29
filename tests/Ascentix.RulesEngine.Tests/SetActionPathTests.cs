@@ -198,5 +198,25 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(1, (int)first.OutputParameters[SchemaNames.ApplyRulesApi.PropWriteCount]);  // Ann only
             Assert.Equal(0, (int)second.OutputParameters[SchemaNames.ApplyRulesApi.PropWriteCount]); // every row already there
         }
+
+        [Fact]
+        public void The_dry_run_reports_the_set_action_and_the_change_set_without_writing()
+        {
+            var ctx = Context(Seed(RuleTrigger.OnDemand, withCreatePerRow: true));
+            var pctx = new XrmFakedPluginExecutionContext
+            {
+                MessageName = "asx_RunRules", Stage = 30,
+                InputParameters = new ParameterCollection { { "TableName", "account" }, { "RecordId", _account.ToString() }, { "Triggers", "OnDemand" } },
+                OutputParameters = new ParameterCollection(),
+            };
+
+            ctx.ExecutePluginWith<RunRulesApi>(pctx);
+
+            var results = (string)pctx.OutputParameters["Results"];
+            Assert.Contains("\"writeCount\":2", results);       // Ann and Bob pass the Rows filter
+            Assert.Contains("\"unchangedCount\":1", results);   // Bob already opted out
+            Assert.Equal("{\"creates\":3,\"updates\":1,\"deletes\":0,\"unchanged\":1}", (string)pctx.OutputParameters["ChangeSet"]);
+            Assert.False(OptedOut(ctx.GetOrganizationService(), _active)); // nothing written
+        }
     }
 }

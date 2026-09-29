@@ -384,6 +384,7 @@ both retrieves the persisted record and overlays the JSON fields on top.
 | `IsValid` | Boolean | True when no `Block` action fired |
 | `FailedRuleCount` | Integer | Count of distinct rules with a fired `Block` action |
 | `Results` | String | JSON array of every fired action (see shape below) |
+| `ChangeSet` | String | JSON object `{ "creates": n, "updates": n, "deletes": n, "unchanged": n }`: what enforcement would write for the evaluated record after merging (a record with a fired Block counts zero) |
 | `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (`Ascentix.RulesEngine.Core/Diagnostics/RunDiagnosticsSerializer.cs`) containing `totalMs`, `rulesLoaded`, `rulesEvaluated`, `rulesFired`, `retrieveCount`, `retrieveMultipleCount`, `rowsFetched`, `stages[{name,ms}]`, `nodes[{nodeId,table,retrieveCount,retrieveMultipleCount,rows}]` |
 
 ### RecordJson encoding
@@ -431,8 +432,9 @@ an Update — `Triggers` is `OnUpdate` and both `RecordId` and `RecordJson` are 
 retrieve-and-overlay build), the only shape that carries a saved record to compare against the
 overlay.
 
-A fired **CreateRecord / UpdateRecord / DeleteRecord** action also carries a `write` object, the
-fully-resolved write intent. It is **reported only** (`asx_RunRules` never executes it; the plugin does):
+A fired **CreateRecord / UpdateRecord / DeleteRecord** action also carries its resolved write(s),
+reported only (`asx_RunRules` never executes them; the plugin does). A **single-record** action
+(its `asx_targetnode` is not a collection) keeps a `write` object, the fully-resolved write intent:
 
 ```json
 {
@@ -448,8 +450,33 @@ fully-resolved write intent. It is **reported only** (`asx_RunRules` never execu
 ```
 
 `operation` is `Create` / `Update` / `Delete`; `targetId` is set for Update/Delete (the resolved
-target record), null for Create; `values` (omitted for Delete) is the resolved column map in the
-RecordJson encoding. The `write` object is absent for non-write actions.
+target record), **always `null` for Create** — the engine assigns a Create's id only as the
+change set's internal merge key; that id is never sent to Dataverse and never becomes the created
+record's id (Dataverse assigns it), so it is never reported, for either a single-record or a set
+create; `values` (omitted for Delete) is the resolved column map in the RecordJson encoding. The
+`write` object is absent for non-write actions.
+
+A **set** action (its `asx_targetnode` is a collection, e.g. a Rows-filtered child table) instead
+carries `writes`, `writeCount` and `unchangedCount` in place of `write`:
+
+```json
+{
+  "actionType": "UpdateRecord",
+  "fireOn": "OnMatch",
+  "writes": [
+    { "operation": "Update", "targetTable": "contact", "targetId": "…", "values": { "donotbulkemail": true } }
+  ],
+  "writeCount": 3,
+  "unchangedCount": 1
+}
+```
+
+`writes` lists at most the first 100 rows (each in the `write` shape above, so a set create's rows
+also report `targetId: null`); `writeCount` is the full row count regardless of how many are
+listed; `unchangedCount` is how many of those rows the merged change set dropped as no-ops
+(already at the target value). `targetTable` falls back to the written table when the action has
+no `asx_targettable` of its own (e.g. a set Update/Deactivate, whose table comes from the target
+node).
 
 ---
 
