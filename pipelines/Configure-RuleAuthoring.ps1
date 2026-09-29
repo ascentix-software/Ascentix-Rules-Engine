@@ -11,8 +11,9 @@ $ErrorActionPreference = 'Stop'
 $base = $EnvUrl.TrimEnd('/') + '/api/data/v9.2'
 $headers = @{ Authorization = "Bearer $AccessToken"; Accept = 'application/json';
     'OData-Version' = '4.0'; 'OData-MaxVersion' = '4.0'; 'MSCRM.SolutionUniqueName' = $SolutionName }
-function Request([string]$Method, [string]$Path, $Body = $null) {
-    $args0 = @{ Method = $Method; Uri = "$base/$Path"; Headers = $headers }
+function Request([string]$Method, [string]$Path, $Body = $null, [hashtable]$ExtraHeaders = $null) {
+    $sent = if ($ExtraHeaders) { $headers + $ExtraHeaders } else { $headers }
+    $args0 = @{ Method = $Method; Uri = "$base/$Path"; Headers = $sent }
     if ($null -ne $Body) { $args0.ContentType = 'application/json'; $args0.Body = $Body | ConvertTo-Json -Depth 30 -Compress }
     try { Invoke-RestMethod @args0 }
     catch {
@@ -30,14 +31,29 @@ function EnsureField([string]$Table, $Definition) {
     $existing = Request GET "EntityDefinitions(LogicalName='$Table')/Attributes?`$select=LogicalName&`$filter=LogicalName eq '$logical'"
     if ($existing.value.Count -eq 0) { Request POST "EntityDefinitions(LogicalName='$Table')/Attributes" $Definition | Out-Null }
 }
-function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'OrganizationOwned') {
+function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'OrganizationOwned', [string]$EntitySetName = '') {
     $logical = $Name.ToLowerInvariant()
-    $existing = Request GET "EntityDefinitions?`$select=LogicalName&`$filter=LogicalName eq '$logical'"
-    if ($existing.value.Count -gt 0) { return }
+    $setName = if ($EntitySetName) { $EntitySetName } else { $logical + 's' }
+    $existing = Request GET "EntityDefinitions?`$select=LogicalName,EntitySetName,MetadataId&`$filter=LogicalName eq '$logical'"
+    if ($existing.value.Count -gt 0) {
+        # An explicit set name converges an existing table created under the default one; the
+        # PublishXml at the end of the phase publishes it.
+        $table = @($existing.value)[0]
+        if ($EntitySetName -and $table.EntitySetName -cne $EntitySetName) {
+            $current = Request GET "EntityDefinitions($($table.MetadataId))"
+            $definition = [ordered]@{ '@odata.type' = 'Microsoft.Dynamics.CRM.EntityMetadata' }
+            foreach ($property in $current.PSObject.Properties) {
+                if (!$property.Name.StartsWith('@odata.')) { $definition[$property.Name] = $property.Value }
+            }
+            $definition.EntitySetName = $EntitySetName
+            Request PUT "EntityDefinitions($($table.MetadataId))" $definition @{ 'MSCRM.MergeLabels' = 'true' } | Out-Null
+        }
+        return
+    }
     $primary = Field 'asx_Name' 'String' 'Name'; $primary.MaxLength = 200; $primary.IsPrimaryName = $true
     $primary.FormatName = @{ Value = 'Text' }
     Request POST 'EntityDefinitions' @{
-        '@odata.type' = 'Microsoft.Dynamics.CRM.EntityMetadata'; SchemaName = $Name; EntitySetName = $logical + 's';
+        '@odata.type' = 'Microsoft.Dynamics.CRM.EntityMetadata'; SchemaName = $Name; EntitySetName = $setName;
         DisplayName = (Label $Display); DisplayCollectionName = (Label ($Display + 's'));
         OwnershipType = $Ownership; HasActivities = $false; HasNotes = $false;
         IsActivity = $false; IsAuditEnabled = @{ Value = $false }; Attributes = @($primary)
@@ -137,7 +153,7 @@ if ($Phase -eq 'Schema') {
     EnsureField 'asx_rule' $onDemandScope
     EnsureOptionLabel 'asx_triggers' 3 'On demand'
     EnsureTable 'asx_RuleSchedule' 'Rule Schedule'
-    EnsureTable 'asx_SchedulerStatus' 'Scheduler Status'
+    EnsureTable 'asx_SchedulerStatus' 'Scheduler Status' -EntitySetName 'asx_schedulerstatuses'
     $on = Field 'asx_On' 'Boolean' 'On'
     $on.DefaultValue = $true
     $on.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.BooleanOptionSetMetadata';

@@ -54,6 +54,34 @@ namespace Ascentix.RulesEngine.Tests.Scheduling
         [Fact] public void Catch_up_from_long_ago_returns_the_next_occurrence_after_from() =>
             Assert.Equal(U(2026, 1, 6, 7, 0), ScheduleCalculator.NextRun(Def(SchedulePattern.Daily, time: "02:00"), Eastern, U(2026, 1, 5, 10, 0)));
 
+        [Fact] public void Anchored_every_n_on_time_call_adds_one_step_to_the_previous_run() =>
+            // due at 10:00, called at 10:00: 10:15
+            Assert.Equal(U(2026, 1, 5, 10, 15), ScheduleCalculator.NextRun(
+                Def(SchedulePattern.EveryMinutes, 15), TimeZoneInfo.Utc, U(2026, 1, 5, 10, 0), U(2026, 1, 5, 10, 0)));
+
+        [Fact] public void Anchored_every_n_late_call_keeps_the_rhythm() =>
+            // due at 10:00, called at 10:07: 10:15, not 10:22
+            Assert.Equal(U(2026, 1, 5, 10, 15), ScheduleCalculator.NextRun(
+                Def(SchedulePattern.EveryMinutes, 15), TimeZoneInfo.Utc, U(2026, 1, 5, 10, 7), U(2026, 1, 5, 10, 0)));
+
+        [Fact] public void Anchored_every_n_far_behind_catches_up_to_a_single_next_run() =>
+            // due at 01:00 every 3 hours, called at 11:30: skips 04:00, 07:00, 10:00 and lands on 13:00
+            Assert.Equal(U(2026, 1, 5, 13, 0), ScheduleCalculator.NextRun(
+                Def(SchedulePattern.EveryHours, 3), TimeZoneInfo.Utc, U(2026, 1, 5, 11, 30), U(2026, 1, 5, 1, 0)));
+
+        [Fact] public void Anchored_every_n_on_an_exact_step_is_strictly_after_now() =>
+            // due at 10:00 every 15 minutes, called exactly at 10:30: 10:45
+            Assert.Equal(U(2026, 1, 5, 10, 45), ScheduleCalculator.NextRun(
+                Def(SchedulePattern.EveryMinutes, 15), TimeZoneInfo.Utc, U(2026, 1, 5, 10, 30), U(2026, 1, 5, 10, 0)));
+
+        [Fact] public void Anchored_without_a_previous_run_starts_from_now() =>
+            Assert.Equal(U(2026, 1, 5, 10, 22), ScheduleCalculator.NextRun(
+                Def(SchedulePattern.EveryMinutes, 15), TimeZoneInfo.Utc, U(2026, 1, 5, 10, 7), null));
+
+        [Fact] public void Anchoring_leaves_fixed_time_patterns_unchanged() =>
+            Assert.Equal(U(2026, 1, 6, 7, 0), ScheduleCalculator.NextRun(
+                Def(SchedulePattern.Daily, time: "02:00"), Eastern, U(2026, 1, 5, 10, 0), U(2026, 1, 3, 7, 0)));
+
         [Theory]
         [InlineData(1, 10, null, null, null, "Every N minutes must be 15, 30 or 45.")]
         [InlineData(2, 24, null, null, null, "Every N hours must be between 1 and 23.")]

@@ -71,12 +71,8 @@ namespace Ascentix.RulesEngine.Tests
 
         // The platform's Create of asx_rulerun: RuleRunPlugin (pre-operation) validates and queues
         // the Target, then the row is stored.
-        private Guid CreateThroughPlugin(Guid ruleId)
+        private Guid CreateThroughPlugin(Entity run)
         {
-            var run = new Entity(Q(SchemaNames.RuleRun.Entity))
-            {
-                [Q(SchemaNames.RuleRun.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
-            };
             _ctx.ExecutePluginWith<RuleRunPlugin>(new XrmFakedPluginExecutionContext
             {
                 MessageName = "Create",
@@ -87,8 +83,12 @@ namespace Ascentix.RulesEngine.Tests
             return Service.Create(run);
         }
 
-        private DueScheduleResult Process(int maxSchedules = 50, Func<Guid, Guid> createRun = null) =>
-            new DueScheduleProcessor(Service, Caller, new XrmFakedTracingService(), () => Now, maxSchedules, createRun ?? CreateThroughPlugin).Process();
+        private DueScheduleResult Process(int maxSchedules = 50, Func<Entity, Guid> createRun = null,
+            Func<DateTime> clock = null, TimeSpan? callBudget = null) =>
+            new DueScheduleProcessor(Service, Caller, new XrmFakedTracingService(), clock ?? (() => Now), maxSchedules,
+                createRun ?? CreateThroughPlugin, callBudget).Process();
+
+        private static Guid RuleOf(Entity run) => run.GetAttributeValue<EntityReference>(Q(SchemaNames.RuleRun.Rule)).Id;
 
         private Entity Reload(Entity entity) => Service.Retrieve(entity.LogicalName, entity.Id, new ColumnSet(true));
 
@@ -179,10 +179,57 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal((int)ScheduleOutcome.StartedRun, Outcome(stored));
             Assert.Equal(run.Id, stored.GetAttributeValue<EntityReference>(Q(SchemaNames.RuleSchedule.LastRun)).Id);
             Assert.Equal(Now, stored.GetAttributeValue<DateTime>(Q(SchemaNames.RuleSchedule.LastRunOn)).ToUniversalTime());
-            Assert.Equal(Now.AddHours(1), NextRunOn(stored).Value.ToUniversalTime());
+            // Every hour, due a minute ago: anchored on the due time, so 59 minutes from now.
+            Assert.Equal(Now.AddMinutes(59), NextRunOn(stored).Value.ToUniversalTime());
             Assert.True(NextRunOn(stored).Value.ToUniversalTime() > Now);
             Assert.Equal(new[] { run.Id }, result.RunIds.ToArray());
             Assert.Equal(1, result.ScheduledCount);
+        }
+
+        [Fact]
+        public void The_run_is_owned_by_the_caller()
+        {
+            var rule = Rule("All");
+            _ctx.Initialize(new List<Entity> { rule, Schedule(rule.Id, Now.AddMinutes(-1)) });
+
+            Process();
+
+            var owner = Assert.Single(Runs(rule.Id)).GetAttributeValue<EntityReference>("ownerid");
+            Assert.Equal("systemuser", owner.LogicalName);
+            Assert.Equal(Caller, owner.Id);
+        }
+
+        [Fact]
+        public void A_late_call_keeps_an_every_n_schedule_on_its_rhythm()
+        {
+            // Every hour, due at 11:00, called at 12:00 (on the next step) and at 12:00 for one due
+            // at 07:30 (far behind): both land on the next step of their own rhythm.
+            var onStep = Rule("On step");
+            var behind = Rule("Behind");
+            var onStepSchedule = Schedule(onStep.Id, Now.AddHours(-1));
+            var behindSchedule = Schedule(behind.Id, Now.AddHours(-4).AddMinutes(-30));
+            _ctx.Initialize(new List<Entity> { onStep, behind, onStepSchedule, behindSchedule });
+
+            Process();
+
+            Assert.Equal(Now.AddHours(1), NextRunOn(Reload(onStepSchedule)).Value.ToUniversalTime());
+            Assert.Equal(Now.AddMinutes(30), NextRunOn(Reload(behindSchedule)).Value.ToUniversalTime());
+            Assert.Single(Runs(behind.Id)); // catch-up is still one run
+        }
+
+        [Fact]
+        public void A_fixed_time_schedule_is_not_anchored()
+        {
+            var rule = Rule("Daily");
+            var schedule = Schedule(rule.Id, Now.AddDays(-3));
+            schedule[Q(SchemaNames.RuleSchedule.Pattern)] = new OptionSetValue((int)SchedulePattern.Daily);
+            schedule[Q(SchemaNames.RuleSchedule.TimeOfDay)] = "09:00";
+            schedule[Q(SchemaNames.RuleSchedule.Every)] = null;
+            _ctx.Initialize(new List<Entity> { rule, schedule });
+
+            Process();
+
+            Assert.Equal(new DateTime(2026, 9, 30, 9, 0, 0, DateTimeKind.Utc), NextRunOn(Reload(schedule)).Value.ToUniversalTime());
         }
 
         [Fact]
@@ -252,10 +299,11 @@ namespace Ascentix.RulesEngine.Tests
 
             foreach (var schedule in new[] { onSaveSchedule, givenSchedule })
             {
+                var dueAt = NextRunOn(schedule).Value;
                 var stored = Reload(schedule);
                 Assert.Equal((int)ScheduleOutcome.RuleNotRunnable, Outcome(stored));
                 Assert.Equal(Now, stored.GetAttributeValue<DateTime>(Q(SchemaNames.RuleSchedule.LastRunOn)).ToUniversalTime());
-                Assert.Equal(Now.AddHours(1), NextRunOn(stored).Value.ToUniversalTime());
+                Assert.Equal(dueAt.AddHours(1), NextRunOn(stored).Value.ToUniversalTime());
                 Assert.Null(stored.GetAttributeValue<EntityReference>(Q(SchemaNames.RuleSchedule.LastRun)));
             }
             Assert.Empty(Runs(onSave.Id));
@@ -296,10 +344,10 @@ namespace Ascentix.RulesEngine.Tests
             // Another caller creates the rule's run between our active-run check and our Create:
             // RuleRunPlugin then refuses ours with "This rule already has a run in progress…".
             Guid concurrent = Guid.Empty;
-            Func<Guid, Guid> racingCreate = ruleId =>
+            Func<Entity, Guid> racingCreate = run =>
             {
-                concurrent = Service.Create(ActiveRun(ruleId, RuleRunStatus.Queued));
-                return CreateThroughPlugin(ruleId);
+                concurrent = Service.Create(ActiveRun(RuleOf(run), RuleRunStatus.Queued));
+                return CreateThroughPlugin(run);
             };
 
             var result = Process(createRun: racingCreate);
@@ -323,7 +371,7 @@ namespace Ascentix.RulesEngine.Tests
 
             var stored = Reload(schedule);
             Assert.Equal((int)ScheduleOutcome.RuleNotRunnable, Outcome(stored));
-            Assert.Equal(Now.AddHours(1), NextRunOn(stored).Value.ToUniversalTime());
+            Assert.Equal(Now.AddMinutes(59), NextRunOn(stored).Value.ToUniversalTime());
             Assert.Empty(result.RunIds);
         }
 
@@ -417,7 +465,7 @@ namespace Ascentix.RulesEngine.Tests
 
             var stored = Reload(brokenSchedule);
             Assert.Equal((int)ScheduleOutcome.RuleNotRunnable, Outcome(stored));
-            Assert.Equal(Now.AddHours(1), NextRunOn(stored).Value.ToUniversalTime());
+            Assert.Equal(Now.AddMinutes(58), NextRunOn(stored).Value.ToUniversalTime());
             Assert.Empty(Runs(broken.Id));
             Assert.Equal((int)ScheduleOutcome.StartedRun, Outcome(Reload(fineSchedule)));
             Assert.Single(result.RunIds);
@@ -490,6 +538,64 @@ namespace Ascentix.RulesEngine.Tests
             var newRun = Assert.Single(Runs(started.Id)).Id;
             Assert.Equal(new[] { newRun, active.Id }, result.RunIds.ToArray());
         }
+
+        [Fact]
+        public void Started_runs_come_first_then_continued_then_leftovers()
+        {
+            // Processed in due order: the long-running rule's schedule (continued) is the most
+            // overdue, yet the run this call started is driven first.
+            var longRunning = Rule("Long running");
+            var fresh = Rule("Fresh");
+            var waiting = Rule("Waiting");
+            var continuedRun = ActiveRun(longRunning.Id);
+            var leftoverRun = ActiveRun(waiting.Id, RuleRunStatus.Queued);
+            _ctx.Initialize(new List<Entity>
+            {
+                longRunning, fresh, waiting, leftoverRun, continuedRun,
+                Schedule(longRunning.Id, Now.AddMinutes(-30)),
+                Schedule(fresh.Id, Now.AddMinutes(-1)),
+                Schedule(waiting.Id, Now.AddHours(1)),
+            });
+
+            var result = Process();
+
+            var startedRun = Assert.Single(Runs(fresh.Id)).Id;
+            Assert.Equal(new[] { startedRun, continuedRun.Id, leftoverRun.Id }, result.RunIds.ToArray());
+        }
+
+        [Fact]
+        public void The_call_stops_taking_schedules_once_its_budget_is_used()
+        {
+            var a = Rule("A");
+            var b = Rule("B");
+            var c = Rule("C");
+            var first = Schedule(a.Id, Now.AddMinutes(-30));
+            var second = Schedule(b.Id, Now.AddMinutes(-20));
+            var third = Schedule(c.Id, Now.AddMinutes(-10));
+            _ctx.Initialize(new List<Entity> { a, b, c, first, second, third });
+
+            // Each clock read is 25 s later than the one before: the call starts at Now, checks
+            // the budget at +25 s (first), +50 s (second), then +75 s: the third isn't taken.
+            var reads = 0;
+            Func<DateTime> clock = () => Now.AddSeconds(25 * reads++);
+
+            var result = Process(clock: clock, callBudget: TimeSpan.FromSeconds(60));
+
+            Assert.Equal((int)ScheduleOutcome.StartedRun, Outcome(Reload(first)));
+            Assert.Equal((int)ScheduleOutcome.StartedRun, Outcome(Reload(second)));
+            var notReached = Reload(third);
+            Assert.Null(Outcome(notReached));
+            Assert.Equal(Now.AddMinutes(-10), NextRunOn(notReached).Value.ToUniversalTime());
+            Assert.Empty(Runs(c.Id));
+            Assert.Equal(2, result.RunIds.Count);
+            Assert.Equal(3, result.ScheduledCount);
+            // Stamps use the call's start time, not the later clock reads.
+            Assert.Equal(Now, Reload(second).GetAttributeValue<DateTime>(Q(SchemaNames.RuleSchedule.LastRunOn)).ToUniversalTime());
+        }
+
+        [Fact]
+        public void The_default_budget_is_sixty_seconds() =>
+            Assert.Equal(TimeSpan.FromSeconds(60), DueScheduleProcessor.DefaultCallBudget);
 
         [Fact]
         public void The_api_writes_run_ids_json_and_count()

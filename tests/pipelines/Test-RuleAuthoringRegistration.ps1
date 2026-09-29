@@ -273,7 +273,7 @@ foreach ($interrupt in @($false, $true)) {
     $tables = @{}
     $relationships = @{}
     $optionSets = @{}
-    $schemaState = @{ Writes = 0; FailViewOnce = $false }
+    $schemaState = @{ Writes = 0; FailViewOnce = $false; TableUpdates = 0 }
     function Invoke-RestMethod {
         param($Method, $Uri, $Headers, $ContentType, $Body)
         $path = $Uri.Substring('https://registration.invalid/api/data/v9.2/'.Length)
@@ -282,6 +282,13 @@ foreach ($interrupt in @($false, $true)) {
             switch -Regex ($path) {
                 "^EntityDefinitions\?.*LogicalName eq '([^']+)'" {
                     return @{ value = @(if ($tables.ContainsKey($Matches[1])) { $tables[$Matches[1]] }) }
+                }
+                '^EntityDefinitions\(([\w-]+)\)$' {
+                    $id = $Matches[1]
+                    $table = @($tables.Values | Where-Object { $_.MetadataId -eq $id })
+                    Assert ($table.Count -eq 1) 'Unknown table definition read.'
+                    # A full definition, as the platform returns it, with its OData annotations.
+                    return [pscustomobject](@{ '@odata.context' = 'mock#EntityDefinitions/$entity' } + $table[0])
                 }
                 "^EntityDefinitions\(LogicalName='([^']+)'\)/Attributes\?.*LogicalName eq '([^']+)'" {
                     return @{ value = @(if ($fields.ContainsKey("$($Matches[1])/$($Matches[2])")) { @{ LogicalName = $Matches[2] } }) }
@@ -303,7 +310,8 @@ foreach ($interrupt in @($false, $true)) {
                 '^EntityDefinitions$' {
                     $name = $record.SchemaName.ToLowerInvariant()
                     Assert (!$tables.ContainsKey($name)) 'Duplicate table creation.'
-                    $tables[$name] = @{ LogicalName = $name; OwnershipType = $record.OwnershipType }
+                    $tables[$name] = @{ LogicalName = $name; SchemaName = $record.SchemaName; OwnershipType = $record.OwnershipType;
+                        EntitySetName = $record.EntitySetName; MetadataId = [guid]::NewGuid().ToString() }
                     $schemaState.Writes++
                     return
                 }
@@ -332,6 +340,18 @@ foreach ($interrupt in @($false, $true)) {
                     return
                 }
             }
+        }
+        if ($Method -eq 'PUT' -and $path -match '^EntityDefinitions\(([\w-]+)\)$') {
+            $id = $Matches[1]
+            $table = @($tables.Values | Where-Object { $_.MetadataId -eq $id })
+            Assert ($table.Count -eq 1) 'Unknown table definition update.'
+            Assert ($Headers['MSCRM.SolutionUniqueName'] -eq 'AscentixRulesEngine') 'A table update must name the solution.'
+            Assert ($record['@odata.type'] -eq 'Microsoft.Dynamics.CRM.EntityMetadata' -and !$record.ContainsKey('@odata.context')) 'A table update must send a clean EntityMetadata body.'
+            Assert ($record.MetadataId -eq $id -and $record.SchemaName -eq $table[0].SchemaName -and $record.OwnershipType -eq $table[0].OwnershipType) 'A table update must carry the full existing definition.'
+            $table[0].EntitySetName = $record.EntitySetName
+            $schemaState.TableUpdates++
+            $schemaState.Writes++
+            return
         }
         if ($Method -eq 'PUT' -and $path -match '^RelationshipDefinitions\(([\w-]+)\)$') {
             Assert ($relationships.ContainsKey($Matches[1])) 'Unknown relationship update.'
@@ -372,7 +392,7 @@ foreach ($interrupt in @($false, $true)) {
     foreach ($interrupt in @($false, $true)) {
         $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear(); $relationships.Clear()
         $optionSets.Clear(); $optionSets['asx_triggers'] = @{ Value = 3; Label = 'Manual' }
-        $schemaState.Writes = 0; $schemaState.FailViewOnce = $interrupt
+        $schemaState.Writes = 0; $schemaState.FailViewOnce = $interrupt; $schemaState.TableUpdates = 0
         foreach ($table in @('asx_rule', 'asx_tableconfig')) {
             $folder = Join-Path $PSScriptRoot "../../Solutions/AscentixRulesEngine/AscentixRulesEngine_unmanaged/Entities/$table/SavedQueries"
             foreach ($file in Get-ChildItem -LiteralPath $folder -Filter '*.xml') {
@@ -407,6 +427,10 @@ foreach ($interrupt in @($false, $true)) {
         Assert ($optionSets['asx_triggers'].Label -eq 'On demand') 'Expected trigger option 3 relabeled to On demand.'
         Assert ($tables['asx_ruleschedule'].OwnershipType -eq 'OrganizationOwned') 'Rule Schedule must be an organization-owned table.'
         Assert ($tables['asx_schedulerstatus'].OwnershipType -eq 'OrganizationOwned') 'Scheduler Status must be an organization-owned table.'
+        Assert ($tables['asx_schedulerstatus'].EntitySetName -ceq 'asx_schedulerstatuses') 'Scheduler Status must use the asx_schedulerstatuses entity set.'
+        Assert ($tables['asx_ruleschedule'].EntitySetName -ceq 'asx_ruleschedules') 'Rule Schedule must keep the default entity set name.'
+        Assert ($tables['asx_rulerun'].EntitySetName -ceq 'asx_ruleruns') 'Rule Run must keep the default entity set name.'
+        Assert ($schemaState.TableUpdates -eq 0) 'Newly created tables need no set-name update.'
         $daysOfWeek = $fields['asx_ruleschedule/asx_daysofweek']
         Assert ($daysOfWeek['@odata.type'] -eq 'Microsoft.Dynamics.CRM.MultiSelectPicklistAttributeMetadata') 'Days of week must be a multi-select picklist.'
         $dayValues = @($daysOfWeek.OptionSet.Options | ForEach-Object { $_.Value } | Sort-Object)
@@ -439,6 +463,14 @@ foreach ($interrupt in @($false, $true)) {
         }
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
         Assert ($schemaState.Writes -eq $writes + 7) 'Relationship upgrade is not idempotent.'
+        # An environment provisioned before the set name was fixed converges: exactly one table
+        # update, only for Scheduler Status, then nothing on a re-run.
+        $tables['asx_schedulerstatus'].EntitySetName = 'asx_schedulerstatuss'
+        & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
+        Assert ($schemaState.Writes -eq $writes + 8 -and $schemaState.TableUpdates -eq 1) 'Expected exactly one table update for the mismatched set name.'
+        Assert ($tables['asx_schedulerstatus'].EntitySetName -ceq 'asx_schedulerstatuses') 'The mismatched Scheduler Status set name was not reconciled.'
+        & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
+        Assert ($schemaState.Writes -eq $writes + 8 -and $schemaState.TableUpdates -eq 1) 'Set-name reconciliation is not idempotent.'
         Write-Host "PASS: schema and shipped views, filter preservation, idempotent retry (interrupted=$interrupt)."
     }
 }

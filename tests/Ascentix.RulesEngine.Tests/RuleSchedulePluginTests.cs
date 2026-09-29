@@ -154,6 +154,70 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void A_schedule_on_a_draft_row_is_refused()
+        {
+            var active = Rule("Active Rule", new[] { RuleTrigger.OnDemand }, OnDemandScope.AllRecords);
+            var draft = Rule("Active Rule (draft)", new[] { RuleTrigger.OnDemand }, OnDemandScope.AllRecords, draftOf: active.Id);
+            var ctx = Context(active, draft);
+
+            var schedule = Schedule(ruleId: draft.Id);
+            schedule[Q(SchemaNames.RuleSchedule.On)] = false; // refused whether on or off
+
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
+                ctx.ExecuteTransactional<RuleSchedulePlugin>(CreateContext(schedule)));
+            Assert.Equal("Schedules belong to the published rule.", ex.Message);
+        }
+
+        [Fact]
+        public void Moving_a_schedule_onto_a_draft_row_is_refused()
+        {
+            var active = Rule("Active Rule", new[] { RuleTrigger.OnDemand }, OnDemandScope.AllRecords);
+            var draft = Rule("Active Rule (draft)", new[] { RuleTrigger.OnDemand }, OnDemandScope.AllRecords, draftOf: active.Id);
+            var stored = Schedule(ruleId: active.Id);
+            stored[Q(SchemaNames.RuleSchedule.On)] = false;
+            var ctx = Context(active, draft, stored);
+
+            var patch = Schedule(id: stored.Id, ruleId: draft.Id);
+
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
+                ctx.ExecuteTransactional<RuleSchedulePlugin>(UpdateContext(patch)));
+            Assert.Equal(RuleSchedulePlugin.DraftRuleMessage, ex.Message);
+        }
+
+        [Fact]
+        public void A_create_without_on_is_on_and_validated()
+        {
+            var rule = Rule("Test Rule", new[] { RuleTrigger.OnDemand }, OnDemandScope.AllRecords);
+            var ctx = Context(rule);
+
+            var schedule = Schedule(ruleId: rule.Id);
+            schedule[Q(SchemaNames.RuleSchedule.Pattern)] = new OptionSetValue((int)SchedulePattern.Daily);
+            schedule[Q(SchemaNames.RuleSchedule.TimeOfDay)] = "02:00";
+
+            ctx.ExecuteTransactional<RuleSchedulePlugin>(CreateContext(schedule));
+
+            Assert.True(schedule.GetAttributeValue<bool>(Q(SchemaNames.RuleSchedule.On)));
+            var nextRun = schedule.GetAttributeValue<DateTime?>(Q(SchemaNames.RuleSchedule.NextRunOn));
+            Assert.NotNull(nextRun);
+            Assert.True(nextRun > DateTime.UtcNow);
+        }
+
+        [Fact]
+        public void A_create_without_on_still_gets_validation()
+        {
+            var rule = Rule("Test Rule", new[] { RuleTrigger.OnDemand }, OnDemandScope.AllRecords);
+            var ctx = Context(rule);
+
+            var schedule = Schedule(ruleId: rule.Id);
+            schedule[Q(SchemaNames.RuleSchedule.Pattern)] = new OptionSetValue((int)SchedulePattern.EveryMinutes);
+            schedule[Q(SchemaNames.RuleSchedule.Every)] = 10;
+
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
+                ctx.ExecuteTransactional<RuleSchedulePlugin>(CreateContext(schedule)));
+            Assert.Equal("Every N minutes must be 15, 30 or 45.", ex.Message);
+        }
+
+        [Fact]
         public void An_off_schedule_can_be_saved_on_any_rule()
         {
             var rule = Rule("Test Rule", new[] { RuleTrigger.OnCreate });

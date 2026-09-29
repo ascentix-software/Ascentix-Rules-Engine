@@ -10,8 +10,8 @@ using Ascentix.RulesEngine.Schema;
 namespace Ascentix.RulesEngine.Plugin
 {
     /// <summary>
-    /// Pre-operation, Create and Update of asx_ruleschedule. Validates the schedule (one per
-    /// rule, valid recurrence, the rule or its open draft is an On demand/all-records rule, a
+    /// Pre-operation, Create and Update of asx_ruleschedule. A Create without asx_on is On.
+    /// Validates the schedule (one per rule, on the published rule row and never a draft row, valid recurrence, the rule or its open draft is an On demand/all-records rule, a
     /// recognized time zone) and computes asx_nextrunon. asx_nextrunon, asx_lastrunon, asx_lastrun
     /// and asx_lastoutcome are the scheduler's to keep: a caller with Write on the table can't set
     /// them directly, only asx_StartDueSchedules (and the run it starts) can.
@@ -21,6 +21,7 @@ namespace Ascentix.RulesEngine.Plugin
         public const string AlreadyScheduledMessage = "This rule already has a schedule.";
         public const string NotRunnableMessage = "Only On demand rules that run for all records can be scheduled.";
         public const string UnknownTimeZoneMessage = "The rule's time zone is not recognized.";
+        public const string DraftRuleMessage = "Schedules belong to the published rule.";
 
         private static string Q(string fragment) => SchemaNames.Qualify(fragment);
 
@@ -65,6 +66,11 @@ namespace Ascentix.RulesEngine.Plugin
 
             var isCreate = string.Equals(context.MessageName, "Create", StringComparison.OrdinalIgnoreCase);
 
+            // A new schedule is On unless the caller says otherwise (the column's default), written
+            // to the Target so validation and Next run on apply to it.
+            if (isCreate && target.GetAttributeValue<bool?>(Q(SchemaNames.RuleSchedule.On)) == null)
+                target[Q(SchemaNames.RuleSchedule.On)] = true;
+
             Entity stored = null;
             if (!isCreate)
                 stored = system.Retrieve(Q(SchemaNames.RuleSchedule.Entity), target.Id, new ColumnSet(
@@ -92,8 +98,12 @@ namespace Ascentix.RulesEngine.Plugin
             var rule = ruleRef != null
                 ? system.Retrieve(Q(SchemaNames.Rule.Entity), ruleRef.Id, new ColumnSet(
                     Q(SchemaNames.Rule.Triggers), Q(SchemaNames.Rule.OnDemandScope),
-                    Q(SchemaNames.PrimaryName), Q(SchemaNames.Rule.EvaluationTimeZone)))
+                    Q(SchemaNames.PrimaryName), Q(SchemaNames.Rule.EvaluationTimeZone), Q(SchemaNames.Rule.DraftOf)))
                 : null;
+
+            // A draft row is replaced when it is published: the schedule goes on the published rule.
+            if (ruleChanged && rule?.GetAttributeValue<EntityReference>(Q(SchemaNames.Rule.DraftOf)) != null)
+                throw new InvalidPluginExecutionException(DraftRuleMessage);
 
             var def = RuleScheduleDefinition.FromEntity(effective);
             var zone = TimeZoneInfo.Utc;

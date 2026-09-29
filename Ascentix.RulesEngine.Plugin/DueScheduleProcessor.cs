@@ -11,8 +11,9 @@ using Ascentix.RulesEngine.Schema;
 
 namespace Ascentix.RulesEngine.Plugin
 {
-    /// <summary>What one asx_StartDueSchedules call produced: the runs to drive, in the order
-    /// they were added, and how many schedules were due (at most the cap).</summary>
+    /// <summary>What one asx_StartDueSchedules call produced: the runs to drive (runs this call
+    /// started first, then runs it continued, then leftover runs, each once) and how many
+    /// schedules were due (at most the cap).</summary>
     public sealed class DueScheduleResult
     {
         public List<Guid> RunIds { get; } = new List<Guid>();
@@ -24,11 +25,17 @@ namespace Ascentix.RulesEngine.Plugin
     /// run (or continues the rule's active one) and advances Next run on, and finally lists the
     /// other active runs of scheduled rules so the caller resumes them. All writes go through the
     /// system service from inside asx_StartDueSchedules, which is what lets RuleSchedulePlugin
-    /// accept the engine-owned schedule columns.
+    /// accept the engine-owned schedule columns; the runs it creates are owned by the caller.
+    /// Once the call budget has elapsed it takes no further due schedules: they stay due for the
+    /// next call.
     /// </summary>
     public sealed class DueScheduleProcessor
     {
         public const int DefaultMaxSchedules = 50;
+
+        /// <summary>Wall-clock time after which a call stops starting or continuing schedules,
+        /// well inside the platform's two-minute plug-in limit.</summary>
+        public static readonly TimeSpan DefaultCallBudget = TimeSpan.FromSeconds(60);
 
         // RuleRunPlugin's refusal of a second active run for the same rule.
         private const string RunInProgressMessage = "already has a run in progress";
@@ -40,31 +47,33 @@ namespace Ascentix.RulesEngine.Plugin
         private readonly ITracingService _trace;
         private readonly Func<DateTime> _utcNow;
         private readonly int _maxSchedules;
-        private readonly Func<Guid, Guid> _createRun;
+        private readonly Func<Entity, Guid> _createRun;
+        private readonly TimeSpan _callBudget;
 
-        /// <param name="createRun">Creates an all-records asx_rulerun for a rule id and returns its
-        /// id. Defaults to a plain Create through <paramref name="system"/>, which RuleRunPlugin
-        /// validates and queues; tests supply one that runs the plug-in themselves.</param>
+        /// <param name="createRun">Creates the given asx_rulerun (an all-records run of a rule,
+        /// owned by the caller) and returns its id. Defaults to a plain Create through
+        /// <paramref name="system"/>, which RuleRunPlugin validates and queues; tests supply one
+        /// that runs the plug-in themselves.</param>
+        /// <param name="callBudget">Defaults to <see cref="DefaultCallBudget"/>; measured with
+        /// <paramref name="utcNow"/>.</param>
         public DueScheduleProcessor(IOrganizationService system, Guid callerId, ITracingService trace, Func<DateTime> utcNow,
-            int maxSchedules = DefaultMaxSchedules, Func<Guid, Guid> createRun = null)
+            int maxSchedules = DefaultMaxSchedules, Func<Entity, Guid> createRun = null, TimeSpan? callBudget = null)
         {
             _system = system ?? throw new ArgumentNullException(nameof(system));
             _callerId = callerId;
             _trace = trace ?? throw new ArgumentNullException(nameof(trace));
             _utcNow = utcNow ?? throw new ArgumentNullException(nameof(utcNow));
             _maxSchedules = maxSchedules;
-            _createRun = createRun ?? CreateRun;
+            _createRun = createRun ?? (run => _system.Create(run));
+            _callBudget = callBudget ?? DefaultCallBudget;
         }
 
         public DueScheduleResult Process()
         {
             var now = DateTime.SpecifyKind(_utcNow(), DateTimeKind.Utc);
             var result = new DueScheduleResult();
-            var seen = new HashSet<Guid>();
-            void Add(Guid runId)
-            {
-                if (seen.Add(runId)) result.RunIds.Add(runId);
-            }
+            var started = new List<Guid>();
+            var continued = new List<Guid>();
 
             Heartbeat(now);
 
@@ -72,12 +81,35 @@ namespace Ascentix.RulesEngine.Plugin
             result.ScheduledCount = due.Count;
             foreach (var schedule in due)
             {
-                var runId = ProcessSchedule(schedule, now);
-                if (runId != null) Add(runId.Value);
+                // Out of time: the schedules not reached keep their Next run on and stay due.
+                if (DateTime.SpecifyKind(_utcNow(), DateTimeKind.Utc) - now >= _callBudget)
+                {
+                    _trace.Trace($"asx_StartDueSchedules: the {_callBudget.TotalSeconds:0} s call budget is used; the remaining due schedules wait for the next call.");
+                    break;
+                }
+
+                var outcome = ProcessSchedule(schedule, now);
+                if (outcome.RunId == null) continue;
+                (outcome.Started ? started : continued).Add(outcome.RunId.Value);
             }
 
-            foreach (var runId in LeftoverRuns()) Add(runId);
+            // New runs first, so a long run that keeps being continued can't starve them; then
+            // continued runs; then what earlier calls left running.
+            var seen = new HashSet<Guid>();
+            foreach (var runId in started.Concat(continued).Concat(LeftoverRuns()))
+                if (seen.Add(runId)) result.RunIds.Add(runId);
             return result;
+        }
+
+        // What one schedule produced: the run to drive, if any, and whether this call started it.
+        private struct RunToDrive
+        {
+            public Guid? RunId;
+            public bool Started;
+
+            public static readonly RunToDrive None = new RunToDrive();
+            public static RunToDrive New(Guid runId) => new RunToDrive { RunId = runId, Started = true };
+            public static RunToDrive Continued(Guid runId) => new RunToDrive { RunId = runId };
         }
 
         private void Heartbeat(DateTime now)
@@ -129,8 +161,8 @@ namespace Ascentix.RulesEngine.Plugin
             return _system.RetrieveMultiple(query).Entities.ToList();
         }
 
-        // One due schedule. Returns the run to drive (started or continued), or null.
-        private Guid? ProcessSchedule(Entity schedule, DateTime now)
+        // One due schedule: the run to drive (started or continued), or none.
+        private RunToDrive ProcessSchedule(Entity schedule, DateTime now)
         {
             var ruleRef = schedule.GetAttributeValue<EntityReference>(Q(SchemaNames.RuleSchedule.Rule));
             if (ruleRef == null)
@@ -138,7 +170,7 @@ namespace Ascentix.RulesEngine.Plugin
                 // Nothing to run, ever: switch it off so it stops coming due.
                 _trace.Trace($"asx_StartDueSchedules: schedule {schedule.Id} has no rule; turned off.");
                 TurnOff(schedule, now);
-                return null;
+                return RunToDrive.None;
             }
 
             var rule = FindRule(ruleRef.Id);
@@ -146,7 +178,7 @@ namespace Ascentix.RulesEngine.Plugin
             {
                 // The rule was deleted (its cascade removes the schedule): nothing to run or advance.
                 _trace.Trace($"asx_StartDueSchedules: schedule {schedule.Id}'s rule is gone; skipped.");
-                return null;
+                return RunToDrive.None;
             }
 
             var def = RuleScheduleDefinition.FromEntity(schedule);
@@ -157,36 +189,38 @@ namespace Ascentix.RulesEngine.Plugin
 
             // Computed once, before anything is created: a corrupt recurrence (undefined pattern,
             // missing N, weekly with no days...) must not fail the call for every other schedule,
-            // nor stay due forever. It is switched off instead.
+            // nor stay due forever. It is switched off instead. Every-N schedules keep their
+            // rhythm: the next run is anchored on the one that just came due, not on the call time.
             DateTime next;
             try
             {
-                next = ScheduleCalculator.NextRun(def, zone, now);
+                next = ScheduleCalculator.NextRun(def, zone, now,
+                    schedule.GetAttributeValue<DateTime?>(Q(SchemaNames.RuleSchedule.NextRunOn)));
             }
             catch (Exception e) when (e is ArgumentException || e is InvalidOperationException)
             {
                 _trace.Trace($"asx_StartDueSchedules: schedule {schedule.Id} has no valid recurrence ({e.Message}); turned off.");
                 TurnOff(schedule, now);
-                return null;
+                return RunToDrive.None;
             }
 
             if (!zoneKnown || !IsRunnable(rule.Id))
             {
                 MarkNotRunnable(schedule, next, now);
-                return null;
+                return RunToDrive.None;
             }
 
             var active = FindActiveRun(rule.Id);
             if (active != null)
             {
                 MarkContinued(schedule, active.Value, now);
-                return active;
+                return RunToDrive.Continued(active.Value);
             }
 
             Guid runId;
             try
             {
-                runId = _createRun(rule.Id);
+                runId = _createRun(NewRun(rule.Id));
             }
             // Both catches are best-effort. On Dataverse a failed service call dooms the API's
             // transaction, so later writes in this call would fail anyway; the pre-checks above
@@ -198,16 +232,16 @@ namespace Ascentix.RulesEngine.Plugin
                 if (active == null)
                 {
                     _trace.Trace($"asx_StartDueSchedules: schedule {schedule.Id}'s concurrent run already finished; the next call starts one.");
-                    return null;
+                    return RunToDrive.None;
                 }
                 MarkContinued(schedule, active.Value, now);
-                return active;
+                return RunToDrive.Continued(active.Value);
             }
             catch (Exception e)
             {
                 _trace.Trace($"asx_StartDueSchedules: schedule {schedule.Id} could not start a run: {e.Message}");
                 MarkNotRunnable(schedule, next, now);
-                return null;
+                return RunToDrive.None;
             }
 
             _system.Update(new Entity(Q(SchemaNames.RuleSchedule.Entity), schedule.Id)
@@ -217,7 +251,7 @@ namespace Ascentix.RulesEngine.Plugin
                 [Q(SchemaNames.RuleSchedule.LastRunOn)] = now,
                 [Q(SchemaNames.RuleSchedule.NextRunOn)] = next,
             });
-            return runId;
+            return RunToDrive.New(runId);
         }
 
         // A query rather than Retrieve: a missing rule is an empty result, not a service fault
@@ -294,10 +328,14 @@ namespace Ascentix.RulesEngine.Plugin
             return _system.RetrieveMultiple(query).Entities.Select(run => run.Id);
         }
 
-        private Guid CreateRun(Guid ruleId) =>
-            _system.Create(new Entity(Q(SchemaNames.RuleRun.Entity))
+        // The run is created through the system service, so without an explicit owner it would
+        // belong to SYSTEM: it is the caller's (the scheduler account's) run, like a run a user
+        // starts by hand.
+        private Entity NewRun(Guid ruleId) =>
+            new Entity(Q(SchemaNames.RuleRun.Entity))
             {
                 [Q(SchemaNames.RuleRun.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
-            });
+                ["ownerid"] = new EntityReference("systemuser", _callerId),
+            };
     }
 }

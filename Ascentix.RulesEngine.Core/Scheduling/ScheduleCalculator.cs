@@ -37,6 +37,34 @@ namespace Ascentix.RulesEngine.Core.Scheduling
             throw new InvalidOperationException("No next run found."); // unreachable for a valid definition
         }
 
+        /// <summary>The next run after a due one, keeping an every-N schedule's rhythm: for Every N
+        /// minutes/hours it is <paramref name="previousUtc"/> + k·N for the smallest k ≥ 1 that
+        /// lands strictly after <paramref name="nowUtc"/> (a late or far-behind call still yields a
+        /// single next run). Without a previous run, and for the fixed-time patterns, it is
+        /// <see cref="NextRun(RuleScheduleDefinition, TimeZoneInfo, DateTime)"/> from now.</summary>
+        public static DateTime NextRun(RuleScheduleDefinition def, TimeZoneInfo zone, DateTime nowUtc, DateTime? previousUtc)
+        {
+            if (previousUtc == null || !Enum.IsDefined(typeof(SchedulePattern), def.Pattern))
+                return NextRun(def, zone, nowUtc);
+
+            TimeSpan step;
+            switch (def.Pattern)
+            {
+                case SchedulePattern.EveryMinutes: step = TimeSpan.FromMinutes(def.Every.Value); break;
+                case SchedulePattern.EveryHours: step = TimeSpan.FromHours(def.Every.Value); break;
+                default: return NextRun(def, zone, nowUtc);
+            }
+            if (step <= TimeSpan.Zero) throw new ArgumentException("Every N must be positive.");
+
+            var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
+            var previous = previousUtc.Value.Kind == DateTimeKind.Local
+                ? previousUtc.Value.ToUniversalTime()
+                : DateTime.SpecifyKind(previousUtc.Value, DateTimeKind.Utc);
+            var behind = now - previous;
+            var k = behind < TimeSpan.Zero ? 1 : behind.Ticks / step.Ticks + 1;
+            return previous.AddTicks(k * step.Ticks);
+        }
+
         private static bool Matches(RuleScheduleDefinition def, DateTime day)
         {
             switch (def.Pattern)
