@@ -2,8 +2,10 @@ import * as React from "react";
 import { Dropdown, Option, Field, Input, Switch, Textarea, Button } from "@fluentui/react-components";
 import type { ActionNode, ActionTypeLabel, TableConfigRef } from "../../model/types";
 import { isSingleCardinality, previousParentLookup } from "../../model/tableConfigOps";
+import { isCollectionNode, isSetAction, targetsNode } from "../../model/setActions";
 import { TablePicker, ColumnPicker } from "../pickers/MetadataPickers";
 import { FieldMappingControl } from "./FieldMappingDialog";
+import { RowFilterControl } from "./RowFilterDialog";
 import { actionWhatHappens, actionEffect, messageBlocksForm } from "../labels";
 import { useChoiceLabel } from "../useSystemChoices";
 import { SYSTEM_CHOICE } from "../choiceLabels";
@@ -15,7 +17,7 @@ import { OutsideField } from "../fieldScope";
 import { Callout } from "../primitives";
 
 const ACTION_TYPES: ActionTypeLabel[] = [
-  "SetVisible", "SetRequired", "ShowMessage", "Block", "CreateRecord", "UpdateRecord", "DeleteRecord",
+  "SetVisible", "SetRequired", "ShowMessage", "Block", "CreateRecord", "UpdateRecord", "DeleteRecord", "DeactivateRecord",
 ];
 const SEVERITIES: { value: number; label: string }[] = [
   { value: 1, label: "Information" }, { value: 2, label: "Warning" }, { value: 3, label: "Error" },
@@ -98,6 +100,11 @@ export function ActionInspector({
   const t = action.actionType;
   const tcList = Object.values(tableConfigs);
   const labelFor = useChoiceLabel();
+  // A set action writes every row of a collection node: it gains the Rows filter and the
+  // mapping's Current row source (rowTable). Neither shows on a single-record action.
+  const setAction = isSetAction(action, tableConfigs);
+  const rowTable = setAction && action.targetNodeId ? tableConfigs[action.targetNodeId]?.tableLogicalName ?? null : null;
+  const nodeName = (id: string) => (isCollectionNode(tableConfigs, id) ? `${tableConfigs[id]?.name ?? id} (each row)` : tableConfigs[id]?.name ?? id);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <Field label="Action type">
@@ -224,12 +231,22 @@ export function ActionInspector({
           <Field label="Target table">
             <TablePicker value={action.targetTable} onChange={(v) => onPatch({ targetTable: v })} />
           </Field>
+          <Field label="For each row of" hint="Optional. One record per row of this collection.">
+            <Dropdown aria-label="For each row of"
+              value={action.targetNodeId ? tableConfigs[action.targetNodeId]?.name ?? action.targetNodeId : "(one record)"}
+              selectedOptions={[action.targetNodeId ?? ""]}
+              onOptionSelect={(_e, d) => onPatch({ targetNodeId: d.optionValue ? d.optionValue : null })}>
+              <Option value="">(one record)</Option>
+              {tcList.filter((tc) => isCollectionNode(tableConfigs, tc.id)).map((tc) => <Option key={tc.id} value={tc.id}>{tc.name}</Option>)}
+            </Dropdown>
+          </Field>
           <Field label="Columns to set">
             <FieldMappingControl
               fieldMapping={action.fieldMapping}
               targetTable={action.targetTable}
               ruleTable={ruleTable}
               tableConfigs={tableConfigs}
+              rowTable={rowTable}
               title={`Set columns — ${action.targetTable ?? ""}`}
               missingTargetHint="Choose a target table first"
               onChange={(json) => onPatch({ fieldMapping: json })}
@@ -238,15 +255,22 @@ export function ActionInspector({
         </>
       )}
 
-      {(t === "UpdateRecord" || t === "DeleteRecord") && (
+      {targetsNode(t) && (
         <Field label="Target node">
           <Dropdown
-            value={action.targetNodeId ? tableConfigs[action.targetNodeId]?.name ?? action.targetNodeId : ""}
+            value={action.targetNodeId ? nodeName(action.targetNodeId) : ""}
             selectedOptions={action.targetNodeId ? [action.targetNodeId] : []}
             onOptionSelect={(_e, d) => d.optionValue && onPatch({ targetNodeId: d.optionValue })}
           >
-            {tcList.filter((tc) => isSingleCardinality(tableConfigs, tc.id)).map((tc) => <Option key={tc.id} value={tc.id}>{tc.name}</Option>)}
+            {tcList.filter((tc) => isSingleCardinality(tableConfigs, tc.id) || isCollectionNode(tableConfigs, tc.id))
+              .map((tc) => <Option key={tc.id} value={tc.id}>{nodeName(tc.id)}</Option>)}
           </Dropdown>
+        </Field>
+      )}
+      {setAction && (
+        <Field label="Rows">
+          <RowFilterControl action={action} tableConfigs={tableConfigs} tcList={tcList}
+            onChange={(rowFilter) => onPatch({ rowFilter })} />
         </Field>
       )}
       {t === "UpdateRecord" && (
@@ -256,10 +280,22 @@ export function ActionInspector({
             targetTable={action.targetNodeId ? tableConfigs[action.targetNodeId]?.tableLogicalName ?? null : null}
             ruleTable={ruleTable}
             tableConfigs={tableConfigs}
+            rowTable={rowTable}
             title={`Set columns — ${action.targetNodeId ? tableConfigs[action.targetNodeId]?.name ?? "" : ""}`}
             missingTargetHint="Choose a target node first"
             onChange={(json) => onPatch({ fieldMapping: json })}
           />
+        </Field>
+      )}
+      {t === "DeactivateRecord" && (
+        <Field label="Status reason (optional)" hint="Blank uses the table's default inactive status.">
+          <FieldMappingControl
+            fieldMapping={action.fieldMapping}
+            targetTable={action.targetNodeId ? tableConfigs[action.targetNodeId]?.tableLogicalName ?? null : null}
+            ruleTable={ruleTable} tableConfigs={tableConfigs} rowTable={rowTable} allowedTargets={["statuscode"]}
+            title={`Status reason — ${action.targetNodeId ? tableConfigs[action.targetNodeId]?.name ?? "" : ""}`}
+            missingTargetHint="Choose a target node first"
+            onChange={(json) => onPatch({ fieldMapping: json })} />
         </Field>
       )}
       {(() => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { AppProvider } from "../../src/editor/ui/AppProvider";
 import { MetadataProvider } from "../../src/editor/ui/useMetadata";
 import { RecordSearchProvider } from "../../src/editor/ui/useRecordSearch";
@@ -161,5 +161,17 @@ describe("RuleEditorApp Run now / Runs, with a draft open on a published rule", 
 
     await waitFor(() => expect(screen.queryByRole("button", { name: "Run now" })).not.toBeInTheDocument());
     expect(readPublishedRule).toHaveBeenCalledWith(ACTIVE_ID);
+  });
+
+  it("hides Test when the dry run isn't available", () => {
+    renderApp({});
+    expect(screen.queryByRole("button", { name: "Test" })).not.toBeInTheDocument();
+  });
+
+  it("opens the Test dialog on the published rule", async () => {
+    renderApp({ dryRun: vi.fn() });
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
+    const dialog = await screen.findByRole("dialog", { name: "Test on a record" });
+    expect(within(dialog).getByText("Credit limit guard")).toBeInTheDocument();
   });
 });

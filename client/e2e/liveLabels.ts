@@ -49,6 +49,7 @@ export const CHOICE = {
     createRecord: "Create Record",
     updateRecord: "Update Record",
     deleteRecord: "Delete Record",
+    deactivateRecord: "Deactivate Record",
   },
   fireOn: { onMatch: "On Match", onNoMatch: "On No Match" },
   severity: { information: "Information", warning: "Warning", error: "Error" },

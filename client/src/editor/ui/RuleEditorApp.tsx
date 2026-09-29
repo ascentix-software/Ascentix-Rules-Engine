@@ -48,6 +48,7 @@ import { reserveTempIds } from "../model/ids";
 import { loadPublishedGraph } from "../load/publishedGraph";
 import { canRunNow, RunNowDialog } from "../runs/RunNowDialog";
 import { RunsDialog } from "../runs/RunsDialog";
+import { TestRunDialog } from "../runs/TestRunDialog";
 import { executionConditionNames } from "../runs/runsData";
 import type { RuleSchedule } from "../schedule/scheduleModel";
 import { emptySchedule, scheduleApplies, validateSchedule } from "../schedule/scheduleModel";
@@ -118,6 +119,7 @@ export function RuleEditorApp({
   } | null>(null);
   const [loadingRunNow, setLoadingRunNow] = React.useState(false);
   const [runsOpen, setRunsOpen] = React.useState(false);
+  const [testOpen, setTestOpen] = React.useState(false);
   const [publishedTriggers, setPublishedTriggers] = React.useState<number[] | null>(null);
   const [validationResult, setValidationResult] = React.useState<{
     isValid: boolean; issues: ApiIssue[]; draftHash?: string;
@@ -603,6 +605,9 @@ export function RuleEditorApp({
                       Run now
                     </Button>
                   )}
+                  {published && api.dryRun && (
+                    <Button disabled={busy} onClick={() => setTestOpen(true)}>Test</Button>
+                  )}
                   {(published || !!working.rule.publishedRevisionId) && (
                     <Button icon={<History16Regular />} disabled={busy} onClick={() => setRunsOpen(true)}>
                       Runs
@@ -691,6 +696,11 @@ export function RuleEditorApp({
             table={working.rule.tableLogicalName}
             onClose={() => setRunsOpen(false)}
           />
+          {api.dryRun && (
+            <TestRunDialog open={testOpen} api={{ dryRun: api.dryRun }} onClose={() => setTestOpen(false)}
+              rule={{ id: working.rule.activeRuleId ?? working.rule.id, name: working.rule.name,
+                table: working.rule.tableLogicalName, triggers: runNowTriggers }} />
+          )}
           <Dialog open={restoreOpen} onOpenChange={(_e, d) => setRestoreOpen(d.open)}><DialogSurface><DialogBody>
             <DialogTitle>Restore the published version to your draft?</DialogTitle>
             <DialogContent>This replaces saved and unsaved draft changes, including its data model, with a private copy of the published revision. The published rule and other rules keep enforcing unchanged.</DialogContent>

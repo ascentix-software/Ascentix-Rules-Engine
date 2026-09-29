@@ -1,3 +1,5 @@
+import { parseDryRun, type DryRunResult } from "./runs/dryRunFormat";
+
 /** Parsed issue returned by the asx_ValidateRule Custom API. */
 export interface ApiIssue {
   severity: string;
@@ -37,6 +39,8 @@ export interface WebApiPort {
   restoreRuleDraft?(ruleId: string): Promise<void>;
   /** PATCH the rule's statuscode back to Draft (1), the inverse of publishRule. */
   unpublishRule(ruleId: string): Promise<void>;
+  /** Call asx_RunRules (report-only) for one record and return its fired actions and change set. */
+  dryRun?(table: string, recordId: string, triggers: string): Promise<DryRunResult>;
 }
 
 // A full-page web resource can reach the Client API on the window or its parent.
@@ -110,6 +114,9 @@ export function createWebApiPort(): EditorApi {
         failed: raw.Failed,
         skipped: raw.Skipped,
       };
+    },
+    async dryRun(table, recordId, triggers) {
+      return parseDryRun(await revisionRequest(base, "asx_RunRules", { TableName: table, RecordId: recordId, Triggers: triggers }));
     },
     getClientUrl: () => base,
     async fetchJson(path) {
