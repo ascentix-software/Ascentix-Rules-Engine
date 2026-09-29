@@ -134,7 +134,10 @@ re-applies the flow definition on a later run, so hand edits made in the flow de
 are overwritten the next time it's deployed); binding the connection and turning the
 flow on are manual maker-portal steps every time, since they're identity decisions the
 pipeline can't make for you. `pipelines/scheduler/RulesEngineScheduler.flow.json` is the
-flow's source of truth; change the flow there, not in the designer.
+flow's source of truth; change the flow there, not in the designer. Opening and saving
+the flow in the designer is harmless: the script ignores the bookkeeping the designer
+adds. Once a connection is bound, only the connection's owner can update the flow, so a
+later run of `Deploy-Scheduler.ps1` that changes the definition must run as that account.
 
 For maintainers building a release: the add-on's release export requires the add-on
 solution to exist on the DEV environment, so run `Deploy-Scheduler.ps1` there first.

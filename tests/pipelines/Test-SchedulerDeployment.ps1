@@ -189,6 +189,29 @@ Deploy | Out-Null
 Assert ($writes.Count -eq 0) "A re-run must not write anything: $($writes -join ',')"
 Write-Host 'PASS: deployment is idempotent.'
 
+# A designer save tags every action with an operationMetadataId and may reorder keys; that alone
+# is not a change (and a bound flow could not be updated by the deploying account anyway).
+function DesignerSaved($Node) {
+    if ($Node -is [System.Collections.IDictionary]) {
+        $copy = [ordered]@{}
+        foreach ($key in @($Node.Keys | Sort-Object -Descending)) { $copy[$key] = DesignerSaved $Node[$key] }
+        if ($copy.Contains('actions') -and $copy['actions'] -is [System.Collections.IDictionary]) {
+            foreach ($name in @($copy['actions'].Keys)) { $copy['actions'][$name]['metadata'] = @{ operationMetadataId = [guid]::NewGuid().ToString() } }
+        }
+        return $copy
+    }
+    if ($Node -is [System.Collections.IList]) { return @($Node | ForEach-Object { , (DesignerSaved $_) }) }
+    $Node
+}
+$source = $flow.clientdata
+$flow.clientdata = DesignerSaved ($source | ConvertFrom-Json -AsHashtable) | ConvertTo-Json -Depth 100
+Assert ($flow.clientdata.Contains('operationMetadataId')) 'The designer-save fixture must add metadata tags.'
+$writes.Clear()
+Deploy | Out-Null
+Assert ($writes.Count -eq 0) "A designer save alone must not count as drift: $($writes -join ',')"
+$flow.clientdata = $source
+Write-Host 'PASS: a designer save alone is not drift.'
+
 # A changed definition on the server is brought back to the source, without switching the flow.
 $flow.clientdata = '{"properties":{},"schemaVersion":"1.0.0.0"}'
 $flow.statecode = 1

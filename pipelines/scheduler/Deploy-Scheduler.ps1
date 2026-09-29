@@ -27,6 +27,26 @@ function Request([string]$Method, [string]$Path, $Body = $null, [switch]$Outside
 # Whitespace-insensitive form, so formatting alone never counts as a changed definition.
 # (Objects, not -AsHashtable: they keep the property order stable across runs.)
 function Normalize([string]$Json) { $Json | ConvertFrom-Json | ConvertTo-Json -Depth 100 -Compress }
+# The flow's definition in a canonical form: keys sorted, and without the operationMetadataId tags
+# the flow designer adds on save, so a designer save alone never counts as a changed definition.
+function Canonical($Node) {
+    if ($Node -is [System.Collections.IDictionary]) {
+        $sorted = [ordered]@{}
+        foreach ($key in ($Node.Keys | Sort-Object -CaseSensitive)) {
+            if ($key -ceq 'metadata' -and $Node[$key] -is [System.Collections.IDictionary] -and
+                @($Node[$key].Keys | Where-Object { $_ -cne 'operationMetadataId' }).Count -eq 0) { continue }
+            $sorted[$key] = Canonical $Node[$key]
+        }
+        return $sorted
+    }
+    if ($Node -is [System.Collections.IList]) { return @($Node | ForEach-Object { , (Canonical $_) }) }
+    $Node
+}
+function DefinitionOf([string]$ClientData) {
+    if (!$ClientData) { return '' }
+    $parsed = $ClientData | ConvertFrom-Json -AsHashtable
+    Canonical $parsed.properties.definition | ConvertTo-Json -Depth 100 -Compress
+}
 
 function EnsureSolution {
     $existing = Request GET "solutions?`$select=solutionid&`$filter=uniquename eq '$SolutionName'" -Outside
@@ -57,8 +77,11 @@ function EnsureFlow {
         return (Request GET "workflows?`$select=workflowid,statecode&`$filter=name eq '$flowName' and category eq 5").value[0]
     }
     $flow = $existing.value[0]
-    $current = if ($flow.clientdata) { Normalize $flow.clientdata } else { '' }
-    if ($current -cne $clientData) { Request PATCH "workflows($($flow.workflowid))" @{ clientdata = $clientData } | Out-Null }
+    if ((DefinitionOf $flow.clientdata) -cne (DefinitionOf $clientData)) {
+        # Once a connection is bound, only the connection's owner may update the flow.
+        try { Request PATCH "workflows($($flow.workflowid))" @{ clientdata = $clientData } | Out-Null }
+        catch { throw "Could not update the '$flowName' flow. Once a connection is bound to $connectionReference, run this script as that connection's owner. $_" }
+    }
     $flow
 }
 
