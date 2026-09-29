@@ -133,5 +133,34 @@ namespace Ascentix.RulesEngine.Tests
             Assert.True(HasServer(result, ruleId));
             Assert.NotSame(committed, result);
         }
+
+        // The analyzer reads every action through this copy: a member it drops (as RowFilter once
+        // was) silently vanishes from step registration. Every public property must come through.
+        [Fact]
+        public void The_copy_carries_every_action_member()
+        {
+            var ruleId = Guid.NewGuid();
+            var original = new RuleAction
+            {
+                Id = Guid.NewGuid(), RuleId = ruleId, ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnNoMatch,
+                TargetColumn = "name", ValueBool = true, ApplyInverseWhenNotFired = true, Message = "m", Severity = Severity.Warning,
+                TargetTable = "task", TargetNodeId = Guid.NewGuid(), FieldMapping = "[]", Order = 3, IsActive = true,
+                ApplyToPrevious = true, LocalizedMessages = new Dictionary<int, string> { [1036] = "fr" }, Name = "Stamp",
+                RowFilter = new NodeFilterGroup { TableConfigNodeId = Guid.NewGuid() },
+            };
+
+            var copy = EffectiveState.ApplyActionDelta(new Dictionary<Guid, List<RuleAction>> { [ruleId] = new List<RuleAction> { original } }, null)[ruleId].Single();
+
+            Assert.NotSame(original, copy);
+            foreach (var property in typeof(RuleAction).GetProperties())
+            {
+                var expected = property.GetValue(original);
+                Assert.True(expected != null && !(expected is bool b && !b), $"test fixture leaves {property.Name} at its default");
+                if (property.Name == nameof(RuleAction.LocalizedMessages))
+                    Assert.Equal((IDictionary<int, string>)expected, (IDictionary<int, string>)property.GetValue(copy));
+                else
+                    Assert.Equal(expected, property.GetValue(copy));
+            }
+        }
     }
 }
