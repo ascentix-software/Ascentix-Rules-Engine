@@ -4,10 +4,19 @@ import { TRIGGER_OPTIONS, CHANNEL_OPTIONS, EVALUATION_CONTEXT_OPTIONS, ON_DEMAND
 import { TIME_ZONE_OPTIONS, UTC_OPTION, timeZoneLabel } from "../../model/timeZones";
 import { MultiColumnPicker } from "../pickers/MetadataPickers";
 import { EffectiveWindowFields } from "./EffectiveWindowFields";
+import { ScheduleSection } from "../../schedule/ScheduleSection";
+import { scheduleApplies } from "../../schedule/scheduleModel";
+import type { RuleSchedule } from "../../schedule/scheduleModel";
 
 export function RuleInspector({
-  rule, onPatch,
-}: { rule: RuleHeader; onPatch(patch: Partial<RuleHeader>): void }) {
+  rule, onPatch, schedule, onPatchSchedule, ruleTimeZone, onOpenRuns,
+}: {
+  rule: RuleHeader; onPatch(patch: Partial<RuleHeader>): void;
+  schedule?: RuleSchedule | null;
+  onPatchSchedule?(patch: Partial<RuleSchedule>): void;
+  ruleTimeZone?: string | null;
+  onOpenRuns?(): void;
+}) {
   const toggleIn = (list: number[], v: number): number[] =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
 
@@ -86,6 +95,16 @@ export function RuleInspector({
           )}
         </Dropdown>
       </Field>
+
+      {scheduleApplies(rule) && (
+        <ScheduleSection
+          schedule={schedule ?? null}
+          onPatch={onPatchSchedule ?? (() => {})}
+          ruleTimeZone={ruleTimeZone ?? rule.evaluationTimeZone ?? null}
+          evaluationContext={rule.evaluationContext}
+          onOpenRuns={onOpenRuns ?? (() => {})}
+        />
+      )}
     </div>
   );
 }

@@ -29,7 +29,9 @@ import { navigate } from "./router";
 import { useUnsavedGuard } from "./useUnsavedGuard";
 import { ConfirmUnpublishDialog } from "./ConfirmUnpublishDialog";
 import { makeValueLabelResolver, type ValueLabelSnapshot } from "../load/valueLabels";
-import { saveRuleGraph, type SaveResult } from "../save/index";
+import type { SaveResult } from "../save/index";
+import { diffRuleGraph } from "../save/diff";
+import { buildBatch, parseBatchOutcome } from "../save/batch";
 import { GraphTree, type GraphTreeHandlers } from "./GraphTree";
 import { InspectorShell } from "./InspectorShell";
 import { ruleEditorInspectorContent, IssueCallout } from "./inspectors/ruleEditorInspectorContent";
@@ -49,6 +51,9 @@ import { loadPublishedGraph } from "../load/publishedGraph";
 import { canRunNow, RunNowDialog } from "../runs/RunNowDialog";
 import { RunsDialog } from "../runs/RunsDialog";
 import { executionConditionNames } from "../runs/runsData";
+import type { RuleSchedule } from "../schedule/scheduleModel";
+import { emptySchedule, scheduleApplies } from "../schedule/scheduleModel";
+import { loadRuleSchedule, diffSchedule } from "../schedule/scheduleData";
 
 const clone = (g: RuleGraph): RuleGraph => JSON.parse(JSON.stringify(g));
 // Deterministic-enough unique ids for batch/changeset boundaries.
@@ -58,6 +63,9 @@ function nextIds() {
   const stamp = `${boundaryCounter}_${Date.now()}`;
   return { batchId: `b${stamp}`, changesetId: `c${stamp}` };
 }
+
+// Matches save/index.ts's own copy: batch/save requests target this Web API version.
+const SAVE_API_VERSION = "v9.2";
 
 function PropCell({ label, value, bold, first }: { label: string; value: string; bold?: boolean; first?: boolean }) {
   return (
@@ -120,6 +128,12 @@ export function RuleEditorApp({
     isValid: boolean; issues: ApiIssue[]; draftHash?: string;
   } | null>(null);
   const cancelledRef = React.useRef(false);
+  // The rule's asx_ruleschedule row: loaded/saved against the ACTIVE (published) rule id, same
+  // as Run now/Runs above, never a draft's own id (RuleSchedulePlugin resolves the draft itself
+  // when checking runnability). null means the rule has no schedule (yet). scheduleSnapshot is
+  // what's persisted; schedule is the working draft the Schedule section edits.
+  const [scheduleSnapshot, setScheduleSnapshot] = React.useState<RuleSchedule | null>(null);
+  const [schedule, setSchedule] = React.useState<RuleSchedule | null>(null);
 
   const labelFor = useChoiceLabel();
   const styles = useEditorStyles();
@@ -129,7 +143,10 @@ export function RuleEditorApp({
   const overlayOpen = panelOpen || (!!selection && selection.kind !== "rule");
   const closePanel = () => { setSelection({ kind: "rule" }); setPanelOpen(false); };
 
-  const dirty = JSON.stringify(snapshot) !== JSON.stringify(working);
+  const scheduleRuleId = working.rule.activeRuleId ?? working.rule.id;
+  const scheduleAppliesNow = scheduleApplies(working.rule);
+  const scheduleOps = diffSchedule(scheduleSnapshot, schedule, scheduleRuleId, scheduleAppliesNow);
+  const dirty = JSON.stringify(snapshot) !== JSON.stringify(working) || scheduleOps.length > 0;
   const recovery = useRuleRecovery(recoveryKey(api.getClientUrl?.() ?? window.location.origin, initialGraph.rule.activeRuleId ?? initialGraph.rule.id), snapshot, working);
   const needsDraft = (published || !!working.rule.publishedRevisionId) && !working.rule.activeRuleId;
   const editable = !publishedView && !busy && !recovery.pending && !needsDraft;
@@ -160,6 +177,40 @@ export function RuleEditorApp({
   React.useEffect(() => {
     setValidationResult(null);
   }, [working]);
+
+  // Load the schedule next to the graph. Fires once at mount and again if the rule this editor
+  // targets ever resolves to a different active/published id (it normally doesn't mid-session).
+  React.useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const loaded = await loadRuleSchedule(api, scheduleRuleId);
+        if (live) { setScheduleSnapshot(loaded); setSchedule(loaded); }
+      } catch (e) {
+        if (live) setBanner({ intent: "error", text: `Could not load the schedule: ${formatError(e)}` });
+      }
+    })();
+    return () => { live = false; };
+  }, [api, scheduleRuleId]);
+
+  // Re-reads the schedule after a save so the engine-calculated Next run (and, on the next
+  // save, Last run/outcome) shows the server's latest values rather than the just-saved local
+  // draft. Best-effort: a failure here leaves the local draft in place, not an error banner,
+  // since the save itself already succeeded.
+  async function reloadSchedule() {
+    try {
+      const loaded = await loadRuleSchedule(api, scheduleRuleId);
+      setScheduleSnapshot(loaded);
+      setSchedule(loaded);
+    } catch {
+      // keep the just-saved local draft; a manual Reload retries
+    }
+  }
+
+  function onPatchSchedule(patch: Partial<RuleSchedule>) {
+    if (!editable) return;
+    setSchedule((s) => ({ ...(s ?? emptySchedule()), ...patch }));
+  }
 
   const recon = (g: RuleGraph) => reconcileAutoNames(g, manualRef.current, resolve);
 
@@ -214,14 +265,31 @@ export function RuleEditorApp({
     return false;
   }
 
+  // Diffs the rule graph AND the schedule into ONE Operation[] and sends them in the same
+  // $batch changeset (save/index.ts's saveRuleGraph only knows about the graph, so this
+  // inlines its same three steps — diff, buildBatch, executeBatch — over the combined ops).
+  async function performSave(): Promise<SaveResult> {
+    const ops = [...diffRuleGraph(snapshot, workingRef.current), ...scheduleOps];
+    if (ops.length === 0) return { status: "noop" };
+    const ids = nextIds();
+    const { boundary, body } = buildBatch(ops, {
+      clientUrl: api.getClientUrl(), apiVersion: SAVE_API_VERSION,
+      batchId: ids.batchId, changesetId: ids.changesetId,
+    });
+    const { httpStatus, text } = await api.executeBatch(boundary, body);
+    const outcome = parseBatchOutcome(text);
+    if (outcome.ok && httpStatus < 400) return { status: "saved" };
+    return { status: "error", message: outcome.message };
+  }
+
   async function onSave() {
     if (!editable) return;
     setBusy(true);
     setBanner(null);
     try {
-      const result = await saveRuleGraph(api, snapshot, workingRef.current, nextIds());
+      const result = await performSave();
       if (reportSaveFailure(result)) return;
-      if (result.status === "saved") await acceptFresh(await reload());
+      if (result.status === "saved") { await acceptFresh(await reload()); await reloadSchedule(); }
       setBanner({ intent: "success", text: result.status === "noop" ? "Nothing to save." : "Saved." });
     } catch (e) {
       setBanner({ intent: "error", text: `Save or refresh failed: ${formatError(e)}. Your local edits are retained; review them before reloading.` });
@@ -244,9 +312,9 @@ export function RuleEditorApp({
     setBanner(null);
     try {
       if (dirty) {
-        const result = await saveRuleGraph(api, snapshot, workingRef.current, nextIds());
+        const result = await performSave();
         if (reportSaveFailure(result)) return;
-        if (result.status === "saved") await acceptFresh(await reload());
+        if (result.status === "saved") { await acceptFresh(await reload()); await reloadSchedule(); }
       }
       const result = await api.validateRule(working.rule.id);
       setValidationResult(result);
@@ -408,7 +476,9 @@ export function RuleEditorApp({
     onUpdateTranslation: (id: string, tid: string, msg: string) => setWorking((g) => updateTranslation(g, id, tid, { message: msg })),
     onRemoveTranslation: (id: string, tid: string) => setWorking((g) => removeTranslation(g, id, tid)),
   };
-  const content = ruleEditorInspectorContent(displayed, selection, inspectorHandlers);
+  const content = ruleEditorInspectorContent(displayed, selection, inspectorHandlers, {
+    schedule, onPatchSchedule, onOpenRuns: () => setRunsOpen(true),
+  });
   const inspectorBody = <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
     {content.body}
   </fieldset>;

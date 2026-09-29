@@ -13,6 +13,10 @@ export const ENTITY = {
   // createRecord all take the table's LOGICAL name, unlike ENTITY_SET below (the plural
   // collection name used for @odata.bind targets and raw Web API PATCH URLs).
   ruleRun: "asx_rulerun",
+  // asx_ruleschedule / asx_schedulerstatus (pipelines/Configure-RuleAuthoring.ps1): same
+  // LOGICAL-name-for-Xrm.WebApi rule as every entry above.
+  ruleSchedule: "asx_ruleschedule",
+  schedulerStatus: "asx_schedulerstatus",
 } as const;
 
 export const LOOKUP = {
@@ -37,6 +41,8 @@ export const LOOKUP = {
   // asx_rulerun.asx_rule (docs/Schema.md §2.13): same Web API lookup-value field name as every
   // other "asx_rule" attribute above, just on a different owning entity.
   ruleOfRun: "_asx_rule_value",
+  // asx_ruleschedule.asx_rule: same lowercase lookup-value field name pattern as above.
+  ruleOfSchedule: "_asx_rule_value",
 } as const;
 
 export const NAV = {
@@ -91,6 +97,8 @@ export const ENTITY_SET = {
   nodeFilterGroup: "asx_nodefiltergroups",
   nodeFilterCriterion: "asx_nodefiltercriterions",
   ruleRun: "asx_ruleruns",
+  ruleSchedule: "asx_ruleschedules",
+  schedulerStatus: "asx_schedulerstatuses",
 } as const;
 
 // @odata.bind navigation-property names. The referencing-side navigation
@@ -129,4 +137,6 @@ export const BIND_NAV = {
   // override, so the nav property is PascalCased, unlike the plain-lowercase asx_rule lookups
   // on asx_conditiongroup/asx_ruleaction above. Round-tripped by bindNav.dev.test.ts.
   runRule: "asx_Rule",
+  // asx_ruleschedule.asx_rule: same EnsureLookup shape (SchemaName "asx_Rule") as runRule above.
+  scheduleRule: "asx_Rule",
 } as const;
