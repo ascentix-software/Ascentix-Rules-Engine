@@ -1,139 +1,78 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using Microsoft.Xrm.Sdk;
-using Microsoft.Xrm.Sdk.Messages;
+using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
 
 namespace Ascentix.RulesEngine.Plugin
 {
-    /// <summary>Pairs an evaluated record to its in-flight Target entity (for root-in-place writes).</summary>
-    public class WriteTarget
-    {
-        public System.Guid RecordId { get; set; }
-        public Entity InPlace { get; set; } // the Create/Update Target; null on Delete messages
-    }
-
     /// <summary>
-    /// Applies the WriteIntents produced by the engine. Service writes (Create / related Update /
-    /// Delete) carry the <see cref="PluginReentry.EngineWriteTag"/> 'tag' shared variable so a
-    /// re-triggered engine execution recognizes its own cascade and skips: a no-op for those when
-    /// <paramref name="engineInitiated"/> is true. Root-targeted Update writes onto the in-flight
-    /// Target (no new operation, cannot cascade) and always apply. With no in-flight Target (e.g.
-    /// on-demand evaluation), a root-targeted Update instead falls back to a tagged service Update
-    /// on the evaluated record, subject to the same engine-initiated skip as any other write. Any
-    /// failure propagates → the platform rolls back. Block-wins is handled by the caller (it
-    /// throws before invoking this).
+    /// Fired actions → <see cref="ChangeSet"/> → <see cref="ChangeSetDispatcher"/>, one change set per
+    /// evaluated record. An update of the record being saved is written onto the in-flight Target and
+    /// always applies. Every other write is a tagged service request (PluginReentry.EngineWriteTag) and
+    /// is skipped when this execution is itself engine-initiated. With no in-flight Target (Run page,
+    /// asx_ApplyRules) a root update is an ordinary tagged update of the evaluated record. Any failure
+    /// propagates, so the platform rolls the record back. Block-wins is the caller's (it throws before
+    /// calling this).
     /// </summary>
     public class WriteActionExecutor
     {
-        public void Execute(
-            RuleEvaluationOutcome outcome,
-            IList<WriteTarget> records,
-            IOrganizationService userService,
-            IOrganizationService systemService,
-            bool engineInitiated,
-            ITracingService trace)
-        {
-            var targetsById = records.ToDictionary(r => r.RecordId, r => r.InPlace);
+        private readonly Func<IOrganizationService, IBulkWriteSupport> _supportFactory;
+        private readonly IWriteRequestSender _sender;
+        private IBulkWriteSupport _support;
 
-            foreach (var record in outcome.Records)
+        public WriteActionExecutor() : this(null, null) { }
+
+        /// <param name="supportFactory">Builds the bulk-support answer from the system service, once per
+        /// executor (one plug-in execution); default: sdkmessagefilter.</param>
+        /// <param name="sender">Sends each request; default: IOrganizationService.Execute.</param>
+        public WriteActionExecutor(Func<IOrganizationService, IBulkWriteSupport> supportFactory, IWriteRequestSender sender)
+        {
+            _supportFactory = supportFactory ?? (service => new SdkMessageFilterBulkSupport(service));
+            _sender = sender ?? new ServiceWriteRequestSender();
+        }
+
+        /// <param name="inPlaceTargets">The in-flight Target of each evaluated record, index-aligned with
+        /// <c>outcome.Records</c> (the runner returns one result per input, in input order); a missing or
+        /// null entry means no Target (Delete messages). Paired by position, not by id: the Targets of
+        /// a CreateMultiple may all carry Guid.Empty.</param>
+        public void Execute(RuleEvaluationOutcome outcome, IList<Entity> inPlaceTargets, IOrganizationService userService,
+            IOrganizationService systemService, bool engineInitiated, ITracingService trace)
+        {
+            for (var i = 0; i < outcome.Records.Count; i++)
             {
-                targetsById.TryGetValue(record.RecordId, out var inPlace);
-                ExecuteRecord(record, inPlace, userService, systemService, engineInitiated, trace);
+                var inPlace = inPlaceTargets != null && i < inPlaceTargets.Count ? inPlaceTargets[i] : null;
+                ExecuteRecord(outcome.Records[i], inPlace, userService, systemService, engineInitiated, trace);
             }
         }
 
-        /// <summary>Applies one record's fired write intents. Returns the number applied (a
-        /// skipped engine-initiated intent is not counted).</summary>
-        public int ExecuteRecord(
-            RecordEvaluationResult record,
-            Entity inPlace,
-            IOrganizationService userService,
-            IOrganizationService systemService,
-            bool engineInitiated,
-            ITracingService trace)
+        /// <summary>Writes one record's change set. Returns the rows sent, plus 1 when an update of the
+        /// record being saved was applied in place.</summary>
+        public int ExecuteRecord(RecordEvaluationResult record, Entity inPlace, IOrganizationService userService,
+            IOrganizationService systemService, bool engineInitiated, ITracingService trace)
         {
-            var applied = 0;
-
-            var intents = record.FiredActions
-                .Where(a => a.WriteIntent != null)
-                .Select(a => a.WriteIntent);
-
-            foreach (var intent in intents)
+            var root = inPlace != null ? new RootRecord(inPlace.LogicalName, record.RecordId) : null;
+            var changeSet = ChangeSet.ForRecord(record, root);
+            if (changeSet.WriteCount == 0 && !changeSet.HasRootInPlace)
             {
-                // Root-in-place writes issue no new operation, so they never re-trigger the
-                // engine and always apply. Service writes could cascade, so skip them when this
-                // execution is itself an engine-initiated write.
-                if (!IsRootInPlace(intent, inPlace) && engineInitiated)
-                {
-                    trace.Trace($"WriteActionExecutor: engine-initiated re-entry, skipping {intent.Operation} on {intent.TargetTable}.");
-                    continue;
-                }
-                Apply(intent, inPlace, record.RecordId, userService, systemService, trace);
-                applied++;
+                if (changeSet.Unchanged > 0) trace.Trace($"WriteActionExecutor: {changeSet.Unchanged} row(s) already up to date; nothing to write.");
+                return 0;
             }
 
-            return applied;
-        }
+            var dispatcher = new ChangeSetDispatcher(_support ?? (_support = _supportFactory(systemService)), _sender, trace);
+            var applied = dispatcher.ApplyInPlace(changeSet, inPlace) ? 1 : 0;
 
-        private static bool IsRootInPlace(WriteIntent intent, Entity inPlace) =>
-            intent.Operation == WriteOperation.Update && intent.RootTargeted && inPlace != null;
-
-        private void Apply(WriteIntent intent, Entity inPlace, Guid recordId,
-            IOrganizationService userService, IOrganizationService systemService, ITracingService trace)
-        {
-            var service = intent.Context == RuleEvaluationContext.System ? systemService : userService;
-
-            switch (intent.Operation)
+            // Service writes could cascade into the engine again, so an engine-initiated execution skips
+            // them; the in-place write issues no new operation and always applies.
+            if (engineInitiated)
             {
-                case WriteOperation.Create:
-                    var toCreate = new Entity(intent.TargetTable);
-                    CopyValues(intent, toCreate);
-                    Tagged(service, new CreateRequest { Target = toCreate });
-                    trace.Trace($"WriteActionExecutor: created {intent.TargetTable}.");
-                    break;
-
-                case WriteOperation.Update:
-                    if (IsRootInPlace(intent, inPlace))
-                    {
-                        CopyValues(intent, inPlace); // written with the in-flight operation
-                        trace.Trace($"WriteActionExecutor: applied {intent.Values.Count} value(s) to root in place.");
-                    }
-                    else
-                    {
-                        // No in-flight Target to write onto (on-demand evaluation, or a related
-                        // table): a root-targeted intent falls back to the record it was evaluated
-                        // for; a related-table intent already carries its own TargetId.
-                        var toUpdate = new Entity(intent.TargetTable, intent.TargetId ?? recordId);
-                        CopyValues(intent, toUpdate);
-                        Tagged(service, new UpdateRequest { Target = toUpdate });
-                        trace.Trace($"WriteActionExecutor: updated {intent.TargetTable} {toUpdate.Id}.");
-                    }
-                    break;
-
-                case WriteOperation.Delete:
-                    Tagged(service, new DeleteRequest
-                    {
-                        Target = new EntityReference(intent.TargetTable, intent.TargetId.Value)
-                    });
-                    trace.Trace($"WriteActionExecutor: deleted {intent.TargetTable} {intent.TargetId}.");
-                    break;
+                if (changeSet.WriteCount > 0)
+                    trace.Trace($"WriteActionExecutor: engine-initiated re-entry, skipping {changeSet.WriteCount} write(s).");
+                return applied;
             }
-        }
 
-        // Issues the request with the engine's loop-marker so any plugin it re-triggers can tell
-        // the write originated from the engine (see PluginReentry.IsEngineInitiated).
-        private static void Tagged(IOrganizationService service, OrganizationRequest request)
-        {
-            request["tag"] = PluginReentry.EngineWriteTag;
-            service.Execute(request);
-        }
-
-        private static void CopyValues(WriteIntent intent, Entity target)
-        {
-            foreach (var kv in intent.Values)
-                target[kv.Key] = kv.Value;
+            trace.Trace($"WriteActionExecutor: {changeSet.Creates} create(s), {changeSet.Updates} update(s), {changeSet.Deletes} delete(s), {changeSet.Unchanged} unchanged.");
+            return applied + dispatcher.SendBatches(changeSet, userService, systemService);
         }
     }
 }

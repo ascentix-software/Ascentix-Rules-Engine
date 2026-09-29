@@ -13,7 +13,7 @@ import {
 } from "./InsertFieldMenu";
 import { AggregateFilterDialog } from "./inspectors/AggregateFilterDialog";
 import {
-  emptyGroup, isLeafComplete, isExistsComplete, type NodeFilterGroupModel, type NodeFilterNode,
+  emptyGroup, countCompleteCriteria, type NodeFilterGroupModel,
 } from "../model/nodeFilter";
 import { color } from "./tokens";
 import { Pill, Eyebrow } from "./primitives";
@@ -46,12 +46,14 @@ function useMathLabelFor(
   };
 }
 
-export function TemplateEditor({ value, ruleTable, tableConfigs, onChange }: {
+export function TemplateEditor({ value, ruleTable, tableConfigs, onChange, rowTable }: {
   value: string; ruleTable: string; tableConfigs: Record<string, TableConfigRef>;
   onChange(template: string): void;
+  /** The current row's table on a set action: offers `{row.<column>}` tokens. */
+  rowTable?: string | null;
 }) {
   const taRef = React.useRef<HTMLTextAreaElement>(null);
-  const labelFor = useFieldLabelFor(ruleTable, tableConfigs);
+  const labelFor = useFieldLabelFor(ruleTable, tableConfigs, rowTable);
 
   const insertToken = (token: string) => {
     const pos = taRef.current?.selectionStart ?? value.length;
@@ -64,7 +66,7 @@ export function TemplateEditor({ value, ruleTable, tableConfigs, onChange }: {
         placeholder="Text with {fields}: use Insert field"
         onChange={(_e, d) => onChange(d.value)} />
       <div>
-        <InsertFieldMenu ruleTable={ruleTable} tableConfigs={tableConfigs} onInsert={insertToken} />
+        <InsertFieldMenu ruleTable={ruleTable} tableConfigs={tableConfigs} rowTable={rowTable} onInsert={insertToken} />
       </div>
       {value && (
         <span style={{ fontSize: 11, color: color.inkMuted }}>
@@ -73,14 +75,6 @@ export function TemplateEditor({ value, ruleTable, tableConfigs, onChange }: {
       )}
     </div>
   );
-}
-
-// Counts complete (evaluable) criteria in a filter tree, same rule as ConditionInspector's
-// node-filter summary, reused here for the per-aggregate filter summary.
-function countCompleteCriteria(node: NodeFilterNode): number {
-  if (node.kind === "rule") return isLeafComplete(node) ? 1 : 0;
-  if (node.kind === "exists") return isExistsComplete(node) ? 1 : 0;
-  return node.rules.reduce((n, r) => n + countCompleteCriteria(r), 0);
 }
 
 // Locates the `(`/`)` span of the Nth (0-based) aggregate call (`sum(...)`, `count(...)`, ...)

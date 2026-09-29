@@ -41,6 +41,26 @@ only, so the version an administrator sees in their org can never carry the word
   moves to another contact), an Update Record action can also be applied to the record the lookup
   pointed to before, in the same save. New column `asx_ruleaction.asx_applytoprevious`. An action
   whose target this option can't apply to is rejected at publish (`STRUCT_APPLY_PREVIOUS_TARGET`).
+- **Rule schedules.** A Published On demand rule scoped to all records can run on a recurring
+  schedule (every 15/30/45 minutes, every 1–23 hours, daily, weekly, or monthly, in the rule's own
+  time zone) instead of only on demand: the Rule Builder's new **Schedule** section starts or
+  continues a Rule Run the same way **Run now** does, within about 15 minutes of the scheduled
+  time. New table `asx_ruleschedule` (at most one per rule) and a new unbound Custom API,
+  `asx_StartDueSchedules`, that a caller on a timer drives — the optional **scheduler add-on**
+  (a separate solution, `AscentixRulesEngineScheduler`, shipping one cloud flow) calls it every 15
+  minutes and drives every returned run with `asx_ProcessRunPage`. A new table,
+  `asx_schedulerstatus`, tracks a heartbeat for whatever calls `asx_StartDueSchedules`, shown as a
+  status chip in the hub alongside a clock icon on scheduled rules. See *Administering →
+  Scheduling Rules*.
+- **Actions on a set of records.** Update, Delete and the new **Deactivate Record** action can
+  target a related collection and write every row that passes the action's **Rows** filter;
+  Create Record can create one record **for each row** of a collection, with values from the
+  **Current row** (`row` source, `{row.<column>}` tokens). One record's writes are merged, rows
+  that already hold the values are skipped, and the rest are sent in bulk (creates, then updates,
+  then deletes). New column `asx_nodefiltergroup.asx_ruleaction`, action type 8, and the
+  `asx_RunRules` output `ChangeSet`. The Rule Builder's new **Test** runs a published rule
+  against a record without saving. Writes now go out in that order rather than one at a time in
+  action order; only other plug-ins reacting to each write can observe the difference.
 
 ### Changed
 
@@ -64,6 +84,21 @@ only, so the version an administrator sees in their org can never carry the word
   Row Count condition's own search criteria compare dates as text and keep the widened form:
   before/after comparisons are applied in the query, equals and not equals after the rows are
   loaded.
+- Writes of the same table in one evaluation are sent in bulk. An existing rule whose fired
+  actions create, or update, two or more records of the same table in one save (two Create
+  Record actions on task, or updates of two different contacts through two lookups) now sends
+  them as one `CreateMultiple` / `UpdateMultiple` where the table supports it, instead of one
+  request each; deletes are still sent one at a time. A plug-in registered on the bulk message
+  sees one execution for them. A failed bulk request names the operation and the table rather
+  than the action, for example `UpdateMultiple contact: <error>`; a single request reads
+  `Update contact (action "<action name>"): <error>`.
+- A Create Record action that already holds a collection target (`asx_targetnode` pointing at a
+  child-collection node, which only the API could set; the Rule Builder never did) becomes a
+  **Create per row** on upgrade: it creates one record for each row of that collection instead
+  of one record. A target on a single-record node (the record itself or a lookup) is still
+  ignored by Create Record. Before upgrading, look for `asx_ruleaction` rows with
+  `asx_actiontype` 5 and an `asx_targetnode`, and clear the target on any that should keep
+  creating one record.
 
 ### Fixed
 

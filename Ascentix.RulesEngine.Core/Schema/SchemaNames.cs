@@ -99,6 +99,34 @@ namespace Ascentix.RulesEngine.Schema
             public const string FinishedOn = "finishedon";
         }
 
+        /// <summary>A rule's recurring schedule: when it next becomes due, in the rule's time zone.</summary>
+        public static class RuleSchedule
+        {
+            public const string Entity = "ruleschedule";
+            public const string Name = "name";
+            public const string Rule = "rule";                  // lookup → rule
+            public const string On = "on";                      // whether the schedule is enabled
+            public const string Pattern = "pattern";            // asx_schedulepattern
+            public const string Every = "every";                // EveryMinutes/EveryHours: the N
+            public const string TimeOfDay = "timeofday";        // Daily/Weekly/Monthly: "HH:mm"
+            public const string DaysOfWeek = "daysofweek";      // Weekly: multi-select, 0-6 = System.DayOfWeek
+            public const string DayOfMonth = "dayofmonth";      // Monthly: 1-31 (clamped to the month's last day)
+            public const string NextRunOn = "nextrunon";        // UTC instant this schedule next becomes due
+            public const string LastRunOn = "lastrunon";        // UTC instant this schedule last became due
+            public const string LastRun = "lastrun";            // lookup → rulerun started for the last due instant
+            public const string LastOutcome = "lastoutcome";    // asx_scheduleoutcome
+        }
+
+        /// <summary>Heartbeat/coordination row for the scheduler add-on's polling calls.</summary>
+        public static class SchedulerStatus
+        {
+            public const string Entity = "schedulerstatus";
+            public const string Name = "name";
+            public const string LastSeenOn = "lastseenon";
+            public const string LastSeenBy = "lastseenby";
+            public const string CallsToday = "callstoday";
+        }
+
         public static class TableConfig
         {
             public const string IsPrivate = "isprivate";
@@ -164,6 +192,7 @@ namespace Ascentix.RulesEngine.Schema
             public const string LogicalOperator = "logicaloperator";
             public const string RuleCondition = "rulecondition";        // lookup → rulecondition (owning condition)
             public const string OwningCriterion = "owningcriterion";    // lookup → nodefiltercriterion (Exists sub-filter root)
+            public const string RuleAction = "ruleaction";              // lookup → ruleaction (the action's Rows filter)
         }
 
         public static class NodeFilterCriterion
@@ -276,6 +305,20 @@ namespace Ascentix.RulesEngine.Schema
             public const string PropSkipped = "Skipped";
         }
 
+        /// <summary>
+        /// asx_StartDueSchedules: unbound Action the scheduler add-on calls on a timer to start
+        /// (or continue) every due Rule Schedule.
+        /// </summary>
+        public static class StartDueSchedulesApi
+        {
+            /// <summary>Custom API message / unique name (registered in Dataverse).</summary>
+            public const string MessageName = "StartDueSchedules";   // full: asx_StartDueSchedules
+
+            // Output parameters: must equal OutputParameters keys the handler writes.
+            public const string PropRunIds = "RunIds";
+            public const string PropScheduledCount = "ScheduledCount";
+        }
+
         /// <summary>Relationship (schema) name fragments.</summary>
         public static class Relationships
         {
@@ -299,6 +342,7 @@ namespace Ascentix.RulesEngine.Schema
             public const string NodeFilterCriterionComparisonValueNode = "nodefiltercriterion_comparisonvaluenode";
             public const string NodeFilterCriterionCollectionNode = "nodefiltercriterion_collectionnode";
             public const string NodeFilterGroupOwningCriterion = "nodefiltergroup_owningcriterion";
+            public const string RuleActionNodeFilterGroup = "ruleaction_nodefiltergroup";
         }
     }
 }

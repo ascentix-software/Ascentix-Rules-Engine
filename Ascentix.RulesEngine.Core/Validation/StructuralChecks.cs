@@ -51,6 +51,9 @@ namespace Ascentix.RulesEngine.Core.Validation
             foreach (var a in activeActions)
                 CheckApplyToPrevious(a, model, issues);
 
+            foreach (var a in activeActions)
+                CheckSetAction(a, model, issues);
+
             foreach (var g in model.AllGroups())
                 foreach (var nf in g.NodeFilterGroups ?? Enumerable.Empty<NodeFilterGroup>())
                     CheckFilterGroup(nf, IssueTarget.Rule(model.RuleId), issues, insideExistsSubFilter: false);
@@ -179,6 +182,14 @@ namespace Ascentix.RulesEngine.Core.Validation
                 case ConditionType.FieldComparison:
                     if (string.IsNullOrWhiteSpace(c.ComparisonColumn)) Missing("ComparisonColumn", "Comparison column is required.");
                     if (c.ComparisonOperator == null) Missing("ComparisonOperator", "Comparison operator is required.");
+                    // A condition never has a current row (only a set action's field mapping/message
+                    // does): ComparisonValueResolver.Resolve renders a Template value with no row, so
+                    // a {row.…} token here would throw at evaluation. Checked unconditionally, ahead
+                    // of the needsValue gate below, since it doesn't depend on the operator.
+                    if (c.ValueSource == ComparisonValueSource.Template && HasRowToken(c.ComparisonValue))
+                        issues.Add(ValidationIssue.Error("STRUCT_ROW_SOURCE_NOT_SET",
+                            "The current row can only be used by an action that writes a set of rows.",
+                            IssueTarget.Condition(c.Id, "ComparisonValue")));
                     var needsValue = c.ComparisonOperator != ComparisonOperator.IsNull
                                      && c.ComparisonOperator != ComparisonOperator.IsNotNull;
                     if (needsValue)
@@ -290,6 +301,11 @@ namespace Ascentix.RulesEngine.Core.Validation
                 case ActionType.DeleteRecord:
                     if (a.TargetNodeId == null) Missing("TargetNodeId", "Target node is required.");
                     break;
+                case ActionType.DeactivateRecord:
+                    if (a.TargetNodeId == null) Missing("TargetNodeId", "Target node is required.");
+                    CheckFieldMapping(a, issues, requireMapping: false);
+                    CheckDeactivateMapping(a, issues);
+                    break;
             }
         }
 
@@ -304,6 +320,81 @@ namespace Ascentix.RulesEngine.Core.Validation
                 issues.Add(ValidationIssue.Error("STRUCT_APPLY_PREVIOUS_TARGET",
                     "\"Also apply to the previous record\" needs an Update Record action whose target is reached through lookups from the rule's record.",
                     IssueTarget.Action(a.Id, "ApplyToPrevious")));
+        }
+
+        // Deactivate writes statecode itself; the only column an author may set is the status reason.
+        private static void CheckDeactivateMapping(RuleAction a, List<ValidationIssue> issues)
+        {
+            if (string.IsNullOrWhiteSpace(a.FieldMapping)) return;
+            List<FieldMappingEntry> entries;
+            try { entries = FieldMappingParser.Parse(a.FieldMapping); }
+            catch (InvalidPluginExecutionException) { return; } // CheckFieldMapping reports it
+            foreach (var e in entries.Where(e => !string.Equals(e.Target, "statuscode", StringComparison.OrdinalIgnoreCase)))
+                issues.Add(ValidationIssue.Error("STRUCT_DEACTIVATE_MAPPING",
+                    $"Deactivate Record can only set Status Reason (statuscode); '{e.Target}' can't be set here.",
+                    IssueTarget.Action(a.Id, "FieldMapping")));
+        }
+
+        // A Rows filter filters the action's own target rows and exists only on a set action; the
+        // current row (row source, {row.…} token) exists only on a set action, whether it's read
+        // by a field mapping or by a {row.…} token in a Show Message/Block message text - anywhere
+        // else TemplateRenderer.Render would throw "...can only be used by an action that writes a
+        // set of rows" at runtime.
+        private static void CheckSetAction(RuleAction a, RuleForValidation model, List<ValidationIssue> issues)
+        {
+            var isSet = SetActions.IsSetAction(a, model.Configs);
+            if (a.RowFilter != null)
+            {
+                if (!isSet || a.RowFilter.TableConfigNodeId != a.TargetNodeId)
+                    issues.Add(ValidationIssue.Error("STRUCT_ACTION_FILTER_TARGET",
+                        "The Rows filter must filter the action's target rows, and only an action that writes a set of rows can have one.",
+                        IssueTarget.Action(a.Id, "RowFilter")));
+                CheckFilterGroup(a.RowFilter, IssueTarget.Action(a.Id, "RowFilter"), issues, insideExistsSubFilter: false);
+            }
+            if (isSet) return;
+            if (UsesCurrentRow(a))
+                issues.Add(ValidationIssue.Error("STRUCT_ROW_SOURCE_NOT_SET",
+                    "The current row can only be used by an action that writes a set of rows.",
+                    IssueTarget.Action(a.Id, "FieldMapping")));
+            if (UsesRowTokenInMessage(a))
+                issues.Add(ValidationIssue.Error("STRUCT_ROW_SOURCE_NOT_SET",
+                    "The current row can only be used by an action that writes a set of rows.",
+                    IssueTarget.Action(a.Id, "Message")));
+        }
+
+        private static bool UsesCurrentRow(RuleAction a)
+        {
+            if (string.IsNullOrWhiteSpace(a.FieldMapping)) return false;
+            List<FieldMappingEntry> entries;
+            try { entries = FieldMappingParser.Parse(a.FieldMapping); }
+            catch (InvalidPluginExecutionException) { return false; }
+            foreach (var e in entries)
+            {
+                if (e.Source == "row") return true;
+                if (e.Source != "template" || string.IsNullOrEmpty(e.Template)) continue;
+                if (HasRowToken(e.Template)) return true;
+            }
+            return false;
+        }
+
+        // Message/LocalizedMessages carry the same {root.…}/{row.…}/{node:…} tokens a field
+        // mapping template does (TokenizeLenient in RuleReferences reads them the same way), but
+        // are never gated to a set action, so a {row.…} token there needs the same publish-time
+        // check a field-mapping row source gets.
+        private static bool UsesRowTokenInMessage(RuleAction a)
+        {
+            if (HasRowToken(a.Message)) return true;
+            if (a.LocalizedMessages != null)
+                foreach (var text in a.LocalizedMessages.Values)
+                    if (HasRowToken(text)) return true;
+            return false;
+        }
+
+        private static bool HasRowToken(string template)
+        {
+            if (string.IsNullOrEmpty(template)) return false;
+            try { return TemplateRenderer.Tokenize(template, "row check").Any(s => s.IsRow); }
+            catch (InvalidPluginExecutionException) { return false; } // a malformed template is reported at evaluation
         }
 
         private static void CheckFieldMapping(RuleAction a, List<ValidationIssue> issues, bool requireMapping)

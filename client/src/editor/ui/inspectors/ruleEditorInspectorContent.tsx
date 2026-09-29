@@ -12,6 +12,7 @@ import { RuleInspector } from "./RuleInspector";
 import { ActionIcon, Callout } from "../primitives";
 import type { InspectorHeader } from "../InspectorShell";
 import { color } from "../tokens";
+import type { RuleSchedule } from "../../schedule/scheduleModel";
 
 export interface RuleEditorInspectorHandlers {
   onPatchRule(patch: Partial<RuleHeader>): void;
@@ -21,6 +22,25 @@ export interface RuleEditorInspectorHandlers {
   onAddTranslation(actionId: string, languageCode: number): void;
   onUpdateTranslation(actionId: string, translationId: string, message: string): void;
   onRemoveTranslation(actionId: string, translationId: string): void;
+}
+
+/** The rule's schedule, and how the "rule" panel (RuleInspector -> ScheduleSection) edits and
+ *  opens run history for it. Optional so every existing caller of ruleEditorInspectorContent
+ *  (unrelated to the schedule) keeps compiling unchanged. */
+export interface ScheduleInspectorProps {
+  schedule: RuleSchedule | null;
+  onPatchSchedule(patch: Partial<RuleSchedule>): void;
+  onOpenRuns(): void;
+  /** The rule's own fields are read-only (e.g. a published rule not being edited). */
+  ruleFieldsDisabled?: boolean;
+  /** The Schedule section is read-only; independent of the rule fields, since a schedule never
+   *  needs a draft or a publish. */
+  scheduleDisabled?: boolean;
+  /** The schedule couldn't be read (no privilege): the section shows a note, not controls. */
+  scheduleUnavailable?: boolean;
+  /** The schedule couldn't be read for any other reason: a note with a retry, not controls. */
+  scheduleLoadError?: boolean;
+  onRetrySchedule?(): void;
 }
 
 const tintIcon = <div style={{ width: 28, height: 28, borderRadius: 7, background: color.brandTint }} />;
@@ -40,6 +60,7 @@ function findCondition(graph: RuleGraph, id: string): ConditionNode | undefined 
  */
 export function ruleEditorInspectorContent(
   graph: RuleGraph, selection: Selection, h: RuleEditorInspectorHandlers,
+  schedule?: ScheduleInspectorProps,
 ): { header: InspectorHeader; body: React.ReactNode } {
   if (selection && selection.kind === "group") {
     const g = findGroup(graph, selection.id);
@@ -75,7 +96,15 @@ export function ruleEditorInspectorContent(
   // kind === "rule" (there is no "node" branch: Rule Editor never emits one)
   return {
     header: { eyebrow: "Rule properties", title: graph.rule.name },
-    body: <RuleInspector rule={graph.rule} onPatch={h.onPatchRule} />,
+    body: <RuleInspector rule={graph.rule} onPatch={h.onPatchRule}
+      schedule={schedule?.schedule ?? null}
+      onPatchSchedule={schedule?.onPatchSchedule}
+      onOpenRuns={schedule?.onOpenRuns}
+      disabled={schedule?.ruleFieldsDisabled}
+      scheduleDisabled={schedule?.scheduleDisabled}
+      scheduleUnavailable={schedule?.scheduleUnavailable}
+      scheduleLoadError={schedule?.scheduleLoadError}
+      onRetrySchedule={schedule?.onRetrySchedule} />,
   };
 }
 

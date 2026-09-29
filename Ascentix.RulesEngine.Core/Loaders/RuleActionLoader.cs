@@ -33,6 +33,8 @@ namespace Ascentix.RulesEngine.Core.Loaders
         private static readonly string OrderField = SchemaNames.Qualify(SchemaNames.RuleAction.Order);
         private static readonly string IsActiveField = SchemaNames.Qualify(SchemaNames.RuleAction.IsActive);
         private static readonly string ApplyToPreviousField = SchemaNames.Qualify(SchemaNames.RuleAction.ApplyToPrevious);
+        private static readonly string NameField = SchemaNames.Qualify(SchemaNames.PrimaryName);
+        private static readonly string FilterGroupActionLookup = SchemaNames.Qualify(SchemaNames.NodeFilterGroup.RuleAction);
 
         private static readonly string LocalizedMessageEntity = SchemaNames.Qualify(SchemaNames.LocalizedMessage.Entity);
         private static readonly string LmRuleActionLookup = SchemaNames.Qualify(SchemaNames.LocalizedMessage.RuleAction);
@@ -67,6 +69,7 @@ namespace Ascentix.RulesEngine.Core.Loaders
             }
 
             LoadLocalizedMessages(result.Values.SelectMany(v => v).ToList());
+            LoadRowFilters(result.Values.SelectMany(v => v).ToList());
             return result;
         }
 
@@ -76,6 +79,7 @@ namespace Ascentix.RulesEngine.Core.Loaders
             {
                 Id = e.Id,
                 RuleId = ruleId,
+                Name = e.GetAttributeValue<string>(NameField),
                 ActionType = (ActionType)(e.GetAttributeValue<OptionSetValue>(ActionTypeField)?.Value ?? 0),
                 FireOn = (ActionFireOn)(e.GetAttributeValue<OptionSetValue>(FireOnField)?.Value ?? 0),
                 TargetColumn = e.GetAttributeValue<string>(TargetColumnField),
@@ -91,6 +95,31 @@ namespace Ascentix.RulesEngine.Core.Loaders
                 IsActive = e.GetAttributeValue<bool>(IsActiveField),
                 ApplyToPrevious = e.GetAttributeValue<bool>(ApplyToPreviousField)
             };
+        }
+
+        // Every group of an action's Rows filter carries asx_ruleaction (root and nested), as condition
+        // filters carry asx_conditiongroup; EXISTS sub-filters hang off their criterion and are wired by
+        // NodeFilterGraphLoader. One top-level group per action.
+        private void LoadRowFilters(List<RuleAction> actions)
+        {
+            if (actions.Count == 0) return;
+            var query = new QueryExpression(NodeFilterGraphLoader.FilterGroupEntity) { ColumnSet = new ColumnSet(true) };
+            query.Criteria.AddCondition(FilterGroupActionLookup, ConditionOperator.In, actions.Select(a => (object)a.Id).ToArray());
+            var groups = _service.RetrieveMultiple(query).Entities.ToList();
+            if (groups.Count == 0) return;
+
+            NodeFilterGraphLoader.Wire(_service, groups);
+            var byId = actions.ToDictionary(a => a.Id);
+            var mapper = new ConditionGroupMapper();
+            foreach (var root in groups.Where(g => g.GetAttributeValue<EntityReference>(NodeFilterGraphLoader.FilterGroupParentLookup) == null))
+            {
+                var actionId = root.GetAttributeValue<EntityReference>(FilterGroupActionLookup).Id;
+                if (!byId.TryGetValue(actionId, out var action)) continue;
+                if (action.RowFilter != null)
+                    throw new InvalidPluginExecutionException(
+                        $"Action {actionId} owns more than one Rows filter group; an action may own only one.");
+                action.RowFilter = mapper.MapRowFilter(root, actionId);
+            }
         }
 
         private void LoadLocalizedMessages(List<RuleAction> actions)

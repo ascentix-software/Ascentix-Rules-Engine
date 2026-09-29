@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Models;
 
@@ -165,6 +166,17 @@ namespace Ascentix.RulesEngine.Core.Execution
             }
         }
 
+        /// <summary>True when <paramref name="row"/> is <paramref name="record"/> itself or the copy
+        /// this reconciler added of it. The only way to tell apart the in-flight rows of a
+        /// CreateMultiple whose Targets carry no ids: they all share Guid.Empty.</summary>
+        internal static bool IsRowOf(Entity row, Entity record) =>
+            row != null && record != null
+            && (ReferenceEquals(row, record) || (CopyOf.TryGetValue(row, out var source) && ReferenceEquals(source, record)));
+
+        // Copy → the in-flight root it was made from, for copies of records with no id yet. Weak
+        // keys: an entry lives only as long as the copy (one evaluation's cache).
+        private static readonly ConditionalWeakTable<Entity, Entity> CopyOf = new ConditionalWeakTable<Entity, Entity>();
+
         // Added rows are copies: the root entity is also the root node's cached record and (for
         // a root-in-place UpdateRecord) the very Target the write executor mutates afterwards.
         // Aliasing it into a collection would let a later write reach back into an evaluated set.
@@ -175,6 +187,7 @@ namespace Ascentix.RulesEngine.Core.Execution
             if (source.FormattedValues != null)
                 foreach (var formatted in source.FormattedValues)
                     copy.FormattedValues[formatted.Key] = formatted.Value;
+            if (source.Id == Guid.Empty) CopyOf.Add(copy, source);
             return copy;
         }
 

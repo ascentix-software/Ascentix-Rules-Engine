@@ -1,10 +1,11 @@
 // Client-side mirror of the engine template tokenizer (Core/Execution/TemplateRenderer.cs):
-// literal text with {root.<column>} and {node:<guid>.<column>} tokens; {{ and }} escape braces.
-// Kept in lockstep with the engine: same accepted forms, same rejections.
+// literal text with {root.<column>}, {row.<column>} and {node:<guid>.<column>} tokens; {{ and }}
+// escape braces. Kept in lockstep with the engine: same accepted forms, same rejections.
 
 export interface TemplateToken {
-  node: string | null; // tableconfig id; null = the rule's root record
+  node: string | null; // tableconfig id; null = the rule's root record (or the current row when `row`)
   column: string;
+  row?: true;          // {row.<column>}: the current row of a set action
 }
 
 export type TokensResult =
@@ -16,13 +17,17 @@ function parseToken(token: string): TemplateToken | string {
     const column = token.slice("root.".length);
     return column ? { node: null, column } : `token '{${token}}' is missing a column name.`;
   }
+  if (token.startsWith("row.")) {
+    const column = token.slice("row.".length);
+    return column ? { node: null, column, row: true } : `token '{${token}}' is missing a column name.`;
+  }
   if (token.startsWith("node:")) {
     const rest = token.slice("node:".length);
     const dot = rest.indexOf(".");
     if (dot <= 0 || dot === rest.length - 1) return `token '{${token}}' must be '{node:<id>.<column>}'.`;
     return { node: rest.slice(0, dot), column: rest.slice(dot + 1) };
   }
-  return `unknown token '{${token}}'. Expected '{root.<column>}' or '{node:<id>.<column>}'.`;
+  return `unknown token '{${token}}'. Expected '{root.<column>}', '{row.<column>}' or '{node:<id>.<column>}'.`;
 }
 
 const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -54,13 +59,17 @@ export function makeToken(node: string | null, column: string): string {
   return node === null ? `{root.${column}}` : `{node:${node}.${column}}`;
 }
 
+export function makeRowToken(column: string): string {
+  return `{row.${column}}`;
+}
+
 export function insertAt(text: string, pos: number, insert: string): string {
   return text.slice(0, pos) + insert + text.slice(pos);
 }
 
 export function friendlyTemplate(
   template: string,
-  labelFor: (node: string | null, column: string) => string,
+  labelFor: (node: string | null, column: string, row?: boolean) => string,
 ): string {
   if (!parseTemplateTokens(template).ok) return template;
   let out = "";
@@ -70,7 +79,7 @@ export function friendlyTemplate(
       if (template[i + 1] === "{") { out += "{"; i++; continue; }
       const close = template.indexOf("}", i + 1);
       const parsed = parseToken(template.slice(i + 1, close)) as TemplateToken;
-      out += `{${labelFor(parsed.node, parsed.column)}}`;
+      out += `{${labelFor(parsed.node, parsed.column, parsed.row === true)}}`;
       i = close;
     } else if (c === "}") {
       out += "}"; i++; // parse succeeded, so this must be an escape

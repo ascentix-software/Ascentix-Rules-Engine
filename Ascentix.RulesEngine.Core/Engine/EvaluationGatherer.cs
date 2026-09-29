@@ -64,9 +64,14 @@ namespace Ascentix.RulesEngine.Core.Engine
             // One computation of everything the bucket's rules touch; every derivation below is
             // a named answer of it (see RuleReferences). Message-token nodes nothing else
             // references load as OPTIONAL: a stale token degrades to raw text at render time
-            // rather than refusing the save.
+            // rather than refusing the save. A Create's target joins only when it is Create per row
+            // (a collection), told apart from a stale single-record target by its own config chain.
+            var allActions = actionsByRule.Values.SelectMany(v => v).ToList();
+            TableConfigTree createTargets;
+            using (diag.Time("tableConfigLoad"))
+                createTargets = new TableConfigLoader(systemService).LoadCreateTargets(allActions);
             var refs = RuleReferences.Compute(
-                rootGroups, actionsByRule.Values.SelectMany(v => v), a => ParseMapping(a.Id, a.FieldMapping));
+                rootGroups, allActions, a => ParseMapping(a.Id, a.FieldMapping), createTargets);
 
             TableConfigTree tree;
             using (diag.Time("tableConfigLoad"))
@@ -95,7 +100,9 @@ namespace Ascentix.RulesEngine.Core.Engine
                 // Pushdown is unconditional: one supported behavior, no mode switch. The
                 // in-memory evaluator remains the single semantic authority: pushdown only ever
                 // reduces rows, and the full original filter re-applies over what comes back.
-                pushdownPlan = PushdownPlanner.Apply(plan, tree, rootGroups, refs.HardReaders, refs.FilterDerivedNodes, utcNow,
+                // Rows filters run in memory over the unfiltered rows, so their nodes are demanded
+                // like hard readers.
+                pushdownPlan = PushdownPlanner.Apply(plan, tree, rootGroups, refs.HardReaders.Concat(refs.ActionFilterNodes), refs.FilterDerivedNodes, utcNow,
                     metadata, datesByRule.ToDictionary(kv => kv.Key, kv => kv.Value.Zone));
 
                 // Column pruning: an unpruneable node is one whose consumers the
@@ -138,7 +145,6 @@ namespace Ascentix.RulesEngine.Core.Engine
             using (diag.Time("rootBuild"))
                 roots = RootEntityBuilder.Build(traversalService, logicalName, inputs, rootColumns, buildMode, rootAllColumns, saved);
             var inFlight = BuildInFlightBatch(logicalName, trigger, inputs, roots);
-            var allActions = actionsByRule.Values.SelectMany(v => v).ToList();
 
             var records = new List<EvaluationInput.EvaluationRecord>(roots.Count);
             for (var i = 0; i < roots.Count; i++)

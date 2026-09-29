@@ -1,4 +1,4 @@
-import type { RuleGraph, TableConfigRef } from "./types";
+import type { RuleGraph, TableConfigRef, TableConfigTypeLabel } from "./types";
 import { flattenConditions } from "./tree";
 
 type Nodes = Record<string, TableConfigRef>;
@@ -30,19 +30,31 @@ export function nodeDepth(nodes: Nodes, id: string): number {
   return d;
 }
 
-// A node is single-cardinality iff neither it nor any ancestor up to the root is a ChildTable
-// (matches the engine's NodeCardinality.EnsureSingle). Cycle-guarded; unknown id → false.
-export function isSingleCardinality(nodes: Nodes, id: string): boolean {
+// The chain of table-config types from `id` up to and including the root (id, its parent, ...,
+// the root), or null when id is unknown, the chain is broken, or it cycles before reaching a
+// root. Shared by isSingleCardinality below (engine: NodeCardinality.EnsureSingle) and
+// setActions.ts's isCollectionNode (engine: TableConfigTree.IsCollection) so the root-walk itself
+// is written once.
+export function chainToRoot(nodes: Nodes, id: string | null): (TableConfigTypeLabel | null)[] | null {
+  if (!id || !nodes[id]) return null;
   const seen = new Set<string>();
+  const chain: (TableConfigTypeLabel | null)[] = [];
   let cur: string | null = id;
   while (cur && nodes[cur] && !seen.has(cur)) {
     seen.add(cur);
     const n: TableConfigRef = nodes[cur]!;
-    if (n.tableConfigType === "ChildTable") return false;
-    if (n.tableConfigType === "RootTable") return true;
+    chain.push(n.tableConfigType);
+    if (n.tableConfigType === "RootTable") return chain;
     cur = n.parentTableConfigId ?? null;
   }
-  return false; // unknown id, broken chain, or cycle (never reached a root)
+  return null; // unknown id, broken chain, or cycle (never reached a root)
+}
+
+// A node is single-cardinality iff neither it nor any ancestor up to the root is a ChildTable
+// (matches the engine's NodeCardinality.EnsureSingle). Cycle-guarded; unknown id → false.
+export function isSingleCardinality(nodes: Nodes, id: string): boolean {
+  const chain = chainToRoot(nodes, id);
+  return chain != null && !chain.includes("ChildTable");
 }
 
 export function flattenForDisplay(nodes: Nodes, rootId: string): { node: TableConfigRef; depth: number }[] {

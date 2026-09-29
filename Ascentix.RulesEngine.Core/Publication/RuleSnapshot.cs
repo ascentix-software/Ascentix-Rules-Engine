@@ -210,6 +210,7 @@ namespace Ascentix.RulesEngine.Core.Publication
             new Edge("asx_nodefiltergroup", "asx_nodefiltercriterion", "asx_filtergroup"),
             new Edge("asx_nodefiltercriterion", "asx_nodefiltergroup", "asx_owningcriterion"),
             new Edge("asx_ruleaction", "asx_localizedmessage", "asx_ruleaction"),
+            new Edge("asx_ruleaction", "asx_nodefiltergroup", "asx_ruleaction"),
             new Edge("asx_tableconfig", "asx_tableconfig", "asx_parenttable") };
 
         public static List<Entity> QueryAll(IOrganizationService service, QueryExpression query)

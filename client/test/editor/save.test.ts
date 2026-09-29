@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { saveRuleGraph } from "../../src/editor/save/index";
+import type { Operation } from "../../src/editor/save/diff";
 import { setRuleName, addAction } from "../../src/editor/model/reducer";
 import { resetTempIds } from "../../src/editor/model/ids";
 import type { BatchApi } from "../../src/editor/webapi";
@@ -69,5 +70,40 @@ describe("saveRuleGraph", () => {
     const api = fakeApi(200, 'HTTP/1.1 400 Bad Request\n{"error":{"message":"bad nav"}}');
     const res = await saveRuleGraph(api, snap, setRuleName(clone(snap), "X"), ids);
     expect(res).toEqual({ status: "error", message: "bad nav" });
+  });
+
+  it("still returns noop when the graph is unchanged and no extraOps are given", async () => {
+    const snap = baseGraph();
+    const api = fakeApi(200, "");
+    expect(await saveRuleGraph(api, snap, clone(snap), ids, [])).toEqual({ status: "noop" });
+    expect(api.lastBody).toBeUndefined();
+  });
+
+  it("appends extraOps to the same batch/changeset as the rule's own ops (e.g. the schedule)", async () => {
+    const snap = baseGraph();
+    const api = fakeApi(200, "HTTP/1.1 204 No Content");
+    const extraOps: Operation[] = [{
+      kind: "update", entity: "asx_ruleschedule", set: "asx_ruleschedules", id: "s1",
+      attrs: { asx_on: false }, binds: [], etag: 'W/"9"',
+    }];
+    const res = await saveRuleGraph(api, snap, addAction(clone(snap)), ids, extraOps);
+    expect(res).toEqual({ status: "saved" });
+    // Both the rule's own diffed op (the new action) and the extra op are in ONE changeset.
+    expect(api.lastBody).toContain("asx_ruleactions");
+    expect(api.lastBody).toContain("asx_ruleschedules(s1)");
+    expect((api.lastBody!.match(/^--changeset_C$/gm) ?? []).length).toBeGreaterThan(1);
+    expect(api.lastBody!.match(/--batch_B--/g)).toHaveLength(1);
+  });
+
+  it("sends extraOps alone (no graph change) rather than reporting noop", async () => {
+    const snap = baseGraph();
+    const api = fakeApi(200, "HTTP/1.1 204 No Content");
+    const extraOps: Operation[] = [{
+      kind: "create", entity: "asx_ruleschedule", set: "asx_ruleschedules", tempId: "new-1",
+      attrs: { asx_on: true }, binds: [],
+    }];
+    const res = await saveRuleGraph(api, snap, clone(snap), ids, extraOps);
+    expect(res).toEqual({ status: "saved" });
+    expect(api.lastBody).toContain("asx_ruleschedules");
   });
 });

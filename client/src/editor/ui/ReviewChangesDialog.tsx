@@ -20,6 +20,7 @@ export function describeChanges(snapshot: RuleGraph, working: RuleGraph): string
     const id = op.kind === "create" ? op.tempId : op.id;
     const title = `${op.kind.toUpperCase()} ${labels[op.entity] ?? op.entity}: ${names[id] ?? id}`;
     if (op.kind === "delete") return title;
+    if (op.kind === "unbind") return `${title}\n  ${op.navProp}: (cleared)`;
     const fields = Object.entries(op.attrs).map(([field, after]) => `  ${field}: ${JSON.stringify(after)}`);
     const links = op.binds.map((b) => `  ${b.navProp}: ${JSON.stringify(b.ref)}`);
     return [title, ...fields, ...links].join("\n");

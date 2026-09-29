@@ -6,7 +6,7 @@ import {
 } from "@fluentui/react-components";
 import { Edit16Regular, Play16Regular, History16Regular } from "@fluentui/react-icons";
 import { AppProvider } from "./AppProvider";
-import { formatError } from "./errors";
+import { formatError, isPrivilegeDeniedError } from "./errors";
 import { ScreenShell } from "./ScreenShell";
 import type {
   RuleGraph, Selection, RuleHeader, ConditionGroupNode, ConditionNode, ActionNode,
@@ -48,7 +48,11 @@ import { reserveTempIds } from "../model/ids";
 import { loadPublishedGraph } from "../load/publishedGraph";
 import { canRunNow, RunNowDialog } from "../runs/RunNowDialog";
 import { RunsDialog } from "../runs/RunsDialog";
+import { TestRunDialog } from "../runs/TestRunDialog";
 import { executionConditionNames } from "../runs/runsData";
+import type { RuleSchedule } from "../schedule/scheduleModel";
+import { emptySchedule, scheduleApplies, validateSchedule } from "../schedule/scheduleModel";
+import { loadRuleSchedule, diffSchedule } from "../schedule/scheduleData";
 
 const clone = (g: RuleGraph): RuleGraph => JSON.parse(JSON.stringify(g));
 // Deterministic-enough unique ids for batch/changeset boundaries.
@@ -115,11 +119,26 @@ export function RuleEditorApp({
   } | null>(null);
   const [loadingRunNow, setLoadingRunNow] = React.useState(false);
   const [runsOpen, setRunsOpen] = React.useState(false);
+  const [testOpen, setTestOpen] = React.useState(false);
   const [publishedTriggers, setPublishedTriggers] = React.useState<number[] | null>(null);
   const [validationResult, setValidationResult] = React.useState<{
     isValid: boolean; issues: ApiIssue[]; draftHash?: string;
   } | null>(null);
   const cancelledRef = React.useRef(false);
+  // The rule's asx_ruleschedule row: loaded/saved against the ACTIVE (published) rule id, same
+  // as Run now/Runs above, never a draft's own id (RuleSchedulePlugin resolves the draft itself
+  // when checking runnability). null means the rule has no schedule (yet). scheduleSnapshot is
+  // what's persisted; schedule is the working draft the Schedule section edits.
+  const [scheduleSnapshot, setScheduleSnapshot] = React.useState<RuleSchedule | null>(null);
+  const [schedule, setSchedule] = React.useState<RuleSchedule | null>(null);
+  // "denied" (no Rule Schedule privilege) shows the access note; "error" (any other failure, e.g.
+  // a network or server error) shows "Could not load the schedule." with a Try again. Either way
+  // the section has no controls and the editor never sends schedule ops until a load succeeds.
+  const [scheduleStatus, setScheduleStatus] = React.useState<"ok" | "denied" | "error">("ok");
+  // The scheduleRuleId a load has already been run for, so re-qualifying (leaving and returning to
+  // On demand + All records in the same session) doesn't reload and overwrite unsaved schedule
+  // edits — only the first qualification per rule id loads automatically; see the load effect below.
+  const loadedScheduleRuleIdRef = React.useRef<string | null>(null);
 
   const labelFor = useChoiceLabel();
   const styles = useEditorStyles();
@@ -129,10 +148,29 @@ export function RuleEditorApp({
   const overlayOpen = panelOpen || (!!selection && selection.kind !== "rule");
   const closePanel = () => { setSelection({ kind: "rule" }); setPanelOpen(false); };
 
-  const dirty = JSON.stringify(snapshot) !== JSON.stringify(working);
+  const scheduleRuleId = working.rule.activeRuleId ?? working.rule.id;
+  const scheduleAppliesNow = scheduleApplies(working.rule);
+  // The automatic turn-off (diffSchedule with applies = false) only counts when the rule stopped
+  // qualifying in this editing session; a rule that already didn't qualify has nothing to undo.
+  const scheduleStoppedApplying = scheduleApplies(snapshot.rule) && !scheduleAppliesNow;
+  // Never sends schedule ops while the schedule isn't loaded (scheduleStatus !== "ok"): stale or
+  // absent local state must not be diffed into a write.
+  const scheduleOps = scheduleStatus === "ok" && (scheduleAppliesNow || scheduleStoppedApplying)
+    ? diffSchedule(scheduleSnapshot, schedule, scheduleRuleId, scheduleAppliesNow) : [];
+  const scheduleError = scheduleAppliesNow && schedule?.on ? validateSchedule(schedule) : null;
+  // scheduleError disables Save/Validate everywhere (canSave, below), but the message itself only
+  // lives in the Schedule section's own panel; this surfaces it next to the buttons themselves so
+  // it's visible with any other panel selected too.
+  const scheduleSaveBlockReason = scheduleError ? `Fix the schedule before saving: ${scheduleError}` : null;
+  const graphDirty = JSON.stringify(snapshot) !== JSON.stringify(working);
+  const dirty = graphDirty || scheduleOps.length > 0;
   const recovery = useRuleRecovery(recoveryKey(api.getClientUrl?.() ?? window.location.origin, initialGraph.rule.activeRuleId ?? initialGraph.rule.id), snapshot, working);
   const needsDraft = (published || !!working.rule.publishedRevisionId) && !working.rule.activeRuleId;
   const editable = !publishedView && !busy && !recovery.pending && !needsDraft;
+  // A schedule never needs a publish: on a published rule that isn't being edited, the Schedule
+  // section stays editable (the rule's own fields don't) and Save sends only its ops.
+  const scheduleEditable = !publishedView && !busy && !recovery.pending && scheduleStatus === "ok";
+  const canSave = !scheduleError && (editable ? dirty : scheduleEditable && needsDraft && !graphDirty && scheduleOps.length > 0);
   const setWorking: React.Dispatch<React.SetStateAction<RuleGraph>> = (value) => {
     if (editable) history.set(value);
   };
@@ -160,6 +198,51 @@ export function RuleEditorApp({
   React.useEffect(() => {
     setValidationResult(null);
   }, [working]);
+
+  // Load the schedule next to the graph, only the first time a rule qualifies (per scheduleRuleId)
+  // in this session: moving a rule out of On demand + All records and back in must not reload and
+  // overwrite unsaved schedule edits. Fires at mount, and again only if the rule this editor
+  // targets ever resolves to a different active/published id (it normally doesn't mid-session). An
+  // explicit Reload/Try again (reloadSchedule, below) always re-reads regardless of this guard.
+  React.useEffect(() => {
+    if (!scheduleAppliesNow) return;
+    if (loadedScheduleRuleIdRef.current === scheduleRuleId) return;
+    let live = true;
+    (async () => {
+      // Marked loaded only once a result lands: a load abandoned mid-flight (the rule stopped
+      // qualifying before it returned) must not stop the next qualification from loading.
+      try {
+        const loaded = await loadRuleSchedule(api, scheduleRuleId);
+        if (live) { loadedScheduleRuleIdRef.current = scheduleRuleId; setScheduleSnapshot(loaded); setSchedule(loaded); setScheduleStatus("ok"); }
+      } catch (e) {
+        if (live) { loadedScheduleRuleIdRef.current = scheduleRuleId; setScheduleStatus(isPrivilegeDeniedError(e) ? "denied" : "error"); }
+      }
+    })();
+    return () => { live = false; };
+  }, [api, scheduleRuleId, scheduleAppliesNow]);
+
+  // Re-reads the schedule after a save or a Reload so the engine-calculated Next run (and Last
+  // run/outcome) shows the server's latest values rather than the local draft. Also how Reload and
+  // the section's own Try again retry a failed load, in either denied or error status. Best-effort:
+  // a failure here leaves the local draft in place, not an error banner. A rule that can't be
+  // scheduled has no section to refresh; the load effect reads it if it starts qualifying.
+  async function reloadSchedule(rule: RuleHeader) {
+    if (!scheduleApplies(rule)) return;
+    try {
+      const loaded = await loadRuleSchedule(api, scheduleRuleId);
+      setScheduleSnapshot(loaded);
+      setSchedule(loaded);
+      setScheduleStatus("ok");
+    } catch (e) {
+      setScheduleStatus(isPrivilegeDeniedError(e) ? "denied" : "error");
+      // keep the local draft; a manual Reload/Try again retries
+    }
+  }
+
+  function onPatchSchedule(patch: Partial<RuleSchedule>) {
+    if (!scheduleEditable) return;
+    setSchedule((s) => ({ ...(s ?? emptySchedule()), ...patch }));
+  }
 
   const recon = (g: RuleGraph) => reconcileAutoNames(g, manualRef.current, resolve);
 
@@ -214,14 +297,27 @@ export function RuleEditorApp({
     return false;
   }
 
+  // saveRuleGraph's extraOps parameter appends the schedule's ops to the rule's own, in the
+  // SAME $batch changeset — see save/index.ts.
+  async function performSave(): Promise<SaveResult> {
+    return saveRuleGraph(api, snapshot, workingRef.current, nextIds(), scheduleOps);
+  }
+
+  // Reloads the graph and then the schedule, e.g. after a save.
+  async function refreshAfterSave() {
+    const fresh = await reload();
+    await acceptFresh(fresh);
+    await reloadSchedule(fresh.rule);
+  }
+
   async function onSave() {
-    if (!editable) return;
+    if (!canSave) return;
     setBusy(true);
     setBanner(null);
     try {
-      const result = await saveRuleGraph(api, snapshot, workingRef.current, nextIds());
+      const result = await performSave();
       if (reportSaveFailure(result)) return;
-      if (result.status === "saved") await acceptFresh(await reload());
+      if (result.status === "saved") await refreshAfterSave();
       setBanner({ intent: "success", text: result.status === "noop" ? "Nothing to save." : "Saved." });
     } catch (e) {
       setBanner({ intent: "error", text: `Save or refresh failed: ${formatError(e)}. Your local edits are retained; review them before reloading.` });
@@ -231,7 +327,9 @@ export function RuleEditorApp({
   async function onReload() {
     setBusy(true);
     try {
-      await acceptFresh(await reload());
+      const fresh = await reload();
+      await acceptFresh(fresh);
+      await reloadSchedule(fresh.rule);
       setBanner(null);
     } catch (e) {
       setBanner({ intent: "error", text: `Reload failed: ${formatError(e)}` });
@@ -239,14 +337,14 @@ export function RuleEditorApp({
   }
 
   async function onValidate() {
-    if (busy || recovery.pending || publishedView) return;
+    if (busy || recovery.pending || publishedView || (dirty && scheduleError)) return;
     setBusy(true);
     setBanner(null);
     try {
       if (dirty) {
-        const result = await saveRuleGraph(api, snapshot, workingRef.current, nextIds());
+        const result = await performSave();
         if (reportSaveFailure(result)) return;
-        if (result.status === "saved") await acceptFresh(await reload());
+        if (result.status === "saved") await refreshAfterSave();
       }
       const result = await api.validateRule(working.rule.id);
       setValidationResult(result);
@@ -408,8 +506,17 @@ export function RuleEditorApp({
     onUpdateTranslation: (id: string, tid: string, msg: string) => setWorking((g) => updateTranslation(g, id, tid, { message: msg })),
     onRemoveTranslation: (id: string, tid: string) => setWorking((g) => removeTranslation(g, id, tid)),
   };
-  const content = ruleEditorInspectorContent(displayed, selection, inspectorHandlers);
-  const inspectorBody = <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+  // The rule panel disables its own fields and, separately, the Schedule section (editable on a
+  // published rule without a draft); every other panel follows the editor's editable state.
+  const rulePanel = !selection || selection.kind === "rule";
+  const content = ruleEditorInspectorContent(displayed, selection, inspectorHandlers, {
+    schedule, onPatchSchedule, onOpenRuns: () => setRunsOpen(true),
+    ruleFieldsDisabled: !editable, scheduleDisabled: !scheduleEditable,
+    scheduleUnavailable: scheduleStatus === "denied",
+    scheduleLoadError: scheduleStatus === "error",
+    onRetrySchedule: () => reloadSchedule(working.rule),
+  });
+  const inspectorBody = <fieldset disabled={!editable && !rulePanel} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
     {content.body}
   </fieldset>;
   const selectedId = !!selection && (selection.kind === "group" || selection.kind === "condition" || selection.kind === "action") ? selection.id : undefined;
@@ -474,9 +581,12 @@ export function RuleEditorApp({
                 <div aria-busy={busy} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   {dirty && <UnsavedPill />}
                   {needsDraft && !publishedView && <Button appearance="primary" disabled={busy || !api.openRuleDraft} onClick={onEdit}>Edit rule</Button>}
-                  <Button appearance={needsDraft ? "secondary" : "primary"} disabled={!editable || !dirty} onClick={onSave}>Save</Button>
+                  <Button appearance={needsDraft ? "secondary" : "primary"} disabled={!canSave} title={scheduleSaveBlockReason ?? undefined} onClick={onSave}>Save</Button>
                   <Button disabled={busy || !!publishedView} onClick={() => guardNavigate(onReload)}>Reload</Button>
-                  <Button disabled={busy || !!recovery.pending || !!publishedView} onClick={onValidate}>{dirty ? "Save & validate" : "Validate"}</Button>
+                  <Button disabled={busy || !!recovery.pending || !!publishedView || (dirty && !!scheduleError)} title={scheduleSaveBlockReason ?? undefined} onClick={onValidate}>{dirty ? "Save & validate" : "Validate"}</Button>
+                  {/* scheduleError disables Save/Validate everywhere, not just in the rule panel where the
+                      Schedule section lives, so the reason must be visible regardless of the current selection. */}
+                  {scheduleSaveBlockReason && <span style={{ fontSize: 12.5, color: color.danger }}>{scheduleSaveBlockReason}</span>}
                   <Button
                     appearance="primary"
                     disabled={!editable || dirty || !validationResult?.isValid}
@@ -494,6 +604,9 @@ export function RuleEditorApp({
                     <Button icon={<Play16Regular />} disabled={busy || loadingRunNow} onClick={onOpenRunNow}>
                       Run now
                     </Button>
+                  )}
+                  {(published || !!working.rule.publishedRevisionId) && api.dryRun && (
+                    <Button disabled={busy} onClick={() => setTestOpen(true)}>Test</Button>
                   )}
                   {(published || !!working.rule.publishedRevisionId) && (
                     <Button icon={<History16Regular />} disabled={busy} onClick={() => setRunsOpen(true)}>
@@ -583,6 +696,11 @@ export function RuleEditorApp({
             table={working.rule.tableLogicalName}
             onClose={() => setRunsOpen(false)}
           />
+          {api.dryRun && (
+            <TestRunDialog open={testOpen} api={{ dryRun: api.dryRun }} onClose={() => setTestOpen(false)}
+              rule={{ id: working.rule.activeRuleId ?? working.rule.id, name: working.rule.name,
+                table: working.rule.tableLogicalName, triggers: runNowTriggers }} />
+          )}
           <Dialog open={restoreOpen} onOpenChange={(_e, d) => setRestoreOpen(d.open)}><DialogSurface><DialogBody>
             <DialogTitle>Restore the published version to your draft?</DialogTitle>
             <DialogContent>This replaces saved and unsaved draft changes, including its data model, with a private copy of the published revision. The published rule and other rules keep enforcing unchanged.</DialogContent>

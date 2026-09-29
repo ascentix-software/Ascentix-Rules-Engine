@@ -10,25 +10,29 @@ using Ascentix.RulesEngine.Core.Resolution;
 namespace Ascentix.RulesEngine.Core.Execution
 {
     /// <summary>
-    /// Renders a field-mapping template (literal text with {root.column} and {node:guid.column}
-    /// tokens, where {{ and }} escape braces) against the root record and single-cardinality
-    /// related nodes. Null/missing values render as empty string; a malformed or unknown token
-    /// is a configuration error. Values are formatted for humans: option sets and booleans via
-    /// IOptionLabelProvider, lookups via EntityReference.Name, otherwise the record's
-    /// FormattedValues when present, else invariant ToString.
+    /// Renders a field-mapping template (literal text with {root.column}, {row.column} and
+    /// {node:guid.column} tokens, where {{ and }} escape braces) against the root record, the
+    /// current row of a set action, and single-cardinality related nodes. Null/missing values
+    /// render as empty string; a malformed or unknown token is a configuration error. Values are
+    /// formatted for humans: option sets and booleans via IOptionLabelProvider, lookups via
+    /// EntityReference.Name, otherwise the record's FormattedValues when present, else invariant
+    /// ToString.
     /// </summary>
     public class TemplateRenderer
     {
         public readonly struct Segment
         {
             public bool IsLiteral { get; }
+            /// <summary>A {row.column} token: reads the current row of a set action.</summary>
+            public bool IsRow { get; }
             public string Text { get; }
             public Guid? Node { get; }
             public string Column { get; }
-            private Segment(bool isLiteral, string text, Guid? node, string column)
-            { IsLiteral = isLiteral; Text = text; Node = node; Column = column; }
-            public static Segment Literal(string text) => new Segment(true, text, null, null);
-            public static Segment Field(Guid? node, string column) => new Segment(false, null, node, column);
+            private Segment(bool isLiteral, bool isRow, string text, Guid? node, string column)
+            { IsLiteral = isLiteral; IsRow = isRow; Text = text; Node = node; Column = column; }
+            public static Segment Literal(string text) => new Segment(true, false, text, null, null);
+            public static Segment Field(Guid? node, string column) => new Segment(false, false, null, node, column);
+            public static Segment RowField(string column) => new Segment(false, true, null, null, column);
         }
 
         private readonly TableConfigTree _tree;
@@ -40,7 +44,7 @@ namespace Ascentix.RulesEngine.Core.Execution
             _labels = labels;
         }
 
-        public string Render(string template, Entity root, QueryResultCache cache, string errorContext)
+        public string Render(string template, Entity root, QueryResultCache cache, string errorContext, Entity row = null)
         {
             if (template == null)
                 throw new InvalidPluginExecutionException(
@@ -50,6 +54,14 @@ namespace Ascentix.RulesEngine.Core.Execution
             foreach (var seg in Tokenize(template, errorContext))
             {
                 if (seg.IsLiteral) { sb.Append(seg.Text); continue; }
+                if (seg.IsRow)
+                {
+                    if (row == null)
+                        throw new InvalidPluginExecutionException(
+                            $"{errorContext}: template token '{{row.{seg.Column}}}' can only be used by an action that writes a set of rows.");
+                    sb.Append(FormatValue(row, row.LogicalName, seg.Column));
+                    continue;
+                }
 
                 Entity record;
                 string table;
@@ -130,6 +142,14 @@ namespace Ascentix.RulesEngine.Core.Execution
                         $"{errorContext}: template token '{{{token}}}' is missing a column name.");
                 return Segment.Field(null, column);
             }
+            if (token.StartsWith("row.", StringComparison.Ordinal))
+            {
+                var column = token.Substring("row.".Length);
+                if (column.Length == 0)
+                    throw new InvalidPluginExecutionException(
+                        $"{errorContext}: template token '{{{token}}}' is missing a column name.");
+                return Segment.RowField(column);
+            }
             if (token.StartsWith("node:", StringComparison.Ordinal))
             {
                 var rest = token.Substring("node:".Length);
@@ -143,7 +163,7 @@ namespace Ascentix.RulesEngine.Core.Execution
                 return Segment.Field(id, rest.Substring(dot + 1));
             }
             throw new InvalidPluginExecutionException(
-                $"{errorContext}: unknown template token '{{{token}}}'. Expected '{{root.<column>}}' or '{{node:<guid>.<column>}}'.");
+                $"{errorContext}: unknown template token '{{{token}}}'. Expected '{{root.<column>}}', '{{row.<column>}}' or '{{node:<guid>.<column>}}'.");
         }
 
         private string FormatValue(Entity record, string table, string column)

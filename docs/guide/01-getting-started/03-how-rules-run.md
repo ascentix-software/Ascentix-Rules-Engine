@@ -21,10 +21,19 @@ record on the rule's table is created, updated, or deleted.
   table, matching the rule's **On Create**, **On Update**, or **On Delete**
   trigger.
 - **What actions it can apply:** the full server action set, including write and
-  blocking actions: **Block**, **Create Record**, **Update Record**, and **Delete
-  Record**. A fired **Block** action prevents the operation entirely and rolls back
-  any pending writes; write actions run atomically in the same transaction as the
+  blocking actions: **Block**, **Create Record**, **Update Record**, **Delete
+  Record**, and **Deactivate Record**. A write action can write one record or a
+  set of rows (every filtered row of a collection, or a new record for each row).
+  A fired **Block** action prevents the operation entirely and rolls back any
+  pending writes; write actions run atomically in the same transaction as the
   triggering operation.
+- **How the writes go out:** one record's writes are merged first (two writes of
+  the same record become one; an update and a delete become the delete; rows
+  that already hold the values are skipped), then sent as creates, then updates,
+  then deletes, grouped per table and in bulk where the table supports it. A
+  failed write names what failed, for example `Update contact (action "Stop bulk
+  email"): …` or, for a bulk request, `UpdateMultiple contact: …`. See *Runtime
+  Enforcement*.
 
 ## On form (client form library)
 

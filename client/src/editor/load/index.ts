@@ -1,6 +1,9 @@
 import type { RuleGraph, ConditionGroupNode } from "../model/types";
 import type { WebApiPort } from "../webapi";
-import { mapRuleHeader, mapActionRecord, mapTableConfig, mapNodeFilterTrees, collectExistsCriterionIds } from "./mappers";
+import {
+  mapRuleHeader, mapActionRecord, mapTableConfig, mapNodeFilterTrees, mapActionRowFilters,
+  collectExistsCriterionIds,
+} from "./mappers";
 import { buildGroupTrees } from "./groupTree";
 import { loadTableConfigTree } from "./tableConfigTree";
 import {
@@ -10,6 +13,46 @@ import {
 } from "./odata";
 
 const MAX_SUBFILTER_DEPTH = 25;
+
+// GOTCHA (mirrors the engine RuleLoader.LoadExistsSubFilters): an Exists criterion's sub-filter
+// ROOT group is owned by the CRITERION (asx_owningcriterion), not by a condition or action, so a
+// fetch scoped by the owner never retrieves it. Collect every Exists criterion id found in
+// `rows`, fetch their owned root sub-filter groups, then BFS-descend any nested AND/OR groups via
+// `_asx_parentfiltergroup_value`: owningcriterion is ROOT-ONLY (docs/Schema.md "Exists sub-filter
+// root"), so a nested group's owningcriterion is null and it is reachable only by walking
+// parentfiltergroup down from the root, same shape as loadTableConfigTree's asx_parenttable BFS.
+// Without this, a nested group inside an Exists sub-filter is silently dropped on load. Shared by
+// the per-condition filter load and the per-action Rows filter load below.
+async function loadExistsSubFilterRows(api: WebApiPort, rows: any[]): Promise<any[]> {
+  const existsCriterionIds = collectExistsCriterionIds(rows);
+  if (!existsCriterionIds.length) return [];
+
+  const subFilterFilter = existsCriterionIds
+    .map((id) => `${LOOKUP.filterGroupOwningCriterion} eq ${id}`)
+    .join(" or ");
+  const rootSubFilterResp = await api.retrieveMultipleRecords(
+    ENTITY.nodeFilterGroup,
+    `?$select=${NODEFILTERGROUP_SELECT}&$filter=${subFilterFilter}` +
+      `&$expand=${NAV.filterGroupCriteria}($select=${NODEFILTERCRITERION_SELECT})`,
+  );
+  let subFilterRows: any[] = rootSubFilterResp.entities;
+
+  let frontier = subFilterRows.map((r) => r.asx_nodefiltergroupid);
+  let depth = 0;
+  while (frontier.length > 0) {
+    if (++depth > MAX_SUBFILTER_DEPTH)
+      throw new Error("Exists sub-filter tree exceeds max depth: possible asx_parentfiltergroup cycle.");
+    const childFilter = frontier.map((id) => `${LOOKUP.filterParentGroup} eq ${id}`).join(" or ");
+    const childResp = await api.retrieveMultipleRecords(
+      ENTITY.nodeFilterGroup,
+      `?$select=${NODEFILTERGROUP_SELECT}&$filter=${childFilter}` +
+        `&$expand=${NAV.filterGroupCriteria}($select=${NODEFILTERCRITERION_SELECT})`,
+    );
+    subFilterRows = subFilterRows.concat(childResp.entities);
+    frontier = childResp.entities.map((r) => r.asx_nodefiltergroupid);
+  }
+  return subFilterRows;
+}
 
 export async function loadRuleGraph(api: WebApiPort, ruleId: string): Promise<RuleGraph> {
   const ruleRaw = await api.retrieveRecord(ENTITY.rule, ruleId, "?$select=" + RULE_SELECT);
@@ -46,44 +89,7 @@ export async function loadRuleGraph(api: WebApiPort, ruleId: string): Promise<Ru
         `&$expand=${NAV.filterGroupCriteria}($select=${NODEFILTERCRITERION_SELECT})`,
     );
 
-    // GOTCHA (mirrors the engine RuleLoader.LoadExistsSubFilters): an Exists criterion's
-    // sub-filter ROOT group is owned by the CRITERION (asx_owningcriterion), not by a condition,
-    // so the fetch above (scoped by asx_rulecondition) never retrieves it. Collect every Exists
-    // criterion id found in the returned rows, fetch their owned root sub-filter groups, then
-    // BFS-descend any nested AND/OR groups via `_asx_parentfiltergroup_value`: owningcriterion is
-    // ROOT-ONLY (docs/Schema.md "Exists sub-filter root"), so a nested group's owningcriterion is
-    // null and it is reachable only by walking parentfiltergroup down from the root, same shape as
-    // loadTableConfigTree's asx_parenttable BFS above. Without this second pass, a nested group
-    // inside an Exists sub-filter is silently dropped on load.
-    const existsCriterionIds = collectExistsCriterionIds(nodeFilterResp.entities);
-    let subFilterRows: any[] = [];
-    if (existsCriterionIds.length) {
-      const subFilterFilter = existsCriterionIds
-        .map((id) => `${LOOKUP.filterGroupOwningCriterion} eq ${id}`)
-        .join(" or ");
-      const rootSubFilterResp = await api.retrieveMultipleRecords(
-        ENTITY.nodeFilterGroup,
-        `?$select=${NODEFILTERGROUP_SELECT}&$filter=${subFilterFilter}` +
-          `&$expand=${NAV.filterGroupCriteria}($select=${NODEFILTERCRITERION_SELECT})`,
-      );
-      subFilterRows = rootSubFilterResp.entities;
-
-      let frontier = subFilterRows.map((r) => r.asx_nodefiltergroupid);
-      let depth = 0;
-      while (frontier.length > 0) {
-        if (++depth > MAX_SUBFILTER_DEPTH)
-          throw new Error("Exists sub-filter tree exceeds max depth: possible asx_parentfiltergroup cycle.");
-        const childFilter = frontier.map((id) => `${LOOKUP.filterParentGroup} eq ${id}`).join(" or ");
-        const childResp = await api.retrieveMultipleRecords(
-          ENTITY.nodeFilterGroup,
-          `?$select=${NODEFILTERGROUP_SELECT}&$filter=${childFilter}` +
-            `&$expand=${NAV.filterGroupCriteria}($select=${NODEFILTERCRITERION_SELECT})`,
-        );
-        subFilterRows = subFilterRows.concat(childResp.entities);
-        frontier = childResp.entities.map((r) => r.asx_nodefiltergroupid);
-      }
-    }
-
+    const subFilterRows = await loadExistsSubFilterRows(api, nodeFilterResp.entities);
     filtersByCondition = mapNodeFilterTrees(nodeFilterResp.entities, subFilterRows);
   }
   const attachFilters = (groups: ConditionGroupNode[]) => {
@@ -104,6 +110,21 @@ export async function loadRuleGraph(api: WebApiPort, ruleId: string): Promise<Ru
       `&$orderby=asx_order asc`,
   );
   const actions = actionsResp.entities.map(mapActionRecord);
+
+  // A set action's Rows filter (asx_nodefiltergroup.asx_ruleaction): one top-level group per
+  // action, same denormalized-owner shape as the per-condition filters above.
+  if (actions.length) {
+    const actionFilter = actions.map((a) => `${LOOKUP.filterGroupAction} eq ${a.id}`).join(" or ");
+    const actionFilterResp = await api.retrieveMultipleRecords(
+      ENTITY.nodeFilterGroup,
+      `?$select=${NODEFILTERGROUP_SELECT}&$filter=${actionFilter}` +
+        `&$expand=${NAV.filterGroupCriteria}($select=${NODEFILTERCRITERION_SELECT})`,
+    );
+    if (actionFilterResp.entities.length) {
+      const byAction = mapActionRowFilters(actionFilterResp.entities, await loadExistsSubFilterRows(api, actionFilterResp.entities));
+      for (const a of actions) if (byAction[a.id]) a.rowFilter = byAction[a.id];
+    }
+  }
 
   // Load the rule's whole table-config tree from its (required) root node, so every
   // node (including ones no condition references yet) is selectable in the editor.

@@ -122,7 +122,7 @@ namespace Ascentix.RulesEngine.Core.Actions
                     break;
                 case "template":
                     foreach (var seg in TemplateRenderer.Tokenize(entry.Template ?? "", $"Field mapping for '{entry.Target}'"))
-                        if (!seg.IsLiteral && !seg.Node.HasValue && !string.IsNullOrWhiteSpace(seg.Column))
+                        if (!seg.IsLiteral && !seg.IsRow && !seg.Node.HasValue && !string.IsNullOrWhiteSpace(seg.Column))
                             yield return seg.Column;
                     break;
                 case "dateexpr":
@@ -134,6 +134,22 @@ namespace Ascentix.RulesEngine.Core.Actions
                     foreach (var r in MathExpr.ExtractRefs(
                                  MathExpr.Parse(entry.Expression ?? "", $"Field mapping for '{entry.Target}'")))
                         if (!r.node.HasValue && !string.IsNullOrWhiteSpace(r.column)) yield return r.column;
+                    break;
+            }
+        }
+
+        /// <summary>Columns a set action reads off its current row: a `row` source column and
+        /// `{row.col}` template tokens.</summary>
+        public static IEnumerable<string> RowColumns(FieldMappingEntry entry)
+        {
+            switch (entry.Source)
+            {
+                case "row":
+                    if (!string.IsNullOrWhiteSpace(entry.Column)) yield return entry.Column;
+                    break;
+                case "template":
+                    foreach (var seg in TemplateRenderer.Tokenize(entry.Template ?? "", $"Field mapping for '{entry.Target}'"))
+                        if (seg.IsRow && !string.IsNullOrWhiteSpace(seg.Column)) yield return seg.Column;
                     break;
             }
         }

@@ -66,13 +66,10 @@ namespace Ascentix.RulesEngine.Plugin
                     ActionDispatcher.FormatBlockMessage(allMessages, languageId), details);
             }
 
-            // No block, so apply any fired write actions (atomic, depth-guarded).
-            var writeTargets = inputs
-                .Select(inp => new WriteTarget { RecordId = inp.Id, InPlace = inp.Overlay })
-                .ToList();
-
+            // No block, so apply any fired write actions (atomic, depth-guarded). The outcome's
+            // records are in input order, so each pairs with its own Target by position.
             new WriteActionExecutor().Execute(
-                outcome, writeTargets, userService, systemService,
+                outcome, inputs.Select(inp => inp.Overlay).ToList(), userService, systemService,
                 PluginReentry.IsEngineInitiated(context), trace);
         }
 

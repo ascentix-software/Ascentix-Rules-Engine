@@ -372,4 +372,24 @@ describe("BIND_NAV @odata.bind round-trips against DEV", () => {
       await fixture.cleanup();
     }
   }, 30000);
+
+  it("scheduleRule binds a rule schedule to its rule", async () => {
+    // A schedule can only attach to a Published On demand rule scoped to all records
+    // (RuleSchedulePlugin.IsRunnable) — the same fixture shape runRule needs above.
+    const fixture = await makeOnDemandRule();
+    try {
+      // roundTrip creates the asx_ruleschedule (tracked in `created`, deleted by the shared
+      // afterEach — like a Rule Run, a schedule isn't an owned-graph child of the rule, so a
+      // plain DELETE works), reads back _asx_rule_value, and asserts it resolved to the rule id.
+      await roundTrip({
+        label: "scheduleRule",
+        set: ENTITY_SET.ruleSchedule, navProp: BIND_NAV.scheduleRule, // PascalCase: asx_Rule
+        parentSet: ENTITY_SET.rule, parentId: fixture.ruleId,
+        lookupValueField: LOOKUP.ruleOfSchedule, // "_asx_rule_value"
+        extra: { asx_on: true, asx_pattern: 1, asx_every: 15 }, // EveryMinutes: valid without a time of day
+      });
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 30000);
 });

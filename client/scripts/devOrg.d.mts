@@ -48,6 +48,8 @@ export interface RunRulesResult {
   isValid: boolean;
   failedRuleCount: number;
   firedActions: any[];
+  /** asx_RunRules ChangeSet output. */
+  changeSet: { creates: number; updates: number; deletes: number; unchanged: number } | null;
   /** Parsed Diagnostics payload when includeDiagnostics was set (null otherwise). */
   diagnostics: { nodes?: Array<{ table?: string; nodeId?: string; rows: number }> } | null;
 }
@@ -76,6 +78,13 @@ export interface ProcessRunPageResult {
   skipped: number;
 }
 
+/** asx_StartDueSchedules result (docs/Schema.md §9): the Rule Runs started or continued by this
+ *  call (parsed from the JSON-encoded RunIds output), and how many due schedules it processed. */
+export interface StartDueSchedulesResult {
+  runIds: string[];
+  scheduledCount: number;
+}
+
 export interface OrgHandle {
   identity: OrgIdentity;
   url: string;
@@ -95,6 +104,8 @@ export interface OrgHandle {
   applyRules(ruleId: string, recordId: string): Promise<ApplyRulesResult>;
   /** Call asx_ProcessRunPage: advances one Rule Run by a page. */
   processRunPage(runId: string, failed?: ProcessRunPageFailure): Promise<ProcessRunPageResult>;
+  /** Call asx_StartDueSchedules: starts/continues every due Rule Schedule and records the heartbeat. */
+  startDueSchedules(): Promise<StartDueSchedulesResult>;
 }
 
 export const API_VERSION: string;

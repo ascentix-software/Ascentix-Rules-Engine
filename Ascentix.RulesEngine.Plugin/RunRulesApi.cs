@@ -11,8 +11,9 @@ namespace Ascentix.RulesEngine.Plugin
 {
     /// <summary>
     /// Main-operation handler for the unbound asx_RunRules Custom API. Evaluates one record on
-    /// demand and reports results (IsValid / FailedRuleCount / Results JSON). Always non-enforcing:
-    /// a fired Block is reported, never thrown. Throws only on argument/usage errors.
+    /// demand and reports results (IsValid / FailedRuleCount / Results JSON) and the change-set
+    /// summary (ChangeSet). Always non-enforcing: a fired Block is reported, never thrown. Throws
+    /// only on argument/usage errors.
     /// </summary>
     public class RunRulesApi : PluginBase
     {
@@ -52,6 +53,7 @@ namespace Ascentix.RulesEngine.Plugin
             context.OutputParameters["IsValid"] = outcome.IsValid;
             context.OutputParameters["FailedRuleCount"] = outcome.FailedRuleCount;
             context.OutputParameters["Results"] = RunRulesResultSerializer.Serialize(outcome);
+            context.OutputParameters["ChangeSet"] = RunRulesResultSerializer.SerializeChangeSet(outcome);
 
             if (GetBool(context, "IncludeDiagnostics") && outcome.Diagnostics != null)
                 context.OutputParameters["Diagnostics"] =

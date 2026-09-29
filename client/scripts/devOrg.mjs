@@ -356,6 +356,7 @@ export function devOrg(identity = "user", opts = {}) {
       isValid: raw.IsValid ?? true,
       failedRuleCount: raw.FailedRuleCount ?? 0,
       firedActions: raw.Results ? JSON.parse(raw.Results) : [],
+      changeSet: raw.ChangeSet ? parseJson(raw.ChangeSet) : null,
       diagnostics: raw.Diagnostics ? parseJson(raw.Diagnostics) : null,
     };
   }
@@ -394,5 +395,22 @@ export function devOrg(identity = "user", opts = {}) {
     };
   }
 
-  return { identity, url, token, tokenSync, request, api, updateRecord, deleteRecord, runRules, applyRules, processRunPage };
+  // Calls asx_StartDueSchedules (docs/Schema.md §9): starts or continues every due Rule Schedule
+  // and records the scheduler heartbeat (asx_schedulerstatus). No request parameters. RunIds
+  // comes back JSON-encoded (StartDueSchedulesApi.WriteIds, a DataContractJsonSerializer array of
+  // guid strings), unlike processRunPage/applyRules' comma-free single values above.
+  async function startDueSchedules() {
+    const r = await request("POST", "asx_StartDueSchedules", {});
+    if (!r.ok) throw shapeError("asx_StartDueSchedules", r.status, r.text);
+    const raw = r.json ?? {};
+    return {
+      runIds: raw.RunIds ? JSON.parse(raw.RunIds) : [],
+      scheduledCount: raw.ScheduledCount ?? 0,
+    };
+  }
+
+  return {
+    identity, url, token, tokenSync, request, api, updateRecord, deleteRecord, runRules, applyRules,
+    processRunPage, startDueSchedules,
+  };
 }

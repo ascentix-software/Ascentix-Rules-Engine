@@ -25,7 +25,7 @@ establish that these additions are already installed in an environment.
 | `asx_conditiontype` | Condition Type | Field Comparison = 1, Row Count = 2, Regex Match = 3, Calculation = 4 |
 | `asx_comparisonoperator` | Comparison Operator | Equals = 1, Not Equals = 2, Greater Than = 3, Greater Than Or Equal = 4, Less Than = 5, Less Than Or Equal = 6, Contains = 7, Does Not Contain = 8, Is Null = 9, Is Not Null = 10 |
 | `asx_severity` | Severity | Information = 1, Warning = 2, Error = 3 |
-| `asx_actiontype` | Action Type | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7 |
+| `asx_actiontype` | Action Type | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7, Deactivate Record = 8 |
 | `asx_actionfireon` | Action Fire On | On Match = 1, On No Match = 2 |
 | `asx_triggers` | Triggers | On Create = 1, On Form = 2, On demand = 3, On Update = 4, On Delete = 5 (**multi-select**). Value 3 was labelled "Manual"; the stored value is unchanged and API trigger strings accept both `OnDemand` and the old `Manual` alias |
 | `asx_channel` | Channel | Standard = 1, Portal = 2 (**multi-select**). 3 "Application" was retired 2026-08-23; the engine reads a stored 3 as Standard |
@@ -156,6 +156,9 @@ AND/OR filters scoped to a condition group, targeting any node in the tree. Self
 | Logical Operator | `asx_logicaloperator` | Choice → `asx_logicaloperator` | ✔ | |
 | Rule Condition | `asx_rulecondition` | Lookup → `asx_rulecondition` | | Owning condition of a per-condition filter; null ⇒ legacy group-wide |
 | Owning Criterion | `asx_owningcriterion` | Lookup → `asx_nodefiltercriterion` | | Exists sub-filter root (this group is the collection's filter); null ⇒ legacy or comparison-criterion |
+| Rule Action | `asx_ruleaction` | Lookup → `asx_ruleaction` | | A set action's Rows filter: set on every group of the action's filter tree (root and nested). Such a group has no condition group and no condition; its `asx_tableconfignode` is the action's target node. Relationship `asx_ruleaction_nodefiltergroup`, delete Cascade |
+
+> An EXISTS sub-filter inside a Rows filter hangs off its criterion (`asx_owningcriterion`) as elsewhere. An action owns at most one top-level group.
 
 ### 2.8 Node Filter Criterion (`asx_nodefiltercriterion`)
 
@@ -190,8 +193,8 @@ requirements at the application level).
 | Message | `asx_message` | Multiline | | ShowMessage / Block text (**default/fallback**); per-language overrides live in `asx_localizedmessage` |
 | Severity | `asx_severity` | Choice → `asx_severity` | | Notification level / message severity |
 | Target Table | `asx_targettable` | Text (100) | | CreateRecord target table |
-| Target Node | `asx_targetnode` | Lookup → `asx_tableconfig` | | Update/Delete target record: a single-cardinality node (root = triggering record; lookup = one related record) |
-| Field Mapping | `asx_fieldmapping` | Multiline (JSON) | | Create/Update value map (see format below) |
+| Target Node | `asx_targetnode` | Lookup → `asx_tableconfig` | | Update/Delete/Deactivate: a single-cardinality node (one record) or a collection node (every row, filtered by the Rows filter). Create Record: optional; a collection node means one record per filtered row. |
+| Field Mapping | `asx_fieldmapping` | Multiline (JSON) | | Create/Update value map; Deactivate: `statuscode` only (see format below) |
 | Order | `asx_order` | Whole Number | | Execution order |
 | Is Active | `asx_isactive` | Yes/No | | Default Yes |
 | Also Apply To Previous | `asx_applytoprevious` | Yes/No | | Update Record only: when the save changes the lookup above the target node, also apply the action to the record the lookup pointed to before the save. Default No |
@@ -203,7 +206,9 @@ requirements at the application level).
 > and performs **no** writes (block wins). `asx_RunRules` **reports** the resolved write (see §3)
 > but never executes it. An UpdateRecord targeting the root node on a Create/Update applies its
 > values to the in-flight record in place. That in-place path does not cover
-> `UpdateMultiple`/`DeleteMultiple`.
+> `UpdateMultiple`/`DeleteMultiple`. A set action writes every filtered row; one record's writes
+> are merged, unchanged rows skipped, and sent as creates, then updates, then deletes per table
+> (see the guide's *Building Actions*).
 
 **Field-mapping format (`asx_fieldmapping`)** is a JSON array, one entry per target column:
 
@@ -213,6 +218,7 @@ requirements at the application level).
   { "target": "statuscode",  "source": "literal", "value": 2 },
   { "target": "regardingid", "source": "root",    "column": "accountid" },
   { "target": "ownerid",     "source": "node",    "node": "<tableconfig-guid>", "column": "manager" },
+  { "target": "regardingobjectid", "source": "row", "column": "contactid" },
   { "target": "subject2",    "source": "template", "template": "Follow up: {root.name} — {node:<tableconfig-guid>.fullname}" },
   { "target": "followupby",  "source": "dateexpr", "anchor": { "kind": "now" }, "op": "add", "amount": 3, "unit": "days" }
 ]
@@ -220,10 +226,11 @@ requirements at the application level).
 
 `literal` values use the RecordJson encoding (see §3) and are coerced to the target column's CLR type
 via attribute metadata; `root`/`node` copy a raw attribute value off the triggering record or a
-single-cardinality related node. DeleteRecord ignores `asx_fieldmapping`.
+single-cardinality related node. `row` (set actions only) copies a column of the current row; a
+lookup target naming the row's own id column links to the row. DeleteRecord ignores `asx_fieldmapping`.
 
 `template` (String/Memo targets only) renders literal text with `{root.<column>}` /
-`{node:<tableconfig-guid>.<column>}` tokens (`{{`/`}}` escape braces); values format for humans
+`{node:<tableconfig-guid>.<column>}` / `{row.<column>}` tokens (`{{`/`}}` escape braces); values format for humans
 (option-set labels, lookup names, formatted values), null fields render empty, and malformed or
 unknown tokens are configuration errors. `dateexpr` (DateTime targets only) computes
 anchor ± amount unit (`minutes|hours|days|weeks|months|years`; weeks = 7 days; months/years clamp
@@ -308,6 +315,49 @@ refuses every change made outside `asx_ProcessRunPage` except cancelling (settin
 from Queued or Running to Cancelled, and nothing else) with `"Only cancelling a run is
 allowed."`. `asx_ProcessRunPage` (§7) advances the run page by page.
 
+### 2.14 Rule Schedule (`asx_ruleschedule`)
+
+Organization-owned. At most one row per rule, driving the schedule that starts or continues its
+Rule Runs. A synchronous pre-operation plug-in (`Ascentix.RulesEngine.Plugin.RuleSchedulePlugin`)
+is registered on Create and Update. `asx_StartDueSchedules` (§9) reads and advances these rows,
+driven from outside Dataverse on a timer.
+
+The plug-in treats a Create without `asx_on` as On (the column's default), so validation and
+`asx_nextrunon` always apply to a new schedule. It refuses a second schedule for the same rule
+(`"This rule already has a schedule."`) and a schedule whose `asx_rule` is a draft row (one with
+`asx_draftof` set): `"Schedules belong to the published rule."`. While On, the recurrence must
+be valid, the rule (or its open draft) must be On demand with **All records** scope (`"Only On
+demand rules that run for all records can be scheduled."`) and its time zone recognized (`"The
+rule's time zone is not recognized."`). `asx_nextrunon`, `asx_lastrunon`, `asx_lastrun` and
+`asx_lastoutcome` are dropped from any caller's Target outside `asx_StartDueSchedules`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (200, primary) | |
+| `asx_rule` | Lookup → `asx_rule` | Required; delete cascade (deleting the rule deletes its schedule) |
+| `asx_on` | Boolean (default `true`) | Whether the schedule is currently active |
+| `asx_pattern` | Choice (local) | Every N minutes (1), Every N hours (2), Daily (3), Weekly (4), Monthly (5) |
+| `asx_every` | Integer (1–59) | The N in **Every N minutes** / **Every N hours** |
+| `asx_timeofday` | Text (5) | `HH:mm`, used by Daily/Weekly/Monthly patterns |
+| `asx_daysofweek` | Choice (local, **multi-select**) | Sunday (0) … Saturday (6); used by the Weekly pattern |
+| `asx_dayofmonth` | Integer (1–31) | Used by the Monthly pattern |
+| `asx_nextrunon` | DateTime (`TimeZoneIndependent`) | When the schedule is next due; compared as a wall-clock value regardless of the caller's time zone |
+| `asx_lastrunon` | DateTime (UserLocal) | Set after the schedule last started or continued a run |
+| `asx_lastrun` | Lookup → `asx_rulerun`, RemoveLink | The most recent Rule Run this schedule drove |
+| `asx_lastoutcome` | Choice (local) | Started a run (1), Continued the active run (2), Rule not runnable (3) |
+
+### 2.15 Scheduler Status (`asx_schedulerstatus`)
+
+Organization-owned. Tracks the health of whatever calls `asx_StartDueSchedules` on a timer (for
+example the scheduler add-on flow), for hub indicators; the engine does not read it.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (200, primary) | |
+| `asx_lastseenon` | DateTime (UserLocal) | Last time a caller reported in |
+| `asx_lastseenby` | Lookup → `systemuser`, RemoveLink | Identity of the last caller |
+| `asx_callstoday` | Integer (min 0) | Calls made so far in the current day |
+
 ## 3. `asx_RunRules` Custom API
 
 An **unbound (global) Dataverse Custom API** that evaluates the rules engine against a single
@@ -334,6 +384,7 @@ both retrieves the persisted record and overlays the JSON fields on top.
 | `IsValid` | Boolean | True when no `Block` action fired |
 | `FailedRuleCount` | Integer | Count of distinct rules with a fired `Block` action |
 | `Results` | String | JSON array of every fired action (see shape below) |
+| `ChangeSet` | String | JSON object `{ "creates": n, "updates": n, "deletes": n, "unchanged": n }`: what enforcement would write for the evaluated record after merging (a record with a fired Block counts zero) |
 | `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (`Ascentix.RulesEngine.Core/Diagnostics/RunDiagnosticsSerializer.cs`) containing `totalMs`, `rulesLoaded`, `rulesEvaluated`, `rulesFired`, `retrieveCount`, `retrieveMultipleCount`, `rowsFetched`, `stages[{name,ms}]`, `nodes[{nodeId,table,retrieveCount,retrieveMultipleCount,rows}]` |
 
 ### RecordJson encoding
@@ -381,8 +432,9 @@ an Update — `Triggers` is `OnUpdate` and both `RecordId` and `RecordJson` are 
 retrieve-and-overlay build), the only shape that carries a saved record to compare against the
 overlay.
 
-A fired **CreateRecord / UpdateRecord / DeleteRecord** action also carries a `write` object, the
-fully-resolved write intent. It is **reported only** (`asx_RunRules` never executes it; the plugin does):
+A fired **CreateRecord / UpdateRecord / DeleteRecord** action also carries its resolved write(s),
+reported only (`asx_RunRules` never executes them; the plugin does). A **single-record** action
+(its `asx_targetnode` is not a collection) keeps a `write` object, the fully-resolved write intent:
 
 ```json
 {
@@ -398,8 +450,33 @@ fully-resolved write intent. It is **reported only** (`asx_RunRules` never execu
 ```
 
 `operation` is `Create` / `Update` / `Delete`; `targetId` is set for Update/Delete (the resolved
-target record), null for Create; `values` (omitted for Delete) is the resolved column map in the
-RecordJson encoding. The `write` object is absent for non-write actions.
+target record), **always `null` for Create** — the engine assigns a Create's id only as the
+change set's internal merge key; that id is never sent to Dataverse and never becomes the created
+record's id (Dataverse assigns it), so it is never reported, for either a single-record or a set
+create; `values` (omitted for Delete) is the resolved column map in the RecordJson encoding. The
+`write` object is absent for non-write actions.
+
+A **set** action (its `asx_targetnode` is a collection, e.g. a Rows-filtered child table) instead
+carries `writes`, `writeCount` and `unchangedCount` in place of `write`:
+
+```json
+{
+  "actionType": "UpdateRecord",
+  "fireOn": "OnMatch",
+  "writes": [
+    { "operation": "Update", "targetTable": "contact", "targetId": "…", "values": { "donotbulkemail": true } }
+  ],
+  "writeCount": 3,
+  "unchangedCount": 1
+}
+```
+
+`writes` lists at most the first 100 rows (each in the `write` shape above, so a set create's rows
+also report `targetId: null`); `writeCount` is the full row count regardless of how many are
+listed; `unchangedCount` is how many of those rows the merged change set dropped as no-ops
+(already at the target value). `targetTable` falls back to the written table when the action has
+no `asx_targettable` of its own (e.g. a set Update/Deactivate, whose table comes from the target
+node).
 
 ---
 
@@ -620,7 +697,16 @@ Field notes:
   during Create), `STRUCT_INVALID_DATEEXPR`, `STRUCT_EXPR_FILTER_MISSING`,
   `STRUCT_INVALID_EXPRESSION_FILTERS`, `STRUCT_INVALID_TIMEZONE`, `STRUCT_APPLY_PREVIOUS_TARGET` (Error: an action's
   "Also Apply To Previous" is ticked but the action is not an Update Record whose target is reached through
-  lookups from the rule's record). Trusted Authors may publish System-context writes without
+  lookups from the rule's record), `STRUCT_ACTION_FILTER_TARGET` (Error: an action's Rows filter must filter the
+  action's own target rows, and only a **set** action — Update/Delete/Deactivate Record on a collection node, or
+  Create Record targeting one — can have a Rows filter at all), `STRUCT_ROW_SOURCE_NOT_SET` (Error: the current
+  row — a `row` field-mapping source, or a `{row.…}` token in a Show Message/Block message text, one of its
+  per-language `asx_localizedmessage` overrides, or a Template condition's comparison value — can only be used by
+  an action that writes a set of rows), `STRUCT_DEACTIVATE_MAPPING` (Error: Deactivate Record's field mapping may
+  only set Status Reason, `statuscode`; any other mapped column is refused), `META_TABLE_NOT_DEACTIVATABLE` (Error:
+  Deactivate Record's target table has no `statecode`, or changes state only through its own dedicated message —
+  `opportunity`, `incident`, `quote`, `salesorder` and `invoice` are refused outright, alongside any table without
+  a `statecode` attribute). Trusted Authors may publish System-context writes without
   holding privileges on the target business tables; see `docs/Security.md`.
 - `kind` is a string enum name: `"Rule"`, `"Group"`, `"Condition"`, or `"Action"`.
 - `field` is the logical-name fragment of the column the issue targets; omitted (`null`) when the
@@ -868,7 +954,59 @@ as the system user, exactly like `RuleRegistrationPlugin`. In the `AscentixRules
 
 ---
 
-## 9. Relationships (explicit schema names)
+## 9. `asx_StartDueSchedules` Custom API
+
+An **unbound (global) Dataverse Custom API Action** (`IsFunction = false`) that finds due Rule
+Schedules (§2.14) and starts or continues each one's Rule Run, driven from **outside** Dataverse
+by a caller on a timer (for example the scheduler add-on flow).
+
+**Registration:** bound to plugin type `Ascentix.RulesEngine.Plugin.StartDueSchedulesApi`;
+`ExecutePrivilegeName = prvCreateasx_RuleRun` (the same gate as `asx_ApplyRules`, §6, and
+`asx_ProcessRunPage`, §7). No additional custom processing steps. In the `AscentixRulesEngine`
+solution.
+
+### Request parameters
+
+None.
+
+### Response parameters
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `RunIds` | String | JSON array of Rule Run ids (e.g. `["…","…"]`): the runs this call started, then the runs it continued, then any other Queued/Running run of a rule with an On schedule; each id once |
+| `ScheduledCount` | Integer | Number of due schedules this call found (at most 50), including any the call budget left for the next call |
+
+### Semantics
+
+- **Heartbeat:** every call first writes `asx_schedulerstatus` (§2.15). It is part of the call's
+  transaction, so a call that fails rolls its heartbeat back too.
+- **Due schedules:** On, with `asx_nextrunon` at or before now, oldest first, at most **50** per
+  call. For each: a rule that has an active (Queued/Running) run is **continued** (outcome 2,
+  `asx_nextrunon` unchanged); otherwise a new all-records run is **started** (outcome 1) and
+  `asx_nextrunon` advances. A rule that isn't runnable (not Published, not On demand + All
+  records, unknown time zone) gets outcome 3 and advances, staying On; an invalid recurrence or a
+  schedule without a rule is switched Off (outcome 3); a schedule whose rule has just been
+  deleted is skipped (the delete cascade removes it).
+- **Next run:** a missed occurrence is never queued: one run is started however far behind the
+  schedule is. For **Every N minutes/hours** the next run is anchored on the schedule's previous
+  `asx_nextrunon`: the first `previous + k·N` (k ≥ 1) strictly after now, so the rhythm doesn't
+  drift with the caller's timing; without a previous value it is now + N. Daily, Weekly and
+  Monthly take the next matching time of day in the rule's time zone after now.
+- **Run ownership:** runs are created by the engine but owned by the **caller** (the identity
+  that called the API), like a run started by hand.
+- **Call budget:** once about **60 seconds** of wall-clock time have passed, the call takes no
+  further due schedules; those not reached keep their `asx_nextrunon` and are taken by the next
+  call. `RunIds` still lists every run to drive.
+- **Ordering:** new runs come first in `RunIds`, so a long run that keeps being continued never
+  starves the rules started after it; continued runs follow, then leftovers.
+- **Concurrent callers:** a second call made while another is running waits on or collides with
+  the first (both write the heartbeat row and may pick the same rule); if it fails, it fails as a
+  whole (its writes roll back) and its caller simply tries again on its next wake-up. Nothing is
+  lost.
+
+---
+
+## 10. Relationships (explicit schema names)
 
 | Relationship | Parent (1) | Child (N), holds the lookup |
 |---|---|---|
@@ -892,10 +1030,11 @@ as the system user, exactly like `RuleRegistrationPlugin`. In the `AscentixRules
 | `asx_nodefiltergroup_owningcriterion` | `asx_nodefiltercriterion` | `asx_nodefiltergroup` |
 | `asx_rule_ruleaction` | `asx_rule` | `asx_ruleaction` |
 | `asx_ruleaction_localizedmessage` | `asx_ruleaction` | `asx_localizedmessage` |
+| `asx_ruleaction_nodefiltergroup` | `asx_ruleaction` | `asx_nodefiltergroup` (Cascade) |
 
 ---
 
-## 10. Test fixture schema (not shipped)
+## 11. Test fixture schema (not shipped)
 
 The live client suites (`client/test-dev`, `client/e2e`, `client/scripts/seed-*`) run against a
 disposable **`sample_*` Order-domain model** that is **not part of the product**. It lives in the

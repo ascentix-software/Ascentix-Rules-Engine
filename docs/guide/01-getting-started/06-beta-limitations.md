@@ -167,9 +167,31 @@ per record, same as any other rule evaluation) to skip records it shouldn't
 touch, rather than a server-side pre-filter. Scope such a rule with a tight
 execution condition on a large table.
 
+A rule **schedule** (*Administering → Scheduling Rules*) starts or continues a Rule
+Run the same way Run now does, so the limits above apply equally to a scheduled run.
+On top of those: a schedule fires **within 15 minutes** of its scheduled time, not at
+the exact minute, since the shipped scheduler add-on's flow calls
+`asx_StartDueSchedules` on that interval. Each call to `asx_StartDueSchedules`
+takes at most **50** due schedules and stops taking more after about **60 seconds**; a
+larger backlog is picked up across further calls. The add-on's flow budgets about **12
+minutes** per wake-up to drive the runs it started or continued before ending, so it
+finishes a large backlog of due schedules or slow-running rules across more than one
+wake-up rather than blocking indefinitely. Each wake-up drives the runs it just started
+first, then the runs it continued, then leftovers, so one very long run can't hold up
+newly started ones. A rule can have at most **one** schedule.
+
 ## 16. The "apply inverse" flag is reserved
 
 The `asx_applyinversewhennotfired` column exists in the schema and is settable,
 on a Set Visible or Set Required action's classic form and through the API, but
 nothing reads it: no runtime behaviour depends on its value. The Rule Builder
 does not show it. It is reserved for possible future use.
+
+## 17. No write limit on set actions
+
+A set action writes every filtered row of its collection, and nothing caps how many. A very large set
+can exceed the platform's 2-minute limit for a synchronous save, which fails the save. Keep sets
+bounded with the Rows filter and the rule's conditions, and use the Rule Builder's **Test** to see
+how many rows a record would write. Update, Delete, Create and Deactivate Record all send their rows
+in bulk where the target table supports it (proven on DEV 2026-09-29: `UpdateMultiple` accepts a
+state change).

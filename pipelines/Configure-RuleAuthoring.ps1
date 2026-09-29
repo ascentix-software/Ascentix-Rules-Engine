@@ -11,8 +11,9 @@ $ErrorActionPreference = 'Stop'
 $base = $EnvUrl.TrimEnd('/') + '/api/data/v9.2'
 $headers = @{ Authorization = "Bearer $AccessToken"; Accept = 'application/json';
     'OData-Version' = '4.0'; 'OData-MaxVersion' = '4.0'; 'MSCRM.SolutionUniqueName' = $SolutionName }
-function Request([string]$Method, [string]$Path, $Body = $null) {
-    $args0 = @{ Method = $Method; Uri = "$base/$Path"; Headers = $headers }
+function Request([string]$Method, [string]$Path, $Body = $null, [hashtable]$ExtraHeaders = $null) {
+    $sent = if ($ExtraHeaders) { $headers + $ExtraHeaders } else { $headers }
+    $args0 = @{ Method = $Method; Uri = "$base/$Path"; Headers = $sent }
     if ($null -ne $Body) { $args0.ContentType = 'application/json'; $args0.Body = $Body | ConvertTo-Json -Depth 30 -Compress }
     try { Invoke-RestMethod @args0 }
     catch {
@@ -30,14 +31,29 @@ function EnsureField([string]$Table, $Definition) {
     $existing = Request GET "EntityDefinitions(LogicalName='$Table')/Attributes?`$select=LogicalName&`$filter=LogicalName eq '$logical'"
     if ($existing.value.Count -eq 0) { Request POST "EntityDefinitions(LogicalName='$Table')/Attributes" $Definition | Out-Null }
 }
-function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'OrganizationOwned') {
+function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'OrganizationOwned', [string]$EntitySetName = '') {
     $logical = $Name.ToLowerInvariant()
-    $existing = Request GET "EntityDefinitions?`$select=LogicalName&`$filter=LogicalName eq '$logical'"
-    if ($existing.value.Count -gt 0) { return }
+    $setName = if ($EntitySetName) { $EntitySetName } else { $logical + 's' }
+    $existing = Request GET "EntityDefinitions?`$select=LogicalName,EntitySetName,MetadataId&`$filter=LogicalName eq '$logical'"
+    if ($existing.value.Count -gt 0) {
+        # An explicit set name converges an existing table created under the default one; the
+        # PublishXml at the end of the phase publishes it.
+        $table = @($existing.value)[0]
+        if ($EntitySetName -and $table.EntitySetName -cne $EntitySetName) {
+            $current = Request GET "EntityDefinitions($($table.MetadataId))"
+            $definition = [ordered]@{ '@odata.type' = 'Microsoft.Dynamics.CRM.EntityMetadata' }
+            foreach ($property in $current.PSObject.Properties) {
+                if (!$property.Name.StartsWith('@odata.')) { $definition[$property.Name] = $property.Value }
+            }
+            $definition.EntitySetName = $EntitySetName
+            Request PUT "EntityDefinitions($($table.MetadataId))" $definition @{ 'MSCRM.MergeLabels' = 'true' } | Out-Null
+        }
+        return
+    }
     $primary = Field 'asx_Name' 'String' 'Name'; $primary.MaxLength = 200; $primary.IsPrimaryName = $true
     $primary.FormatName = @{ Value = 'Text' }
     Request POST 'EntityDefinitions' @{
-        '@odata.type' = 'Microsoft.Dynamics.CRM.EntityMetadata'; SchemaName = $Name; EntitySetName = $logical + 's';
+        '@odata.type' = 'Microsoft.Dynamics.CRM.EntityMetadata'; SchemaName = $Name; EntitySetName = $setName;
         DisplayName = (Label $Display); DisplayCollectionName = (Label ($Display + 's'));
         OwnershipType = $Ownership; HasActivities = $false; HasNotes = $false;
         IsActivity = $false; IsAuditEnabled = @{ Value = $false }; Attributes = @($primary)
@@ -51,7 +67,13 @@ function EnsureOptionLabel([string]$OptionSet, [int]$Value, [string]$Text) {
         Request POST 'UpdateOptionValue' @{ OptionSetName = $OptionSet; Value = $Value; Label = (Label $Text); MergeLabels = $true } | Out-Null
     }
 }
-function EnsureLookup([string]$From, [string]$To, [string]$Name, [string]$Display, [string]$Delete = 'Restrict') {
+# Appends an option to a global choice (never renumbers), or relabels it when it exists.
+function EnsureOptionValue([string]$OptionSet, [int]$Value, [string]$Text) {
+    $definition = Request GET "GlobalOptionSetDefinitions(Name='$OptionSet')/Microsoft.Dynamics.CRM.OptionSetMetadata?`$select=Options"
+    if (@($definition.Options | Where-Object { $_.Value -eq $Value }).Count -gt 0) { EnsureOptionLabel $OptionSet $Value $Text; return }
+    Request POST 'InsertOptionValue' @{ OptionSetName = $OptionSet; Value = $Value; Label = (Label $Text); SolutionUniqueName = $SolutionName } | Out-Null
+}
+function EnsureLookup([string]$From, [string]$To, [string]$Name, [string]$Display, [string]$Delete = 'Restrict', [string]$Relationship = '') {
     $logical = $Name.ToLowerInvariant()
     $existing = Request GET "EntityDefinitions(LogicalName='$From')/Attributes?`$select=LogicalName&`$filter=LogicalName eq '$logical'"
     if ($existing.value.Count -gt 0) {
@@ -67,7 +89,7 @@ function EnsureLookup([string]$From, [string]$To, [string]$Name, [string]$Displa
         return
     }
     Request POST 'RelationshipDefinitions' @{
-        '@odata.type' = 'Microsoft.Dynamics.CRM.OneToManyRelationshipMetadata'; SchemaName = "${From}_${logical}_revision";
+        '@odata.type' = 'Microsoft.Dynamics.CRM.OneToManyRelationshipMetadata'; SchemaName = $(if ($Relationship) { $Relationship } else { "${From}_${logical}_revision" });
         ReferencedEntity = $To; ReferencingEntity = $From; Lookup = (Field $Name 'Lookup' $Display);
         CascadeConfiguration = @{ Assign = 'NoCascade'; Delete = $Delete; Merge = 'NoCascade'; Reparent = 'NoCascade'; Share = 'NoCascade'; Unshare = 'NoCascade' }
     } | Out-Null
@@ -136,7 +158,48 @@ if ($Phase -eq 'Schema') {
         Options = @(@{ Value = 1; Label = (Label "A record it's given") }, @{ Value = 2; Label = (Label 'All records that pass its execution conditions') }) }
     EnsureField 'asx_rule' $onDemandScope
     EnsureOptionLabel 'asx_triggers' 3 'On demand'
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity></entities><optionsets><optionset>asx_triggers</optionset></optionsets></importexportxml>' } | Out-Null
+    EnsureTable 'asx_RuleSchedule' 'Rule Schedule'
+    EnsureTable 'asx_SchedulerStatus' 'Scheduler Status' -EntitySetName 'asx_schedulerstatuses'
+    $on = Field 'asx_On' 'Boolean' 'On'
+    $on.DefaultValue = $true
+    $on.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.BooleanOptionSetMetadata';
+        TrueOption = @{ Value = 1; Label = (Label 'Yes') }; FalseOption = @{ Value = 0; Label = (Label 'No') } }
+    EnsureField 'asx_ruleschedule' $on
+    $pattern = Field 'asx_Pattern' 'Picklist' 'Pattern'
+    $pattern.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.OptionSetMetadata'; IsGlobal = $false; OptionSetType = 'Picklist';
+        Options = @(@{ Value = 1; Label = (Label 'Every N minutes') }, @{ Value = 2; Label = (Label 'Every N hours') },
+            @{ Value = 3; Label = (Label 'Daily') }, @{ Value = 4; Label = (Label 'Weekly') }, @{ Value = 5; Label = (Label 'Monthly') }) }
+    EnsureField 'asx_ruleschedule' $pattern
+    $every = Field 'asx_Every' 'Integer' 'Every'; $every.MinValue = 1; $every.MaxValue = 59
+    EnsureField 'asx_ruleschedule' $every
+    $timeOfDay = Field 'asx_TimeOfDay' 'String' 'Time of day'; $timeOfDay.MaxLength = 5
+    EnsureField 'asx_ruleschedule' $timeOfDay
+    $daysOfWeek = Field 'asx_DaysOfWeek' 'MultiSelectPicklist' 'Days of week'
+    $daysOfWeek.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.OptionSetMetadata'; IsGlobal = $false; OptionSetType = 'Picklist';
+        Options = @(@{ Value = 0; Label = (Label 'Sunday') }, @{ Value = 1; Label = (Label 'Monday') }, @{ Value = 2; Label = (Label 'Tuesday') },
+            @{ Value = 3; Label = (Label 'Wednesday') }, @{ Value = 4; Label = (Label 'Thursday') }, @{ Value = 5; Label = (Label 'Friday') },
+            @{ Value = 6; Label = (Label 'Saturday') }) }
+    EnsureField 'asx_ruleschedule' $daysOfWeek
+    $dayOfMonth = Field 'asx_DayOfMonth' 'Integer' 'Day of month'; $dayOfMonth.MinValue = 1; $dayOfMonth.MaxValue = 31
+    EnsureField 'asx_ruleschedule' $dayOfMonth
+    $nextRunOn = Field 'asx_NextRunOn' 'DateTime' 'Next run on'; $nextRunOn.Format = 'DateAndTime'; $nextRunOn.DateTimeBehavior = @{ Value = 'TimeZoneIndependent' }
+    EnsureField 'asx_ruleschedule' $nextRunOn
+    $lastRunOn = Field 'asx_LastRunOn' 'DateTime' 'Last run on'; $lastRunOn.Format = 'DateAndTime'; $lastRunOn.DateTimeBehavior = @{ Value = 'UserLocal' }
+    EnsureField 'asx_ruleschedule' $lastRunOn
+    $lastOutcome = Field 'asx_LastOutcome' 'Picklist' 'Last outcome'
+    $lastOutcome.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.OptionSetMetadata'; IsGlobal = $false; OptionSetType = 'Picklist';
+        Options = @(@{ Value = 1; Label = (Label 'Started a run') }, @{ Value = 2; Label = (Label 'Continued the active run') }, @{ Value = 3; Label = (Label 'Rule not runnable') }) }
+    EnsureField 'asx_ruleschedule' $lastOutcome
+    EnsureLookup 'asx_ruleschedule' 'asx_rule' 'asx_Rule' 'Rule' 'Cascade'
+    EnsureLookup 'asx_ruleschedule' 'asx_rulerun' 'asx_LastRun' 'Last run' 'RemoveLink'
+    $lastSeenOn = Field 'asx_LastSeenOn' 'DateTime' 'Last seen on'; $lastSeenOn.Format = 'DateAndTime'; $lastSeenOn.DateTimeBehavior = @{ Value = 'UserLocal' }
+    EnsureField 'asx_schedulerstatus' $lastSeenOn
+    $callsToday = Field 'asx_CallsToday' 'Integer' 'Calls today'; $callsToday.MinValue = 0; $callsToday.MaxValue = 2147483647
+    EnsureField 'asx_schedulerstatus' $callsToday
+    EnsureLookup 'asx_schedulerstatus' 'systemuser' 'asx_LastSeenBy' 'Last seen by' 'RemoveLink'
+    EnsureLookup 'asx_nodefiltergroup' 'asx_ruleaction' 'asx_RuleAction' 'Rule action' 'Cascade' 'asx_ruleaction_nodefiltergroup'
+    EnsureOptionValue 'asx_actiontype' 8 'Deactivate Record'
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_nodefiltergroup</entity></entities><optionsets><optionset>asx_triggers</optionset><optionset>asx_actiontype</optionset></optionsets></importexportxml>' } | Out-Null
     # Only configure the product's shipped views; personal/customer views are not selected.
     foreach ($spec in @(@('asx_rule','asx_draftof'), @('asx_tableconfig','asx_isprivate'))) {
         $viewFolder = Join-Path $PSScriptRoot "../Solutions/$SolutionName/${SolutionName}_unmanaged/Entities/$($spec[0])/SavedQueries"
@@ -170,7 +233,7 @@ if ($Phase -eq 'Schema') {
             }
         }
     }
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity></entities></importexportxml>' } | Out-Null
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_nodefiltergroup</entity></entities></importexportxml>' } | Out-Null
     Write-Host '[revisions] additive schema ready'
     return
 }
@@ -282,6 +345,9 @@ EnsureParameter $id 'RuleId' 10 $false 'Identifier of the rule or working draft 
 $validate = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq 'asx_ValidateRule'"
 if ($validate.value.Count -ne 1) { throw 'Missing asx_ValidateRule API.' }
 EnsureParameter $validate.value[0].customapiid 'DraftHash' 10 $true 'SHA-256 hash of the saved draft configuration checked by validation.'
+$runRules = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq 'asx_RunRules'"
+if ($runRules.value.Count -ne 1) { throw 'Missing asx_RunRules API.' }
+EnsureParameter $runRules.value[0].customapiid 'ChangeSet' 10 $true 'JSON change-set summary: creates, updates, deletes and unchanged rows.'
 $applyRulesType = PluginType 'ApplyRulesApi'
 $id = EnsureApi 'asx_ApplyRules' 'prvCreateasx_RuleRun' 'Evaluates one On demand rule for one record and applies its results (enforcing).' 'Apply Rules' $applyRulesType
 EnsureParameter $id 'RuleId' 12 $false 'Identifier of the On demand rule to evaluate.'
@@ -304,4 +370,11 @@ EnsureParameter $id 'Skipped' 7 $true 'Running total of records that did not pas
 EnsureStep 'asx_rulerun' 'Create' (PluginType 'RuleRunPlugin') 1 20
 # Outside asx_ProcessRunPage, a run may only be cancelled.
 EnsureStep 'asx_rulerun' 'Update' (PluginType 'RuleRunUpdatePlugin') 1 20
+$startDueSchedulesType = PluginType 'StartDueSchedulesApi'
+$id = EnsureApi 'asx_StartDueSchedules' 'prvCreateasx_RuleRun' 'Starts or continues runs for due rule schedules and returns the run ids to drive.' 'Start Due Schedules' $startDueSchedulesType
+EnsureParameter $id 'RunIds' 10 $true 'JSON array of the ids of the Rule Runs to drive: started, continued or resumed by this call.'
+EnsureParameter $id 'ScheduledCount' 7 $true 'Number of due schedules processed by this call.'
+$scheduleType = PluginType 'RuleSchedulePlugin'
+EnsureStep 'asx_ruleschedule' 'Create' $scheduleType 1 20
+EnsureStep 'asx_ruleschedule' 'Update' $scheduleType 1 20
 Write-Host '[revisions] guards, lifecycle ordering, and APIs registered'

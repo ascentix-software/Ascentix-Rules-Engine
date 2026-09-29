@@ -32,5 +32,12 @@ namespace Ascentix.RulesEngine.Core.Models
 
         /// <summary>Per-language message text (LCID → text). Empty ⇒ use <see cref="Message"/>.</summary>
         public IDictionary<int, string> LocalizedMessages { get; set; } = new Dictionary<int, string>();
+
+        /// <summary>asx_name: the author's name for the action, used in write error messages.</summary>
+        public string Name { get; set; }
+
+        /// <summary>The Rows filter (asx_nodefiltergroup.asx_ruleaction): which rows of the target node
+        /// a set action writes. Null = every row.</summary>
+        public NodeFilterGroup RowFilter { get; set; }
     }
 }

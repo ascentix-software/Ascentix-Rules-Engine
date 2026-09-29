@@ -176,19 +176,23 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
-        public void Update_target_lookup_under_child_flagged_single_cardinality()
+        public void Update_target_lookup_under_child_is_a_valid_set_target()
         {
+            // A lookup reached through a child collection (root -> contact[many] -> account) has a
+            // ChildTable ancestor on its chain, so TableConfigTree.IsCollection is true: one target
+            // row per filtered contact row, exactly the set-action shape Task 3 adds. This used to be
+            // flagged TRAV_NOT_SINGLE_CARDINALITY; it is now a valid Update Record target.
             var rootId = Guid.NewGuid(); var childId = Guid.NewGuid(); var lkUnderChildId = Guid.NewGuid();
             var configs = new Dictionary<Guid, TableConfig>
             {
                 [rootId] = new TableConfig { Id = rootId, ConfigType = TableConfigType.RootTable, TableLogicalName = "account" },
                 [childId] = new TableConfig { Id = childId, ConfigType = TableConfigType.ChildTable, TableLogicalName = "contact", ParentTableId = rootId, ChildLinkField = "parentcustomerid" },
-                [lkUnderChildId] = new TableConfig { Id = lkUnderChildId, ConfigType = TableConfigType.LookupTable, TableLogicalName = "account", ParentTableId = childId, LookupColumnLogicalName = "parentaccountid" },
+                [lkUnderChildId] = new TableConfig { Id = lkUnderChildId, ConfigType = TableConfigType.LookupTable, TableLogicalName = "account", ParentTableId = childId, LookupColumnLogicalName = "parentaccountid", LookupTargetIdAttribute = "accountid" },
             };
             var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = lkUnderChildId, FieldMapping = "[]" };
             var model = new RuleForValidation { RuleId = Guid.NewGuid(), PrimaryTable = "account", Groups = new List<ConditionGroup>(), Configs = TestTree.RawTree(configs), Actions = new List<RuleAction> { action } };
             var issues = new TraversalChecks().Check(model).ToList();
-            Assert.Contains(issues, i => i.Code == "TRAV_NOT_SINGLE_CARDINALITY");
+            Assert.DoesNotContain(issues, i => i.Code == "TRAV_NOT_SINGLE_CARDINALITY");
         }
 
         [Fact]

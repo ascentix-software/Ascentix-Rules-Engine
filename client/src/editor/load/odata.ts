@@ -13,6 +13,10 @@ export const ENTITY = {
   // createRecord all take the table's LOGICAL name, unlike ENTITY_SET below (the plural
   // collection name used for @odata.bind targets and raw Web API PATCH URLs).
   ruleRun: "asx_rulerun",
+  // asx_ruleschedule / asx_schedulerstatus (pipelines/Configure-RuleAuthoring.ps1): same
+  // LOGICAL-name-for-Xrm.WebApi rule as every entry above.
+  ruleSchedule: "asx_ruleschedule",
+  schedulerStatus: "asx_schedulerstatus",
 } as const;
 
 export const LOOKUP = {
@@ -34,9 +38,13 @@ export const LOOKUP = {
   // the GROUP (the sub-filter's root); collection-node is on the CRITERION (Exists target).
   filterGroupOwningCriterion: "_asx_owningcriterion_value",
   filterCriterionCollectionNode: "_asx_collectionnode_value",
+  // asx_nodefiltergroup.asx_ruleaction: a set action's Rows filter, on every group of its tree
+  filterGroupAction: "_asx_ruleaction_value",
   // asx_rulerun.asx_rule (docs/Schema.md §2.13): same Web API lookup-value field name as every
   // other "asx_rule" attribute above, just on a different owning entity.
   ruleOfRun: "_asx_rule_value",
+  // asx_ruleschedule.asx_rule: same lowercase lookup-value field name pattern as above.
+  ruleOfSchedule: "_asx_rule_value",
 } as const;
 
 export const NAV = {
@@ -73,7 +81,7 @@ export const LOCALIZEDMSG_SELECT =
 export const NODEFILTERGROUP_SELECT =
   "asx_nodefiltergroupid,asx_logicaloperator," +
   LOOKUP.filterGroupCondition + "," + LOOKUP.filterGroupTargetNode + "," + LOOKUP.filterParentGroup + "," +
-  LOOKUP.filterGroupOwningCriterion;
+  LOOKUP.filterGroupOwningCriterion + "," + LOOKUP.filterGroupAction;
 export const NODEFILTERCRITERION_SELECT =
   "asx_nodefiltercriterionid,asx_fieldname,asx_operator,asx_value," +
   "asx_comparisonvaluesource,asx_comparisonvaluecolumn," +
@@ -91,6 +99,8 @@ export const ENTITY_SET = {
   nodeFilterGroup: "asx_nodefiltergroups",
   nodeFilterCriterion: "asx_nodefiltercriterions",
   ruleRun: "asx_ruleruns",
+  ruleSchedule: "asx_ruleschedules",
+  schedulerStatus: "asx_schedulerstatuses",
 } as const;
 
 // @odata.bind navigation-property names. The referencing-side navigation
@@ -124,9 +134,13 @@ export const BIND_NAV = {
   // lowercase lookups above.
   filterCriterionCollectionNode: "asx_collectionnode",
   filterGroupOwningCriterion: "asx_owningcriterion",
+  // EnsureLookup SchemaName asx_RuleAction ⇒ PascalCase nav, like localizedMessageAction
+  filterGroupAction: "asx_RuleAction",
   // asx_rulerun.asx_rule: provisioned by EnsureLookup with SchemaName "asx_Rule"
   // (pipelines/Configure-RuleAuthoring.ps1) and no ReferencingEntityNavigationPropertyName
   // override, so the nav property is PascalCased, unlike the plain-lowercase asx_rule lookups
   // on asx_conditiongroup/asx_ruleaction above. Round-tripped by bindNav.dev.test.ts.
   runRule: "asx_Rule",
+  // asx_ruleschedule.asx_rule: same EnsureLookup shape (SchemaName "asx_Rule") as runRule above.
+  scheduleRule: "asx_Rule",
 } as const;

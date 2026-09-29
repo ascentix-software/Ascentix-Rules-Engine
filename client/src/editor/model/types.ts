@@ -2,7 +2,7 @@ export type LogicalOperatorLabel = "And" | "Or";
 export type ConditionTypeLabel = "FieldComparison" | "RowCount" | "RegexMatch" | "Expression";
 export type ActionTypeLabel =
   | "SetVisible" | "SetRequired" | "ShowMessage" | "Block"
-  | "CreateRecord" | "UpdateRecord" | "DeleteRecord";
+  | "CreateRecord" | "UpdateRecord" | "DeleteRecord" | "DeactivateRecord";
 export type TableConfigTypeLabel = "RootTable" | "LookupTable" | "ChildTable";
 
 export interface RuleHeader {
@@ -123,6 +123,10 @@ export interface ActionNode {
   /** Update Record only: also apply to the previous record when the save changes the lookup above
    * the target (asx_applytoprevious). */
   applyToPrevious?: boolean | null;
+  /** Set actions only (model/setActions.ts isSetAction): the Rows filter
+   * (asx_nodefiltergroup.asx_ruleaction), which rows of the target node the action writes. Its
+   * targetNodeId is always the action's target node; save/diff.ts binds it from the action. */
+  rowFilter?: import("./nodeFilter").NodeFilterBlock | null;
   localizedMessages: LocalizedMessage[];
 }
 

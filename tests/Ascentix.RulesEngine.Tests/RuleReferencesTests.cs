@@ -795,5 +795,16 @@ namespace Ascentix.RulesEngine.Tests
 
             Assert.Contains("sample_orderdate", cols);
         }
+
+        [Fact]
+        public void A_row_token_in_a_message_is_not_a_root_column()
+        {
+            var rootId = Guid.NewGuid();
+            var tree = TestTree.Tree(TestTree.Node(rootId, "account", TableConfigType.RootTable, null));
+            var show = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.ShowMessage, IsActive = true, Message = "Hi {row.fullname} {root.name}" };
+            var cols = RuleReferences.Compute(new List<ConditionGroup>(), new[] { show }).RootColumns(tree);
+            Assert.Contains("name", cols);
+            Assert.DoesNotContain("fullname", cols);
+        }
     }
 }

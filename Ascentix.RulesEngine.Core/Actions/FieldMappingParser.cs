@@ -78,6 +78,12 @@ namespace Ascentix.RulesEngine.Core.Actions
                     else throw new InvalidPluginExecutionException(
                         $"asx_fieldmapping 'node' for target '{target}' is not a valid GUID.");
                     break;
+                case "row":
+                    entry.Column = Child("column");
+                    if (string.IsNullOrWhiteSpace(entry.Column))
+                        throw new InvalidPluginExecutionException(
+                            $"asx_fieldmapping row entry for target '{target}' is missing 'column'.");
+                    break;
                 case "template":
                     entry.Template = Child("template");
                     if (string.IsNullOrEmpty(entry.Template))
@@ -107,7 +113,7 @@ namespace Ascentix.RulesEngine.Core.Actions
                 default:
                     throw new InvalidPluginExecutionException(
                         $"asx_fieldmapping entry for target '{target}' has unknown source '{source}'. " +
-                        "Expected 'literal', 'root', 'node', 'ref', 'template', 'mathexpr', or 'dateexpr'.");
+                        "Expected 'literal', 'root', 'node', 'ref', 'row', 'template', 'mathexpr', or 'dateexpr'.");
             }
 
             return entry;

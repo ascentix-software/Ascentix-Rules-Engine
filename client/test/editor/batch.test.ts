@@ -51,6 +51,14 @@ describe("buildBatch", () => {
     const { body } = buildBatch(ops, opts);
     expect(body).toContain("DELETE https://org.crm.dynamics.com/api/data/v9.2/asx_ruleactions(a1) HTTP/1.1");
   });
+
+  it("emits a DELETE $ref request for an unbind", () => {
+    const ops: Operation[] = [
+      { kind: "unbind", entity: "asx_ruleaction", set: "asx_ruleactions", id: "a1", navProp: "asx_TargetNode" },
+    ];
+    const { body } = buildBatch(ops, opts);
+    expect(body).toContain("DELETE https://org.crm.dynamics.com/api/data/v9.2/asx_ruleactions(a1)/asx_TargetNode/$ref HTTP/1.1");
+  });
 });
 
 describe("parseBatchOutcome", () => {

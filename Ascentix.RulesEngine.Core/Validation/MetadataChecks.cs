@@ -62,6 +62,12 @@ namespace Ascentix.RulesEngine.Core.Validation
             foreach (var a in model.Actions.Where(x => x.IsActive))
                 CheckAggregateFilters(model, a, metadata, issues);
 
+            foreach (var a in model.Actions.Where(x => x.IsActive))
+            {
+                CheckRowSourceColumns(model, a, metadata, issues);
+                CheckRowFilter(model, a, metadata, issues);
+            }
+
             return issues;
         }
 
@@ -389,7 +395,52 @@ namespace Ascentix.RulesEngine.Core.Validation
                     if (updTable != null) // traversal layer owns a missing/invalid node
                         CheckMappingColumns(a, updTable, metadata, issues, requireCreatable: false);
                     break;
+
+                case ActionType.DeactivateRecord:
+                    var deactivateTable = a.TargetNodeId.HasValue ? TableForNode(model, a.TargetNodeId.Value) : null;
+                    if (deactivateTable == null) break; // traversal layer owns a missing node
+                    if (SetActions.IsNotDeactivatable(deactivateTable) || metadata.GetFlags(deactivateTable, "statecode") == null)
+                        issues.Add(ValidationIssue.Error("META_TABLE_NOT_DEACTIVATABLE",
+                            $"Records of '{deactivateTable}' can't be deactivated by a rule: the table has no status, or changes state only through its own message.",
+                            IssueTarget.Action(a.Id, "TargetNodeId")));
+                    else if (!string.IsNullOrWhiteSpace(a.FieldMapping))
+                        CheckMappingColumns(a, deactivateTable, metadata, issues, requireCreatable: false);
+                    break;
             }
+        }
+
+        // A set action's current-row columns: they must exist on the row's table and be readable.
+        // Type compatibility is the editor picker's and the resolver's, as for root/node sources.
+        private static void CheckRowSourceColumns(RuleForValidation model, RuleAction a, IAttributeFlagsProvider metadata, List<ValidationIssue> issues)
+        {
+            if (!SetActions.IsSetAction(a, model.Configs) || string.IsNullOrWhiteSpace(a.FieldMapping)) return;
+            var rowTable = TableForNode(model, a.TargetNodeId.Value);
+            if (rowTable == null) return;
+            List<FieldMappingEntry> entries;
+            try { entries = FieldMappingParser.Parse(a.FieldMapping); }
+            catch (InvalidPluginExecutionException) { return; } // structural layer owns malformed mapping
+            foreach (var entry in entries)
+            {
+                List<string> columns;
+                try { columns = FieldMappingReferences.RowColumns(entry).ToList(); }
+                catch (InvalidPluginExecutionException) { continue; } // malformed template: evaluation reports it
+                foreach (var column in columns)
+                {
+                    var flags = metadata.GetFlags(rowTable, column);
+                    if (flags == null)
+                        issues.Add(ValidationIssue.Error("META_COLUMN_NOT_FOUND", $"Row column '{column}' does not exist on '{rowTable}'.", IssueTarget.Action(a.Id, "FieldMapping")));
+                    else if (!flags.IsValidForRead)
+                        issues.Add(ValidationIssue.Error("META_COLUMN_NOT_READABLE", $"Row column '{column}' is not readable.", IssueTarget.Action(a.Id, "FieldMapping")));
+                }
+            }
+        }
+
+        private static void CheckRowFilter(RuleForValidation model, RuleAction a, IAttributeFlagsProvider metadata, List<ValidationIssue> issues)
+        {
+            if (a.RowFilter == null) return;
+            var table = TableForNode(model, a.RowFilter.TableConfigNodeId);
+            foreach (var nf in FlattenFilterGroups(new[] { a.RowFilter }))
+                CheckFilterCriteria(nf, table, metadata, model, IssueTarget.Action(a.Id, "RowFilter"), issues);
         }
 
         private void CheckMappingColumns(RuleAction a, string table, IAttributeFlagsProvider metadata, List<ValidationIssue> issues, bool requireCreatable)

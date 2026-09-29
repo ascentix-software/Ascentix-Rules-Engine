@@ -45,7 +45,8 @@ namespace Ascentix.RulesEngine.Core.Models
         Block = 4,
         CreateRecord = 5,
         UpdateRecord = 6,
-        DeleteRecord = 7
+        DeleteRecord = 7,
+        DeactivateRecord = 8   // appended: writes statecode = 1 and a status reason (never renumber)
     }
 
     /// <summary>The record-write operation a write-action performs.</summary>
@@ -132,5 +133,23 @@ namespace Ascentix.RulesEngine.Core.Models
     {
         User = 1,    // traversal runs in the caller's context (respects record visibility). The default
         System = 2   // traversal runs as system (deterministic, complete). Opt-in for integrity rules
+    }
+
+    /// <summary>asx_ruleschedule.asx_pattern: how a schedule's next run is computed.</summary>
+    public enum SchedulePattern
+    {
+        EveryMinutes = 1,
+        EveryHours = 2,
+        Daily = 3,
+        Weekly = 4,
+        Monthly = 5
+    }
+
+    /// <summary>asx_ruleschedule.asx_lastoutcome: what happened the last time a schedule became due.</summary>
+    public enum ScheduleOutcome
+    {
+        StartedRun = 1,
+        ContinuedRun = 2,
+        RuleNotRunnable = 3
     }
 }

@@ -110,6 +110,26 @@ namespace Ascentix.RulesEngine.Core.Loaders
             return configs.Values;
         }
 
+        /// <summary>The config chains of the active Create actions' target nodes, loaded apart from
+        /// the rule's tree only to tell Create per row (a collection target,
+        /// <see cref="Actions.SetActions.IsSetAction"/>) from a one-record Create that still carries
+        /// a single-record target from an earlier edit. Pass it to
+        /// <see cref="Engine.RuleReferences.Compute"/>: only a Create per row's target then becomes
+        /// a reference, so a stale target never enters the rule's tree or its fetches. Optional and
+        /// unvalidated: a node that no longer exists or a broken chain reads as "not a set target".
+        /// Empty (no query) when no active Create carries a target.</summary>
+        public TableConfigTree LoadCreateTargets(IEnumerable<RuleAction> actions)
+        {
+            var targets = (actions ?? Enumerable.Empty<RuleAction>())
+                .Where(a => a != null && a.IsActive && a.ActionType == ActionType.CreateRecord && a.TargetNodeId.HasValue)
+                .Select(a => a.TargetNodeId.Value)
+                .Distinct()
+                .ToList();
+            return targets.Count == 0
+                ? TableConfigTree.Empty
+                : TableConfigTree.FromNodesUnvalidated(LoadNodes(new object[0], targets));
+        }
+
         private List<TableConfig> FetchConfigs(object[] ids)
         {
             var query = new QueryExpression(EntityLogicalName)

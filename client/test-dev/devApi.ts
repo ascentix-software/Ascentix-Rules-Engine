@@ -1,5 +1,5 @@
 import type { EditorApi } from "../src/editor/webapi";
-import { devOrg } from "./devOrg";
+import { devOrg, type RunRulesResult } from "./devOrg";
 
 // Adapters over devOrg("user") (the DevOrg module owns URL/token/header plumbing and the
 // "<op> <set> failed (<status>): <body>" error shape). Kept so the ~25 existing suites and the
@@ -35,7 +35,7 @@ export async function deleteDevRecord(entitySet: string, id: string, tokenOverri
 export async function runRules(
   tableName: string,
   opts: { recordId?: string; recordJson?: string; triggers?: string; tokenOverride?: string } = {},
-): Promise<{ isValid: boolean; failedRuleCount: number; firedActions: any[] }> {
+): Promise<RunRulesResult> {
   const { tokenOverride, ...rest } = opts;
   return devOrg("user", tokenOverride ? { tokenOverride } : {}).runRules(tableName, rest);
 }
@@ -58,4 +58,12 @@ export async function processRunPage(
   tokenOverride?: string,
 ): Promise<{ done: boolean; status: number; evaluated: number; changed: number; blocked: number; failed: number; skipped: number }> {
   return devOrg("user", tokenOverride ? { tokenOverride } : {}).processRunPage(runId, failed);
+}
+
+// Calls asx_StartDueSchedules (docs/Schema.md §9): starts or continues every due Rule Schedule
+// and records the scheduler heartbeat. No request parameters. tokenOverride: same seam as above.
+export async function startDueSchedules(
+  tokenOverride?: string,
+): Promise<{ runIds: string[]; scheduledCount: number }> {
+  return devOrg("user", tokenOverride ? { tokenOverride } : {}).startDueSchedules();
 }

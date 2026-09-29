@@ -206,6 +206,15 @@ namespace Ascentix.RulesEngine.Core.Loaders
             return group;
         }
 
+        /// <summary>Maps a set action's Rows filter from its top-level asx_nodefiltergroup row (wired
+        /// by NodeFilterGraphLoader). No condition group owns it.</summary>
+        public NodeFilterGroup MapRowFilter(Entity rootGroup, Guid actionId)
+        {
+            var group = MapFilterGroup(rootGroup, Guid.Empty);
+            group.RuleActionId = actionId;
+            return group;
+        }
+
         private NodeFilterGroup MapFilterGroup(Entity e, Guid conditionGroupId)
         {
             var group = new NodeFilterGroup

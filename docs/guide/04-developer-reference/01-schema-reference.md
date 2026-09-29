@@ -25,7 +25,7 @@ stable integers. Do not assume label text; match on the value.
 | Condition Type | `asx_conditiontype` | Field Comparison = 1, Row Count = 2, Regex Match = 3, Calculation = 4 |
 | Comparison Operator | `asx_comparisonoperator` | Equals = 1, Not Equals = 2, Greater Than = 3, Greater Than Or Equal = 4, Less Than = 5, Less Than Or Equal = 6, Contains = 7, Does Not Contain = 8, Is Null = 9, Is Not Null = 10 |
 | Severity | `asx_severity` | Information = 1, Warning = 2, Error = 3 |
-| Action Type | `asx_actiontype` | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7 |
+| Action Type | `asx_actiontype` | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7, Deactivate Record = 8 |
 | Action Fire On | `asx_actionfireon` | On Match = 1, On No Match = 2 |
 | Triggers *(multi-select)* | `asx_triggers` | On Create = 1, On Form = 2, On demand = 3 (formerly Manual), On Update = 4, On Delete = 5 |
 | Runs for | `asx_ondemandscope` | A record it's given = 1 (default), All records that pass its execution conditions = 2 |
@@ -111,8 +111,8 @@ The outcome layer. Columns not relevant to a given Action Type are left blank.
 | Message | `asx_message` | Multiline text | No | Show Message / Block text (default/fallback; see `asx_localizedmessage` for per-language overrides) |
 | Severity | `asx_severity` | Choice → `asx_severity` | No | Notification level |
 | Target Table | `asx_targettable` | Text | No | Create Record target |
-| Target Node | `asx_targetnode` | Lookup → `asx_tableconfig` | No | Update / Delete Record target (see *Value nodes* below) |
-| Field Mapping | `asx_fieldmapping` | Multiline text (JSON) | No | Create/Update value map |
+| Target Node | `asx_targetnode` | Lookup → `asx_tableconfig` | No | Update / Delete / Deactivate target: a single-cardinality node (one record) or a collection node (every row, filtered by the Rows filter). Create Record: optional; a collection node means one record per filtered row (see *Value nodes* below) |
+| Field Mapping | `asx_fieldmapping` | Multiline text (JSON) | No | Create/Update value map; Deactivate Record: `statuscode` only |
 | Order | `asx_order` | Whole Number | No | Execution order |
 | Is Active | `asx_isactive` | Yes/No | No | Default Yes |
 | Also Apply To Previous | `asx_applytoprevious` | Yes/No | No | Update Record only: when the save changes the lookup above the target node, also apply the action to the record the lookup pointed to before the save. Default No |
@@ -121,8 +121,17 @@ The outcome layer. Columns not relevant to a given Action Type are left blank.
 
 `asx_comparisonvaluenode` (on a condition) and `asx_targetnode` (on an action) are
 both lookups into the same `asx_tableconfig` tree the rule's conditions traverse.
-Both must resolve to a **single-cardinality** node: the Root node (the triggering
-record) or a Lookup node (one related record), never a Child node.
+
+`asx_comparisonvaluenode` must resolve to a **single-cardinality** node: the Root node (the
+triggering record) or a Lookup node (one related record), never a Child node.
+
+`asx_targetnode` on an Update Record, Delete Record or Deactivate Record action accepts either
+kind of node: a single-cardinality node (Root or Lookup — the action writes that one record, as
+before), or a **collection** node (a Child node, or a node reached through a Child step further
+down the tree) — the action then writes **every** row of that collection that passes its Rows
+filter (a **set action**; see *Building Actions* → *Writing a set of rows*). Create Record's
+`asx_targetnode` is optional; when set it must be a collection node, and the action creates one
+record per filtered row instead of one record overall.
 
 ## Node filters
 
@@ -142,6 +151,10 @@ An AND/OR node in a node filter's tree (self-referential).
 | Logical Operator | `asx_logicaloperator` | Choice → `asx_logicaloperator` | Yes | And / Or |
 | Rule Condition | `asx_rulecondition` | Lookup → `asx_rulecondition` | No | Owning condition of a per-condition filter; null = legacy group-wide |
 | Owning Criterion | `asx_owningcriterion` | Lookup → `asx_nodefiltercriterion` | No | Exists sub-filter root: this group is the collection's filter |
+| Rule Action | `asx_ruleaction` | Lookup → `asx_ruleaction` | No | A set action's Rows filter: set on every group of the action's filter tree (root and nested). Such a group has no condition group and no condition; its `asx_tableconfignode` is the action's target node |
+
+An EXISTS sub-filter inside a Rows filter hangs off its criterion (`asx_owningcriterion`) as
+elsewhere. An action owns at most one top-level group.
 
 ### Node Filter Criterion (`asx_nodefiltercriterion`)
 
@@ -188,3 +201,39 @@ anyone else can make is cancelling it (Status from Queued or Running to
 Cancelled). See *Running Rules On Demand* for what these mean in practice, and
 `docs/Schema.md` (§2.13/§7) in the repository for the full per-page state
 machine.
+
+### Rule Schedule (`asx_ruleschedule`)
+
+At most one row per rule, driving the schedule that starts or continues its Rule Runs
+(see *Scheduling Rules*). Deleting the owning rule deletes its schedule.
+
+| Column | Schema name | Type | Required | Notes |
+|---|---|---|---|---|
+| Rule | `asx_rule` | Lookup → `asx_rule` | Yes | The rule this schedule drives |
+| On | `asx_on` | Yes/No | No | Whether the schedule is currently active; default Yes |
+| Pattern | `asx_pattern` | Choice (local) | No | Every N minutes (1), Every N hours (2), Daily (3), Weekly (4), Monthly (5) |
+| Every | `asx_every` | Whole Number | No | The N in Every N minutes (15/30/45) / Every N hours (1–23) |
+| Time Of Day | `asx_timeofday` | Text (5) | No | `HH:mm`, 24-hour; Daily/Weekly/Monthly |
+| Days Of Week | `asx_daysofweek` | Choice (local, multi-select) | No | Sunday (0) … Saturday (6); Weekly only |
+| Day Of Month | `asx_dayofmonth` | Whole Number | No | 1–31, clamped to the month's last day; Monthly only |
+| Next Run On | `asx_nextrunon` | DateTime (Time Zone Independent) | No | When the schedule is next due, compared as a wall-clock value regardless of the caller's own time zone |
+| Last Run On | `asx_lastrunon` | DateTime (User Local) | No | Set after the schedule last started or continued a run |
+| Last Run | `asx_lastrun` | Lookup → `asx_rulerun` | No | The most recent Rule Run this schedule drove |
+| Last Outcome | `asx_lastoutcome` | Choice (local) | No | Started a run (1), Continued the active run (2), Rule not runnable (3) |
+
+`asx_nextrunon`, `asx_lastrunon`, `asx_lastrun` and `asx_lastoutcome` are engine-owned:
+a plug-in on Create/Update recomputes or strips them from any caller-supplied value, so
+only the schedule itself (via `asx_StartDueSchedules`) ever sets them. See *Scheduling
+Rules* for how the pattern, precision and catch-up behavior work in practice.
+
+### Scheduler Status (`asx_schedulerstatus`)
+
+A single, organization-wide heartbeat row for whatever calls `asx_StartDueSchedules` on
+a timer (the scheduler add-on, or your own caller — *Scheduling Rules*), read by the
+hub's status chip. The engine itself never reads it.
+
+| Column | Schema name | Type | Required | Notes |
+|---|---|---|---|---|
+| Last Seen On | `asx_lastseenon` | DateTime (User Local) | No | Last time a caller reported in |
+| Last Seen By | `asx_lastseenby` | Lookup → `systemuser` | No | Identity of the last caller |
+| Calls Today | `asx_callstoday` | Whole Number | No | Calls made so far in the current day |

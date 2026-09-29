@@ -22,6 +22,16 @@ namespace Ascentix.RulesEngine.Core.Models
         /// <summary>Set when the action fired in the second run for a changed lookup's previous
         /// record: the lookup node's id. Null for the normal run.</summary>
         public Guid? PreviousOfNodeId { get; set; }
+
+        /// <summary>Set actions (see SetActions.IsSetAction): one intent per filtered row, possibly
+        /// none. Null for a single-record action, which uses <see cref="WriteIntent"/>.</summary>
+        public IList<WriteIntent> WriteIntents { get; set; }
+
+        public bool IsSetAction => WriteIntents != null;
+
+        /// <summary>Every intent this fired action produced, set or single.</summary>
+        public IEnumerable<WriteIntent> AllWriteIntents() =>
+            WriteIntents ?? (WriteIntent != null ? new[] { WriteIntent } : Enumerable.Empty<WriteIntent>());
     }
 
     /// <summary>All actions that fired for a single root record.</summary>

@@ -57,16 +57,19 @@ namespace Ascentix.RulesEngine.Core.Actions
                 .ToList();
         }
 
-        /// <summary>
-        /// True when the action type produces a server-side effect that requires the
-        /// plugin to run on the operation. Today only Block throws server-side;
-        /// CreateRecord joins this set when its dispatch is implemented (phase 2).
-        /// </summary>
+        /// <summary>True when the action type produces a server-side effect that requires the plugin
+        /// to run on the operation: Block and every write action.</summary>
         public static bool IsServerAction(ActionType type) =>
-            type == ActionType.Block ||
-            type == ActionType.CreateRecord ||
-            type == ActionType.UpdateRecord ||
-            type == ActionType.DeleteRecord;
+            type == ActionType.Block || IsWriteAction(type);
+
+        /// <summary>Create, Update, Delete and Deactivate Record.</summary>
+        public static bool IsWriteAction(ActionType type) =>
+            type == ActionType.CreateRecord || type == ActionType.UpdateRecord ||
+            type == ActionType.DeleteRecord || type == ActionType.DeactivateRecord;
+
+        /// <summary>Write actions that carry a field mapping.</summary>
+        public static bool MapsFields(ActionType type) =>
+            type == ActionType.CreateRecord || type == ActionType.UpdateRecord || type == ActionType.DeactivateRecord;
 
         private static bool Fires(ActionFireOn fireOn, bool matched) =>
             (fireOn == ActionFireOn.OnMatch && matched) ||

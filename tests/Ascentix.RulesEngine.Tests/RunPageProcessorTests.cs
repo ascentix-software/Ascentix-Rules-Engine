@@ -331,7 +331,7 @@ namespace Ascentix.RulesEngine.Tests
                 Processor(service: proxy).Process(runId, null, null));
 
             Assert.StartsWith("asx_ProcessRunPage:record-failed:" + _zz3, ex.Message);
-            Assert.EndsWith(":boom", ex.Message);
+            Assert.EndsWith($":Update account (action \"{_updateActionId}\"): boom", ex.Message);
             // Nothing saved: the page rolls back on the platform, and the run row was not updated.
             Assert.Equal(RuleRunStatus.Queued, StatusOf(Run(runId)));
         }
@@ -446,8 +446,8 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Null(Description(_zz3));
 
             var failures = FailuresOf(Run(runId));
-            Assert.Equal("boom", Assert.Single(failures, f => f.RecordId == _zz1).Message);
-            Assert.Equal("boom", Assert.Single(failures, f => f.RecordId == _zz3).Message);
+            Assert.Equal($"Update account (action \"{_updateActionId}\"): boom", Assert.Single(failures, f => f.RecordId == _zz1).Message);
+            Assert.Equal($"Update account (action \"{_updateActionId}\"): boom", Assert.Single(failures, f => f.RecordId == _zz3).Message);
             Assert.Single(failures, f => f.RecordId == _zz2 && f.Kind == "Blocked");
         }
 
@@ -638,7 +638,7 @@ namespace Ascentix.RulesEngine.Tests
 
             var failure = Assert.Single(FailuresOf(Run(runId)));
             Assert.Equal(_zz1, failure.RecordId);
-            Assert.Equal(new string('w', 1000), failure.Message);
+            Assert.Equal(($"Update account (action \"{_updateActionId}\"): " + new string('w', 5000)).Substring(0, 1000), failure.Message);
         }
 
         [Fact]

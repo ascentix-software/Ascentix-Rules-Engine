@@ -57,12 +57,14 @@ export function TablePicker({ value, onChange }: { value: string | null; onChang
 }
 
 export function ColumnPicker({
-  table, context, value, onChange, allowEmpty, emptyLabel = "(form-level)", compatibleWith, excludeColumns, ariaLabel,
+  table, context, value, onChange, allowEmpty, emptyLabel = "(form-level)", compatibleWith, excludeColumns, onlyColumns, ariaLabel,
 }: {
   table: string | null; context: ColumnContext; value: string | null;
   onChange(v: string): void; allowEmpty?: boolean; emptyLabel?: string;
   compatibleWith?: ColumnKind | null;
   excludeColumns?: string[];
+  /** Offer only these columns (e.g. Deactivate's status reason). */
+  onlyColumns?: string[];
   ariaLabel?: string;
 }) {
   const svc = useMetadataService();
@@ -84,7 +86,7 @@ export function ColumnPicker({
   }
   if (!cols) return <Spinner size="tiny" />;
 
-  const inContext = columnsForContext(cols, context);
+  const inContext = columnsForContext(cols, context).filter((c) => !onlyColumns || onlyColumns.includes(c.logicalName));
   const selected = inContext.find((c) => c.logicalName === value) ?? null;
   const selectedText = selected ? `${selected.displayName} (${selected.logicalName})` : value ?? "";
   const displayValue = open ? query : selectedText;

@@ -41,5 +41,33 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal("No", map["isescalated"][0]);
             Assert.False(map.ContainsKey("subject"));
         }
+
+        [Fact]
+        public void Default_status_per_state_comes_from_the_state_options_then_the_status_options()
+        {
+            var state = new StateAttributeMetadata
+            {
+                LogicalName = "statecode",
+                OptionSet = new OptionSetMetadata(new OptionMetadataCollection(new List<OptionMetadata>
+                {
+                    new StateOptionMetadata { Value = 0, DefaultStatus = 1 },
+                    new StateOptionMetadata { Value = 1 },
+                })),
+            };
+            var status = new StatusAttributeMetadata
+            {
+                LogicalName = "statuscode",
+                OptionSet = new OptionSetMetadata(new OptionMetadataCollection(new List<OptionMetadata>
+                {
+                    new StatusOptionMetadata { Value = 1, State = 0 },
+                    new StatusOptionMetadata { Value = 7, State = 1 },
+                })),
+            };
+
+            var map = AttributeMetadataProvider.DefaultStatuses(new AttributeMetadata[] { state, status });
+
+            Assert.Equal(1, map[0]);
+            Assert.Equal(7, map[1]); // state 1 has no DefaultStatus: first status of that state
+        }
     }
 }

@@ -7,9 +7,9 @@ slug: custom-apis
 
 # Custom APIs
 
-The engine exposes seven **unbound Dataverse Custom APIs** for integrating with rules
+The engine exposes eight **unbound Dataverse Custom APIs** for integrating with rules
 outside the built-in save enforcement and form behavior described in *How Rules Run*.
-All seven are callable through the standard Dataverse Web API
+All eight are callable through the standard Dataverse Web API
 (`Xrm.WebApi.online.execute` from client code, or a plain HTTP request from a
 server-side integration), and none requires a custom output table. Results come back
 as JSON in the response parameters.
@@ -90,6 +90,7 @@ an ISO-8601 string; and `null` clears/omits the attribute.
 | `IsValid` | Boolean | `true` when no `Block` action fired |
 | `FailedRuleCount` | Integer | Count of distinct rules with a fired `Block` action |
 | `Results` | String | JSON array of every fired action |
+| `ChangeSet` | String | JSON object summarizing the writes this evaluation would make (see below) |
 | `Diagnostics` | String | Only when `IncludeDiagnostics` was `true`: a JSON object describing the evaluation (see below) |
 
 ```json
@@ -108,15 +109,47 @@ an ISO-8601 string; and `null` clears/omits the attribute.
 ```
 
 Enums serialize as string names; fields irrelevant to a given action type are
-`null`. A fired `CreateRecord` / `UpdateRecord` / `DeleteRecord` action also carries
-a `write` object, the fully-resolved write intent (`operation`, `targetTable`,
-`targetId`, `values`). `asx_RunRules` reports that intent; only the server engine
-applies it, on Create/Update/Delete. See *Runtime Enforcement*.
+`null`. A fired `CreateRecord` / `UpdateRecord` / `DeleteRecord` / `DeactivateRecord` action
+against a **single-record** target also carries a `write` object, the fully-resolved write intent
+(`operation`, `targetTable`, `targetId`, `values`). `asx_RunRules` reports that intent; only the
+server engine applies it, on Create/Update/Delete. See *Runtime Enforcement*. A create's
+`targetId` is always `null`: the engine never reports the id it will assign, and nothing in the
+same save can refer to a record created by it.
+
+A fired action against a **set** target (a collection node) instead carries `writes` (the first
+100 resolved rows, in the same shape as `write` above), `writeCount` (the total number of rows
+this action resolved — **every** filtered row, including any already unchanged, not only the ones
+that would actually be written), and `unchangedCount` (how many of those already hold the mapped
+values, so nothing would change for them — a subset of `writeCount`, not additional to it). This
+differs from `asx_ApplyRules`' top-level `WriteCount` below, which counts only rows actually
+written.
+
+```json
+{ "ruleId": "…", "actionType": "UpdateRecord", "fireOn": "OnMatch", "targetTable": "contact",
+  "writes": [ { "operation": "Update", "targetTable": "contact", "targetId": "…", "values": { "donotbulkemail": true } } ],
+  "writeCount": 12, "unchangedCount": 3 }
+```
 
 A fired action also carries `previousOf`: the id of the root-level lookup node when the action
 fired for the previous value of a changed lookup ("Also apply to the previous"), absent
 otherwise. It appears only when the dry run evaluates an Update — `Triggers` is `OnUpdate` and
-both `RecordId` and `RecordJson` are supplied.
+both `RecordId` and `RecordJson` are supplied. `previousOf` doesn't apply to a set target: "Also
+apply to the previous" is available only on a single-record target.
+
+**`ChangeSet`** summarizes every write this evaluation would make, across every rule and action
+that fired, after writes to the same record are merged (see *Building Actions* → *Writing a set of
+rows*):
+
+```json
+{ "creates": 1, "updates": 12, "deletes": 0, "unchanged": 3 }
+```
+
+A record with a fired `Block` counts zero in every field (`IsValid` is `false`): enforcement
+would write nothing for it. An update of the evaluated record itself counts as an update here,
+although a form save applies it to the record in place rather than as a separate write.
+
+This is the same summary the Rule Builder's **Test** dialog renders as "Change set: 1 create, 12
+updates, 0 deletes · 3 unchanged".
 
 **Diagnostics** (opt-in, `IncludeDiagnostics: true`) report what the evaluation cost,
 for support conversations and your own sizing against the *Beta Limitations* budget:
@@ -157,7 +190,7 @@ a command button calls directly for a single record (see the recipe below).
 |---|---|---|
 | `IsValid` | Boolean | `true` when no `Block` action fired |
 | `Results` | String | JSON array of every fired action, in the `asx_RunRules` `Results` shape above |
-| `WriteCount` | Integer | Number of write actions applied |
+| `WriteCount` | Integer | Number of rows written (rows skipped as unchanged don't count) |
 
 Calling it requires the **Rule Run Create** privilege (`prvCreateasx_RuleRun`),
 the same gate as starting a Rule Run; *Running Rules On Demand* lists the rest of
@@ -273,6 +306,56 @@ A cloud flow that starts a Rule Run and drives it to completion:
       should end the flow — the run stays Queued or Running and can be resumed
       by running this flow (or **Resume** in the Runs dialog) again later.
    2. **Set variable** `Done` = the action's `Done` output.
+
+## `asx_StartDueSchedules`: drive due Rule Schedules
+
+Finds every currently-due **Rule Schedule** (`asx_ruleschedule`, *Schema Reference*)
+and starts or continues each one's Rule Run, driven from **outside** Dataverse by a
+caller on a timer — the shipped scheduler add-on's flow, or your own (*Administering →
+Scheduling Rules*). It also records a heartbeat on **Scheduler Status**
+(`asx_schedulerstatus`), which the hub reads for its status chip.
+
+**Request**
+
+None.
+
+**Response**
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `RunIds` | String | JSON array of Rule Run ids (not a comma-separated list): the runs this call started, then the runs it continued, then any other active run of a scheduled rule left over from a previous wake-up; each id once |
+| `ScheduledCount` | Integer | Number of due schedules this call found (at most 50) |
+
+```http
+POST /api/data/v9.2/asx_StartDueSchedules
+Content-Type: application/json
+
+{}
+```
+
+```json
+{ "RunIds": "[\"00000000-0000-0000-0000-000000000000\"]", "ScheduledCount": 1 }
+```
+
+At most **50** due schedules are taken per call, and a call stops taking more once about
+**60 seconds** have passed; whatever it didn't reach stays due and is picked up by
+further calls (further wake-ups of the add-on's flow, on its own 15-minute interval).
+Every **Every N minutes/hours** schedule keeps its rhythm: its next run is the next step
+after its previous **Next run on**, not N from the moment of the call.
+
+The runs it starts are **owned by the caller**, like a run started by hand. Calling it
+requires the same run privileges as `asx_ApplyRules`/`asx_ProcessRunPage` (the gate is
+**Rule Run Create**, `prvCreateasx_RuleRun`; *Administering → Scheduling Rules* lists the
+full set). The caller needs no privileges on Rule Schedule or Scheduler Status: the
+engine writes those itself.
+
+Drive each returned id with `asx_ProcessRunPage` (above) the same way Run now does, in
+the order given: new runs come first, so a long run that keeps being continued never
+holds up the rules started after it. A schedule whose rule already has an active run is
+reported as **continued**, not started again, so an id in `RunIds` may already be
+partway through. A call that fails rolls back entirely, heartbeat included, and two
+callers at the same moment may make one of them fail; simply call again on the next
+interval — nothing is lost.
 
 ## `asx_ReadRules`: runtime projection
 

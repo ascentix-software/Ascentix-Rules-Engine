@@ -14,7 +14,7 @@ import { TemplateEditor, DateExprEditor, MathExprEditor } from "../valueExpressi
 import {
   templateFromComparisonValue, dateExprFromComparisonValue, dateExprToComparisonValue,
 } from "../../model/conditionValue";
-import { isLeafComplete, isExistsComplete, type NodeFilterNode } from "../../model/nodeFilter";
+import { countCompleteCriteria } from "../../model/nodeFilter";
 import { NodeFilterDialog } from "./NodeFilterDialog";
 import { CountModeFields, deriveRowCountMode, type RowCountMode } from "./countMode";
 import { color } from "../tokens";
@@ -169,12 +169,6 @@ const FILTERABLE_CONDITION_TYPES = new Set<ConditionTypeLabel>(["FieldComparison
 // so editing happens in the modal. Engine-accurate: a condition filtering multiple nodes is a list
 // of single-target top-level groups (NodeFilterEvaluator evaluates each top-level group and its
 // nested descendants against one node's records).
-function countCompleteCriteria(node: NodeFilterNode): number {
-  if (node.kind === "rule") return isLeafComplete(node) ? 1 : 0;
-  if (node.kind === "exists") return isExistsComplete(node) ? 1 : 0;
-  return node.rules.reduce((n, r) => n + countCompleteCriteria(r), 0);
-}
-
 function NodeFilterSection({ condition, tableConfigs, tcList, onPatch }: {
   condition: ConditionNode; tableConfigs: Record<string, TableConfigRef>; tcList: TableConfigRef[];
   onPatch(patch: Partial<ConditionNode>): void;

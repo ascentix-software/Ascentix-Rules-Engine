@@ -18,9 +18,9 @@ namespace Ascentix.RulesEngine.Core.Engine
     /// arrives as the two provider interfaces. Per record, per rule (loader order): execution
     /// groups gate first, then the main groups decide the match, then
     /// <see cref="ActionDispatcher.ComputeFiredActions"/> orders what fires; a write action gets
-    /// its <see cref="WriteIntent"/> resolved and a message action its template rendered. Owns
-    /// the <c>evaluate</c> stage timer, which wraps exactly that: condition evaluation,
-    /// write-intent resolution and rendering.
+    /// its write intents resolved (one, or one per filtered row for a set action) and a message
+    /// action its template rendered. Owns the <c>evaluate</c> stage timer, which wraps exactly
+    /// that: condition evaluation, write-intent resolution and rendering.
     /// </summary>
     public static class BucketEvaluator
     {
@@ -96,14 +96,21 @@ namespace Ascentix.RulesEngine.Core.Engine
                             if (previousOf != null && PreviousParent.LookupFor(a, tree)?.Id != previousOf.Id) continue;
 
                             WriteIntent intent = null;
-                            if (ActionDispatcher.IsServerAction(a.ActionType) && a.ActionType != ActionType.Block)
-                                intent = writeResolver.Resolve(a, Mapping(input, a), ruleRoot, ruleCache, input.Context);
+                            List<WriteIntent> setIntents = null;
+                            if (ActionDispatcher.IsWriteAction(a.ActionType))
+                            {
+                                if (SetActions.IsSetAction(a, tree))
+                                    setIntents = writeResolver.ResolveSet(a, Mapping(input, a), ruleRoot, ruleCache, input.Context, eval.Dates);
+                                else
+                                    intent = writeResolver.Resolve(a, Mapping(input, a), ruleRoot, ruleCache, input.Context);
+                            }
                             // A record run 1 also resolves for this node (both parents share it) is
                             // current, not previous: run 1 owns it, so run 2 must not overwrite it.
                             if (previousOf != null && intent?.Operation == WriteOperation.Update
                                 && IsRunOneTarget(cache, a, intent)) continue;
                             var result = ToResult(a, input.LanguageId, ruleRoot, ruleCache, templates, trace, intent);
                             result.PreviousOfNodeId = previousOf?.Id;
+                            result.WriteIntents = setIntents;
                             fired.Add(result);
                         }
                     }

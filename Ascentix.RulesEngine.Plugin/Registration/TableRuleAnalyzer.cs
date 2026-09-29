@@ -71,7 +71,10 @@ namespace Ascentix.RulesEngine.Plugin.Registration
             // (action targets, mapping sources, message tokens) loads as OPTIONAL so the root-only
             // verdict can see whether it is a root, while a stale reference on one rule cannot
             // abort the analysis of the whole table (it answers "not root-only": fail closed).
-            var allRefs = RuleReferences.Compute(rootGroups, actionsByRule.Values.SelectMany(v => v));
+            // A Create's target counts only as Create per row (a collection); a stale single-record
+            // target left on a one-record Create changes nothing, as before.
+            var createTargets = new TableConfigLoader(_service).LoadCreateTargets(actionsByRule.Values.SelectMany(v => v));
+            var allRefs = RuleReferences.Compute(rootGroups, actionsByRule.Values.SelectMany(v => v), setTargets: createTargets);
             var required = allRefs.NodeIds(ReferenceKind.ConditionNodes, ReferenceKind.FieldReferenceNodes);
             var optional = allRefs.NodesToLoad.Concat(allRefs.OptionalNodes).Where(id => !required.Contains(id)).ToList();
             var tree = TableConfigTree.Empty;
@@ -98,7 +101,7 @@ namespace Ascentix.RulesEngine.Plugin.Registration
                     .Where(a => Enum.IsDefined(typeof(ActionType), a.ActionType))
                     .Any(a => a.IsActive && ActionDispatcher.IsServerAction(a.ActionType));
 
-                var refs = RuleReferences.Compute(ruleGroups, actions);
+                var refs = RuleReferences.Compute(ruleGroups, actions, setTargets: createTargets);
                 var rootColumns = refs.RootColumns(tree);
                 foreach (var tc in TriggerColumns.Parse(rule.GetAttributeValue<string>(TriggerColumnsField)))
                     rootColumns.Add(tc);

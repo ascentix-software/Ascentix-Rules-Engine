@@ -90,3 +90,12 @@ export function isBlockEmpty(b: NodeFilterBlock): boolean {
 export function isFilterEmpty(blocks: NodeFilterBlock[]): boolean {
   return blocks.every(isBlockEmpty);
 }
+
+// Counts complete (evaluable) criteria in a filter tree (leaves and exists nodes): the single
+// definition behind every "N conditions" summary (ConditionInspector's node-filter section,
+// valueExpressions's per-aggregate filter chip) so they can never drift out of sync.
+export function countCompleteCriteria(node: NodeFilterNode): number {
+  if (node.kind === "rule") return isLeafComplete(node) ? 1 : 0;
+  if (node.kind === "exists") return isExistsComplete(node) ? 1 : 0;
+  return node.rules.reduce((n, r) => n + countCompleteCriteria(r), 0);
+}

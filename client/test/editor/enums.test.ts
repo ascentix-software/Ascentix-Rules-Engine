@@ -20,6 +20,10 @@ describe("enum label maps", () => {
     expect(actionTypeLabel(7)).toBe("DeleteRecord");
     expect(actionTypeLabel(null)).toBeNull();
   });
+  it("Deactivate Record is action type 8", () => {
+    expect(actionTypeLabel(8)).toBe("DeactivateRecord");
+    expect(actionTypeValue("DeactivateRecord")).toBe(8);
+  });
   it("maps table-config types", () => {
     expect(tableConfigTypeLabel(1)).toBe("RootTable");
     expect(tableConfigTypeLabel(2)).toBe("LookupTable");

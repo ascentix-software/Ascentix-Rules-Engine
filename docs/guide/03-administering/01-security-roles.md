@@ -42,6 +42,24 @@ below), so the client form library reaches configuration without it. The
 component that reads configuration in the calling user's own context is the
 Rule Builder, whose users hold Author.
 
+## Running and scheduling rules
+
+Neither role grants the privileges to run or schedule rules; an administrator
+grants those separately, typically with a small role assigned on top:
+
+- **Running rules** (Run now, `asx_ApplyRules`, `asx_ProcessRunPage`): **Create**,
+  **Read**, **Append** and **Write** on **Rule Run** (`asx_rulerun`), and **Append
+  To** on **Rule** (`asx_rule`). See *Running Rules On Demand*.
+- **Setting schedules** in the Rule Builder: **Create**, **Read**, **Write** and
+  **Append** on **Rule Schedule** (`asx_ruleschedule`), and **Append To** on **Rule**
+  (`asx_rule`). An author without **Read** sees "You don't have access to rule
+  schedules. Ask an administrator." in the Schedule section; one with Read but
+  without Create or Write gets an error when saving the schedule. See *Scheduling Rules*.
+
+The account that drives schedules (the scheduler add-on's connection, or your own
+caller) needs only the run privileges: `asx_StartDueSchedules` writes Rule Schedule
+and Scheduler Status itself.
+
 ## Rule-config reads run as system
 
 `RulesEnginePlugin` loads the config tables (`asx_rule`, `asx_conditiongroup`,
