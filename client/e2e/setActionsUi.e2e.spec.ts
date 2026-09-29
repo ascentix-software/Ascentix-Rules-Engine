@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { createDevApi, deleteDevRecord } from "../test-dev/devApi";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
+import { createOrderLine } from "../test-dev/ruleBehavior/subjects";
 import { resolveAppId, createOrderConfigTree } from "./devHelpers";
 import { openRuleFromHub, saveValidatePublish } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
@@ -19,9 +20,11 @@ test("a set Update with a Rows filter reports its row counts in Test", async ({ 
   const order = await api.createRecord("sample_orders", { sample_name: orderName, sample_ordertotal: 0 });
   const touched = `ZZ_RB_setui_${stamp}_touched`;
   // Two lines over 100 (one already named `touched`, so it shows as unchanged) and one under.
+  // The line -> order lookup's @odata.bind nav-prop isn't the attribute name (`sample_orderid`);
+  // createOrderLine resolves it live from metadata (test-dev/ruleBehavior/subjects.ts), the same
+  // way every other rule-behavior suite binds a line to its order.
   for (const [name, amount] of [[touched, 500], [`ZZ_RB_setui_${stamp}_big`, 500], [`ZZ_RB_setui_${stamp}_small`, 5]] as const)
-    await api.createRecord("sample_orderlines", { sample_name: name, sample_lineamount: amount,
-      "sample_orderid@odata.bind": `/sample_orders(${order})` });
+    await createOrderLine(order, { sample_name: name, sample_lineamount: amount });
   const lines = (await api.retrieveMultipleRecords("sample_orderlines", `?$select=sample_orderlineid&$filter=_sample_orderid_value eq ${order}`)).entities;
 
   const rule = await authorRule({ name: `ZZ_RB_setui_${stamp}`, rootNodeId: tree.rootId, triggers: "3",
