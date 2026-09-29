@@ -104,6 +104,12 @@ describe("mapper extensions", () => {
     expect(a.severity).toBe(3);
     expect(a.isActive).toBe(true);
   });
+
+  it("maps asx_applytoprevious", () => {
+    expect(mapActionRecord({ ...rawAction, asx_applytoprevious: true }).applyToPrevious).toBe(true);
+    expect(mapActionRecord({ ...rawAction, asx_applytoprevious: false }).applyToPrevious).toBe(false);
+    expect(mapActionRecord({ ...rawAction, asx_applytoprevious: null }).applyToPrevious).toBeNull();
+  });
 });
 
 describe("localized messages", () => {

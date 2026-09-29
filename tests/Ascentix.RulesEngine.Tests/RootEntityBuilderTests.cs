@@ -117,5 +117,34 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal("One", roots.Single(r => r.Id == id1).GetAttributeValue<string>("name"));
             Assert.Equal("Two", roots.Single(r => r.Id == id2).GetAttributeValue<string>("name"));
         }
+
+        [Fact]
+        public void RetrieveAndOverlay_reports_the_saved_record_before_the_overlay()
+        {
+            var context = new XrmFakedContext();
+            var id = Guid.NewGuid();
+            var before = new EntityReference("contact", Guid.NewGuid());
+            context.Initialize(new List<Entity> { new Entity("opportunity", id) { ["parentcontactid"] = before } });
+            var svc = context.GetOrganizationService();
+
+            var target = new Entity("opportunity", id) { ["parentcontactid"] = new EntityReference("contact", Guid.NewGuid()) };
+            var saved = new List<Entity>();
+            var roots = RootEntityBuilder.Build(svc, "opportunity", new List<RootInput> { new RootInput { Id = id, Overlay = target } },
+                new HashSet<string> { "parentcontactid" }, RootBuildMode.RetrieveAndOverlay, saved: saved);
+
+            Assert.Equal(target.GetAttributeValue<EntityReference>("parentcontactid").Id,
+                roots[0].GetAttributeValue<EntityReference>("parentcontactid").Id);
+            Assert.Equal(before.Id, Assert.Single(saved).GetAttributeValue<EntityReference>("parentcontactid").Id);
+        }
+
+        [Fact]
+        public void UseTarget_reports_no_saved_record()
+        {
+            var target = new Entity("opportunity", Guid.NewGuid());
+            var saved = new List<Entity>();
+            RootEntityBuilder.Build(null, "opportunity", new List<RootInput> { new RootInput { Id = target.Id, Overlay = target } },
+                new HashSet<string>(), RootBuildMode.UseTarget, saved: saved);
+            Assert.Null(Assert.Single(saved));
+        }
     }
 }

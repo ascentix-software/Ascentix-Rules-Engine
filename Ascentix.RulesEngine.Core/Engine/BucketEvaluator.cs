@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Actions;
@@ -50,25 +51,55 @@ namespace Ascentix.RulesEngine.Core.Engine
                     var groupEval = new ConditionGroupEvaluator(conditionEval);
 
                     foreach (var ruleId in input.RuleIds)
+                        EvaluateRule(ruleId, root, cache, conditionEval, groupEval, null);
+
+                    // Second runs: each changed lookup's previous record, ticked actions only. The
+                    // root there is an existing record, so no new-record stamp. A rule with no
+                    // action that can fire for this lookup has nothing to contribute here, so its
+                    // conditions are not even evaluated a second time.
+                    foreach (var run in record.PreviousRuns)
                     {
-                        conditionEval.Dates = input.DatesByRule.TryGetValue(ruleId, out var dates) ? dates : null;
+                        var previousEval = new ConditionEvaluator(run.Cache, tree, resolver, input.Labels, input.UtcNow)
+                        { Pushdown = input.Pushdown };
+                        var previousGroups = new ConditionGroupEvaluator(previousEval);
+                        foreach (var ruleId in input.RuleIds)
+                        {
+                            if (!HasPreviousAction(input, ruleId, tree, run.Lookup)) continue;
+                            EvaluateRule(ruleId, run.Root, run.Cache, previousEval, previousGroups, run.Lookup);
+                        }
+                    }
+
+                    void EvaluateRule(Guid ruleId, Entity ruleRoot, QueryResultCache ruleCache,
+                        ConditionEvaluator eval, ConditionGroupEvaluator groups, TableConfig previousOf)
+                    {
+                        eval.Dates = input.DatesByRule.TryGetValue(ruleId, out var dates) ? dates : null;
 
                         var ruleRootGroups = input.RootGroups.Where(g => g.RuleId == ruleId).ToList();
 
                         var executionGroups = ruleRootGroups.Where(g => g.IsExecutionCondition).ToList();
-                        if (executionGroups.Any() && !executionGroups.All(g => groupEval.EvaluateGroup(g, root).Passed))
-                            continue;
+                        if (executionGroups.Any() && !executionGroups.All(g => groups.EvaluateGroup(g, ruleRoot).Passed))
+                            return;
 
                         var ruleGroups = ruleRootGroups.Where(g => !g.IsExecutionCondition).ToList();
-                        var matched = ruleGroups.All(g => groupEval.EvaluateGroup(g, root).Passed);
+                        var matched = ruleGroups.All(g => groups.EvaluateGroup(g, ruleRoot).Passed);
 
                         input.ActionsByRule.TryGetValue(ruleId, out var actions);
                         foreach (var a in ActionDispatcher.ComputeFiredActions(matched, actions))
                         {
+                            // A second run only brings the previous record up to date: ticked Update
+                            // Record actions in that lookup's branch. Everything else ran in run 1.
+                            if (previousOf != null && PreviousParent.LookupFor(a, tree)?.Id != previousOf.Id) continue;
+
                             WriteIntent intent = null;
                             if (ActionDispatcher.IsServerAction(a.ActionType) && a.ActionType != ActionType.Block)
-                                intent = writeResolver.Resolve(a, Mapping(input, a), root, cache, input.Context);
-                            fired.Add(ToResult(a, input.LanguageId, root, cache, templates, trace, intent));
+                                intent = writeResolver.Resolve(a, Mapping(input, a), ruleRoot, ruleCache, input.Context);
+                            // A record run 1 also resolves for this node (both parents share it) is
+                            // current, not previous: run 1 owns it, so run 2 must not overwrite it.
+                            if (previousOf != null && intent?.Operation == WriteOperation.Update
+                                && IsRunOneTarget(cache, a, intent)) continue;
+                            var result = ToResult(a, input.LanguageId, ruleRoot, ruleCache, templates, trace, intent);
+                            result.PreviousOfNodeId = previousOf?.Id;
+                            fired.Add(result);
                         }
                     }
                 }
@@ -84,6 +115,20 @@ namespace Ascentix.RulesEngine.Core.Engine
         // was, raised only when that action actually fires.
         private static List<FieldMappingEntry> Mapping(EvaluationInput input, RuleAction a) =>
             input.MappingsByAction.TryGetValue(a.Id, out var m) ? m : FieldMappingParser.Parse(a.FieldMapping);
+
+        // Run 2 only ever fires a ticked action whose root-level lookup is the one that changed;
+        // a rule with no such action would evaluate conditions and fire nothing, so it is skipped
+        // before conditions are evaluated at all.
+        private static bool HasPreviousAction(EvaluationInput input, Guid ruleId, TableConfigTree tree, TableConfig lookup) =>
+            input.ActionsByRule.TryGetValue(ruleId, out var actions)
+            && actions.Any(a => PreviousParent.LookupFor(a, tree)?.Id == lookup.Id);
+
+        private static bool IsRunOneTarget(QueryResultCache runOneCache, RuleAction a, WriteIntent intent)
+        {
+            if (!a.TargetNodeId.HasValue || !runOneCache.Has(a.TargetNodeId.Value)) return false;
+            var rows = runOneCache.Get(a.TargetNodeId.Value);
+            return rows.Count == 1 && rows[0].Id == intent.TargetId;
+        }
 
         private static FiredActionResult ToResult(
             RuleAction a,

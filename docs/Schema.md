@@ -193,6 +193,7 @@ requirements at the application level).
 | Field Mapping | `asx_fieldmapping` | Multiline (JSON) | | Create/Update value map (see format below) |
 | Order | `asx_order` | Whole Number | | Execution order |
 | Is Active | `asx_isactive` | Yes/No | | Default Yes |
+| Also Apply To Previous | `asx_applytoprevious` | Yes/No | | Update Record only: when the save changes the lookup above the target node, also apply the action to the record the lookup pointed to before the save. Default No |
 
 > **Write actions (CreateRecord / UpdateRecord / DeleteRecord)** are executed by the **plugin**
 > (enforcing adapter): synchronously, in the triggering operation's transaction (atomic: a write
@@ -334,6 +335,13 @@ Attribute kinds decode as:
 Enums are serialized as string names (`"Block"`, `"OnMatch"`, `"Error"`). Fields irrelevant to
 an action type are `null` (e.g. `targetColumn`/`value` for `Block`; `message`/`severity` for
 `SetVisible`). `message` is already localized using the resolved language at evaluation time.
+
+A fired action also carries `previousOf`: the id of the root-level lookup node when the action
+fired for the previous value of a changed lookup (see *"Also apply to the previous"* under
+Building Actions), absent for a normal-run action. It can only appear when the dry run evaluates
+an Update — `Triggers` is `OnUpdate` and both `RecordId` and `RecordJson` are supplied (a
+retrieve-and-overlay build), the only shape that carries a saved record to compare against the
+overlay.
 
 A fired **CreateRecord / UpdateRecord / DeleteRecord** action also carries a `write` object, the
 fully-resolved write intent. It is **reported only** (`asx_RunRules` never executes it; the plugin does):
@@ -572,7 +580,9 @@ Field notes:
   `META_OPERATOR_TYPE_MISMATCH`, `STRUCT_ROWCOUNT_ON_CREATE` (Warning: a min-rows Row Count on
   a structurally-empty-at-create collection combined with the On Create trigger can never pass
   during Create), `STRUCT_INVALID_DATEEXPR`, `STRUCT_EXPR_FILTER_MISSING`,
-  `STRUCT_INVALID_EXPRESSION_FILTERS`, `STRUCT_INVALID_TIMEZONE`. Trusted Authors may publish System-context writes without
+  `STRUCT_INVALID_EXPRESSION_FILTERS`, `STRUCT_INVALID_TIMEZONE`, `STRUCT_APPLY_PREVIOUS_TARGET` (Error: an action's
+  "Also Apply To Previous" is ticked but the action is not an Update Record whose target is reached through
+  lookups from the rule's record). Trusted Authors may publish System-context writes without
   holding privileges on the target business tables; see `docs/Security.md`.
 - `kind` is a string enum name: `"Rule"`, `"Group"`, `"Condition"`, or `"Action"`.
 - `field` is the logical-name fragment of the column the issue targets; omitted (`null`) when the

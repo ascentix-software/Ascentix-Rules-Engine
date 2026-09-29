@@ -169,6 +169,80 @@ describe("diffRuleGraph", () => {
   });
 });
 
+describe("diffRuleGraph — applyToPrevious", () => {
+  // root -> contact (lookup): an UpdateRecord action targeting contact is eligible;
+  // one targeting root is not (root is the rule's own record, not reached through a lookup).
+  const configs: Record<string, TableConfigRef> = {
+    root: { id: "root", name: "Account", tableLogicalName: "account", tableConfigType: "RootTable", parentTableConfigId: null,
+      lookupColumnLogicalName: null, childLinkField: null, lookupTargetIdAttribute: null },
+    contact: { id: "contact", name: "Contact", tableLogicalName: "contact", tableConfigType: "LookupTable", parentTableConfigId: "root",
+      lookupColumnLogicalName: "primarycontactid", childLinkField: null, lookupTargetIdAttribute: "contactid" },
+  };
+
+  it("a new eligible, ticked action emits asx_applytoprevious: true", () => {
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs };
+    let w = addAction(clone(snap));
+    w = { ...w, actions: w.actions.map((a) => ({ ...a, actionType: "UpdateRecord" as const, targetNodeId: "contact", applyToPrevious: true })) };
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_ruleaction") as any;
+    expect(op.attrs.asx_applytoprevious).toBe(true);
+  });
+
+  it("a new ticked action whose target is ineligible (root) emits asx_applytoprevious: false", () => {
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs };
+    let w = addAction(clone(snap));
+    w = { ...w, actions: w.actions.map((a) => ({ ...a, actionType: "UpdateRecord" as const, targetNodeId: "root", applyToPrevious: true })) };
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_ruleaction") as any;
+    expect(op.attrs.asx_applytoprevious).toBe(false);
+  });
+
+  it("a new ticked action whose type isn't Update Record emits asx_applytoprevious: false", () => {
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs };
+    let w = addAction(clone(snap));
+    w = { ...w, actions: w.actions.map((a) => ({ ...a, actionType: "ShowMessage" as const, targetNodeId: "contact", applyToPrevious: true })) };
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_ruleaction") as any;
+    expect(op.attrs.asx_applytoprevious).toBe(false);
+  });
+
+  it("an unchanged loaded action with the column absent/false emits no update", () => {
+    const action = {
+      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, fireOn: 1,
+      targetColumn: null, targetTable: null, targetNodeId: "tc1", message: null,
+      fieldMapping: null, value: null, applyInverseWhenNotFired: null,
+      severity: null, isActive: true, localizedMessages: [],
+      // applyToPrevious intentionally omitted, as mapActionRecord leaves it for a loaded row
+      // whose asx_applytoprevious column is absent or false.
+    };
+    const snap: RuleGraph = { ...baseGraph(), actions: [action] };
+    const w = clone(snap);
+    expect(diffRuleGraph(snap, w).some((o) => o.entity === "asx_ruleaction")).toBe(false);
+  });
+
+  it("a loaded row stored true but now ineligible is PATCHed to false", () => {
+    const action = {
+      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, fireOn: 1,
+      targetColumn: null, targetTable: null, targetNodeId: "root", message: null,
+      fieldMapping: null, value: null, applyInverseWhenNotFired: null,
+      severity: null, isActive: true, localizedMessages: [], applyToPrevious: true,
+    };
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs, actions: [action] };
+    const w = clone(snap);
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_ruleaction") as any;
+    expect(op.attrs.asx_applytoprevious).toBe(false);
+  });
+
+  it("a loaded eligible ticked row, unchanged, emits no update", () => {
+    const action = {
+      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, fireOn: 1,
+      targetColumn: null, targetTable: null, targetNodeId: "contact", message: null,
+      fieldMapping: null, value: null, applyInverseWhenNotFired: null,
+      severity: null, isActive: true, localizedMessages: [], applyToPrevious: true,
+    };
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs, actions: [action] };
+    const w = clone(snap);
+    expect(diffRuleGraph(snap, w).some((o) => o.entity === "asx_ruleaction")).toBe(false);
+  });
+});
+
 describe("diffRuleGraph — rule fields", () => {
   it("emits encoded multi-selects, dates and eval context on change", () => {
     const snap = baseGraph();

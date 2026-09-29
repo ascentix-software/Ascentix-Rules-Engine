@@ -275,10 +275,11 @@ foreach ($interrupt in @($false, $true)) {
             Assert $interrupted 'Schema retry scenario did not interrupt.'
         }
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($tables.Count -eq 2 -and $fields.Count -eq 15) 'Expected additive authoring tables and fields.'
+        Assert ($tables.Count -eq 2 -and $fields.Count -eq 16) 'Expected additive authoring tables and fields.'
         Assert ($fields['asx_rulecondition/asx_expressionfilters'].MaxLength -eq 100000) 'Expected the Calculation expression filters column.'
         Assert ($fields['asx_rule/asx_evaluationtimezone'].MaxLength -eq 100) 'Expected the rule evaluation time zone column.'
-        Assert ($schemaState.Writes -eq (17 + $views.Count)) 'Unexpected metadata write count.'
+        Assert ($null -ne $fields['asx_ruleaction/asx_applytoprevious']) 'Expected the apply-to-previous action column.'
+        Assert ($schemaState.Writes -eq (18 + $views.Count)) 'Unexpected metadata write count.'
         $writes = $schemaState.Writes
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
         Assert ($schemaState.Writes -eq $writes) 'Schema retry changed already configured metadata.'

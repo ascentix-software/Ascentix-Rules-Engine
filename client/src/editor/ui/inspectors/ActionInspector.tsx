@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Dropdown, Option, Field, Input, Switch, Textarea, Button } from "@fluentui/react-components";
 import type { ActionNode, ActionTypeLabel, TableConfigRef } from "../../model/types";
-import { isSingleCardinality } from "../../model/tableConfigOps";
+import { isSingleCardinality, previousParentLookup } from "../../model/tableConfigOps";
 import { TablePicker, ColumnPicker } from "../pickers/MetadataPickers";
 import { FieldMappingControl } from "./FieldMappingDialog";
 import { actionWhatHappens, actionEffect, messageBlocksForm } from "../labels";
@@ -262,6 +262,20 @@ export function ActionInspector({
           />
         </Field>
       )}
+      {(() => {
+        // Shown only while the action is eligible (Update Record, targeting a node reached
+        // through lookups). If a later edit moves the target out of the lookup branch or changes
+        // the action type away from Update Record, the field disappears; diff.ts saves the flag
+        // as off in that case, so there is nothing left to untick here.
+        const lookup = t === "UpdateRecord" ? previousParentLookup(tableConfigs, action.targetNodeId) : null;
+        if (!lookup) return null;
+        return (
+          <Field label={`Also apply to the previous ${lookup.name} when it changes`}
+            hint={`When the save points ${lookup.name} at a different record, also apply this action to the one it pointed to before.`}>
+            <Switch checked={!!action.applyToPrevious} onChange={(_e, d) => onPatch({ applyToPrevious: d.checked })} />
+          </Field>
+        );
+      })()}
 
       {t && (() => {
         const eff = actionEffect(action);

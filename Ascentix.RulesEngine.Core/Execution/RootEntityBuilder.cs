@@ -34,16 +34,23 @@ namespace Ascentix.RulesEngine.Core.Execution
         /// <paramref name="columns"/>. Set when a traversal node re-reads the root's own table
         /// and the collector refused to prune it, so the row InFlightReconciler may have to add
         /// back to that node's results carries every column the node's consumers read.</param>
+        /// <param name="saved">When non-null, receives one entry per input, in input order: a copy of
+        /// the record as retrieved before the overlay (the saved values), an empty entity when
+        /// nothing was retrieved, or null in UseTarget mode.</param>
         public static List<Entity> Build(
             IOrganizationService service,
             string logicalName,
             IList<RootInput> inputs,
             ISet<string> columns,
             RootBuildMode mode,
-            bool allColumns = false)
+            bool allColumns = false,
+            List<Entity> saved = null)
         {
             if (mode == RootBuildMode.UseTarget)
+            {
+                if (saved != null) foreach (var _ in inputs) saved.Add(null);
                 return inputs.Select(i => i.Overlay).ToList();
+            }
 
             var ids = inputs.Select(i => i.Id).Where(id => id != Guid.Empty).Distinct().ToList();
             var retrieved = BatchRetrieve(service, logicalName, ids, columns, allColumns);
@@ -53,6 +60,8 @@ namespace Ascentix.RulesEngine.Core.Execution
             {
                 retrieved.TryGetValue(input.Id, out var root);
                 root = root ?? new Entity(logicalName, input.Id);
+
+                if (saved != null) saved.Add(Copy(root));
 
                 if (mode == RootBuildMode.RetrieveAndOverlay && input.Overlay != null)
                     foreach (var attr in input.Overlay.Attributes)
@@ -73,6 +82,13 @@ namespace Ascentix.RulesEngine.Core.Execution
                 result.Add(root);
             }
             return result;
+        }
+
+        private static Entity Copy(Entity source)
+        {
+            var copy = new Entity(source.LogicalName, source.Id);
+            foreach (var attr in source.Attributes) copy[attr.Key] = attr.Value;
+            return copy;
         }
 
         private static Dictionary<Guid, Entity> BatchRetrieve(

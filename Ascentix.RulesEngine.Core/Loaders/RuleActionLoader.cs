@@ -32,6 +32,7 @@ namespace Ascentix.RulesEngine.Core.Loaders
         private static readonly string FieldMappingField = SchemaNames.Qualify(SchemaNames.RuleAction.FieldMapping);
         private static readonly string OrderField = SchemaNames.Qualify(SchemaNames.RuleAction.Order);
         private static readonly string IsActiveField = SchemaNames.Qualify(SchemaNames.RuleAction.IsActive);
+        private static readonly string ApplyToPreviousField = SchemaNames.Qualify(SchemaNames.RuleAction.ApplyToPrevious);
 
         private static readonly string LocalizedMessageEntity = SchemaNames.Qualify(SchemaNames.LocalizedMessage.Entity);
         private static readonly string LmRuleActionLookup = SchemaNames.Qualify(SchemaNames.LocalizedMessage.RuleAction);
@@ -87,7 +88,8 @@ namespace Ascentix.RulesEngine.Core.Loaders
                 TargetNodeId = e.GetAttributeValue<EntityReference>(TargetNodeField)?.Id,
                 FieldMapping = e.GetAttributeValue<string>(FieldMappingField),
                 Order = e.GetAttributeValue<int>(OrderField),
-                IsActive = e.GetAttributeValue<bool>(IsActiveField)
+                IsActive = e.GetAttributeValue<bool>(IsActiveField),
+                ApplyToPrevious = e.GetAttributeValue<bool>(ApplyToPreviousField)
             };
         }
 

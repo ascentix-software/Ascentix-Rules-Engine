@@ -1,5 +1,5 @@
 import type {
-  RuleGraph, ConditionGroupNode, ConditionNode, ActionNode,
+  RuleGraph, ConditionGroupNode, ConditionNode, ActionNode, TableConfigRef,
 } from "../model/types";
 import type { NodeFilterBlock, NodeFilterGroupModel, NodeFilterLeaf } from "../model/nodeFilter";
 import { isBlockEmpty } from "../model/nodeFilter";
@@ -9,6 +9,7 @@ import { logicalOperatorValue, conditionTypeValue, actionTypeValue, encodeMultiS
 import { operatorToFetchOp } from "../ui/pickers/recordFilter";
 import { serializeExpressionFilters } from "../model/expressionFilters";
 import { isLeafComplete } from "../model/nodeFilter";
+import { previousParentLookup } from "../model/tableConfigOps";
 import { ENTITY, ENTITY_SET, BIND_NAV } from "../load/odata";
 
 export type BindRef = { kind: "existing"; id: string } | { kind: "new"; tempId: string };
@@ -65,7 +66,15 @@ function conditionAttrs(c: ConditionNode): Record<string, any> {
 function localizedAttrs(m: { languageCode: number; message: string }): Record<string, any> {
   return { asx_languagecode: m.languageCode, asx_message: m.message };
 }
-function actionAttrs(a: ActionNode): Record<string, any> {
+// `tableConfigs` gates asx_applytoprevious to the action's CURRENT eligibility (Update Record,
+// targeting a node reached through lookups): a ticked but ineligible action saves as off, so an
+// unpublishable state never reaches Dataverse (ActionInspector hides the switch on the same
+// eligibility check, with nothing left to untick). Null keeps the stored value as-is, for the
+// snapshot/prev side of a diff — that side describes what's actually persisted, never
+// recomputed, so comparing it against the gated "next" value is what turns an ineligible loaded
+// row's stale `true` into a PATCH to false.
+function actionAttrs(a: ActionNode, tableConfigs: Record<string, TableConfigRef> | null): Record<string, any> {
+  const eligible = !!tableConfigs && a.actionType === "UpdateRecord" && previousParentLookup(tableConfigs, a.targetNodeId) != null;
   return {
     asx_name: a.name,
     asx_order: a.order,
@@ -79,6 +88,7 @@ function actionAttrs(a: ActionNode): Record<string, any> {
     asx_applyinversewhennotfired: a.applyInverseWhenNotFired,
     asx_severity: a.severity,
     asx_isactive: a.isActive,
+    asx_applytoprevious: tableConfigs ? (!!a.applyToPrevious && eligible) : (a.applyToPrevious ?? false),
   };
 }
 
@@ -472,10 +482,10 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
     ];
     if (a.targetNodeId) binds.push({ navProp: BIND_NAV.actionTargetNode, targetSet: ENTITY_SET.tableConfig, ref: ref(a.targetNodeId) });
     if (isNewId(a.id)) {
-      creates.push({ kind: "create", entity: ENTITY.action, set: ENTITY_SET.action, tempId: a.id, attrs: actionAttrs(a), binds });
+      creates.push({ kind: "create", entity: ENTITY.action, set: ENTITY_SET.action, tempId: a.id, attrs: actionAttrs(a, workNodes), binds });
     } else {
       const prev = snapActById.get(a.id);
-      const attrs = prev ? changedAttrs(actionAttrs(prev), actionAttrs(a)) : actionAttrs(a);
+      const attrs = prev ? changedAttrs(actionAttrs(prev, null), actionAttrs(a, workNodes)) : actionAttrs(a, workNodes);
       const changedBinds = prev ? actionBindChanges(prev, a) : binds;
       if (Object.keys(attrs).length > 0 || changedBinds.length > 0) {
         updates.push({ kind: "update", entity: ENTITY.action, set: ENTITY_SET.action, id: a.id, attrs, binds: changedBinds, etag: etagOf(prev) });

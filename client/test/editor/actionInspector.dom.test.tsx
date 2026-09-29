@@ -103,3 +103,45 @@ describe("ActionInspector (routed via ruleEditorInspectorContent)", () => {
     expect(screen.queryByRole("switch", { name: "Apply inverse when not fired" })).toBeNull();
   });
 });
+
+describe("ActionInspector: apply to previous", () => {
+  const configs = {
+    root: { id: "root", name: "Account", tableLogicalName: "account", tableConfigType: "RootTable" as const, parentTableConfigId: null,
+      lookupColumnLogicalName: null, childLinkField: null, lookupTargetIdAttribute: null },
+    contact: { id: "contact", name: "Contact", tableLogicalName: "contact", tableConfigType: "LookupTable" as const, parentTableConfigId: "root",
+      lookupColumnLogicalName: "primarycontactid", childLinkField: null, lookupTargetIdAttribute: "contactid" },
+  };
+
+  function renderUpdate(targetNodeId: string, over = {}) {
+    const h = handlers();
+    const graph = makeGraph({
+      tableConfigs: configs,
+      actions: [makeAction({ id: "a1", actionType: "UpdateRecord", targetNodeId, ...over })],
+    });
+    const { body } = ruleEditorInspectorContent(graph, { kind: "action", id: "a1" }, h);
+    renderWithMeta(<SystemChoicesProvider>{body}</SystemChoicesProvider>,
+      fakeMetadata({ account: [col({ logicalName: "name" })], contact: [col({ logicalName: "lastname" })] }));
+    return h;
+  }
+
+  it("offers the option for an update in a lookup branch and patches it", () => {
+    const h = renderUpdate("contact");
+    fireEvent.click(screen.getByLabelText("Also apply to the previous Contact when it changes"));
+    expect(h.onPatchAction).toHaveBeenCalledWith("a1", { applyToPrevious: true });
+  });
+
+  it("hides the option when the update targets the rule's own record", () => {
+    renderUpdate("root");
+    expect(screen.queryByLabelText(/Also apply to the previous/)).toBeNull();
+  });
+
+  it("hides a ticked but now-ineligible flag instead of showing a warning", () => {
+    renderUpdate("root", { applyToPrevious: true });
+    expect(screen.queryByLabelText(/Also apply to the previous/)).toBeNull();
+  });
+
+  it("hides the option when a ticked action's type is not Update Record", () => {
+    renderAction("Block", { applyToPrevious: true });
+    expect(screen.queryByLabelText(/Also apply to the previous/)).toBeNull();
+  });
+});

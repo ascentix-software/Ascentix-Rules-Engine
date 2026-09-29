@@ -26,6 +26,10 @@ namespace Ascentix.RulesEngine.Core.Models
         public int Order { get; set; }
         public bool IsActive { get; set; }
 
+        /// <summary>Update Record only: when the save changes the lookup above this action's target,
+        /// also apply the action to the lookup's previous record (see PreviousParent).</summary>
+        public bool ApplyToPrevious { get; set; }
+
         /// <summary>Per-language message text (LCID → text). Empty ⇒ use <see cref="Message"/>.</summary>
         public IDictionary<int, string> LocalizedMessages { get; set; } = new Dictionary<int, string>();
     }

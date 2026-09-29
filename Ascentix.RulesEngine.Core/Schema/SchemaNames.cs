@@ -175,6 +175,7 @@ namespace Ascentix.RulesEngine.Schema
             public const string FieldMapping = "fieldmapping";
             public const string Order = "order";
             public const string IsActive = "isactive";
+            public const string ApplyToPrevious = "applytoprevious";   // Update Record: also run for the previous value of a changed lookup
         }
 
         public static class LocalizedMessage

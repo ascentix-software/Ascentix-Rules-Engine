@@ -96,6 +96,23 @@ export function canDeleteConfigNode(
   return { ok: true };
 }
 
+/** The root-level lookup at or above a node: the chain from the root must be Root → Lookup (→ Lookup …).
+ * Null for the root, a collection, anything under a collection, or an unknown node. Mirrors the
+ * engine's PreviousParent.RootLookupOf. */
+export function previousParentLookup(nodes: Nodes, nodeId: string | null): TableConfigRef | null {
+  if (!nodeId || !nodes[nodeId]) return null;
+  const chain: TableConfigRef[] = [];
+  const seen = new Set<string>();
+  let cur: string | null = nodeId;
+  while (cur && nodes[cur] && !seen.has(cur)) {
+    seen.add(cur);
+    chain.unshift(nodes[cur]!);
+    cur = nodes[cur]!.parentTableConfigId ?? null;
+  }
+  if (chain.length < 2 || chain[0].tableConfigType !== "RootTable") return null;
+  return chain.slice(1).every((n) => n.tableConfigType === "LookupTable") ? chain[1] : null;
+}
+
 // Root-to-node chain (walks parentTableConfigId up, then reverses). [] if id unknown.
 export function pathToNode(nodes: Nodes, id: string): TableConfigRef[] {
   const out: TableConfigRef[] = [];
