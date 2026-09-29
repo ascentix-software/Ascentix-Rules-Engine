@@ -271,6 +271,14 @@ namespace Ascentix.RulesEngine.Tests
             Assert.True(ownIntent.RootTargeted);
             var otherIntent = intents.Single(i => i.TargetId == other.Id);
             Assert.False(otherIntent.RootTargeted);
+
+            // The outcome the ruling names: no request is sent to Guid.Empty. The change set
+            // merges the in-flight row's update into the record being created instead of batching
+            // it as a separate write.
+            var cs = ChangeSet.Build(intents, new RootRecord("sample_orderline", Guid.Empty));
+            Assert.True(cs.HasRootInPlace);
+            Assert.Equal("x", cs.RootInPlaceValues["sample_name"]);
+            Assert.All(cs.Batches.SelectMany(b => b.Writes), w => Assert.NotEqual(Guid.Empty, w.Id));
         }
 
         [Fact]

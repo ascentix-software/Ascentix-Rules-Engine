@@ -191,7 +191,9 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Empty(cs.RootInPlaceValues);
             var batch = Assert.Single(cs.Batches);
             Assert.Equal(WriteOperation.Delete, batch.Operation);
-            Assert.Single(batch.Writes);
+            var write = Assert.Single(batch.Writes);
+            Assert.Equal(Guid.Empty, write.Id);
+            Assert.Equal(WriteOperation.Delete, write.Operation);
         }
 
         [Fact]
