@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Ascentix.RulesEngine.Core;
+using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Plugin;
 using Ascentix.RulesEngine.Schema;
@@ -535,6 +536,20 @@ namespace Ascentix.RulesEngine.Tests
             var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
                 context.ExecutePluginWith<RulesEnginePlugin>(PipelineContext(target)));
             Assert.Contains("Name must be Valid.", ex.Message);
+        }
+
+        [Fact]
+        public void A_blocked_save_still_traces_its_asx_diag_line()
+        {
+            var context = new XrmFakedContext();
+            context.Initialize(SeedRule(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()));
+
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
+                context.ExecutePluginWith<RulesEnginePlugin>(PipelineContext(new Entity("account", Guid.NewGuid()) { ["name"] = "Invalid" })));
+
+            Assert.Contains("Name must be Valid.", ex.Message);
+            Assert.Single(context.GetFakeTracingService().DumpTrace().Split('\n'),
+                l => l.Contains(RunDiagnosticsSerializer.TracePrefix + "{\"totalMs\":"));
         }
     }
 }

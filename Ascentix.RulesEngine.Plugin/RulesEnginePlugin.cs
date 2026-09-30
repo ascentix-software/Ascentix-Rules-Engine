@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Actions;
@@ -16,6 +17,7 @@ namespace Ascentix.RulesEngine.Plugin
     /// Update/UpdateMultiple, and Delete. Normalizes Target/Targets/(delete)EntityReference into
     /// root inputs, delegates evaluation to the shared <see cref="RulesEngineRunner"/>, and
     /// throws once aggregating all fired Block messages (the enforcing adapter).
+    /// Writes one asx-diag diagnostics line per save to the plug-in trace (DiagnosticsOutput).
     /// </summary>
     public class RulesEnginePlugin : PluginBase
     {
@@ -24,6 +26,7 @@ namespace Ascentix.RulesEngine.Plugin
         protected override void ExecuteCdsPlugin(ILocalPluginContext localPluginContext)
         {
             if (localPluginContext == null) throw new ArgumentNullException(nameof(localPluginContext));
+            var overall = Stopwatch.StartNew();
 
             var context = localPluginContext.PluginExecutionContext;
             var systemService = localPluginContext.SystemUserService;
@@ -53,24 +56,37 @@ namespace Ascentix.RulesEngine.Plugin
                 systemService, userService, logicalName, inputs,
                 trigger, channel, languageId, mode, trace);
 
-            var failed = outcome.Records.Where(r => r.HasBlock).ToList();
-            if (failed.Count > 0)
+            try
             {
-                var allMessages = failed.SelectMany(r => r.BlockingMessages);
-                var details = new Dictionary<string, string>();
-                var idx = 0;
-                foreach (var f in failed)
-                    details["failedRecordId_" + idx++] = f.RecordId.ToString();
+                var failed = outcome.Records.Where(r => r.HasBlock).ToList();
+                if (failed.Count > 0)
+                {
+                    var allMessages = failed.SelectMany(r => r.BlockingMessages);
+                    var details = new Dictionary<string, string>();
+                    var idx = 0;
+                    foreach (var f in failed)
+                        details["failedRecordId_" + idx++] = f.RecordId.ToString();
 
-                throw new InvalidPluginExecutionException(
-                    ActionDispatcher.FormatBlockMessage(allMessages, languageId), details);
+                    throw new InvalidPluginExecutionException(
+                        ActionDispatcher.FormatBlockMessage(allMessages, languageId), details);
+                }
+
+                // No block, so apply any fired write actions (atomic, depth-guarded). The outcome's
+                // records are in input order, so each pairs with its own Target by position.
+                new WriteActionExecutor().Execute(
+                    outcome, inputs.Select(inp => inp.Overlay).ToList(), userService, systemService,
+                    PluginReentry.IsEngineInitiated(context), trace, outcome.Diagnostics);
             }
-
-            // No block, so apply any fired write actions (atomic, depth-guarded). The outcome's
-            // records are in input order, so each pairs with its own Target by position.
-            new WriteActionExecutor().Execute(
-                outcome, inputs.Select(inp => inp.Overlay).ToList(), userService, systemService,
-                PluginReentry.IsEngineInitiated(context), trace);
+            finally
+            {
+                // One asx-diag line per save, whether it goes on to succeed, block or fail; totalMs
+                // covers the whole save (evaluation and writes).
+                if (outcome.Diagnostics != null)
+                {
+                    outcome.Diagnostics.TotalMs = overall.ElapsedMilliseconds;
+                    DiagnosticsOutput.Trace(trace, outcome.Diagnostics);
+                }
+            }
         }
 
         // ── Input normalization (Target/Targets/EntityReference) ────────────────

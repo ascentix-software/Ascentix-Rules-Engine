@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.Xrm.Sdk;
+using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
 
@@ -36,31 +37,44 @@ namespace Ascentix.RulesEngine.Plugin
         /// <c>outcome.Records</c> (the runner returns one result per input, in input order); a missing or
         /// null entry means no Target (Delete messages). Paired by position, not by id: the Targets of
         /// a CreateMultiple may all carry Guid.Empty.</param>
+        /// <param name="diagnostics">Receives the write stages and counters; null means none.</param>
         public void Execute(RuleEvaluationOutcome outcome, IList<Entity> inPlaceTargets, IOrganizationService userService,
-            IOrganizationService systemService, bool engineInitiated, ITracingService trace)
+            IOrganizationService systemService, bool engineInitiated, ITracingService trace, RunDiagnostics diagnostics = null)
         {
             for (var i = 0; i < outcome.Records.Count; i++)
             {
                 var inPlace = inPlaceTargets != null && i < inPlaceTargets.Count ? inPlaceTargets[i] : null;
-                ExecuteRecord(outcome.Records[i], inPlace, userService, systemService, engineInitiated, trace);
+                ExecuteRecord(outcome.Records[i], inPlace, userService, systemService, engineInitiated, trace, diagnostics);
             }
         }
 
         /// <summary>Writes one record's change set. Returns the rows sent, plus 1 when an update of the
         /// record being saved was applied in place.</summary>
         public int ExecuteRecord(RecordEvaluationResult record, Entity inPlace, IOrganizationService userService,
-            IOrganizationService systemService, bool engineInitiated, ITracingService trace)
+            IOrganizationService systemService, bool engineInitiated, ITracingService trace, RunDiagnostics diagnostics = null)
         {
             var root = inPlace != null ? new RootRecord(inPlace.LogicalName, record.RecordId) : null;
-            var changeSet = ChangeSet.ForRecord(record, root);
+            ChangeSet changeSet;
+            using (diagnostics?.Time("changeSetBuild"))
+                changeSet = ChangeSet.ForRecord(record, root);
+            if (diagnostics != null)
+            {
+                diagnostics.WritesUnchanged += changeSet.Unchanged;
+                diagnostics.WritesMerged += changeSet.Merged;
+            }
             if (changeSet.WriteCount == 0 && !changeSet.HasRootInPlace)
             {
                 if (changeSet.Unchanged > 0) trace.Trace($"WriteActionExecutor: {changeSet.Unchanged} row(s) already up to date; nothing to write.");
                 return 0;
             }
 
-            var dispatcher = new ChangeSetDispatcher(_support ?? (_support = _supportFactory(systemService)), _sender, trace);
-            var applied = dispatcher.ApplyInPlace(changeSet, inPlace) ? 1 : 0;
+            var dispatcher = new ChangeSetDispatcher(_support ?? (_support = _supportFactory(systemService)), _sender, trace,
+                diagnostics: diagnostics);
+            var applied = 0;
+            if (inPlace != null && changeSet.HasRootInPlace)
+                using (diagnostics?.Time("applyInPlace"))
+                    applied = dispatcher.ApplyInPlace(changeSet, inPlace) ? 1 : 0;
+            if (applied == 1 && diagnostics != null) diagnostics.InPlaceWrites++;
 
             // Service writes could cascade into the engine again, so an engine-initiated execution skips
             // them; the in-place write issues no new operation and always applies.

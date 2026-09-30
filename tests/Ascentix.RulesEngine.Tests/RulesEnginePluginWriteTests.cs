@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Plugin;
 using Ascentix.RulesEngine.Schema;
@@ -157,6 +158,27 @@ namespace Ascentix.RulesEngine.Tests
                 .RetrieveMultiple(new QueryExpression("task") { ColumnSet = new ColumnSet(true) });
 
             Assert.Empty(tasks.Entities);
+        }
+
+        [Fact]
+        public void A_save_traces_one_asx_diag_line_with_its_writes()
+        {
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(Seed());
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("task", new StringAttributeMetadata { LogicalName = "subject" }));
+
+            ctx.ExecutePluginWith<RulesEnginePlugin>(PluginCtx(new Entity("account", Guid.NewGuid()) { ["name"] = "Acme Corp" }));
+
+            var lines = ctx.GetFakeTracingService().DumpTrace().Split('\n')
+                .Where(l => l.Contains(RunDiagnosticsSerializer.TracePrefix)).ToList();
+            var line = Assert.Single(lines);
+            var json = line.Substring(line.IndexOf(RunDiagnosticsSerializer.TracePrefix, StringComparison.Ordinal)
+                + RunDiagnosticsSerializer.TracePrefix.Length).Trim();
+            Assert.StartsWith("{\"totalMs\":", json);
+            Assert.Contains("\"writesSent\":1", json);
+            Assert.Contains("\"singleRequests\":1", json);
+            Assert.Contains("\"changeSetBuild\"", json);
+            Assert.Contains("\"dispatch:Create:task\"", json);
         }
     }
 }
