@@ -18,7 +18,6 @@ import os
 import sys
 import time
 import urllib.error
-import urllib.request
 import uuid
 
 sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "perf"))
@@ -55,13 +54,11 @@ def _batch_delete(entityset, ids, attempts=4):
                   "OData-MaxVersion: 4.0", "OData-Version: 4.0", ""]
     lines.append(f"--{boundary}--")
     body = ("\r\n".join(lines) + "\r\n").encode("utf-8")
-    headers = {"Authorization": f"Bearer {_dv._token}", "Content-Type": f"multipart/mixed; boundary={boundary}",
-               "Accept": "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0"}
     for attempt in range(1, attempts + 1):
-        req = urllib.request.Request(f"{_dv.BASE}/$batch", data=body, headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=300) as r:
-                raw = r.read().decode("utf-8")
+            # _dv.send also retries once with a fresh token on 401 (a long reset outlives a token).
+            _, raw = _dv.send("POST", f"{_dv.BASE}/$batch", body, write=True,
+                              content_type=f"multipart/mixed; boundary={boundary}", timeout=300)
             failed = [ln for ln in raw.splitlines() if ln.startswith("HTTP/1.1") and not ln.startswith("HTTP/1.1 2")]
             if failed:
                 raise SystemExit(f"ERROR $batch DELETE {entityset}: {len(failed)} part(s) failed, e.g. {failed[0]}")

@@ -5,7 +5,7 @@ docs/perf/reports/<date>-<label>-<scenario>.md / .csv / .json and the combined
 <date>-<label>-capacity.md (git-ignored).
 
     python scripts/perf/run-scenario.py --scenario S1 [--ladder 100,500,2000] [--label baseline]
-                                        [--sample N] [--trace-settle 600]
+                                        [--sample N] [--rules N] [--trace-settle 600]
 
 Each step: reset the data (reset-data.py), generate the step's data and rules (generate.py), drive
 the scenario, record pass or fail with its error, per-stage timings and counters. S2 and S3 read each
@@ -49,7 +49,7 @@ SCHEDULER_WINDOW_MINUTES = 20  # another caller's heartbeat younger than this bl
 SCHEDULER_FLOW = "Rules Engine Scheduler"
 CAPTURE_SWITCH = "asx_CaptureDiagnostics"  # Boolean environment variable: saves write asx_rulediagnostic rows
 CAPTURE_ON = "yes"             # Dataverse stores a Boolean environment variable's value as yes/no
-DEFAULT_TRACE_SETTLE = 600     # the switch's 60-second cache plus a freshly published rule going live
+DEFAULT_SETTLE_SECONDS = 600     # the switch's 60-second cache plus a freshly published rule going live
 PROBE_POLL_SECONDS = 15        # how long one probe save's diagnostics row is looked for before probing again
 DIAG_READ_SECONDS = 60         # how long the measured saves' rows are looked for after the last save
 DIAG_POLL_INTERVAL = 5
@@ -109,7 +109,13 @@ def roots_for_step(scenario, step, sample):
     return sample
 
 
-def generate_args(scenario, step, sample):
+def generate_args(scenario, step, sample, rules=None):
+    """generate.py's arguments for one step; --rules (the background rule count) only when given, so
+    generate.py otherwise uses the profile's default."""
+    return _generate_args(scenario, step, sample) + ([] if rules is None else ["--rules", str(rules)])
+
+
+def _generate_args(scenario, step, sample):
     if scenario in ("S1", "S2", "S3"):
         return ["--records", str(roots_for_step(scenario, step, sample)), "--rows-per-root", str(step), "--profile", scenario]
     if scenario == "S4":
@@ -117,6 +123,11 @@ def generate_args(scenario, step, sample):
     if scenario == "S5":
         return ["--records", str(sample), "--rows-per-root", "1", "--profile", "S5", "--profile-step", str(step)]
     return ["--records", str(sample), "--child-fanout", "3", "--profile", "S6", "--profile-step", str(step)]
+
+
+def background_rules(scenario, rules):
+    """The background rule count a step runs with: --rules, or the profile's default generate.py uses."""
+    return profiles.DEFAULT_BACKGROUND[scenario] if rules is None else rules
 
 
 def bound_error(scenario, summary, expected=None):
@@ -211,24 +222,28 @@ def scheduler_busy(last_seen_on, last_seen_by, me, now, window_minutes=SCHEDULER
     return now - _parse_time(last_seen_on) < datetime.timedelta(minutes=window_minutes)
 
 
-def run_ladder(ops, scenario, ladder, sample, log=print, results=None):
+def run_ladder(ops, scenario, ladder, sample, log=print, results=None, rules=None):
     """Runs the ladder, appending to results as it goes (so a caller keeps the finished steps even if
-    this raises) and stopping at the first failing step. A failing reset or generate is a setup failure."""
+    this raises) and stopping at the first failing step. A failing reset or generate is a setup failure.
+    Every result records its background rule count (backgroundRules)."""
     results = [] if results is None else results
+    count = background_rules(scenario, rules)
     for step in ladder:
         try:
             log(f"{scenario} step {step}: reset")
             ops.reset()
             log(f"{scenario} step {step}: generate")
-            ops.prepare(scenario, step, sample)
+            ops.prepare(scenario, step, sample, rules)
         except Exception as e:  # noqa: BLE001
-            results.append(aggregate.step_result(scenario, step, None, f"setup: {e}"))
+            results.append({**aggregate.step_result(scenario, step, None, f"setup: {e}"), "backgroundRules": count})
             break
         log(f"{scenario} step {step}: drive")
         try:
             step_results = ops.drive(scenario, step, sample)
         except Exception as e:  # noqa: BLE001
             step_results = [aggregate.step_result(scenario, step, None, str(e))]
+        for r in step_results:
+            r["backgroundRules"] = count
         results.extend(step_results)
         for r in step_results:
             log(f"  {r['step']}: {'pass' if r['passed'] else 'FAIL ' + str(r['error'])} ({r['summary']['totalMs']} ms)")
@@ -237,7 +252,7 @@ def run_ladder(ops, scenario, ladder, sample, log=print, results=None):
     return results
 
 
-def run(ops, scenario, ladder, sample, log=print, results=None):
+def run(ops, scenario, ladder, sample, log=print, results=None, rules=None):
     """run_ladder, then reset the data and (S2, S3) put the capture switch back, whatever happened. The
     switch's state is read before it is turned on, so it is restored even when turning it on fails
     halfway. A failing final reset is logged, not raised, so it never costs the results."""
@@ -249,7 +264,7 @@ def run(ops, scenario, ladder, sample, log=print, results=None):
             ops.switch_capture_on(switch)
             was = (f"value {switch['value']!r}" if switch["valueId"] else f"no value, default {switch['defaultValue']!r}")
             log(f"{scenario}: {CAPTURE_SWITCH} on (was {was}; restored at the end)")
-        return run_ladder(ops, scenario, ladder, sample, log, results)
+        return run_ladder(ops, scenario, ladder, sample, log, results, rules)
     finally:
         try:
             log(f"{scenario}: final reset")
@@ -268,14 +283,15 @@ def run(ops, scenario, ladder, sample, log=print, results=None):
                 log(f"{scenario}: {CAPTURE_SWITCH} restored")
 
 
-def run_and_report(ops, scenario, ladder, sample, reports_dir, label, today=datetime.date.today, log=print):
+def run_and_report(ops, scenario, ladder, sample, reports_dir, label, today=datetime.date.today, log=print,
+                   rules=None):
     """run, then write the reports from whatever steps finished, even when run raised (Ctrl+C, a
     failed switch restore). The date is taken at the start, so a ladder that crosses midnight is
     reported, and joins the capacity summary, under its start date. Returns (results, report paths)."""
     date_str = today().isoformat()
     results = []
     try:
-        run(ops, scenario, ladder, sample, log, results)
+        run(ops, scenario, ladder, sample, log, results, rules)
     finally:
         paths = write_reports(reports_dir, date_str, label, scenario, results) if results else []
         if paths:
@@ -283,10 +299,33 @@ def run_and_report(ops, scenario, ladder, sample, reports_dir, label, today=date
     return results, paths
 
 
+def ladder_step(result):
+    """The ladder step a result belongs to: S4 reports step 1000 as 1000:no-writes and 1000:set-update."""
+    return str(result["step"]).split(":")[0]
+
+
+def _ladder_order(step):
+    return (0, int(step), "") if step.isdigit() else (1, 0, step)
+
+
+def merge_results(earlier, later):
+    """A scenario's results after a later run of the same date and label: each ladder step the later run
+    reached replaces every earlier row of that step; the other earlier steps are kept. Ordered by ladder
+    step (a stable sort, so S4's variants keep their order)."""
+    rerun = {ladder_step(r) for r in later}
+    merged = [r for r in earlier if ladder_step(r) not in rerun] + list(later)
+    return sorted(merged, key=lambda r: _ladder_order(ladder_step(r)))
+
+
 def write_reports(reports_dir, date_str, label, scenario, results):
+    """Merges results into the scenario's JSON for this date and label (merge_results), then renders the
+    md and csv from the merged rows and rebuilds the capacity summary from every scenario's JSON."""
     os.makedirs(reports_dir, exist_ok=True)
     prefix = f"{date_str}-{label}-"
     base = os.path.join(reports_dir, prefix + scenario)
+    if os.path.exists(base + ".json"):
+        with open(base + ".json", encoding="utf-8") as f:
+            results = merge_results(json.load(f), results)
     with open(base + ".json", "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
     with open(base + ".md", "w", encoding="utf-8") as f:
@@ -316,12 +355,12 @@ class DataverseOps:
     """reset/generate through the harness scripts; every other call straight to DEV.
     dv, clock and sleep are injectable so the tests drive it with a fake client and a fake clock."""
 
-    def __init__(self, repo_root, trace_settle_seconds, log=print, dv=None, clock=time.time, sleep=time.sleep):
+    def __init__(self, repo_root, settle_seconds, log=print, dv=None, clock=time.time, sleep=time.sleep):
         if dv is None:
             import _dv as dv  # reads .env through scripts/auth.py and fetches a token; never prints either
         self._dv = dv
         self.repo_root = repo_root
-        self.trace_settle_seconds = trace_settle_seconds
+        self.settle_seconds = settle_seconds
         self.log = log
         self._clock = clock
         self._sleep = sleep
@@ -347,8 +386,8 @@ class DataverseOps:
     def reset(self):
         self._script("reset-data.py", [])
 
-    def prepare(self, scenario, step, sample):
-        self._script("generate.py", generate_args(scenario, step, sample))
+    def prepare(self, scenario, step, sample, rules=None):
+        self._script("generate.py", generate_args(scenario, step, sample, rules))
 
     # -- S2, S3: the asx_CaptureDiagnostics switch ---------------------------------
 
@@ -375,8 +414,9 @@ class DataverseOps:
                 "value": value.get("value") if value else None}
 
     def _capture_values(self, definition_id):
+        flt = urllib.parse.quote(f"_environmentvariabledefinitionid_value eq {definition_id}")
         return self._get("environmentvariablevalues?$select=environmentvariablevalueid,value,statecode"
-                         f"&$filter=_environmentvariabledefinitionid_value eq {definition_id}")["value"]
+                         f"&$filter={flt}")["value"]
 
     def switch_capture_on(self, state):
         """Sets the switch's value to yes: PATCHes its value row, or creates one bound to the definition.
@@ -438,7 +478,7 @@ class DataverseOps:
         if settled is None:
             return [aggregate.step_result(scenario, step, None,
                                           f"enforcement did not settle: no diagnostics row for a probe save within "
-                                          f"{self.trace_settle_seconds} s")]
+                                          f"{self.settle_seconds} s")]
         since, seen = settled
         saves, error = 0, None
         for i, root in enumerate(roots):
@@ -484,7 +524,7 @@ class DataverseOps:
         Returns (the probe row's createdon, every row id of the sampled roots by then), or None."""
         root, ids = roots[0], [r["perf_rootid"] for r in roots]
         before = {r["asx_rulediagnosticid"] for r in self._diagnostic_rows([root["perf_rootid"]])}
-        deadline = self._clock() + self.trace_settle_seconds
+        deadline = self._clock() + self.settle_seconds
         attempt = 0
         while attempt == 0 or self._clock() < deadline:
             attempt += 1
@@ -603,9 +643,15 @@ def parse_args(argv=None):
     parser.add_argument("--label", default="baseline", help="report label (default: baseline)")
     parser.add_argument("--sample", type=int, default=None, help="roots sampled per step (default: 10 for S2 "
                                                                    "and S3, 5 for the others)")
-    parser.add_argument("--trace-settle", type=int, default=DEFAULT_TRACE_SETTLE,
-                        help="S2/S3: seconds to keep probing for a probe save's diagnostics row before a step's "
-                             f"measured saves (default: {DEFAULT_TRACE_SETTLE})")
+    parser.add_argument("--rules", type=int, default=None,
+                        help="background rules per step, passed to generate.py (default: the profile's default: "
+                             + ", ".join(f"{k} {v}" for k, v in profiles.DEFAULT_BACKGROUND.items())
+                             + "); recorded in the reports")
+    parser.add_argument("--trace-settle", dest="settle_seconds", metavar="SECONDS", type=int,
+                        default=DEFAULT_SETTLE_SECONDS,
+                        help="S2/S3: the enforcement-settle window, the seconds to keep probing for a probe save's "
+                             f"diagnostics row before a step's measured saves (default: {DEFAULT_SETTLE_SECONDS}; "
+                             "the name is kept from when S2/S3 read the trace log)")
     return parser.parse_args(argv)
 
 
@@ -615,16 +661,17 @@ def main(argv=None):
 
     env_url = read_env_file_url(ENV_FILE)
     check_dev_target(os.environ.get("DATAVERSE_URL") or env_url, env_url)
-    print(f"DEV target confirmed. {args.scenario} ladder: {', '.join(str(s) for s in ladder)}")
+    print(f"DEV target confirmed. {args.scenario} ladder: {', '.join(str(s) for s in ladder)}; background rules: "
+          f"{background_rules(args.scenario, args.rules)}")
 
-    ops = DataverseOps(REPO_ROOT, args.trace_settle)
+    ops = DataverseOps(REPO_ROOT, args.settle_seconds)
     if args.scenario == "S5":
         try:
             ops.check_scheduler_idle()
         except RuntimeError as e:
             raise SystemExit(f"Refusing to run S5: {e}")
     sample = args.sample or default_sample(args.scenario)
-    run_and_report(ops, args.scenario, ladder, sample, REPORTS_DIR, args.label)
+    run_and_report(ops, args.scenario, ladder, sample, REPORTS_DIR, args.label, rules=args.rules)
 
 
 if __name__ == "__main__":

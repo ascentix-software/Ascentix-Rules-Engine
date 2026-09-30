@@ -69,7 +69,6 @@ import sys
 import uuid
 import urllib.error
 import urllib.parse
-import urllib.request
 
 sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "perf"))
 import _dv  # noqa: E402
@@ -167,20 +166,10 @@ def batch_post(requests_list):
     # part's body stream is unterminated and Dataverse 400s ("Stream was not readable").
     body = ("\r\n".join(lines) + "\r\n").encode("utf-8")
 
-    token = _dv._token
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": f"multipart/mixed; boundary={boundary}",
-        "Accept": "application/json",
-        "OData-MaxVersion": "4.0",
-        "OData-Version": "4.0",
-        "MSCRM.SolutionName": _dv.SOLUTION,
-    }
-    url = f"{_dv.BASE}/$batch"
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    # _dv.send retries once with a fresh token on 401: a 50,000-root load outlives a token.
     try:
-        with urllib.request.urlopen(req) as r:
-            raw = r.read().decode("utf-8")
+        _, raw = _dv.send("POST", f"{_dv.BASE}/$batch", body, write=True, solution=True,
+                          content_type=f"multipart/mixed; boundary={boundary}")
     except urllib.error.HTTPError as e:
         detail = e.read().decode()
         raise SystemExit(f"ERROR $batch: {e.code}\n{detail}")

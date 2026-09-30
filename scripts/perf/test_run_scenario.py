@@ -1,5 +1,6 @@
 """Unit tests for run-scenario.py's step logic with a fake Dataverse. Run: python scripts/perf/test_run_scenario.py"""
 import datetime
+import http.client
 import importlib.util
 import json
 import os
@@ -36,8 +37,8 @@ class FakeOps:
         if sum(1 for c in self.calls if c == ("reset",)) in self.reset_fails_on:
             raise RuntimeError("reset-data.py failed: ERROR DELETE perf_roots(x): 500")
 
-    def prepare(self, scenario, step, sample):
-        self.calls.append(("prepare", step))
+    def prepare(self, scenario, step, sample, rules=None):
+        self.calls.append(("prepare", step) if rules is None else ("prepare", step, rules))
         if step == self.setup_fails_at:
             raise RuntimeError("generate.py failed: This rule can't be published")
 
@@ -225,6 +226,35 @@ def test_read_env_file_url_reads_only_that_key():
         assert rs.read_env_file_url(os.path.join(d, "missing")) is None
 
 
+def test_generate_args_pass_the_background_rule_count_only_when_given():
+    assert rs.generate_args("S1", 100, 5, rules=0) == ["--records", "5", "--rows-per-root", "100", "--profile", "S1",
+                                                       "--rules", "0"]
+    assert "--rules" not in rs.generate_args("S6", 3, 5)
+    assert rs.parse_args(["--scenario", "S1", "--rules", "0"]).rules == 0
+    assert rs.parse_args(["--scenario", "S1"]).rules is None
+
+
+def test_every_step_records_its_background_rule_count():
+    ops = FakeOps(setup_fails_at=500)
+    results = rs.run(ops, "S1", [100, 500], 5, log=lambda *_: None, rules=0)
+    assert ("prepare", 100, 0) in ops.calls
+    assert [(r["step"], r["backgroundRules"]) for r in results] == [("100", 0), ("500", 0)]
+    # Without --rules a step records the profile's default, the count generate.py then uses.
+    for scenario, default in (("S1", 100), ("S3", 0)):
+        [result] = rs.run(FakeOps(), scenario, [100], 5, log=lambda *_: None)
+        assert result["backgroundRules"] == default == profiles.DEFAULT_BACKGROUND[scenario]
+
+
+def test_the_report_names_the_background_rule_count():
+    with tempfile.TemporaryDirectory() as d:
+        rs.run_and_report(FakeOps(), "S1", [100], 5, d, "base", today=lambda: datetime.date(2026, 9, 30),
+                          log=_noop, rules=0)
+        with open(os.path.join(d, "2026-09-30-base-S1.json"), encoding="utf-8") as f:
+            assert json.load(f)[0]["backgroundRules"] == 0
+        with open(os.path.join(d, "2026-09-30-base-S1.md"), encoding="utf-8") as f:
+            assert "Background rules: 0" in f.read()
+
+
 def test_generate_args_and_roots_per_step():
     assert rs.generate_args("S3", 2000, 5) == ["--records", "5", "--rows-per-root", "2000", "--profile", "S3"]
     assert rs.roots_for_step("S1", 10000, 10) == 5          # 50,000 child rows at most
@@ -261,6 +291,47 @@ def test_write_reports_rebuilds_the_capacity_summary_from_every_scenario():
 
 def _noop(*_):
     pass
+
+
+def _ok(scenario, step, total=100, error=None):
+    return aggregate.step_result(scenario, step, {**aggregate.empty_summary(), "samples": 1, "totalMs": total,
+                                                  "stages": {"queryExecute": total}}, error)
+
+
+def _json_steps(d, scenario):
+    with open(os.path.join(d, f"2026-09-30-base-{scenario}.json"), encoding="utf-8") as f:
+        return [(r["step"], r["passed"], r["summary"]["totalMs"]) for r in json.load(f)]
+
+
+def test_a_partial_rerun_merges_into_the_scenario_report_by_step():
+    with tempfile.TemporaryDirectory() as d:
+        rs.write_reports(d, "2026-09-30", "base", "S1",
+                         [_ok("S1", 100), _ok("S1", 500), _ok("S1", 2000, 3000, "median totalMs 3000 > 2000")])
+        # A later run of only the top of the ladder replaces 2000 and adds 5000; 100 and 500 are kept.
+        paths = rs.write_reports(d, "2026-09-30", "base", "S1",
+                                 [_ok("S1", 2000, 900), _ok("S1", 5000, 2500, "median totalMs 2500 > 2000")])
+        assert _json_steps(d, "S1") == [("100", True, 100), ("500", True, 100), ("2000", True, 900),
+                                         ("5000", False, 2500)]
+        md = open(paths[0], encoding="utf-8").read()
+        assert "| 500 | pass |" in md and "| 2000 | pass | 1 | 900 |" in md and "| 5000 | fail |" in md
+        with open(paths[1], encoding="utf-8") as f:
+            assert [row.split(",")[1] for row in f.read().splitlines()[1:]] == ["100", "500", "2000", "5000"]
+        capacity = open(paths[-1], encoding="utf-8").read()
+        assert "| S1 | 2000 | 5000 | median totalMs 2500 > 2000 |" in capacity
+        # Re-running a lower step alone keeps the ladder order.
+        rs.write_reports(d, "2026-09-30", "base", "S1", [_ok("S1", 500, 700)])
+        assert [s for s, _, _ in _json_steps(d, "S1")] == ["100", "500", "2000", "5000"]
+        assert _json_steps(d, "S1")[1] == ("500", True, 700)
+
+
+def test_a_rerun_s4_step_replaces_both_of_its_variant_rows():
+    # S4 reports a ladder step as <step>:no-writes and <step>:set-update; a re-run that stops at the first
+    # variant must not leave the old second variant behind.
+    with tempfile.TemporaryDirectory() as d:
+        rs.write_reports(d, "2026-09-30", "base", "S4",
+                         [_ok("S4", "1000:no-writes"), _ok("S4", "1000:set-update"), _ok("S4", "10000:no-writes")])
+        rs.write_reports(d, "2026-09-30", "base", "S4", [_ok("S4", "1000:no-writes", 50, "boom")])
+        assert [s for s, _, _ in _json_steps(d, "S4")] == ["1000:no-writes", "10000:no-writes"]
 
 
 def test_a_failing_step_reset_is_a_setup_failure_and_earlier_steps_are_still_reported():
@@ -336,6 +407,9 @@ class FakeClock:
         return datetime.datetime.fromtimestamp(self.t + offset, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+UNSAFE_URL = re.compile(r"[\x00-\x20\x7f]")                 # http.client._contains_disallowed_url_pchar_re
+
+
 class FakeDv:
     """Just enough of _dv for DataverseOps: request() routed by path, with in-memory asx_rulediagnostic rows and
     the asx_CaptureDiagnostics definition and value rows. on_save(root_id, payload) returns the diagnostics JSON
@@ -362,6 +436,7 @@ class FakeDv:
         self.fail_value_post = False                              # POST creates the row, then times out
         self.saves = []
         self.posts = []
+        self.paths = []
 
     def whoami(self):
         return {"UserId": "me"}
@@ -369,7 +444,8 @@ class FakeDv:
     def resolve_nav_property(self, entity, referenced, attribute):
         return {("perf_root", "perf_lookup1", "perf_lookup1id"): "perf_lookup1id",
                 ("environmentvariablevalue", "environmentvariabledefinition", "environmentvariabledefinitionid"):
-                    "EnvironmentVariableDefinitionId"}[(entity, referenced, attribute)]
+                    "EnvironmentVariableDefinitionId",
+                ("asx_rulerun", "asx_rule", "asx_rule"): "asx_RuleId"}[(entity, referenced, attribute)]
 
     def _switch_values(self, method, path, payload):
         if method == "GET":
@@ -394,6 +470,9 @@ class FakeDv:
         return {}, None
 
     def request(self, method, path, payload=None, *, solution=False, timeout=180):
+        if UNSAFE_URL.search(path):                             # what http.client refuses before sending
+            raise http.client.InvalidURL(f"URL can't contain control characters. {path!r}")
+        self.paths.append(path)
         path = urllib.parse.unquote(path)
         self.clock.sleep(1)                                    # every call takes a second
         if method == "PATCH" and path.startswith("perf_roots("):
@@ -410,7 +489,15 @@ class FakeDv:
             self.posts.append((path, payload))
             if path == "asx_StartDueSchedules":
                 return {}, {"Diagnostics": json.dumps({"totalMs": 900, "schedulesStarted": 1})}
+            if path == "asx_RunRules":
+                return {}, {"Diagnostics": json.dumps({"totalMs": 120})}
+            if path == "asx_ruleruns":
+                return {"OData-EntityId": f"https://x/api/data/v9.2/asx_ruleruns(run-{len(self.posts)})"}, None
+            if path == "asx_ProcessRunPage":
+                return {}, {"Done": True, "Diagnostics": json.dumps({"totalMs": 50, "pageRecords": 1})}
             raise AssertionError(f"unexpected POST {path}")
+        if path.startswith("asx_rules?"):
+            return {}, {"value": [{"asx_ruleid": "rule-1"}]}
         if path.startswith("environmentvariabledefinitions?"):
             assert "schemaname eq 'asx_CaptureDiagnostics'" in path
             return {}, {"value": self.definitions}
@@ -432,8 +519,47 @@ class FakeDv:
         raise AssertionError(f"unexpected {method} {path}")
 
 
-def _ops(dv, clock, trace_settle=60):
-    return rs.DataverseOps(rs.REPO_ROOT, trace_settle, log=lambda *_: None, dv=dv, clock=clock.time, sleep=clock.sleep)
+def _ops(dv, clock, settle=60):
+    return rs.DataverseOps(rs.REPO_ROOT, settle, log=lambda *_: None, dv=dv, clock=clock.time, sleep=clock.sleep)
+
+
+def test_the_fake_client_refuses_a_url_that_urlopen_would_refuse():
+    clock = FakeClock()
+    for bad in ("perf_roots?$filter=perf_name eq 'x'", "perf_roots?$top=1\n"):
+        try:
+            FakeDv(clock).request("GET", bad)
+            assert False, "expected InvalidURL"
+        except http.client.InvalidURL:
+            pass
+
+
+def test_every_request_the_driver_builds_is_url_safe():
+    # The switch with a value row (patch, restore) and without one (create, find afresh, delete), then every
+    # scenario's drive. FakeDv raises InvalidURL on a raw space, as urlopen does on DEV.
+    clock = FakeClock()
+    for values in ([], [_value("no")]):
+        dv = FakeDv(clock, values=values)
+        ops = _ops(dv, clock)
+        state = ops.read_capture_switch()
+        ops.switch_capture_on(state)
+        ops.restore_capture_switch(state)
+    dv = FakeDv(clock, roots=2, schedules=lambda: [{"asx_nextrunon": clock.iso(-120)}])
+    ops = _ops(dv, clock)
+    for scenario, step in (("S1", 100), ("S2", 100), ("S3", 100), ("S4", 1000), ("S5", 1), ("S6", 1)):
+        results = ops.drive(scenario, step, 2)
+        assert all(r["passed"] for r in results), (scenario, [r["error"] for r in results])
+    assert any(p.startswith("asx_rules?") for p in dv.paths) and any(p.startswith("asx_rulediagnostics?") for p in dv.paths)
+
+
+def test_prepare_passes_the_background_rule_count_to_generate():
+    clock = FakeClock()
+    ops = _ops(FakeDv(clock), clock)
+    scripts = []
+    ops._script = lambda name, args: scripts.append((name, args))
+    ops.prepare("S6", 3, 5, 0)
+    ops.prepare("S6", 3, 5)
+    assert scripts[0] == ("generate.py", rs.generate_args("S6", 3, 5, 0)) and scripts[0][1][-2:] == ["--rules", "0"]
+    assert "--rules" not in scripts[1][1]
 
 
 # -- asx_CaptureDiagnostics: switched on for S2/S3 and restored exactly ----------
@@ -511,7 +637,7 @@ class _LadderOps(rs.DataverseOps):
     def reset(self):
         pass
 
-    def prepare(self, scenario, step, sample):
+    def prepare(self, scenario, step, sample, rules=None):
         pass
 
     def drive(self, scenario, step, sample):
@@ -574,7 +700,7 @@ def test_s3_probes_until_enforcement_settles_then_measures_only_the_real_saves()
 def test_a_step_whose_probe_never_writes_a_row_fails_before_measuring():
     clock = FakeClock()
     dv = FakeDv(clock, on_save=lambda root_id, payload: [])
-    [result] = _ops(dv, clock, trace_settle=60).drive("S3", 100, 3)
+    [result] = _ops(dv, clock, settle=60).drive("S3", 100, 3)
     assert result["error"] == "enforcement did not settle: no diagnostics row for a probe save within 60 s"
     assert dv.saves and not any(profiles.S3_FIRE_MARKER in p["perf_text"] for _, p in dv.saves)
     assert clock.time() - START < 120                           # gave up after about --trace-settle
@@ -637,7 +763,7 @@ def test_save_scenarios_sample_ten_roots_by_default():
 
 
 def test_the_enforcement_probe_waits_up_to_ten_minutes_by_default():
-    assert rs.parse_args(["--scenario", "S2"]).trace_settle == 600
+    assert rs.parse_args(["--scenario", "S2"]).settle_seconds == 600
 
 
 def test_a_failed_measured_save_waits_only_for_the_saves_that_succeeded():

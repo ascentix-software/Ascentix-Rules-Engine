@@ -118,6 +118,27 @@ def test_captured_diagnostics_rows_show_in_the_rows_the_markdown_and_the_capacit
     assert step_rows(s1)[0][4] == "samples"                      # no column when no step read diagnostics rows
 
 
+def test_the_background_rule_count_shows_in_the_rows_the_markdown_and_the_capacity_summary():
+    # I-3: runs with different --rules must be told apart; a merged report can mix counts across steps.
+    s1 = [step_result("S1", "100", _summary(samples=5, totalMs=400, stages={"queryExecute": 300}), None),
+          step_result("S1", "500", _summary(samples=5, totalMs=900, stages={"queryExecute": 800}), None),
+          step_result("S1", "2000", _summary(samples=5, totalMs=2600), "median totalMs 2600 > 2000")]
+    s1[0]["backgroundRules"], s1[1]["backgroundRules"], s1[2]["backgroundRules"] = 0, 0, 100
+    header, rows = step_rows(s1)
+    assert header[4] == "backgroundRules" and [r[4] for r in rows] == [0, 0, 100]
+    md = render_scenario_markdown("S1", "baseline", "2026-09-30", s1)
+    assert "Background rules: 0 (steps 100, 500), 100 (step 2000)" in md
+    uniform = render_scenario_markdown("S1", "baseline", "2026-09-30", s1[:2])
+    assert "Background rules: 0\n" in uniform
+    s5 = [step_result("S5", "1", _summary(totalMs=900), None)]
+    md = render_capacity_markdown("baseline", "2026-09-30", capacity_summary({"S1": s1, "S5": s5}))
+    assert "| Scenario | Background rules | Last passing step |" in md
+    assert "| S1 | 0 | 500 | 2000 |" in md and "| S5 |  | 1 | none (every step passed) |" in md
+    # No column, and no header line, when no step records a count (reports written before --rules).
+    assert "Background rules" not in render_scenario_markdown("S5", "baseline", "2026-09-30", s5)
+    assert step_rows(s5)[0][4] == "samples"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

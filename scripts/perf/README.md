@@ -132,7 +132,7 @@ first failing step.
 
 ```
 python scripts/perf/run-scenario.py --scenario S1..S6 [--ladder 100,500,2000] [--label baseline]
-                                    [--sample N] [--trace-settle 600]
+                                    [--sample N] [--rules N] [--trace-settle 600]
 ```
 
 | Flag | Default | Description |
@@ -141,10 +141,11 @@ python scripts/perf/run-scenario.py --scenario S1..S6 [--ladder 100,500,2000] [-
 | `--ladder` | the scenario's ladder below | Comma list of step sizes |
 | `--label` | baseline | Report label (used in the file names) |
 | `--sample` | 10 for S2 and S3, 5 for the others | Roots sampled per step (S1-S3, S5, S6) |
-| `--trace-settle` | 600 | S2, S3: seconds to keep probing for a probe save's diagnostics row before measuring |
+| `--rules` | the profile's default (S1 100, S2 100, S3 0, S4 0, S5 0, S6 100) | Background rules per step, passed to `generate.py --rules`. Every step records its count (`backgroundRules`) and the reports show it. `--rules 0` measures a scenario's own rules alone |
+| `--trace-settle` | 600 | S2, S3: the enforcement-settle window, the seconds to keep probing for a probe save's diagnostics row before measuring. The flag keeps its name from when S2/S3 read the plug-in trace log |
 
 Each step: reset the data (`reset-data.py`), generate the step's data and rules (`generate.py`
-with the flags below), drive the scenario, and record pass or fail with its error, the per-stage
+with the flags below, plus `--rules` when given), drive the scenario, and record pass or fail with its error, the per-stage
 timings and the counters. After the last step, and also after an error or Ctrl+C, the data is reset
 once more and (S2, S3) the `asx_CaptureDiagnostics` switch is put back exactly as it was. If that
 final reset fails, the driver logs it (run `reset-data.py` by hand) and keeps the results. The
@@ -193,6 +194,17 @@ counts once: if the engine ran more than once for a save, the slower row is kept
 notes `duplicateDiagRows`. Every S3 save creates follow-ups; the per-step reset removes them, and
 the perf diagnostics rows too.
 
+**The switch is organization-wide: run S2 and S3 while DEV is otherwise quiet.** While the switch is
+on (the whole S2 or S3 run, which can take hours), every save the engine evaluates on any table
+writes a diagnostics row, not just the harness's saves: other developers' saves and live test suites
+too. A failed row write is caught, but Dataverse may still fail that save, because a failed request
+inside a synchronous plug-in dooms its transaction; that risk reaches everyone's saves while the run
+lasts. The run's own setup writes rows too: `generate.py` and `reset-data.py` save perf rows while
+the switch is on, and the per-step reset deletes them with the rest of the perf diagnostics rows.
+`reset-data.py` deletes only the perf tables' rows (`asx_tablelogicalname` starting `perf_`), so
+rows that other people's saves wrote during the run stay; delete them by hand afterwards if you
+don't want them.
+
 **Why a table, not the trace log.** The first version read an `asx-diag` line per save from
 `plugintracelogs`, with the trace setting on All. On DEV that log arrived minutes late and dropped
 rows (5 saves in a row left only 3 engine rows), so a step had to pass on whatever lines survived.
@@ -216,18 +228,30 @@ Written to `docs/perf/reports/` (not committed), dated with the day the run star
 that runs past midnight (S4, S5) joins that day's capacity summary. For S4, a call that only reports
 a failed record (`FailedRecordId`) processes no records and isn't counted as a page.
 
-- `<date>-<label>-<scenario>.md`: one row per step (result, samples, total and max ms, dominant
-  stage, error and, for S2 and S3, the diagnostics rows found of the saves), then a stage table
-  and a counter table across the steps.
-- `<date>-<label>-<scenario>.csv`: the same per step (S2 and S3 add a `diagCaptured` column), one
-  column per counter and per stage.
+- `<date>-<label>-<scenario>.md`: the background rule count (per group of steps when they differ),
+  then one row per step (result, samples, total and max ms, dominant stage, error and, for S2 and
+  S3, the diagnostics rows found of the saves), then a stage table and a counter table across the
+  steps.
+- `<date>-<label>-<scenario>.csv`: the same per step (a `backgroundRules` column, and for S2 and S3
+  a `diagCaptured` column), one column per counter and per stage.
 - `<date>-<label>-<scenario>.json`: the raw step results.
 - `<date>-<label>-capacity.md`: rebuilt after every scenario from every `<date>-<label>-S*.json`.
-  Per scenario: the last passing step, the first failing step and its error, and the dominant
-  stage at the top passing step with its share of the total ms. The page containers
-  (`pageEvaluate`, `pageWrite`) count as the dominant stage only when no finer stage was timed.
-  When S2 or S3 is included, a last column gives the diagnostics rows found at the top passing
-  step, so you can see how many saves its figures rest on.
+  Per scenario: the background rule count, the last passing step, the first failing step and its
+  error, and the dominant stage at the top passing step with its share of the total ms. The page
+  containers (`pageEvaluate`, `pageWrite`) count as the dominant stage only when no finer stage was
+  timed. When S2 or S3 is included, a last column gives the diagnostics rows found at the top
+  passing step, so you can see how many saves its figures rest on.
+
+**A later run with the same date and label merges into the scenario's report.** Its steps replace
+those steps' earlier rows (for S4, both variant rows of a re-run step); the scenario's other steps
+are kept, in ladder order, and the md, csv and capacity summary are re-rendered from the merged
+JSON. So re-running only the top of a ladder, or one failed step, doesn't lose the rest. Each row
+keeps its own `backgroundRules`, so a merged report still says which count each step ran with; use a
+different `--label` to keep runs with different counts apart.
+
+**`recordsPerHour` is engine time, not wall-clock.** For S4 it is the records processed over the sum
+of the pages' engine `totalMs`. It leaves out the round-trips and the time between pages, so real
+throughput through the scheduler flow is lower.
 
 ## Reports
 

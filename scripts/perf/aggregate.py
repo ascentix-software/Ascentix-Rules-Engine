@@ -176,14 +176,36 @@ def _captures(results):
     return any(r.get("diagCaptured") for r in results)
 
 
+def _has_rules(rows):
+    """Whether any row records a background rule count (run-scenario.py --rules; reports from before it don't)."""
+    return any(r.get("backgroundRules") is not None for r in rows)
+
+
+def _rules_line(results):
+    """'Background rules: 0', or per group of steps when a merged report mixes counts."""
+    groups = []
+    for r in results:
+        count = r.get("backgroundRules")
+        if groups and groups[-1][0] == count:
+            groups[-1][1].append(r["step"])
+        else:
+            groups.append((count, [r["step"]]))
+    if len({count for count, _ in groups}) == 1:
+        return f"Background rules: {_cell(groups[0][0])}"
+    return "Background rules: " + ", ".join(
+        f"{_cell(count)} ({'step' if len(steps) == 1 else 'steps'} {', '.join(steps)})" for count, steps in groups)
+
+
 def step_rows(results):
     captured = _captures(results)
+    rules = _has_rules(results)
     stage_names = []
     for r in results:
         for n in r["summary"]["stages"]:
             if n not in stage_names:
                 stage_names.append(n)
     header = (["scenario", "step", "result", "error"] + (["diagCaptured"] if captured else [])
+              + (["backgroundRules"] if rules else [])
               + ["samples", "totalMs", "maxMs", "recordsPerHour"]
               + COUNTER_KEYS + ["stage:" + n for n in stage_names])
     rows = []
@@ -191,6 +213,7 @@ def step_rows(results):
         s = r["summary"]
         rows.append([r["scenario"], r["step"], "pass" if r["passed"] else "fail", r["error"] or ""]
                     + ([r.get("diagCaptured") or ""] if captured else [])
+                    + (["" if r.get("backgroundRules") is None else r["backgroundRules"]] if rules else [])
                     + [s["samples"], s["totalMs"], s["maxMs"], s["recordsPerHour"]]
                     + [s["counters"].get(k, 0) for k in COUNTER_KEYS]
                     + [s["stages"].get(n, 0) for n in stage_names])
@@ -199,8 +222,8 @@ def step_rows(results):
 
 def render_scenario_markdown(scenario, label, date_str, results):
     captured = _captures(results)
-    lines = [f"# {scenario} -- {label} ({date_str})", "",
-             "| Step | Result | Samples | total ms | max ms | Dominant stage | Error |"
+    lines = [f"# {scenario} -- {label} ({date_str})", ""] + ([_rules_line(results), ""] if _has_rules(results) else [])
+    lines += ["| Step | Result | Samples | total ms | max ms | Dominant stage | Error |"
              + (" Diagnostics rows found |" if captured else ""),
              "|---|---|---|---|---|---|---|" + ("---|" if captured else "")]
     for r in results:
@@ -239,18 +262,22 @@ def capacity_summary(results_by_scenario):
                      "firstFail": failing["step"] if failing else None,
                      "error": failing["error"] if failing else None,
                      "dominantStage": name, "dominantShare": share,
-                     "diagCaptured": top.get("diagCaptured") if top else None})
+                     "diagCaptured": top.get("diagCaptured") if top else None,
+                     "backgroundRules": (top or failing or {}).get("backgroundRules")})
     return rows
 
 
 def render_capacity_markdown(label, date_str, rows):
     captured = _captures(rows)
+    rules = _has_rules(rows)
     lines = [f"# Capacity summary -- {label} ({date_str})", "",
-             "| Scenario | Last passing step | First failing step | Error | Dominant stage at the top passing step |"
+             "| Scenario |" + (" Background rules |" if rules else "")
+             + " Last passing step | First failing step | Error | Dominant stage at the top passing step |"
              + (" Diagnostics rows found there |" if captured else ""),
-             "|---|---|---|---|---|" + ("---|" if captured else "")]
+             "|---|---|---|---|---|" + ("---|" if rules else "") + ("---|" if captured else "")]
     for r in rows:
-        lines.append(f"| {r['scenario']} | {r['lastPass'] or 'none'} | {r['firstFail'] or 'none (every step passed)'} | "
+        lines.append(f"| {r['scenario']} |" + (f" {_cell(r.get('backgroundRules'))} |" if rules else "")
+                     + f" {r['lastPass'] or 'none'} | {r['firstFail'] or 'none (every step passed)'} | "
                      f"{_cell(r['error'])} | {_share(r['dominantStage'], r['dominantShare'])} |"
                      + (f" {_cell(r.get('diagCaptured'))} |" if captured else ""))
     return "\n".join(lines)
