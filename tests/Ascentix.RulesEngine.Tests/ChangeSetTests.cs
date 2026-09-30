@@ -277,5 +277,28 @@ namespace Ascentix.RulesEngine.Tests
             Assert.True(record.FiredActions[1].IsSetAction);
             Assert.False(record.FiredActions[0].IsSetAction);
         }
+
+        [Fact]
+        public void Merged_counts_the_intents_folded_into_another_write()
+        {
+            var cs = ChangeSet.Build(new[]
+            {
+                Update("contact", C1, 1, "description", "a"), Update("contact", C1, 2, "jobtitle", "b"),
+                Update("contact", C2, 3, "description", "c"), Create("task", 4), Create("task", 5),
+            });
+            Assert.Equal(1, cs.Merged);
+        }
+
+        [Fact]
+        public void Merged_counts_every_in_place_update_after_the_first()
+        {
+            var cs = ChangeSet.Build(new[]
+            {
+                Update("account", Root, 1, "name", "a"), Update("account", Root, 2, "description", "b"),
+                Update("account", Root, 3, "fax", "c"),
+            }, new RootRecord("account", Root));
+            Assert.True(cs.HasRootInPlace);
+            Assert.Equal(2, cs.Merged);
+        }
     }
 }
