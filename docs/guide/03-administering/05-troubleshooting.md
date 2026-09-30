@@ -106,7 +106,9 @@ phones home (*Beta Limitations §10*). A report has to carry its own evidence:
   carries the evaluation's timings and row counts, which is usually enough
   to show where the time or the rows went.
 - **For a slow or failing save:** its `asx-diag` line from the plug-in trace log, or for a slow
-  save its Rule Diagnostic row (both below).
+  save its Rule Diagnostic row (both below). A save that fails while its rules are being
+  evaluated (for example at the 25,000-row limit, *Beta Limitations §3*) leaves neither; reproduce
+  it with `asx_RunRules` instead.
 - **For editor problems:** the browser and version, and any errors from the
   browser console (F12 → Console), including the error panel's text.
 - **The environment's base language**, especially if it isn't English.
@@ -115,7 +117,7 @@ phones home (*Beta Limitations §10*). A report has to carry its own evidence:
 
 ### Read a save's diagnostics from the plug-in trace log
 
-Every save the engine evaluates writes one line to the plug-in trace: `asx-diag ` followed by the same JSON `asx_RunRules` returns as `Diagnostics`, plus the save's write figures (`writesSent`, `bulkRequests`, …; see *Custom APIs*). Its `totalMs` is the whole save, evaluation and writes.
+Every save the engine finishes evaluating writes one line to the plug-in trace: `asx-diag ` followed by the same JSON `asx_RunRules` returns as `Diagnostics`, plus the save's write figures (`writesSent`, `bulkRequests`, …; see *Custom APIs*). Its `totalMs` is the whole save, evaluation and writes. The line is written whether the save then succeeds, is blocked, or fails while writing. A save that fails while its rules are being evaluated (for example at the 25,000-row limit) writes no line; reproduce it with `asx_RunRules`, which stops with the same error.
 
 Dataverse keeps plug-in trace lines only when the environment's **plug-in trace log** setting (System Settings, **Customization** tab, **Enable logging to plug-in trace log**) is **All**, or **Exception** for a save that failed. To read one:
 
@@ -137,7 +139,7 @@ The **Capture diagnostics** environment variable (`asx_CaptureDiagnostics`) is a
 3. Repeat the saves, then read the rows (for example `GET /api/data/v9.2/asx_rulediagnostics?$filter=asx_recordid eq '<record id>'`).
 4. Set the current value back to **No**, or remove it, and delete the rows. While it's on, every save the engine evaluates writes a row.
 
-A blocked or failed save leaves no row, because the row is written in the save's transaction and rolls back with it. For those saves, use the trace line.
+A blocked or failed save leaves no row, because the row is written in the save's transaction and rolls back with it. For those saves, use the trace line (a save that failed during evaluation has none; see above).
 
 The switch is meant for testing, not for everyday use. If reading the switch or writing a row fails, the engine catches the error and the plug-in trace records why, but Dataverse may still fail the save itself: a failed request inside a synchronous plug-in dooms the save's transaction. If saves fail with a generic transaction error while the switch is on, turn it off. With the switch off, each plug-in worker still checks it once a minute (one query on a system table that always exists) and writes nothing.
 

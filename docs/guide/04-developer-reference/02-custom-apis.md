@@ -159,7 +159,7 @@ for support conversations and your own sizing against the *Beta Limitations* bud
   "totalMs": 412,
   "rulesLoaded": 12, "rulesEvaluated": 12, "rulesFired": 1,
   "retrieveCount": 3, "retrieveMultipleCount": 4, "rowsFetched": 260,
-  "stages": [ { "name": "loadRules", "ms": 40 }, { "name": "queryExecute", "ms": 310 }, { "name": "evaluate", "ms": 62 } ],
+  "stages": [ { "name": "ruleLoad", "ms": 40 }, { "name": "queryExecute", "ms": 310 }, { "name": "evaluate", "ms": 62 } ],
   "nodes":  [ { "nodeId": "…", "table": "sample_orderline", "retrieveCount": 0, "retrieveMultipleCount": 2, "rows": 240 } ]
 }
 ```
@@ -168,7 +168,7 @@ for support conversations and your own sizing against the *Beta Limitations* bud
 treat them as labels, not an API. `nodes` is one entry per traversed configuration
 node. The numbers are server-side evaluation cost only, not end-user save latency.
 
-The enforcing paths report more. `asx_ApplyRules`, `asx_ProcessRunPage` and `asx_StartDueSchedules` return the same object when called with `IncludeDiagnostics: true`, and every form save writes it to the plug-in trace (*Troubleshooting*). There `totalMs` covers the whole call or save, and these fields appear when they aren't zero:
+The enforcing paths report more. `asx_ApplyRules`, `asx_ProcessRunPage` and `asx_StartDueSchedules` return the same object when called with `IncludeDiagnostics: true`, and every form save the engine finishes evaluating writes it to the plug-in trace (*Troubleshooting*); a save that fails during evaluation, for example at the 25,000-row limit, writes none. There `totalMs` covers the whole call or save, and these fields appear when they aren't zero:
 
 | Field | Meaning |
 |---|---|
