@@ -171,32 +171,43 @@ def _share(name, share):
     return f"{name} ({round(share * 100)}%)" if name else ""
 
 
+def _captures(results):
+    """Whether any step carries diagCaptured (S2/S3: the saves whose asx-diag line Dataverse kept)."""
+    return any(r.get("diagCaptured") for r in results)
+
+
 def step_rows(results):
+    captured = _captures(results)
     stage_names = []
     for r in results:
         for n in r["summary"]["stages"]:
             if n not in stage_names:
                 stage_names.append(n)
-    header = (["scenario", "step", "result", "error", "samples", "totalMs", "maxMs", "recordsPerHour"]
+    header = (["scenario", "step", "result", "error"] + (["diagCaptured"] if captured else [])
+              + ["samples", "totalMs", "maxMs", "recordsPerHour"]
               + COUNTER_KEYS + ["stage:" + n for n in stage_names])
     rows = []
     for r in results:
         s = r["summary"]
-        rows.append([r["scenario"], r["step"], "pass" if r["passed"] else "fail", r["error"] or "",
-                     s["samples"], s["totalMs"], s["maxMs"], s["recordsPerHour"]]
+        rows.append([r["scenario"], r["step"], "pass" if r["passed"] else "fail", r["error"] or ""]
+                    + ([r.get("diagCaptured") or ""] if captured else [])
+                    + [s["samples"], s["totalMs"], s["maxMs"], s["recordsPerHour"]]
                     + [s["counters"].get(k, 0) for k in COUNTER_KEYS]
                     + [s["stages"].get(n, 0) for n in stage_names])
     return header, rows
 
 
 def render_scenario_markdown(scenario, label, date_str, results):
+    captured = _captures(results)
     lines = [f"# {scenario} -- {label} ({date_str})", "",
-             "| Step | Result | Samples | total ms | max ms | Dominant stage | Error |",
-             "|---|---|---|---|---|---|---|"]
+             "| Step | Result | Samples | total ms | max ms | Dominant stage | Error |"
+             + (" asx-diag lines captured |" if captured else ""),
+             "|---|---|---|---|---|---|---|" + ("---|" if captured else "")]
     for r in results:
         s = r["summary"]
         lines.append(f"| {r['step']} | {'pass' if r['passed'] else 'fail'} | {s['samples']} | {s['totalMs']} | "
-                     f"{s['maxMs']} | {_share(*dominant_stage(s))} | {_cell(r['error'])} |")
+                     f"{s['maxMs']} | {_share(*dominant_stage(s))} | {_cell(r['error'])} |"
+                     + (f" {_cell(r.get('diagCaptured'))} |" if captured else ""))
     header, rows = step_rows(results)
     steps = [r["step"] for r in results]
 
@@ -227,15 +238,19 @@ def capacity_summary(results_by_scenario):
                      "lastPass": top["step"] if top else None,
                      "firstFail": failing["step"] if failing else None,
                      "error": failing["error"] if failing else None,
-                     "dominantStage": name, "dominantShare": share})
+                     "dominantStage": name, "dominantShare": share,
+                     "diagCaptured": top.get("diagCaptured") if top else None})
     return rows
 
 
 def render_capacity_markdown(label, date_str, rows):
+    captured = _captures(rows)
     lines = [f"# Capacity summary -- {label} ({date_str})", "",
-             "| Scenario | Last passing step | First failing step | Error | Dominant stage at the top passing step |",
-             "|---|---|---|---|---|"]
+             "| Scenario | Last passing step | First failing step | Error | Dominant stage at the top passing step |"
+             + (" asx-diag lines captured there |" if captured else ""),
+             "|---|---|---|---|---|" + ("---|" if captured else "")]
     for r in rows:
         lines.append(f"| {r['scenario']} | {r['lastPass'] or 'none'} | {r['firstFail'] or 'none (every step passed)'} | "
-                     f"{_cell(r['error'])} | {_share(r['dominantStage'], r['dominantShare'])} |")
+                     f"{_cell(r['error'])} | {_share(r['dominantStage'], r['dominantShare'])} |"
+                     + (f" {_cell(r.get('diagCaptured'))} |" if captured else ""))
     return "\n".join(lines)

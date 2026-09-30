@@ -128,7 +128,7 @@ first failing step.
 
 ```
 python scripts/perf/run-scenario.py --scenario S1..S6 [--ladder 100,500,2000] [--label baseline]
-                                    [--sample 5] [--trace-settle 60]
+                                    [--sample N] [--trace-settle 180]
 ```
 
 | Flag | Default | Description |
@@ -136,8 +136,8 @@ python scripts/perf/run-scenario.py --scenario S1..S6 [--ladder 100,500,2000] [-
 | `--scenario` | (required) | S1 to S6 |
 | `--ladder` | the scenario's ladder below | Comma list of step sizes |
 | `--label` | baseline | Report label (used in the file names) |
-| `--sample` | 5 | Roots sampled per step (S1-S3, S5, S6) |
-| `--trace-settle` | 60 | S2, S3: seconds to keep probing for a probe save's `asx-diag` line before measuring |
+| `--sample` | 10 for S2 and S3, 5 for the others | Roots sampled per step (S1-S3, S5, S6) |
+| `--trace-settle` | 180 | S2, S3: seconds to keep probing for a probe save's `asx-diag` line before measuring |
 
 Each step: reset the data (`reset-data.py`), generate the step's data and rules (`generate.py`
 with the flags below), drive the scenario, and record pass or fail with its error, the per-stage
@@ -160,7 +160,8 @@ A step **fails**, and the ladder stops there, when:
 - a call or save errors or times out (the 2-minute plug-in limit, the 25,000-row cap, ...);
 - S1, S6: the median total is above 2,000 ms;
 - S2, S3: the probe never produced an `asx-diag` line (`enforcement did not settle`), or fewer
-  `asx-diag` lines than saves were found (`found M of N ...`);
+  than half the saves (rounded up) have an `asx-diag` line when the read window ends
+  (`found M of N ...`);
 - S4: a run page fails (a repeated record failure or any other error), or the run doesn't finish
   within its page budget;
 - S5: the call takes more than 60,000 ms, or fewer schedules were started or continued than were due.
@@ -178,6 +179,15 @@ and the step's newly published rules are live before anything is measured. Each 
 if the engine ran more than once for a save, the slower line is kept and the result notes
 `duplicateDiagLines`. Every S3 save creates follow-ups; the per-step reset removes them.
 
+**Dataverse drops some trace rows.** Even with the trace setting on All, Dataverse doesn't keep
+every plug-in trace row: on DEV, 5 saves in a row left only 3 engine rows (the other 2 had no row
+at all). So a missing `asx-diag` line is not a failure. After the saves, the driver reads lines
+back for up to 3 minutes, stopping early once every save has one. The step's figures come from the
+saves it captured, and every S2 and S3 result records captured of saved (`diagCaptured`, for
+example `3/5`). That is why S2 and S3 sample 10 roots by default (at the 10,000 step the 50,000-row
+cap still limits them to 5). A freshly published rule can take a few minutes to go live, which is
+why `--trace-settle` defaults to 180 seconds.
+
 **S5 waits.** Its schedules run every 15 minutes and Next run on is engine-owned, so each step
 waits until they are all due (about 15 minutes, 20 at most; a schedule without a Next run on yet
 counts as not due). It refuses to start, and a step fails, while another caller's scheduler
@@ -193,13 +203,17 @@ that runs past midnight (S4, S5) joins that day's capacity summary. For S4, a ca
 a failed record (`FailedRecordId`) processes no records and isn't counted as a page.
 
 - `<date>-<label>-<scenario>.md`: one row per step (result, samples, total and max ms, dominant
-  stage, error), then a stage table and a counter table across the steps.
-- `<date>-<label>-<scenario>.csv`: the same per step, one column per counter and per stage.
+  stage, error and, for S2 and S3, the `asx-diag` lines captured of the saves), then a stage table
+  and a counter table across the steps.
+- `<date>-<label>-<scenario>.csv`: the same per step (S2 and S3 add a `diagCaptured` column), one
+  column per counter and per stage.
 - `<date>-<label>-<scenario>.json`: the raw step results.
 - `<date>-<label>-capacity.md`: rebuilt after every scenario from every `<date>-<label>-S*.json`.
   Per scenario: the last passing step, the first failing step and its error, and the dominant
   stage at the top passing step with its share of the total ms. The page containers
   (`pageEvaluate`, `pageWrite`) count as the dominant stage only when no finer stage was timed.
+  When S2 or S3 is included, a last column gives the lines captured at the top passing step, so
+  you can see how many saves its figures rest on.
 
 ## Reports
 

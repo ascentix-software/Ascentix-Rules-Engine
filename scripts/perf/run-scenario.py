@@ -5,7 +5,7 @@ docs/perf/reports/<date>-<label>-<scenario>.md / .csv / .json and the combined
 <date>-<label>-capacity.md (git-ignored).
 
     python scripts/perf/run-scenario.py --scenario S1 [--ladder 100,500,2000] [--label baseline]
-                                        [--sample 5] [--trace-settle 60]
+                                        [--sample N] [--trace-settle 180]
 
 Each step: reset the data (reset-data.py), generate the step's data and rules (generate.py), drive
 the scenario, record pass or fail with its error, per-stage timings and counters. At the end, even
@@ -90,6 +90,18 @@ def check_dev_target(effective_url, env_file_url):
         raise SystemExit("Refusing to run: .env names no DATAVERSE_URL (the DEV environment).")
     if _norm(effective_url) != _norm(env_file_url):
         raise SystemExit("Refusing to run: DATAVERSE_URL in the process environment is not the DEV environment in .env.")
+
+
+def default_sample(scenario):
+    """Roots sampled per step: 10 for the save scenarios, whose figures come only from the saves whose
+    trace line Dataverse kept (see enough_captured); 5 for the others."""
+    return 10 if scenario in SAVE_SCENARIOS else 5
+
+
+def enough_captured(captured, saves):
+    """Dataverse doesn't keep every plug-in trace row, even with tracing on All, so a missing asx-diag
+    line is not a failure: a save step needs a line for at least half its saves."""
+    return captured >= (saves + 1) // 2
 
 
 def roots_for_step(scenario, step, sample):
@@ -406,9 +418,10 @@ class DataverseOps:
         # leave no line): polling for all of them would just sit out the timeout.
         succeeded = saves if error is None else saves - 1
         lines, duplicates = self._read_diag_lines(since, succeeded, probe_saves)
-        if error is None and len(lines) < saves:
+        if error is None and not enough_captured(len(lines), saves):
             error = f"found {len(lines)} of {saves} asx-diag lines in plugintracelogs"
         result = aggregate.step_result(scenario, step, aggregate.summarize_saves(lines), error)
+        result["diagCaptured"] = f"{len(lines)}/{saves}"
         if duplicates:
             result["duplicateDiagLines"] = duplicates
             self.log(f"  {duplicates} extra asx-diag line(s): the engine ran more than once for a save; "
@@ -467,7 +480,9 @@ class DataverseOps:
 
     def _read_diag_lines(self, since, expected, exclude, timeout_s=180):
         """The measured saves' lines: rows from the probe's createdon on (createdon has whole-second
-        precision, so a save in the probe's second is not lost), less the probe's own saves."""
+        precision, so a save in the probe's second is not lost), less the probe's own saves. Stops as soon
+        as every expected save has a line, or when the window ends with whatever was captured: Dataverse
+        drops some trace rows, so the caller judges the count (enough_captured)."""
         deadline = self._clock() + timeout_s
         while True:
             lines, duplicates = diag_lines_per_save(self._engine_trace_rows("ge", since), exclude)
@@ -550,10 +565,11 @@ def main(argv=None):
     parser.add_argument("--scenario", required=True, choices=SCENARIOS)
     parser.add_argument("--ladder", help="comma list of step sizes (default: the scenario's ladder from the spec)")
     parser.add_argument("--label", default="baseline", help="report label (default: baseline)")
-    parser.add_argument("--sample", type=int, default=5, help="roots sampled per step (default: 5)")
-    parser.add_argument("--trace-settle", type=int, default=60,
+    parser.add_argument("--sample", type=int, default=None, help="roots sampled per step (default: 10 for S2 "
+                                                                   "and S3, 5 for the others)")
+    parser.add_argument("--trace-settle", type=int, default=180,
                         help="S2/S3: seconds to keep probing for a probe save's asx-diag line before a step's "
-                             "measured saves (default: 60)")
+                             "measured saves (default: 180)")
     args = parser.parse_args(argv)
     ladder = parse_ladder(args.ladder) if args.ladder else DEFAULT_LADDERS[args.scenario]
 
@@ -567,7 +583,8 @@ def main(argv=None):
             ops.check_scheduler_idle()
         except RuntimeError as e:
             raise SystemExit(f"Refusing to run S5: {e}")
-    run_and_report(ops, args.scenario, ladder, args.sample, REPORTS_DIR, args.label)
+    sample = args.sample or default_sample(args.scenario)
+    run_and_report(ops, args.scenario, ladder, sample, REPORTS_DIR, args.label)
 
 
 if __name__ == "__main__":

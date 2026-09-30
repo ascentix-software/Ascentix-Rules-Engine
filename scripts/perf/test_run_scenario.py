@@ -430,19 +430,47 @@ def test_s2_counts_one_line_per_save_and_changes_each_root_to_another_lookup():
         current[root_id] = target[len("/perf_lookup1s("):-1]
 
 
-def test_a_missing_or_unparseable_save_line_fails_the_step_with_an_accurate_count():
-    # P10: an unparseable line counts as missing.
-    clock = FakeClock()
-    saves = []
+def _s3_lines(kept):
+    """on_save for S3: every probe traces a line; measured save n (1-based) traces what kept(n) returns."""
+    measured = []
 
     def on_save(root_id, payload):
-        saves.append(payload)
-        return ['asx-diag {"totalMs":' if len(saves) == 3 else 'asx-diag {"totalMs":100}']
+        if profiles.S3_FIRE_MARKER not in payload["perf_text"]:
+            return ['asx-diag {"totalMs":5}']
+        measured.append(payload)
+        return kept(len(measured))
+    return on_save
 
-    dv = FakeDv(clock, roots=3, on_save=on_save)
-    [result] = _ops(dv, clock).drive("S3", 100, 3)
-    assert result["error"] == "found 2 of 3 asx-diag lines in plugintracelogs"
+
+def test_a_step_passes_on_the_saves_whose_line_dataverse_kept():
+    # R6: Dataverse drops some trace rows even with tracing on All; 3 of 5 lines is enough.
+    clock = FakeClock()
+    dv = FakeDv(clock, roots=5, on_save=_s3_lines(lambda n: [] if n in (2, 4) else [f'asx-diag {{"totalMs":{n}00}}']))
+    [result] = _ops(dv, clock).drive("S3", 100, 5)
+    assert result["passed"] and result["diagCaptured"] == "3/5"
+    assert result["summary"]["samples"] == 3 and result["summary"]["totalMs"] == 300
+
+
+def test_a_step_with_fewer_than_half_of_its_lines_fails_with_an_accurate_count():
+    # R6 and P10: under half captured fails; an unparseable line counts as missing.
+    clock = FakeClock()
+    dv = FakeDv(clock, roots=5, on_save=_s3_lines(
+        lambda n: [] if n in (2, 4) else ['asx-diag {"totalMs":' if n == 5 else 'asx-diag {"totalMs":100}']))
+    [result] = _ops(dv, clock).drive("S3", 100, 5)
+    assert result["error"] == "found 2 of 5 asx-diag lines in plugintracelogs" and result["diagCaptured"] == "2/5"
     assert result["summary"]["samples"] == 2
+
+
+def test_reading_the_lines_back_stops_as_soon_as_every_save_is_captured():
+    clock = FakeClock()
+    dv = FakeDv(clock, roots=5, on_save=_s3_lines(lambda n: ['asx-diag {"totalMs":100}']))
+    [result] = _ops(dv, clock).drive("S3", 100, 5)
+    assert result["passed"] and result["diagCaptured"] == "5/5"
+    assert clock.time() - START < 30                            # not the 180-second read window
+
+
+def test_save_scenarios_sample_ten_roots_by_default():
+    assert [rs.default_sample(s) for s in rs.SCENARIOS] == [5, 10, 10, 5, 5, 5]
 
 
 def test_a_failed_measured_save_waits_only_for_the_saves_that_succeeded():
@@ -456,7 +484,7 @@ def test_a_failed_measured_save_waits_only_for_the_saves_that_succeeded():
     dv = FakeDv(clock, roots=3, on_save=on_save)
     [result] = _ops(dv, clock).drive("S3", 100, 3)
     assert result["error"].startswith("save 2: PATCH perf_roots(root-1)")
-    assert result["summary"]["samples"] == 1
+    assert result["summary"]["samples"] == 1 and result["diagCaptured"] == "1/2"
     assert clock.time() - START < 60                            # no 180-second poll for a line that can't come
 
 
