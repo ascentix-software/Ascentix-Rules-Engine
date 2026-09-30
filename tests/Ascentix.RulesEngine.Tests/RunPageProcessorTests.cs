@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Engine;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Core.Publication;
@@ -208,6 +209,44 @@ namespace Ascentix.RulesEngine.Tests
 
         private string Description(Guid accountId) =>
             _service.Retrieve("account", accountId, new ColumnSet("description")).GetAttributeValue<string>("description");
+
+        [Fact]
+        public void Diagnostics_time_the_page_and_count_what_it_handled()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz2, _zz3 });
+            var diag = new RunDiagnostics();
+            var processor = new RunPageProcessor(_service, _service, 1033, new XrmFakedTracingService(), engineInitiated: false,
+                new RunPageLimits { PageSize = 10, ChunkSize = 2 }, () => Now, diag);
+
+            var result = processor.Process(runId, null, null);
+
+            Assert.True(result.Done);
+            Assert.Equal(3, diag.PageRecords);
+            Assert.Equal(2, diag.PageChunks);
+            Assert.Equal(1, diag.PageBlocked);  // ZZ2 (5 employees) blocks
+            Assert.Equal(0, diag.PageFailed);
+            Assert.Equal(2, diag.WritesSent);   // ZZ1 and ZZ3 get description = "big"
+            foreach (var stage in new[] { "pageSelect", "pageEvaluate", "pageWrite", "bookmark",
+                         "ruleLoad", "evaluate", "changeSetBuild", "dispatch:Update:account" })
+                Assert.Contains(diag.Stages, s => s.Name == stage);
+        }
+
+        [Fact]
+        public void A_failure_report_page_counts_one_failed_record_and_no_chunks()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1 });
+            var diag = new RunDiagnostics();
+            var processor = new RunPageProcessor(_service, _service, 1033, new XrmFakedTracingService(), engineInitiated: false,
+                Limits(), () => Now, diag);
+
+            processor.Process(runId, _zz1, "boom");
+
+            Assert.Equal(1, diag.PageRecords);
+            Assert.Equal(1, diag.PageFailed);
+            Assert.Equal(0, diag.PageChunks);
+            Assert.Contains(diag.Stages, s => s.Name == "bookmark");
+            Assert.DoesNotContain(diag.Stages, s => s.Name == "pageSelect");
+        }
 
         [Fact]
         public void An_all_records_run_pages_through_the_table_and_counts_each_outcome()

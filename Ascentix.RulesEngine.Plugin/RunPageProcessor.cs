@@ -4,6 +4,7 @@ using System.Linq;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
 using Ascentix.RulesEngine.Core.Actions;
+using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Engine;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Schema;
@@ -59,9 +60,14 @@ namespace Ascentix.RulesEngine.Plugin
         private readonly bool _engineInitiated;
         private readonly RunPageLimits _limits;
         private readonly Func<DateTime> _utcNow;
+        private readonly RunDiagnostics _diagnostics;
+        private int _startEvaluated, _startBlocked, _startFailed;
 
+        /// <param name="diagnostics">Receives the page stages and counters, and absorbs each chunk's
+        /// engine diagnostics and the write stages; null ⇒ none.</param>
         public RunPageProcessor(IOrganizationService system, IOrganizationService user, int languageId,
-            ITracingService trace, bool engineInitiated, RunPageLimits limits, Func<DateTime> utcNow)
+            ITracingService trace, bool engineInitiated, RunPageLimits limits, Func<DateTime> utcNow,
+            RunDiagnostics diagnostics = null)
         {
             _system = system;
             _user = user;
@@ -70,6 +76,7 @@ namespace Ascentix.RulesEngine.Plugin
             _engineInitiated = engineInitiated;
             _limits = limits;
             _utcNow = utcNow;
+            _diagnostics = diagnostics;
         }
 
         /// <summary>The run's state as loaded, then mutated by the page and saved in one update.</summary>
@@ -113,6 +120,11 @@ namespace Ascentix.RulesEngine.Plugin
             run = _system.Retrieve(entity, runId, new ColumnSet(true));
             row = Load(run);
             if (!IsActive(row.Status)) return row.ToResult(done: true);
+
+            // The page's counters are what this call adds to the run's running totals.
+            _startEvaluated = row.Evaluated;
+            _startBlocked = row.Blocked;
+            _startFailed = row.Failed;
 
             var ids = RunState.ParseRecordIds(run.GetAttributeValue<string>(Q(SchemaNames.RuleRun.RecordIds)));
             row.Bookmark = RunState.ParseBookmark(run.GetAttributeValue<string>(Q(SchemaNames.RuleRun.Bookmark)));
@@ -172,28 +184,31 @@ namespace Ascentix.RulesEngine.Plugin
             List<Guid> window;
             bool more;
             string pagingCookie = null;
-            if (allRecords)
+            using (_diagnostics?.Time("pageSelect"))
             {
-                var query = new QueryExpression(rule.Table)
+                if (allRecords)
                 {
-                    ColumnSet = new ColumnSet(false),
-                    PageInfo = new PagingInfo { Count = _limits.PageSize, PageNumber = row.Bookmark.Page },
-                };
-                if (row.Bookmark.Cookie != null) query.PageInfo.PagingCookie = row.Bookmark.Cookie;
-                query.AddOrder(rule.Table + "id", OrderType.Ascending);
-                // Enumerated in the rule's evaluation context, so a User rule never pages over a
-                // row its starter can't read.
-                var result = evaluator.ReadService(rule).RetrieveMultiple(query);
-                // The whole page every time: a resumed page skips what it already handled by id (the
-                // skip list), so rows deleted or inserted since the last call can't shift it.
-                window = result.Entities.Select(e => e.Id).ToList();
-                more = result.MoreRecords;
-                pagingCookie = result.PagingCookie;
-            }
-            else
-            {
-                window = ids.Skip(row.Bookmark.Index).Take(_limits.PageSize).ToList();
-                more = row.Bookmark.Index + window.Count < ids.Count;
+                    var query = new QueryExpression(rule.Table)
+                    {
+                        ColumnSet = new ColumnSet(false),
+                        PageInfo = new PagingInfo { Count = _limits.PageSize, PageNumber = row.Bookmark.Page },
+                    };
+                    if (row.Bookmark.Cookie != null) query.PageInfo.PagingCookie = row.Bookmark.Cookie;
+                    query.AddOrder(rule.Table + "id", OrderType.Ascending);
+                    // Enumerated in the rule's evaluation context, so a User rule never pages over a
+                    // row its starter can't read.
+                    var result = evaluator.ReadService(rule).RetrieveMultiple(query);
+                    // The whole page every time: a resumed page skips what it already handled by id (the
+                    // skip list), so rows deleted or inserted since the last call can't shift it.
+                    window = result.Entities.Select(e => e.Id).ToList();
+                    more = result.MoreRecords;
+                    pagingCookie = result.PagingCookie;
+                }
+                else
+                {
+                    window = ids.Skip(row.Bookmark.Index).Take(_limits.PageSize).ToList();
+                    more = row.Bookmark.Index + window.Count < ids.Count;
+                }
             }
 
             // Walk the window (minus the skip list) in chunks, until the page size or time budget.
@@ -216,8 +231,11 @@ namespace Ascentix.RulesEngine.Plugin
                 }
                 if (chunk.Count == 0) continue;
                 processed += chunk.Count;
+                if (_diagnostics != null) _diagnostics.PageChunks++;
 
-                var existing = evaluator.Existing(rule, chunk);
+                HashSet<Guid> existing;
+                using (_diagnostics?.Time("pageEvaluate"))
+                    existing = evaluator.Existing(rule, chunk);
                 foreach (var missing in chunk.Where(id => !existing.Contains(id)))
                 {
                     row.Evaluated++;
@@ -233,7 +251,10 @@ namespace Ascentix.RulesEngine.Plugin
                     continue;
                 }
 
-                var outcome = evaluator.Evaluate(rule, existingIds);
+                RuleEvaluationOutcome outcome;
+                using (_diagnostics?.Time("pageEvaluate"))
+                    outcome = evaluator.Evaluate(rule, existingIds);
+                _diagnostics?.Absorb(outcome.Diagnostics);
                 for (var r = 0; r < outcome.Records.Count; r++)
                 {
                     var record = outcome.Records[r];
@@ -252,7 +273,10 @@ namespace Ascentix.RulesEngine.Plugin
                     {
                         try
                         {
-                            if (executor.ExecuteRecord(record, null, _user, _system, _engineInitiated, _trace) > 0)
+                            int written;
+                            using (_diagnostics?.Time("pageWrite"))
+                                written = executor.ExecuteRecord(record, null, _user, _system, _engineInitiated, _trace, _diagnostics);
+                            if (written > 0)
                                 row.Changed++;
                         }
                         catch (Exception ex)
@@ -343,36 +367,45 @@ namespace Ascentix.RulesEngine.Plugin
 
         private RunPageResult Save(Guid runId, RunRow row, bool done)
         {
-            var entity = Q(SchemaNames.RuleRun.Entity);
-            var update = new Entity(entity, runId)
+            if (_diagnostics != null)
             {
-                [Q(SchemaNames.RuleRun.Evaluated)] = row.Evaluated,
-                [Q(SchemaNames.RuleRun.Changed)] = row.Changed,
-                [Q(SchemaNames.RuleRun.Blocked)] = row.Blocked,
-                [Q(SchemaNames.RuleRun.Failed)] = row.Failed,
-                [Q(SchemaNames.RuleRun.Skipped)] = row.Skipped,
-                [Q(SchemaNames.RuleRun.Bookmark)] = RunState.WriteBookmark(row.Bookmark),
-                [Q(SchemaNames.RuleRun.Failures)] = RunState.WriteFailures(row.Failures),
-                [Q(SchemaNames.RuleRun.RuleVersions)] = RunState.WriteVersions(row.Versions),
-            };
-            if (row.LastPageOn.HasValue) update[Q(SchemaNames.RuleRun.LastPageOn)] = row.LastPageOn.Value;
-
-            // Cancel guard: a cancel that landed during the page wins; keep its status.
-            var current = _system.Retrieve(entity, runId, new ColumnSet(Q(SchemaNames.RuleRun.Status)));
-            if (current.GetAttributeValue<OptionSetValue>(Q(SchemaNames.RuleRun.Status))?.Value == (int)RuleRunStatus.Cancelled)
-            {
-                _trace.Trace($"RunPageProcessor: run {runId} was cancelled during the page; keeping Cancelled.");
-                row.Status = RuleRunStatus.Cancelled;
-                done = true;
+                _diagnostics.PageRecords = row.Evaluated - _startEvaluated;
+                _diagnostics.PageBlocked = row.Blocked - _startBlocked;
+                _diagnostics.PageFailed = row.Failed - _startFailed;
             }
-            else
+            using (_diagnostics?.Time("bookmark"))
             {
-                update[Q(SchemaNames.RuleRun.Status)] = new OptionSetValue((int)row.Status);
-                if (row.FinishedOn.HasValue) update[Q(SchemaNames.RuleRun.FinishedOn)] = row.FinishedOn.Value;
-            }
+                var entity = Q(SchemaNames.RuleRun.Entity);
+                var update = new Entity(entity, runId)
+                {
+                    [Q(SchemaNames.RuleRun.Evaluated)] = row.Evaluated,
+                    [Q(SchemaNames.RuleRun.Changed)] = row.Changed,
+                    [Q(SchemaNames.RuleRun.Blocked)] = row.Blocked,
+                    [Q(SchemaNames.RuleRun.Failed)] = row.Failed,
+                    [Q(SchemaNames.RuleRun.Skipped)] = row.Skipped,
+                    [Q(SchemaNames.RuleRun.Bookmark)] = RunState.WriteBookmark(row.Bookmark),
+                    [Q(SchemaNames.RuleRun.Failures)] = RunState.WriteFailures(row.Failures),
+                    [Q(SchemaNames.RuleRun.RuleVersions)] = RunState.WriteVersions(row.Versions),
+                };
+                if (row.LastPageOn.HasValue) update[Q(SchemaNames.RuleRun.LastPageOn)] = row.LastPageOn.Value;
 
-            _system.Update(update);
-            return row.ToResult(done);
+                // Cancel guard: a cancel that landed during the page wins; keep its status.
+                var current = _system.Retrieve(entity, runId, new ColumnSet(Q(SchemaNames.RuleRun.Status)));
+                if (current.GetAttributeValue<OptionSetValue>(Q(SchemaNames.RuleRun.Status))?.Value == (int)RuleRunStatus.Cancelled)
+                {
+                    _trace.Trace($"RunPageProcessor: run {runId} was cancelled during the page; keeping Cancelled.");
+                    row.Status = RuleRunStatus.Cancelled;
+                    done = true;
+                }
+                else
+                {
+                    update[Q(SchemaNames.RuleRun.Status)] = new OptionSetValue((int)row.Status);
+                    if (row.FinishedOn.HasValue) update[Q(SchemaNames.RuleRun.FinishedOn)] = row.FinishedOn.Value;
+                }
+
+                _system.Update(update);
+                return row.ToResult(done);
+            }
         }
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
+using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Engine;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
@@ -49,6 +50,7 @@ namespace Ascentix.RulesEngine.Plugin
         private readonly int _maxSchedules;
         private readonly Func<Entity, Guid> _createRun;
         private readonly TimeSpan _callBudget;
+        private readonly RunDiagnostics _diagnostics;
 
         /// <param name="createRun">Creates the given asx_rulerun (an all-records run of a rule,
         /// owned by the caller) and returns its id. Defaults to a plain Create through
@@ -56,8 +58,11 @@ namespace Ascentix.RulesEngine.Plugin
         /// that runs the plug-in themselves.</param>
         /// <param name="callBudget">Defaults to <see cref="DefaultCallBudget"/>; measured with
         /// <paramref name="utcNow"/>.</param>
+        /// <param name="diagnostics">Receives the heartbeat / dueQuery / scheduleStart stages and
+        /// the schedule counters; null ⇒ none.</param>
         public DueScheduleProcessor(IOrganizationService system, Guid callerId, ITracingService trace, Func<DateTime> utcNow,
-            int maxSchedules = DefaultMaxSchedules, Func<Entity, Guid> createRun = null, TimeSpan? callBudget = null)
+            int maxSchedules = DefaultMaxSchedules, Func<Entity, Guid> createRun = null, TimeSpan? callBudget = null,
+            RunDiagnostics diagnostics = null)
         {
             _system = system ?? throw new ArgumentNullException(nameof(system));
             _callerId = callerId;
@@ -66,6 +71,7 @@ namespace Ascentix.RulesEngine.Plugin
             _maxSchedules = maxSchedules;
             _createRun = createRun ?? (run => _system.Create(run));
             _callBudget = callBudget ?? DefaultCallBudget;
+            _diagnostics = diagnostics;
         }
 
         public DueScheduleResult Process()
@@ -75,9 +81,12 @@ namespace Ascentix.RulesEngine.Plugin
             var started = new List<Guid>();
             var continued = new List<Guid>();
 
-            Heartbeat(now);
+            using (_diagnostics?.Time("heartbeat"))
+                Heartbeat(now);
 
-            var due = DueSchedules(now);
+            List<Entity> due;
+            using (_diagnostics?.Time("dueQuery"))
+                due = DueSchedules(now);
             result.ScheduledCount = due.Count;
             foreach (var schedule in due)
             {
@@ -88,16 +97,28 @@ namespace Ascentix.RulesEngine.Plugin
                     break;
                 }
 
-                var outcome = ProcessSchedule(schedule, now);
+                RunToDrive outcome;
+                using (_diagnostics?.Time("scheduleStart"))
+                    outcome = ProcessSchedule(schedule, now);
                 if (outcome.RunId == null) continue;
                 (outcome.Started ? started : continued).Add(outcome.RunId.Value);
             }
 
             // New runs first, so a long run that keeps being continued can't starve them; then
             // continued runs; then what earlier calls left running.
+            List<Guid> leftover;
+            using (_diagnostics?.Time("dueQuery"))
+                leftover = LeftoverRuns().ToList();
             var seen = new HashSet<Guid>();
-            foreach (var runId in started.Concat(continued).Concat(LeftoverRuns()))
+            foreach (var runId in started.Concat(continued).Concat(leftover))
                 if (seen.Add(runId)) result.RunIds.Add(runId);
+
+            if (_diagnostics != null)
+            {
+                _diagnostics.SchedulesStarted = started.Count;
+                _diagnostics.SchedulesContinued = continued.Count;
+                _diagnostics.SchedulesSkipped = due.Count - started.Count - continued.Count;
+            }
             return result;
         }
 
