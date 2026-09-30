@@ -37,8 +37,19 @@ the solution installed already has them.
 ```
 python scripts/perf/create-schema.py     # perf publisher, PerfHarness solution, tables, columns, relationships
 python scripts/perf/author-config.py     # 15-node asx_tableconfig tree rooted at perf_root
+```
+
+Then either a one-off profile:
+
+```
 python scripts/perf/generate.py          # lookup pool, perf_root records, child fan-out, asx_rule records
 python scripts/perf/run-profile.py       # samples records, calls asx_RunRules, writes report
+```
+
+or a scenario ladder, which resets and generates each step itself (see **Scenario driver**):
+
+```
+python scripts/perf/run-scenario.py --scenario S1
 ```
 
 All scripts are idempotent (check-first), so they are safe to re-run.
@@ -109,6 +120,82 @@ Example:
 ```
 python scripts/perf/run-profile.py --sample 25 --reps 1 --label baseline-25r-10f-100rules
 ```
+
+## Scenario driver
+
+`run-scenario.py` runs one performance scenario up its ladder of step sizes on DEV and stops at the
+first failing step.
+
+```
+python scripts/perf/run-scenario.py --scenario S1..S6 [--ladder 100,500,2000] [--label baseline]
+                                    [--sample 5] [--trace-settle 60]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--scenario` | (required) | S1 to S6 |
+| `--ladder` | the scenario's ladder below | Comma list of step sizes |
+| `--label` | baseline | Report label (used in the file names) |
+| `--sample` | 5 | Roots sampled per step (S1-S3, S5, S6) |
+| `--trace-settle` | 60 | S2, S3: seconds to keep probing for a probe save's `asx-diag` line before measuring |
+
+Each step: reset the data (`reset-data.py`), generate the step's data and rules (`generate.py`
+with the flags below), drive the scenario, and record pass or fail with its error, the per-stage
+timings and the counters. After the last step, and also after an error or Ctrl+C, the data is reset
+once more and (S2, S3) the plug-in trace setting is restored.
+
+| Scenario | Default ladder | A step generates | Driven by |
+|---|---|---|---|
+| S1 | 100, 500, 2,000, 5,000, 10,000 | `--rows-per-root <step> --profile S1`; `--sample` roots, capped so a step seeds at most 50,000 child rows | `asx_RunRules` (OnUpdate, dry run) with diagnostics on every root |
+| S2 | same | the same, `--profile S2` | A real save of each root changing `perf_lookup1id` to another L1 |
+| S3 | same | the same, `--profile S3` | A real save of each root writing `perf_text` = `S3FIRE-<n>` (fires the set actions) |
+| S4 | 1,000, 10,000, 50,000 | `--records <step> --rows-per-root 1 --profile S4` | A Rule Run per rule (`PERF-RULE-S4-READ`, then `PERF-RULE-S4-WRITE`), paged with `asx_ProcessRunPage` until done; reported as `<step>:no-writes` and `<step>:set-update` |
+| S5 | 1, 10, 50 | `--records <sample> --rows-per-root 1 --profile S5 --profile-step <step>` | One `asx_StartDueSchedules` call once every schedule is due |
+| S6 | 1 to 7 | `--records <sample> --child-fanout 3 --profile S6 --profile-step <step>` | `asx_RunRules` as S1 |
+
+A step **fails**, and the ladder stops there, when:
+- `generate.py` or `reset-data.py` fails (recorded as `setup: ...`);
+- a call or save errors or times out (the 2-minute plug-in limit, the 25,000-row cap, ...);
+- S1, S6: the median total is above 2,000 ms;
+- S2, S3: the probe never produced an `asx-diag` line (`enforcement did not settle`), or fewer
+  `asx-diag` lines than saves were found (`found M of N ...`);
+- S4: a run page fails (a repeated record failure or any other error), or the run doesn't finish
+  within its page budget;
+- S5: the call takes more than 60,000 ms, or fewer schedules were started or continued than were due.
+
+**DEV only.** The driver refuses to run unless `DATAVERSE_URL` (the process environment wins over
+`.env`) is the DEV URL in `.env`. It never reads or prints secrets.
+
+**S2, S3 need plug-in tracing.** Their diagnostics come from the one `asx-diag` trace line the
+engine writes per save, which Dataverse keeps only when the environment's plug-in trace setting is
+All. The driver switches the setting to All and restores the original at the end, so it needs the
+privileges to update the organization and read `plugintracelogs`. Before a step's measured saves it
+probes: it saves one sampled root (S2 changes its lookup; S3 writes `perf_text` without the fire
+marker) until that save's line appears, retrying for up to `--trace-settle` seconds, so tracing
+and the step's newly published rules are live before anything is measured. Each save counts once:
+if the engine ran more than once for a save, the slower line is kept and the result notes
+`duplicateDiagLines`. Every S3 save creates follow-ups; the per-step reset removes them.
+
+**S5 waits.** Its schedules run every 15 minutes and Next run on is engine-owned, so each step
+waits until they are all due (about 15 minutes, 20 at most; a schedule without a Next run on yet
+counts as not due). It refuses to start, and a step fails, while another caller's scheduler
+heartbeat is under 20 minutes old: turn the **Rules Engine Scheduler** flow off before S5, wait 20
+minutes, and turn it back on afterwards. The driver never switches the flow itself.
+
+**S4 volume.** The 50,000 step holds about 100,000 rows (50,000 roots and a child row each).
+
+### Scenario reports
+
+Written to `docs/perf/reports/` (not committed):
+
+- `<date>-<label>-<scenario>.md`: one row per step (result, samples, total and max ms, dominant
+  stage, error), then a stage table and a counter table across the steps.
+- `<date>-<label>-<scenario>.csv`: the same per step, one column per counter and per stage.
+- `<date>-<label>-<scenario>.json`: the raw step results.
+- `<date>-<label>-capacity.md`: rebuilt after every scenario from every `<date>-<label>-S*.json`.
+  Per scenario: the last passing step, the first failing step and its error, and the dominant
+  stage at the top passing step with its share of the total ms. The page containers
+  (`pageEvaluate`, `pageWrite`) count as the dominant stage only when no finer stage was timed.
 
 ## Reports
 

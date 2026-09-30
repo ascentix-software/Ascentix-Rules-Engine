@@ -34,17 +34,49 @@ def _headers(write, solution):
     return h
 
 
-def _req(method, path, payload=None, solution=True):
+class DataverseError(Exception):
+    """A Web API call that failed. status is the HTTP status, None for a timeout or a dropped connection."""
+
+    def __init__(self, method, path, status, message):
+        super().__init__(f"{method} {path}: {status or 'no response'}: {message}")
+        self.status = status
+        self.message = message
+
+
+def _error_message(detail):
+    try:
+        return json.loads(detail)["error"]["message"]
+    except (ValueError, KeyError, TypeError):
+        return detail
+
+
+def request(method, path, payload=None, *, solution=False, timeout=180):
+    """One Web API call returning (headers, body). Raises DataverseError instead of exiting, so a
+    driver can record the failure; retries once with a fresh token on 401 (long ladders outlive a token)."""
+    global _token
     url = path if path.startswith("http") else f"{BASE}/{path}"
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, headers=_headers(payload is not None, solution), method=method)
+    for attempt in (1, 2):
+        req = urllib.request.Request(url, data=data, headers=_headers(payload is not None, solution), method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                body = r.read().decode()
+                return r.headers, (json.loads(body) if body else None)
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode()
+            if e.code == 401 and attempt == 1:
+                _token = get_token()
+                continue
+            raise DataverseError(method, path, e.code, _error_message(detail)) from None
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            raise DataverseError(method, path, None, str(e)) from None
+
+
+def _req(method, path, payload=None, solution=True):
     try:
-        with urllib.request.urlopen(req) as r:
-            body = r.read().decode()
-            return r.headers, (json.loads(body) if body else None)
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode()
-        raise SystemExit(f"ERROR {method} {path}: {e.code}\n{detail}")
+        return request(method, path, payload, solution=solution, timeout=None)
+    except DataverseError as e:
+        raise SystemExit(f"ERROR {method} {path}: {e.status}\n{e.message}")
 
 
 def get(path):
