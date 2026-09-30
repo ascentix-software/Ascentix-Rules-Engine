@@ -5,7 +5,7 @@ Run from repo root:
 
 Deletes (in order):
   1. asx_rule records named PERF-RULE-* (cascade removes groups/conditions/actions)
-  2. Data rows from the 7 perf tables (children first, then roots, then lookups)
+  2. Data rows from the 8 perf tables (followup, then children, then roots, then lookups)
      where perf_name startswith 'PERF'
 
 Idempotent -- safe to re-run when already clean.
@@ -100,8 +100,9 @@ def main():
     delete_rules()
 
     # Step 2: Data rows -- children before parents to satisfy FK constraints.
-    # Order: child3 -> child2 -> child1 -> roots -> lookup1 -> lookup2 -> lookup3
+    # Order: followup -> child3 -> child2 -> child1 -> roots -> lookup1 -> lookup2 -> lookup3
     print("\n[2/2] Deleting generated data rows (children first)...")
+    delete_data_table("perf_followups", "perf_followupid")
     delete_data_table("perf_child3s",  "perf_child3id")
     delete_data_table("perf_child2s",  "perf_child2id")
     delete_data_table("perf_child1s",  "perf_child1id")

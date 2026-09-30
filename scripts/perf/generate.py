@@ -2,10 +2,22 @@
 
 All generated names are PERF-namespaced. Deterministic via --seed.
 Bulk creates via the Web API $batch endpoint (chunked at BATCH_SIZE per request).
+Every seeded row (lookup pool, roots, children) also gets a perf_date 0-60 days before today
+(profiles.date_value), drawn from its own random stream.
+
+Rules are created as Draft (no statuscode on create) and published one at a time afterward with a
+statuscode-only PATCH (see publish_rules) — exactly how the Rule Builder publishes. The
+RuleRevisionGuardPlugin refuses creating an asx_rule directly as Published ("Create and save a
+draft before publishing it."), and publishing this way also registers the RulesEnginePlugin steps
+a save needs, so the seeded rules enforce real perf_root saves.
+
+--rows-per-root N seeds exactly N perf_child1 rows per root (flat; categories cycling
+30001/30002/30003) and no child2/child3, overriding --child-fanout.
 
 Run from repo root:
     python scripts/perf/generate.py
     python scripts/perf/generate.py --records 5 --child-fanout 3 --rules 20
+    python scripts/perf/generate.py --records 25 --rows-per-root 12 --rules 20
 
 Option values used (sources cited inline):
   PUBLISHED        = 753840000 — author-rules.py line 12, confirmed docs/Schema.md s2.1
@@ -41,6 +53,7 @@ Operator pools per column type (ConditionEvaluator.cs authoritative):
   IsNull/IsNotNull conditions omit asx_comparisonvalue entirely (no value needed).
 """
 import argparse
+import datetime
 import json
 import os
 import random
@@ -53,6 +66,7 @@ import urllib.request
 sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "perf"))
 import _dv  # noqa: E402
 from _dv import get, post  # noqa: E402
+import profiles  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Option-set constants — sourced from author-rules.py and docs/Schema.md
@@ -101,16 +115,13 @@ SRC_FIELDREF = 2   # Field Reference
 LOG_AND = 1
 LOG_OR  = 2
 
-# asx_actiontype — docs/Schema.md s1; author-rules.py lines 97, 116, 149
-ACT_SHOWMSG = 3
-ACT_BLOCK   = 4
-
 # asx_actionfireon — docs/Schema.md s1; author-rules.py lines 97, 116
 FIREON_MATCH   = 1
 FIREON_NOMATCH = 2
 
-# perf_category option values — create-schema.py line 231
-CATEGORY_OPTIONS = [30001, 30002, 30003]
+# asx_actiontype (profiles.ACT_SHOWMSG=3, profiles.ACT_BLOCK=4) and perf_category option values
+# (profiles.CATEGORY_OPTIONS = [30001, 30002, 30003], create-schema.py line 231) live in
+# profiles.py — the single home for harness constants shared with generate.py.
 
 # perf typed columns (from create-schema.py add_typed_columns)
 TYPED_COLS = {
@@ -250,9 +261,9 @@ def resolve_tableconfig_ids():
 # Lookup pool seeding
 # ---------------------------------------------------------------------------
 
-def seed_lookup_pool(rng, pool_size=20):
+def seed_lookup_pool(rng, dates, pool_size=20):
     """Create shared lookup pools for L3, L2, L1. Returns {l3: [...guids], l2: [...], l1: [...]}."""
-    print(f"\n[1/4] Seeding lookup pool (size {pool_size} each)...")
+    print(f"\n[1/5] Seeding lookup pool (size {pool_size} each)...")
 
     # L3 records
     l3_payloads = []
@@ -263,7 +274,8 @@ def seed_lookup_pool(rng, pool_size=20):
             "perf_number": rng.randint(0, 1000),
             "perf_amount": round(rng.uniform(0.0, 5000.0), 2),
             "perf_flag":   rng.choice([True, False]),
-            "perf_category": rng.choice(CATEGORY_OPTIONS),
+            "perf_category": rng.choice(profiles.CATEGORY_OPTIONS),
+            "perf_date":   dates(),
         })
     l3_guids = bulk_create("perf_lookup3s", l3_payloads, "L3")
     print(f"  L3 pool: {len(l3_guids)} records")
@@ -279,7 +291,8 @@ def seed_lookup_pool(rng, pool_size=20):
             "perf_number": rng.randint(0, 1000),
             "perf_amount": round(rng.uniform(0.0, 5000.0), 2),
             "perf_flag":   rng.choice([True, False]),
-            "perf_category": rng.choice(CATEGORY_OPTIONS),
+            "perf_category": rng.choice(profiles.CATEGORY_OPTIONS),
+            "perf_date":   dates(),
             f"{nav_l2_l3}@odata.bind": f"/perf_lookup3s({l3_id})",
         })
     l2_guids = bulk_create("perf_lookup2s", l2_payloads, "L2")
@@ -296,7 +309,8 @@ def seed_lookup_pool(rng, pool_size=20):
             "perf_number": rng.randint(0, 1000),
             "perf_amount": round(rng.uniform(0.0, 5000.0), 2),
             "perf_flag":   rng.choice([True, False]),
-            "perf_category": rng.choice(CATEGORY_OPTIONS),
+            "perf_category": rng.choice(profiles.CATEGORY_OPTIONS),
+            "perf_date":   dates(),
             f"{nav_l1_l2}@odata.bind": f"/perf_lookup2s({l2_id})",
         })
     l1_guids = bulk_create("perf_lookup1s", l1_payloads, "L1")
@@ -309,9 +323,9 @@ def seed_lookup_pool(rng, pool_size=20):
 # perf_root + children seeding
 # ---------------------------------------------------------------------------
 
-def seed_roots(rng, records, pool, lookup_breadth):
+def seed_roots(rng, dates, records, pool, lookup_breadth, patch_self_refs=True):
     """Create perf_root records. Returns list of root GUIDs."""
-    print(f"\n[2/4] Seeding {records} perf_root records...")
+    print(f"\n[2/5] Seeding {records} perf_root records...")
     nav_root_l1    = nav("perf_root", "perf_lookup1", "perf_lookup1id")
     nav_root_self  = nav("perf_root", "perf_root",    "perf_parentrootid")
     nav_root_sib1  = nav("perf_root", "perf_lookup1", "perf_siblookup1")
@@ -336,7 +350,8 @@ def seed_roots(rng, records, pool, lookup_breadth):
             "perf_number":   rng.randint(0, 10000),
             "perf_amount":   round(rng.uniform(0.0, 100000.0), 2),
             "perf_flag":     rng.choice([True, False]),
-            "perf_category": rng.choice(CATEGORY_OPTIONS),
+            "perf_category": rng.choice(profiles.CATEGORY_OPTIONS),
+            "perf_date":     dates(),
             f"{nav_root_l1}@odata.bind": f"/perf_lookup1s({l1_id})",
         }
         # Sibling lookups up to lookup_breadth (max 6)
@@ -349,8 +364,10 @@ def seed_roots(rng, records, pool, lookup_breadth):
     root_guids = bulk_create("perf_roots", root_payloads, "roots")
     print(f"  Roots created: {len(root_guids)}")
 
-    # Patch ~50% to have a perf_parentrootid self-ref
-    if len(root_guids) > 1:
+    # Patch ~50% to have a perf_parentrootid self-ref. Skipped for large volumes (S4/S5 seed up
+    # to 50,000 roots; patching half of them one PATCH at a time would take hours, and their
+    # rules never read PERF Self).
+    if patch_self_refs and len(root_guids) > 1:
         patch_count = max(1, len(root_guids) // 2)
         targets = rng.sample(root_guids, patch_count)
         print(f"  Patching {patch_count} roots with perf_parentrootid self-ref...")
@@ -362,7 +379,7 @@ def seed_roots(rng, records, pool, lookup_breadth):
     return root_guids
 
 
-def seed_children(rng, root_guids, pool, child_fanout):
+def seed_children(rng, dates, root_guids, pool, child_fanout):
     """Create child1/2/3 records with multiplicative fan-out."""
     nav_c1_root   = nav("perf_child1", "perf_root",    "perf_rootid")
     nav_c1_l1     = nav("perf_child1", "perf_lookup1", "perf_child1lookupid")
@@ -370,7 +387,7 @@ def seed_children(rng, root_guids, pool, child_fanout):
     nav_c3_c2     = nav("perf_child3", "perf_child2",  "perf_child2id")
 
     # Child1
-    print(f"\n[3/4] Seeding children (fanout={child_fanout})...")
+    print(f"\n[3/5] Seeding children (fanout={child_fanout})...")
     c1_payloads = []
     c1_root_map = []  # (root_guid) for each c1 record (same index)
     for root_id in root_guids:
@@ -382,7 +399,8 @@ def seed_children(rng, root_guids, pool, child_fanout):
                 "perf_number":   rng.randint(0, 500),
                 "perf_amount":   round(rng.uniform(0.0, 2000.0), 2),
                 "perf_flag":     rng.choice([True, False]),
-                "perf_category": rng.choice(CATEGORY_OPTIONS),
+                "perf_category": rng.choice(profiles.CATEGORY_OPTIONS),
+                "perf_date":     dates(),
                 f"{nav_c1_root}@odata.bind": f"/perf_roots({root_id})",
                 f"{nav_c1_l1}@odata.bind":   f"/perf_lookup1s({l1_id})",
             })
@@ -400,7 +418,8 @@ def seed_children(rng, root_guids, pool, child_fanout):
                 "perf_number":   rng.randint(0, 500),
                 "perf_amount":   round(rng.uniform(0.0, 1000.0), 2),
                 "perf_flag":     rng.choice([True, False]),
-                "perf_category": rng.choice(CATEGORY_OPTIONS),
+                "perf_category": rng.choice(profiles.CATEGORY_OPTIONS),
+                "perf_date":     dates(),
                 f"{nav_c2_c1}@odata.bind": f"/perf_child1s({c1_id})",
             })
     c2_guids = bulk_create("perf_child2s", c2_payloads, "child2")
@@ -416,13 +435,29 @@ def seed_children(rng, root_guids, pool, child_fanout):
                 "perf_number":   rng.randint(0, 200),
                 "perf_amount":   round(rng.uniform(0.0, 500.0), 2),
                 "perf_flag":     rng.choice([True, False]),
-                "perf_category": rng.choice(CATEGORY_OPTIONS),
+                "perf_category": rng.choice(profiles.CATEGORY_OPTIONS),
+                "perf_date":     dates(),
                 f"{nav_c3_c2}@odata.bind": f"/perf_child2s({c2_id})",
             })
     c3_guids = bulk_create("perf_child3s", c3_payloads, "child3")
     print(f"  Child3 created: {len(c3_guids)}")
 
     return {"c1": c1_guids, "c2": c2_guids, "c3": c3_guids}
+
+
+def seed_children_flat(rng, dates, root_guids, pool, rows_per_root):
+    """--rows-per-root: exactly rows_per_root perf_child1 rows per root, and no child2/child3."""
+    nav_c1_root = nav("perf_child1", "perf_root", "perf_rootid")
+    nav_c1_l1 = nav("perf_child1", "perf_lookup1", "perf_child1lookupid")
+    print(f"\n[3/5] Seeding {rows_per_root} perf_child1 row(s) per root (flat)...")
+    payloads = []
+    for root_id in root_guids:
+        for j in range(rows_per_root):
+            payloads.append(profiles.flat_child_payload(
+                len(payloads), j, root_id, rng.choice(pool["l1"]), dates(), nav_c1_root, nav_c1_l1))
+    guids = bulk_create("perf_child1s", payloads, "child1")
+    print(f"  Child1 created: {len(guids)}")
+    return guids
 
 
 # ---------------------------------------------------------------------------
@@ -461,7 +496,7 @@ def _bool_op_and_value(rng):
 def _choice_op_and_value(rng):
     """Pick Equals or NotEquals and a category option value. Returns (op, value_str)."""
     op = rng.choice(CHOICE_OPS)
-    return op, str(rng.choice(CATEGORY_OPTIONS))
+    return op, str(rng.choice(profiles.CATEGORY_OPTIONS))
 
 
 # ---------------------------------------------------------------------------
@@ -475,18 +510,6 @@ def _choice_op_and_value(rng):
 #   }
 # GUIDs for rule/group are injected by the caller after bulk-create.
 # ---------------------------------------------------------------------------
-
-def _rule_payload(name, tc_ids):
-    """Base asx_rule payload. asx_tablelogicalname uses PERF Root node's table."""
-    nav_root_tc = nav("asx_rule", "asx_tableconfig", "asx_roottableconfig")
-    return {
-        "asx_name":             name,
-        "asx_tablelogicalname": "perf_root",
-        "statuscode":           PUBLISHED,       # author-rules.py line 12; docs/Schema.md s2.1
-        "asx_triggers":         TRIG_ON_UPDATE,  # docs/Schema.md s1: On Update = 4
-        f"{nav_root_tc}@odata.bind": f"/asx_tableconfigs({tc_ids['PERF Root']})",
-    }
-
 
 def _group_payload(rule_id, op, is_exec=False):
     nav_cg_rule = nav("asx_conditiongroup", "asx_rule", "asx_rule")
@@ -548,7 +571,7 @@ def _action_showmsg(rule_id, msg, severity=1, fireon=FIREON_MATCH):
     nav_act_rule = nav("asx_ruleaction", "asx_rule", "asx_rule")
     return {
         "asx_name":      f"act-{rule_id[:8]}-msg",
-        "asx_actiontype": ACT_SHOWMSG,      # docs/Schema.md s1; author-rules.py line 149
+        "asx_actiontype": profiles.ACT_SHOWMSG,  # docs/Schema.md s1; author-rules.py line 149
         "asx_fireon":    fireon,             # FIREON_MATCH=1; docs/Schema.md s1
         "asx_message":   msg,
         "asx_severity":  severity,
@@ -562,7 +585,7 @@ def _action_block(rule_id, msg, severity=3, fireon=FIREON_NOMATCH):
     nav_act_rule = nav("asx_ruleaction", "asx_rule", "asx_rule")
     return {
         "asx_name":      f"act-{rule_id[:8]}-block",
-        "asx_actiontype": ACT_BLOCK,         # docs/Schema.md s1; author-rules.py line 116
+        "asx_actiontype": profiles.ACT_BLOCK,  # docs/Schema.md s1; author-rules.py line 116
         "asx_fireon":    fireon,              # FIREON_NOMATCH=2; docs/Schema.md s1
         "asx_message":   msg,
         "asx_severity":  severity,
@@ -721,7 +744,7 @@ def make_and_or_rule(rng, rule_id, tc_ids, lookup_breadth):
     if col2 == "perf_flag":
         cond2 = _cond_fieldcmp(rule_id, tc_ids["PERF Root"], "perf_flag", OP_EQUALS, "1")
     else:
-        cat_val = rng.choice(CATEGORY_OPTIONS)  # 30001/30002/30003 — create-schema.py line 231
+        cat_val = rng.choice(profiles.CATEGORY_OPTIONS)  # 30001/30002/30003 — create-schema.py line 231
         cond2 = _cond_fieldcmp(rule_id, tc_ids["PERF Root"], "perf_category", OP_EQUALS,
                                str(cat_val))
     cond2["asx_name"] = f"cond-{rule_id[:8]}-multi-2"
@@ -793,14 +816,22 @@ def build_shape(shape_name, rng, rule_id, tc_ids, lookup_breadth):
 # Rule seeding
 # ---------------------------------------------------------------------------
 
-def seed_rules(rng, rule_count, tc_ids, lookup_breadth):
-    """Create asx_rule + conditiongroup + rulecondition + ruleaction records."""
-    print(f"\n[4/4] Seeding {rule_count} asx_rule records...")
+def seed_rules(rng, rule_count, tc_ids, lookup_breadth, block_as_message=False):
+    """Create asx_rule + conditiongroup + rulecondition + ruleaction records. Rules are created as
+    Draft (no statuscode); publish_rules publishes them afterward with a statuscode PATCH, exactly
+    as the Rule Builder does. block_as_message downgrades every Block action to a Show Message
+    (profiles.downgrade_block) — used by save-driven profiles so a seeded rule can never fail the
+    save being measured.
+    Returns (shape_distribution, rule_guids)."""
+    print(f"\n[4/5] Seeding {rule_count} asx_rule records...")
+
+    if rule_count == 0:
+        return {}, []
 
     shape_distribution = {s: 0 for s in SHAPE_NAMES}
     nav_root_tc = nav("asx_rule", "asx_tableconfig", "asx_roottableconfig")
 
-    # Step 1: bulk-create asx_rule records
+    # Step 1: bulk-create asx_rule records (Draft — no statuscode; publish_rules publishes them)
     rule_payloads = []
     rule_shapes = []
     for i in range(rule_count):
@@ -810,7 +841,6 @@ def seed_rules(rng, rule_count, tc_ids, lookup_breadth):
         rule_payloads.append({
             "asx_name":             f"PERF-RULE-{i:04d}",
             "asx_tablelogicalname": "perf_root",
-            "statuscode":           PUBLISHED,       # 753840000 — author-rules.py line 12
             "asx_triggers":         TRIG_ON_UPDATE,  # "4" — docs/Schema.md s1 On Update=4
             f"{nav_root_tc}@odata.bind": f"/asx_tableconfigs({tc_ids['PERF Root']})",
         })
@@ -840,6 +870,8 @@ def seed_rules(rng, rule_count, tc_ids, lookup_breadth):
 
         for act in actions:
             act = dict(act)
+            if block_as_message:
+                act = profiles.downgrade_block(act)
             nav_act_rule = nav("asx_ruleaction", "asx_rule", "asx_rule")
             act[f"{nav_act_rule}@odata.bind"] = f"/asx_rules({rule_id})"
             all_actions_payloads.append((ri, act))
@@ -872,7 +904,18 @@ def seed_rules(rng, rule_count, tc_ids, lookup_breadth):
     action_guids = bulk_create("asx_ruleactions", action_payloads_only, "actions")
     print(f"  Actions created: {len(action_guids)}")
 
-    return shape_distribution
+    return shape_distribution, rule_guids
+
+
+def publish_rules(rule_ids):
+    """Publish each rule exactly as the Rule Builder does: a statuscode-only PATCH. RulePublishPlugin
+    validates it and snapshots a revision; RuleRegistrationPlugin registers the RulesEnginePlugin
+    steps a save needs. A rule the validator rejects stops the run with its message."""
+    print(f"\n[5/5] Publishing {len(rule_ids)} rule(s)...")
+    for i, rule_id in enumerate(rule_ids, 1):
+        _dv.patch(f"asx_rules({rule_id})", {"statuscode": PUBLISHED}, solution=False)
+        if i % 10 == 0 or i == len(rule_ids):
+            print(f"  published {i}/{len(rule_ids)}")
 
 
 # ---------------------------------------------------------------------------
@@ -886,14 +929,22 @@ def main():
     parser.add_argument("--rules",          type=int, default=100, help="Number of asx_rule records (default 100)")
     parser.add_argument("--records",        type=int, default=100, help="Number of perf_root records (default 100)")
     parser.add_argument("--child-fanout",   type=int, default=10,  help="Child fan-out per level (default 10)")
+    parser.add_argument("--rows-per-root", type=int, default=None,
+                        help="Flat mode: exactly N perf_child1 rows per root and no child2/child3 (overrides --child-fanout)")
     parser.add_argument("--lookup-breadth", type=int, default=4,   help="Sibling lookups per root (max 6, default 4)")
     parser.add_argument("--seed",           type=int, default=1234, help="Random seed (default 1234)")
     args = parser.parse_args()
 
     rng = random.Random(args.seed)
+    date_rng = random.Random(args.seed + 1)
+    today = datetime.date.today()
+    dates = lambda: profiles.date_value(date_rng, today)  # noqa: E731
 
     print("=== PERF volume generator ===")
-    print(f"  --records={args.records}  --child-fanout={args.child_fanout}")
+    if args.rows_per_root is not None:
+        print(f"  --records={args.records}  --rows-per-root={args.rows_per_root} (flat)")
+    else:
+        print(f"  --records={args.records}  --child-fanout={args.child_fanout}")
     print(f"  --rules={args.rules}  --lookup-breadth={args.lookup_breadth}  --seed={args.seed}")
 
     # Resolve tableconfig IDs from Dataverse (author-config.py must have run first)
@@ -902,28 +953,34 @@ def main():
     print(f"  Resolved {len(tc_ids)} tableconfig nodes: {sorted(tc_ids.keys())}")
 
     # 1. Shared lookup pool (20 each of L3/L2/L1)
-    pool = seed_lookup_pool(rng, pool_size=20)
+    pool = seed_lookup_pool(rng, dates, pool_size=20)
 
     # 2. perf_root records
-    root_guids = seed_roots(rng, args.records, pool, args.lookup_breadth)
+    root_guids = seed_roots(rng, dates, args.records, pool, args.lookup_breadth)
 
-    # 3. Children (multiplicative fan-out)
-    child_counts = seed_children(rng, root_guids, pool, args.child_fanout)
+    # 3. Children (multiplicative fan-out, or flat rows-per-root)
+    if args.rows_per_root is not None:
+        child_counts = {"c1": seed_children_flat(rng, dates, root_guids, pool, args.rows_per_root), "c2": [], "c3": []}
+    else:
+        child_counts = seed_children(rng, dates, root_guids, pool, args.child_fanout)
 
-    # 4. Rules
-    shape_dist = seed_rules(rng, args.rules, tc_ids, args.lookup_breadth)
+    # 4. Rules — created as Draft, then published one by one (publish_rules)
+    shape_dist, rule_guids = seed_rules(rng, args.rules, tc_ids, args.lookup_breadth)
+    publish_rules(rule_guids)
 
-    # Summary
+    # Summary — the effective rule count is len(rule_guids) (what was actually seeded and
+    # published), not args.rules.
     n_roots  = len(root_guids)
     n_child1 = len(child_counts["c1"])
     n_child2 = len(child_counts["c2"])
     n_child3 = len(child_counts["c3"])
+    n_rules  = len(rule_guids)
 
     print("\n=== DONE ===")
     print(f"  Lookup pool:  L3={len(pool['l3'])}, L2={len(pool['l2'])}, L1={len(pool['l1'])}")
     print(f"  Data totals:  roots={n_roots}, child1={n_child1}, child2={n_child2}, child3={n_child3}")
-    print(f"  Rules:        {args.rules} (Published, trigger=OnUpdate)")
-    print(f"\nShape distribution ({args.rules} rules across {len(SHAPE_NAMES)} shapes):")
+    print(f"  Rules:        {n_rules} (published through the Rule Builder path, trigger=OnUpdate)")
+    print(f"\nShape distribution ({n_rules} rules across {len(SHAPE_NAMES)} shapes):")
     for shape, count in shape_dist.items():
         print(f"    {shape:<22} {count}")
 

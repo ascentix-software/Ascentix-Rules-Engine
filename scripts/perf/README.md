@@ -1,9 +1,15 @@
 # Perf Profiling Harness
 
 A dev-only performance-profiling fixture for the Ascentix Rules Engine.
-Provisions a dedicated `perf` solution (7 tables + 15-node tableconfig tree) in the DEV
-environment, generates configurable data volumes and rules, drives `asx_RunRules` with
-diagnostics enabled, and writes timestamped profiling reports.
+Provisions a dedicated `perf` solution (8 tables, including `perf_followup` — the Create per
+row target — + 15-node tableconfig tree) in the DEV environment, generates configurable data
+volumes and rules, drives `asx_RunRules` with diagnostics enabled, and writes timestamped
+profiling reports.
+
+> If your DEV environment was provisioned before `perf_followup` existed, re-run
+> `create-schema.py` — it is idempotent (check-first) and will add the missing table and
+> relationship without touching anything already there. `reset-data.py` now expects
+> `perf_followup` to exist.
 
 
 ## Prerequisites
@@ -46,8 +52,15 @@ All scripts are idempotent (check-first), so they are safe to re-run.
 | `--rules N` | 100 | Number of `asx_rule` records to create |
 | `--records N` | 100 | Number of `perf_root` records |
 | `--child-fanout N` | 10 | Children per parent at **each** child level. Multiplicative, so `--records 25 --child-fanout 10` seeds 25 roots, 250, 2,500 and 25,000 children |
+| `--rows-per-root N` | — | Flat mode: exactly N perf_child1 rows per root, categories cycling 30001/30002/30003, no child2/child3. Use for exact ladder steps. Overrides `--child-fanout` |
 | `--lookup-breadth N` | 4 | Sibling lookup nodes to exercise per root (max 6) |
 | `--seed N` | 1234 | Random seed for deterministic reproducibility |
+
+Every seeded row (lookup pool, roots, children) also gets a `perf_date` 0-60 days before today.
+
+Rules are created as drafts and published one by one with a `statuscode` PATCH, exactly as the
+Rule Builder publishes (the revision guard refuses a rule created already Published). Publishing
+registers the enforcement steps, so the rules also enforce real saves of `perf_root`.
 
 Example:
 ```
