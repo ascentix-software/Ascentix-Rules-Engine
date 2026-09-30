@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -77,30 +78,46 @@ namespace Ascentix.RulesEngine.Core.Diagnostics
         {
             var nodes = d.Nodes;
             var line = TracePrefix + Write(ToDto(d, nodes, d.Stages));
-            if (Encoding.UTF8.GetByteCount(line) <= maxBytes) return line;
+            if (Fits(line, maxBytes)) return line;
 
+            // All nodes don't fit, so search keep = 0 .. Count - 1.
             var heaviestNodes = nodes.OrderByDescending(n => n.Rows).ToList();
-            for (var keep = heaviestNodes.Count - 1; keep >= 0; keep--)
-            {
-                var dto = ToDto(d, heaviestNodes.Take(keep).ToList(), d.Stages);
-                dto.NodesTruncated = true;
-                line = TracePrefix + Write(dto);
-                if (Encoding.UTF8.GetByteCount(line) <= maxBytes) return line;
-            }
+            line = LargestFittingLine(heaviestNodes.Count - 1, maxBytes,
+                keep => TruncatedLine(d, heaviestNodes.Take(keep), d.Stages));
+            if (line != null) return line;
 
             // P11: even with zero nodes kept, the line must not exceed the cap. Drop node detail
             // entirely and cut stages down to the heaviest that fit.
             var heaviestStages = d.Stages.OrderByDescending(s => s.Ms).ToList();
-            for (var keep = heaviestStages.Count; keep >= 0; keep--)
-            {
-                var dto = ToDto(d, Enumerable.Empty<NodeDiagnostics>(), heaviestStages.Take(keep).ToList());
-                dto.NodesTruncated = true;
-                line = TracePrefix + Write(dto);
-                if (Encoding.UTF8.GetByteCount(line) <= maxBytes) return line;
-            }
-
-            return line;
+            Func<int, string> stageLine = keep => TruncatedLine(d, Enumerable.Empty<NodeDiagnostics>(), heaviestStages.Take(keep));
+            return LargestFittingLine(heaviestStages.Count, maxBytes, stageLine) ?? stageLine(0);
         }
+
+        /// <summary>The line for the largest keep in 0..<paramref name="maxKeep"/> that fits, or null
+        /// when not even keep = 0 does. Each keep is a prefix of one fixed heaviest-first order, so the
+        /// line only grows with keep and a binary search finds it in O(log n) serializations.</summary>
+        private static string LargestFittingLine(int maxKeep, int maxBytes, Func<int, string> lineFor)
+        {
+            string best = null;
+            int low = 0, high = maxKeep;
+            while (low <= high)
+            {
+                var keep = low + (high - low) / 2;
+                var line = lineFor(keep);
+                if (Fits(line, maxBytes)) { best = line; low = keep + 1; }
+                else high = keep - 1;
+            }
+            return best;
+        }
+
+        private static string TruncatedLine(RunDiagnostics d, IEnumerable<NodeDiagnostics> nodes, IEnumerable<StageTiming> stages)
+        {
+            var dto = ToDto(d, nodes, stages);
+            dto.NodesTruncated = true;
+            return TracePrefix + Write(dto);
+        }
+
+        private static bool Fits(string line, int maxBytes) => Encoding.UTF8.GetByteCount(line) <= maxBytes;
 
         private static DiagDto ToDto(RunDiagnostics d, IEnumerable<NodeDiagnostics> nodes, IEnumerable<StageTiming> stages) => new DiagDto
         {
@@ -135,12 +152,15 @@ namespace Ascentix.RulesEngine.Core.Diagnostics
             SchedulesSkipped = d.SchedulesSkipped,
         };
 
+        // Built once: construction is the expensive part, and WriteObject is safe to share across
+        // threads (no surrogate or resolver).
+        private static readonly DataContractJsonSerializer DiagSerializer = new DataContractJsonSerializer(typeof(DiagDto));
+
         private static string Write(DiagDto dto)
         {
-            var serializer = new DataContractJsonSerializer(typeof(DiagDto));
             using (var ms = new MemoryStream())
             {
-                serializer.WriteObject(ms, dto);
+                DiagSerializer.WriteObject(ms, dto);
                 return Encoding.UTF8.GetString(ms.ToArray());
             }
         }
