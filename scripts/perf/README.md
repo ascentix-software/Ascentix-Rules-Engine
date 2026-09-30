@@ -132,7 +132,7 @@ first failing step.
 
 ```
 python scripts/perf/run-scenario.py --scenario S1..S6 [--ladder 100,500,2000] [--label baseline]
-                                    [--sample N] [--rules N] [--trace-settle 600]
+                                    [--sample N] [--rules N] [--trace-settle 600] [--settle-probes 5]
 ```
 
 | Flag | Default | Description |
@@ -143,6 +143,7 @@ python scripts/perf/run-scenario.py --scenario S1..S6 [--ladder 100,500,2000] [-
 | `--sample` | 10 for S2 and S3, 5 for the others | Roots sampled per step (S1-S3, S5, S6) |
 | `--rules` | the profile's default (S1 100, S2 100, S3 0, S4 0, S5 0, S6 100) | Background rules per step, passed to `generate.py --rules`. Every step records its count (`backgroundRules`) and the reports show it. `--rules 0` measures a scenario's own rules alone |
 | `--trace-settle` | 600 | S2, S3: the enforcement-settle window, the seconds to keep probing for a probe save's diagnostics row before measuring. The flag keeps its name from when S2/S3 read the plug-in trace log |
+| `--settle-probes` | 5 | S2, S3: probe saves in a row that must each write their diagnostics row before measuring; a missed row starts the count over |
 
 Each step: reset the data (`reset-data.py`), generate the step's data and rules (`generate.py`
 with the flags below, plus `--rules` when given), drive the scenario, and record pass or fail with its error, the per-stage
@@ -164,8 +165,10 @@ A step **fails**, and the ladder stops there, when:
 - `generate.py` or `reset-data.py` fails (recorded as `setup: ...`);
 - a call or save errors or times out (the 2-minute plug-in limit, the 25,000-row cap, ...);
 - S1, S6: the median total is above 2,000 ms;
-- S2, S3: the probe never wrote a diagnostics row (`enforcement did not settle`), or any save
-  has no diagnostics row when the 60-second read window ends (`found M of N diagnostics rows`);
+- S2, S3: `--settle-probes` probe saves in a row never all wrote their diagnostics row within
+  `--trace-settle` seconds (`enforcement did not settle: k of K consecutive probe saves captured`),
+  or any measured save has no diagnostics row when the 60-second read window ends
+  (`found M of N diagnostics rows`);
 - S4: a run page fails (a repeated record failure or any other error), or the run doesn't finish
   within its page budget;
 - S5: the call takes more than 60,000 ms, or fewer schedules were started or continued than were due.
@@ -184,11 +187,17 @@ organization's plug-in trace setting, and S1, S4, S5 and S6 never touch the vari
 privileges to read and write environment variable values and read `asx_rulediagnostic`.
 
 Before a step's measured saves the driver probes: it saves one sampled root (S2 changes its lookup;
-S3 writes `perf_text` without the fire marker) until that root gets a new diagnostics row, retrying
-for up to `--trace-settle` seconds. The plug-in reads the switch through a cache that refreshes at
-most once a minute, and a freshly published rule can take a few minutes to go live, which is why
-`--trace-settle` defaults to 600 seconds. After the saves, the driver reads back one row per
-measured save (by the root's record id, created from the probe row on, less every row that was
+S3 writes `perf_text` without the fire marker) until `--settle-probes` (default 5) probe saves in a
+row have each written a new diagnostics row within 15 seconds. A missed row starts the count over,
+and the whole wait is capped at `--trace-settle` seconds. One captured probe isn't enough: after a
+publish, the engine's new step goes live on Dataverse's workers one at a time, and a save routed to
+a worker that doesn't have it yet never runs the engine, so it writes no row. On DEV, measuring after
+a single captured probe found only 40-60% of the saves' rows (6 of 10 in the S2 100 step), although
+every save succeeded. The plug-in also reads the switch through a cache that refreshes at most once a
+minute, and a freshly published rule can take a few minutes to go live, which is why
+`--trace-settle` defaults to 600 seconds. Every S2 and S3 result records the probe saves the settle
+took (`probeSaves`), so its cost is visible. After the saves, the driver reads back one row per
+measured save (by the root's record id, created from the last probe row on, less every row that was
 there before), stopping as soon as every save has one and waiting at most 60 seconds. Each save
 counts once: if the engine ran more than once for a save, the slower row is kept and the result
 notes `duplicateDiagRows`. Every S3 save creates follow-ups; the per-step reset removes them, and
@@ -230,10 +239,10 @@ a failed record (`FailedRecordId`) processes no records and isn't counted as a p
 
 - `<date>-<label>-<scenario>.md`: the background rule count (per group of steps when they differ),
   then one row per step (result, samples, total and max ms, dominant stage, error and, for S2 and
-  S3, the diagnostics rows found of the saves), then a stage table and a counter table across the
-  steps.
+  S3, the diagnostics rows found of the saves and the probe saves the settle took), then a stage
+  table and a counter table across the steps.
 - `<date>-<label>-<scenario>.csv`: the same per step (a `backgroundRules` column, and for S2 and S3
-  a `diagCaptured` column), one column per counter and per stage.
+  `diagCaptured` and `probeSaves` columns), one column per counter and per stage.
 - `<date>-<label>-<scenario>.json`: the raw step results.
 - `<date>-<label>-capacity.md`: rebuilt after every scenario from every `<date>-<label>-S*.json`.
   Per scenario: the background rule count, the last passing step, the first failing step and its

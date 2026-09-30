@@ -5,7 +5,7 @@ docs/perf/reports/<date>-<label>-<scenario>.md / .csv / .json and the combined
 <date>-<label>-capacity.md (git-ignored).
 
     python scripts/perf/run-scenario.py --scenario S1 [--ladder 100,500,2000] [--label baseline]
-                                        [--sample N] [--rules N] [--trace-settle 600]
+                                        [--sample N] [--rules N] [--trace-settle 600] [--settle-probes 5]
 
 Each step: reset the data (reset-data.py), generate the step's data and rules (generate.py), drive
 the scenario, record pass or fail with its error, per-stage timings and counters. S2 and S3 read each
@@ -50,7 +50,8 @@ SCHEDULER_FLOW = "Rules Engine Scheduler"
 CAPTURE_SWITCH = "asx_CaptureDiagnostics"  # Boolean environment variable: saves write asx_rulediagnostic rows
 CAPTURE_ON = "yes"             # Dataverse stores a Boolean environment variable's value as yes/no
 DEFAULT_SETTLE_SECONDS = 600     # the switch's 60-second cache plus a freshly published rule going live
-PROBE_POLL_SECONDS = 15        # how long one probe save's diagnostics row is looked for before probing again
+DEFAULT_SETTLE_PROBES = 5      # probe saves in a row that must each write their row before measuring (R16)
+PROBE_POLL_SECONDS = 15        # how long one probe save's diagnostics row is looked for before it counts as missed
 DIAG_READ_SECONDS = 60         # how long the measured saves' rows are looked for after the last save
 DIAG_POLL_INTERVAL = 5
 RECORD_FAILED = re.compile(r"asx_ProcessRunPage:record-failed:([0-9a-fA-F-]{36}):([^\r\n]*)")
@@ -355,12 +356,14 @@ class DataverseOps:
     """reset/generate through the harness scripts; every other call straight to DEV.
     dv, clock and sleep are injectable so the tests drive it with a fake client and a fake clock."""
 
-    def __init__(self, repo_root, settle_seconds, log=print, dv=None, clock=time.time, sleep=time.sleep):
+    def __init__(self, repo_root, settle_seconds, log=print, dv=None, clock=time.time, sleep=time.sleep,
+                 settle_probes=DEFAULT_SETTLE_PROBES):
         if dv is None:
             import _dv as dv  # reads .env through scripts/auth.py and fetches a token; never prints either
         self._dv = dv
         self.repo_root = repo_root
         self.settle_seconds = settle_seconds
+        self.settle_probes = settle_probes
         self.log = log
         self._clock = clock
         self._sleep = sleep
@@ -471,14 +474,17 @@ class DataverseOps:
         if scenario == "S2":
             pool = [r["perf_lookup1id"] for r in self._get("perf_lookup1s?$select=perf_lookup1id&$top=20")["value"]]
             nav_l1 = self._dv.resolve_nav_property("perf_root", "perf_lookup1", "perf_lookup1id")
+        probe = {"saves": 0, "best": 0}
         try:
-            settled = self._await_enforcement(scenario, roots, pool, nav_l1)
+            settled = self._await_enforcement(scenario, roots, pool, nav_l1, probe)
         except self._dv.DataverseError as e:
-            return [aggregate.step_result(scenario, step, None, f"probe save: {e}")]
+            return [{**aggregate.step_result(scenario, step, None, f"probe save {probe['saves']}: {e}"),
+                     "probeSaves": probe["saves"]}]
         if settled is None:
-            return [aggregate.step_result(scenario, step, None,
-                                          f"enforcement did not settle: no diagnostics row for a probe save within "
-                                          f"{self.settle_seconds} s")]
+            return [{**aggregate.step_result(
+                scenario, step, None,
+                f"enforcement did not settle: {probe['best']} of {self.settle_probes} consecutive probe saves captured "
+                f"({probe['saves']} probe saves in {self.settle_seconds} s)"), "probeSaves": probe["saves"]}]
         since, seen = settled
         saves, error = 0, None
         for i, root in enumerate(roots):
@@ -496,6 +502,7 @@ class DataverseOps:
             error = f"found {len(per_save)} of {saves} diagnostics rows"
         result = aggregate.step_result(scenario, step, aggregate.summarize_saves(list(per_save.values())), error)
         result["diagCaptured"] = f"{len(per_save)}/{saves}"
+        result["probeSaves"] = probe["saves"]
         if duplicates:
             result["duplicateDiagRows"] = duplicates
             self.log(f"  {duplicates} extra diagnostics row(s): the engine ran more than once for a save; "
@@ -514,34 +521,47 @@ class DataverseOps:
             return {f"{nav_l1}@odata.bind": f"/perf_lookup1s({target})"}
         return {"perf_text": f"{S3_FIRE_MARKER}-{i}"}
 
-    def _await_enforcement(self, scenario, roots, pool, nav_l1):
-        """Probe saves of the first sampled root until one writes a new diagnostics row, so the switch (read
-        through the plug-in's 60-second cache) and the step's freshly published enforcement are live before
-        measuring (retrying for up to --trace-settle). S2 probes with a lookup change, like its measured
-        saves; S3 with a perf_text without the fire marker, so the probe runs the engine but leaves the
-        root's rows untouched. "New" means a row id not there before the first probe: comparing ids, not
-        times, keeps the local clock out of it.
-        Returns (the probe row's createdon, every row id of the sampled roots by then), or None."""
+    def _await_enforcement(self, scenario, roots, pool, nav_l1, probe):
+        """Probe saves of the first sampled root until --settle-probes of them in a row each write a new
+        diagnostics row within PROBE_POLL_SECONDS, so the switch (read through the plug-in's 60-second cache)
+        and the step's freshly published enforcement are live before measuring. One captured probe proves
+        only the worker that took it: after a publish the step goes live on Dataverse's workers one at a
+        time, and a save routed to a worker without it never runs the engine (R16). A missed row restarts
+        the streak; the whole wait is capped at --trace-settle.
+        S2 probes with a lookup change, like its measured saves; S3 with a perf_text without the fire
+        marker, so the probe runs the engine but leaves the root's rows untouched. "New" means a row id
+        not seen before that probe: comparing ids, not times, keeps the local clock out of it.
+        Counts into probe (saves made, best streak). Returns (the last probe row's createdon, every row id
+        of the sampled roots by then), or None."""
         root, ids = roots[0], [r["perf_rootid"] for r in roots]
-        before = {r["asx_rulediagnosticid"] for r in self._diagnostic_rows([root["perf_rootid"]])}
+        known = {r["asx_rulediagnosticid"] for r in self._diagnostic_rows([root["perf_rootid"]])}
         deadline = self._clock() + self.settle_seconds
-        attempt = 0
-        while attempt == 0 or self._clock() < deadline:
-            attempt += 1
+        streak = 0
+        while probe["saves"] == 0 or self._clock() < deadline:
+            probe["saves"] += 1
+            attempt = probe["saves"]
             payload = (self._save_payload("S2", root, attempt, pool, nav_l1) if scenario == "S2"
                        else {"perf_text": f"PERF-PROBE-{attempt}"})
-            self.log(f"  probe save {attempt}")
             self._call("PATCH", f"perf_roots({root['perf_rootid']})", payload, timeout=150)
             look_until = min(deadline, self._clock() + PROBE_POLL_SECONDS)
             while True:
                 probe_rows = [r for r in self._diagnostic_rows([root["perf_rootid"]])
-                              if r["asx_rulediagnosticid"] not in before]
-                if probe_rows:
-                    seen = {r["asx_rulediagnosticid"] for r in self._diagnostic_rows(ids)}
-                    return max(r["createdon"] for r in probe_rows), seen
-                if self._clock() >= look_until:
+                              if r["asx_rulediagnosticid"] not in known]
+                if probe_rows or self._clock() >= look_until:
                     break
                 self._sleep(DIAG_POLL_INTERVAL)
+            if not probe_rows:
+                if streak:
+                    self.log(f"  probe save {attempt}: no diagnostics row; the streak of {streak} starts over")
+                streak = 0
+                continue
+            known |= {r["asx_rulediagnosticid"] for r in probe_rows}
+            streak += 1
+            probe["best"] = max(probe["best"], streak)
+            self.log(f"  probe save {attempt}: captured ({streak} of {self.settle_probes} in a row)")
+            if streak >= self.settle_probes:
+                seen = {r["asx_rulediagnosticid"] for r in self._diagnostic_rows(ids)}
+                return max(r["createdon"] for r in probe_rows), seen
         return None
 
     def _diagnostic_rows(self, record_ids, since=None):
@@ -652,7 +672,14 @@ def parse_args(argv=None):
                         help="S2/S3: the enforcement-settle window, the seconds to keep probing for a probe save's "
                              f"diagnostics row before a step's measured saves (default: {DEFAULT_SETTLE_SECONDS}; "
                              "the name is kept from when S2/S3 read the trace log)")
-    return parser.parse_args(argv)
+    parser.add_argument("--settle-probes", type=int, default=DEFAULT_SETTLE_PROBES,
+                        help="S2/S3: probe saves in a row that must each write their diagnostics row before a "
+                             "step's measured saves; a miss starts the count over (default: "
+                             f"{DEFAULT_SETTLE_PROBES})")
+    args = parser.parse_args(argv)
+    if args.settle_probes < 1:
+        parser.error("--settle-probes must be at least 1")
+    return args
 
 
 def main(argv=None):
@@ -664,7 +691,7 @@ def main(argv=None):
     print(f"DEV target confirmed. {args.scenario} ladder: {', '.join(str(s) for s in ladder)}; background rules: "
           f"{background_rules(args.scenario, args.rules)}")
 
-    ops = DataverseOps(REPO_ROOT, args.settle_seconds)
+    ops = DataverseOps(REPO_ROOT, args.settle_seconds, settle_probes=args.settle_probes)
     if args.scenario == "S5":
         try:
             ops.check_scheduler_idle()

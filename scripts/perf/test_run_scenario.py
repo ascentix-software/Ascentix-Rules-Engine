@@ -519,8 +519,9 @@ class FakeDv:
         raise AssertionError(f"unexpected {method} {path}")
 
 
-def _ops(dv, clock, settle=60):
-    return rs.DataverseOps(rs.REPO_ROOT, settle, log=lambda *_: None, dv=dv, clock=clock.time, sleep=clock.sleep)
+def _ops(dv, clock, settle=60, probes=None):
+    kw = {} if probes is None else {"settle_probes": probes}
+    return rs.DataverseOps(rs.REPO_ROOT, settle, log=lambda *_: None, dv=dv, clock=clock.time, sleep=clock.sleep, **kw)
 
 
 def test_the_fake_client_refuses_a_url_that_urlopen_would_refuse():
@@ -675,33 +676,67 @@ def test_a_failed_save_step_restores_the_switch_exactly():
 
 # -- S2, S3: probe until enforcement settles, then one diagnostics row per save ----
 
-def test_s3_probes_until_enforcement_settles_then_measures_only_the_real_saves():
-    # The first probe save writes no row (the switch or the step's rules aren't live yet); the second does.
-    # Neither the row generate left for root-0 nor the probe's own row is counted.
-    clock = FakeClock()
+def _probe_pattern(hits):
+    """on_save for S3: probe save n (1-based) writes a row when hits(n); every measured save writes one.
+    Returns (on_save, the probe saves made)."""
     probes = []
 
     def on_save(root_id, payload):
         if profiles.S3_FIRE_MARKER not in payload["perf_text"]:
             probes.append(root_id)
-            return [] if len(probes) == 1 else ['{"totalMs":5}']
+            return ['{"totalMs":5}'] if hits(len(probes)) else []
         return ['{"totalMs":400,"writesSent":2}']
+    return on_save, probes
 
+
+def test_s3_probes_until_enforcement_settles_then_measures_only_the_real_saves():
+    # R16: the first probe save writes no row (the step isn't live on that worker yet); the next five in a row
+    # do (the default --settle-probes 5). Neither the row generate left for root-0 nor a probe row is counted.
+    clock = FakeClock()
+    on_save, probes = _probe_pattern(lambda n: n > 1)
     dv = FakeDv(clock, roots=3, on_save=on_save)
     [result] = _ops(dv, clock).drive("S3", 100, 3)
     assert result["passed"], result["error"]
-    assert probes == ["root-0", "root-0"]
+    assert probes == ["root-0"] * 6 and result["probeSaves"] == 6
     measured = [p for _, p in dv.saves if profiles.S3_FIRE_MARKER in p["perf_text"]]
     assert [p["perf_text"] for p in measured] == ["S3FIRE-0", "S3FIRE-1", "S3FIRE-2"]
     assert result["summary"]["samples"] == 3 and result["summary"]["totalMs"] == 400
     assert result["diagCaptured"] == "3/3"
 
 
+def test_k_probe_saves_in_a_row_settle_enforcement():
+    clock = FakeClock()
+    on_save, probes = _probe_pattern(lambda n: True)
+    [result] = _ops(FakeDv(clock, roots=2, on_save=on_save), clock, probes=3).drive("S3", 100, 2)
+    assert result["passed"] and len(probes) == 3 and result["probeSaves"] == 3
+
+
+def test_a_missed_probe_row_restarts_the_streak():
+    # R16: a save routed to a worker where the step isn't live yet writes no row; the streak starts over.
+    clock = FakeClock()
+    on_save, probes = _probe_pattern(lambda n: n not in (3, 5))     # hit hit MISS hit MISS hit hit hit
+    [result] = _ops(FakeDv(clock, roots=2, on_save=on_save), clock, probes=3).drive("S3", 100, 2)
+    assert result["passed"], result["error"]
+    assert len(probes) == 8 and result["probeSaves"] == 8
+
+
+def test_a_step_whose_probes_never_string_k_rows_together_fails_before_measuring():
+    clock = FakeClock()
+    on_save, probes = _probe_pattern(lambda n: n % 3 != 0)          # two hits, then a miss, forever
+    dv = FakeDv(clock, on_save=on_save)
+    [result] = _ops(dv, clock, settle=120, probes=3).drive("S3", 100, 3)
+    assert result["error"].startswith("enforcement did not settle: 2 of 3 consecutive probe saves captured"), \
+        result["error"]
+    assert result["probeSaves"] == len(probes) > 3
+    assert dv.saves and not any(profiles.S3_FIRE_MARKER in p["perf_text"] for _, p in dv.saves)
+    assert clock.time() - START < 180                           # gave up after about --trace-settle
+
+
 def test_a_step_whose_probe_never_writes_a_row_fails_before_measuring():
     clock = FakeClock()
     dv = FakeDv(clock, on_save=lambda root_id, payload: [])
     [result] = _ops(dv, clock, settle=60).drive("S3", 100, 3)
-    assert result["error"] == "enforcement did not settle: no diagnostics row for a probe save within 60 s"
+    assert result["error"].startswith("enforcement did not settle: 0 of 5 consecutive probe saves captured")
     assert dv.saves and not any(profiles.S3_FIRE_MARKER in p["perf_text"] for _, p in dv.saves)
     assert clock.time() - START < 120                           # gave up after about --trace-settle
 
@@ -762,8 +797,10 @@ def test_save_scenarios_sample_ten_roots_by_default():
     assert [rs.default_sample(s) for s in rs.SCENARIOS] == [5, 10, 10, 5, 5, 5]
 
 
-def test_the_enforcement_probe_waits_up_to_ten_minutes_by_default():
-    assert rs.parse_args(["--scenario", "S2"]).settle_seconds == 600
+def test_the_enforcement_probe_waits_up_to_ten_minutes_for_five_rows_in_a_row_by_default():
+    args = rs.parse_args(["--scenario", "S2"])
+    assert args.settle_seconds == 600 and args.settle_probes == 5
+    assert rs.parse_args(["--scenario", "S2", "--settle-probes", "8"]).settle_probes == 8
 
 
 def test_a_failed_measured_save_waits_only_for_the_saves_that_succeeded():

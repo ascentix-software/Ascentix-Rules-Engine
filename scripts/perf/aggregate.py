@@ -196,8 +196,14 @@ def _rules_line(results):
         f"{_cell(count)} ({'step' if len(steps) == 1 else 'steps'} {', '.join(steps)})" for count, steps in groups)
 
 
+def _has_probes(rows):
+    """Whether any row records the probe saves its enforcement settle took (S2/S3)."""
+    return any(r.get("probeSaves") is not None for r in rows)
+
+
 def step_rows(results):
     captured = _captures(results)
+    probes = _has_probes(results)
     rules = _has_rules(results)
     stage_names = []
     for r in results:
@@ -205,7 +211,7 @@ def step_rows(results):
             if n not in stage_names:
                 stage_names.append(n)
     header = (["scenario", "step", "result", "error"] + (["diagCaptured"] if captured else [])
-              + (["backgroundRules"] if rules else [])
+              + (["probeSaves"] if probes else []) + (["backgroundRules"] if rules else [])
               + ["samples", "totalMs", "maxMs", "recordsPerHour"]
               + COUNTER_KEYS + ["stage:" + n for n in stage_names])
     rows = []
@@ -213,6 +219,7 @@ def step_rows(results):
         s = r["summary"]
         rows.append([r["scenario"], r["step"], "pass" if r["passed"] else "fail", r["error"] or ""]
                     + ([r.get("diagCaptured") or ""] if captured else [])
+                    + (["" if r.get("probeSaves") is None else r["probeSaves"]] if probes else [])
                     + (["" if r.get("backgroundRules") is None else r["backgroundRules"]] if rules else [])
                     + [s["samples"], s["totalMs"], s["maxMs"], s["recordsPerHour"]]
                     + [s["counters"].get(k, 0) for k in COUNTER_KEYS]
@@ -222,15 +229,17 @@ def step_rows(results):
 
 def render_scenario_markdown(scenario, label, date_str, results):
     captured = _captures(results)
+    probes = _has_probes(results)
     lines = [f"# {scenario} -- {label} ({date_str})", ""] + ([_rules_line(results), ""] if _has_rules(results) else [])
     lines += ["| Step | Result | Samples | total ms | max ms | Dominant stage | Error |"
-             + (" Diagnostics rows found |" if captured else ""),
-             "|---|---|---|---|---|---|---|" + ("---|" if captured else "")]
+              + (" Diagnostics rows found |" if captured else "") + (" Probe saves |" if probes else ""),
+              "|---|---|---|---|---|---|---|" + ("---|" if captured else "") + ("---|" if probes else "")]
     for r in results:
         s = r["summary"]
         lines.append(f"| {r['step']} | {'pass' if r['passed'] else 'fail'} | {s['samples']} | {s['totalMs']} | "
                      f"{s['maxMs']} | {_share(*dominant_stage(s))} | {_cell(r['error'])} |"
-                     + (f" {_cell(r.get('diagCaptured'))} |" if captured else ""))
+                     + (f" {_cell(r.get('diagCaptured'))} |" if captured else "")
+                     + (f" {_cell(r.get('probeSaves'))} |" if probes else ""))
     header, rows = step_rows(results)
     steps = [r["step"] for r in results]
 

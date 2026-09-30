@@ -139,6 +139,18 @@ def test_the_background_rule_count_shows_in_the_rows_the_markdown_and_the_capaci
     assert step_rows(s5)[0][4] == "samples"
 
 
+def test_the_probe_saves_a_step_needed_show_in_the_rows_and_the_markdown():
+    # R16: how many probe saves the enforcement settle took, so its cost is visible.
+    s2 = [step_result("S2", "100", _summary(samples=10, totalMs=700), None)]
+    s2[0]["diagCaptured"], s2[0]["probeSaves"] = "10/10", 7
+    header, rows = step_rows(s2)
+    assert header[4:6] == ["diagCaptured", "probeSaves"] and rows[0][4:6] == ["10/10", 7]
+    md = render_scenario_markdown("S2", "baseline", "2026-09-30", s2)
+    assert "| Error | Diagnostics rows found | Probe saves |" in md and "|  | 10/10 | 7 |" in md
+    s1 = [step_result("S1", "100", _summary(totalMs=400), None)]
+    assert "probeSaves" not in step_rows(s1)[0] and "Probe saves" not in render_scenario_markdown("S1", "b", "d", s1)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
