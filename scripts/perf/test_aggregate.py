@@ -98,23 +98,24 @@ def test_capacity_summary_names_the_last_pass_the_first_fail_and_its_error():
     assert "| S5 | 1 | none (every step passed) |  | scheduleStart (78%) |" in md
 
 
-def test_captured_trace_lines_show_in_the_rows_the_markdown_and_the_capacity_summary():
-    # R6: S2/S3 figures come from the saves whose asx-diag line Dataverse kept; the reports say how many.
+def test_captured_diagnostics_rows_show_in_the_rows_the_markdown_and_the_capacity_summary():
+    # S2/S3 figures come from the saves' asx_rulediagnostic rows; the reports say how many were found.
     s2 = [step_result("S2", "100", _summary(samples=3, totalMs=700, maxMs=700, stages={"queryExecute": 350}), None),
-          step_result("S2", "500", _summary(samples=2, totalMs=900), "found 2 of 5 asx-diag lines in plugintracelogs")]
+          step_result("S2", "500", _summary(samples=2, totalMs=900), "found 2 of 5 diagnostics rows")]
     s2[0]["diagCaptured"], s2[1]["diagCaptured"] = "3/5", "2/5"
     header, rows = step_rows(s2)
     assert header[4] == "diagCaptured" and [r[4] for r in rows] == ["3/5", "2/5"]
     md = render_scenario_markdown("S2", "baseline", "2026-09-30", s2)
-    assert "| Step | Result | Samples | total ms | max ms | Dominant stage | Error | asx-diag lines captured |" in md
+    assert "| Step | Result | Samples | total ms | max ms | Dominant stage | Error | Diagnostics rows found |" in md
     assert "| 100 | pass | 3 | 700 | 700 | queryExecute (50%) |  | 3/5 |" in md
     s1 = [step_result("S1", "100", _summary(totalMs=400, stages={"queryExecute": 300}), None)]
     rows = capacity_summary({"S1": s1, "S2": s2})
     assert [r["diagCaptured"] for r in rows] == [None, "3/5"]
     md = render_capacity_markdown("baseline", "2026-09-30", rows)
+    assert "| Dominant stage at the top passing step | Diagnostics rows found there |" in md
     assert "| S1 | 100 | none (every step passed) |  | queryExecute (75%) |  |" in md
-    assert "| S2 | 100 | 500 | found 2 of 5 asx-diag lines in plugintracelogs | queryExecute (50%) | 3/5 |" in md
-    assert step_rows(s1)[0][4] == "samples"                      # no column when nothing was captured from traces
+    assert "| S2 | 100 | 500 | found 2 of 5 diagnostics rows | queryExecute (50%) | 3/5 |" in md
+    assert step_rows(s1)[0][4] == "samples"                      # no column when no step read diagnostics rows
 
 
 if __name__ == "__main__":

@@ -5,13 +5,15 @@ docs/perf/reports/<date>-<label>-<scenario>.md / .csv / .json and the combined
 <date>-<label>-capacity.md (git-ignored).
 
     python scripts/perf/run-scenario.py --scenario S1 [--ladder 100,500,2000] [--label baseline]
-                                        [--sample N] [--trace-settle 180]
+                                        [--sample N] [--trace-settle 600]
 
 Each step: reset the data (reset-data.py), generate the step's data and rules (generate.py), drive
-the scenario, record pass or fail with its error, per-stage timings and counters. At the end, even
-on an error or Ctrl+C, the data is reset and (S2, S3) the environment's original plug-in trace
-setting is restored. Refuses to run unless the target is the DEV environment in .env. Never prints
-secrets. Never switches the scheduler add-on's flow on or off: S5 refuses to start while it runs.
+the scenario, record pass or fail with its error, per-stage timings and counters. S2 and S3 read each
+save's diagnostics from its asx_rulediagnostic row, so they switch the asx_CaptureDiagnostics
+environment variable on for the run. At the end, even on an error or Ctrl+C, the data is reset and
+(S2, S3) the switch is put back exactly as it was. Refuses to run unless the target is the DEV
+environment in .env. Never prints secrets. Never switches the scheduler add-on's flow on or off: S5
+refuses to start while it runs.
 """
 import argparse
 import csv
@@ -40,18 +42,19 @@ DEFAULT_LADDERS = {
     "S5": [1, 10, 50],
     "S6": [1, 2, 3, 4, 5, 6, 7],
 }
-TRACE_ALL = 2                  # organization.plugintracelogsetting: 0 Off, 1 Exception, 2 All
 ROW_CAP = 50000                # child rows generated per S1-S3 step at most
 SYNC_TARGET_MS = 2000          # S1, S6
 SCHEDULER_BUDGET_MS = 60000    # S5
 SCHEDULER_WINDOW_MINUTES = 20  # another caller's heartbeat younger than this blocks S5
 SCHEDULER_FLOW = "Rules Engine Scheduler"
-PROBE_POLL_SECONDS = 15        # how long one probe save's asx-diag line is looked for before probing again
-TRACE_POLL_INTERVAL = 5
-DIAG_PREFIX = "asx-diag "
+CAPTURE_SWITCH = "asx_CaptureDiagnostics"  # Boolean environment variable: saves write asx_rulediagnostic rows
+CAPTURE_ON = "yes"             # Dataverse stores a Boolean environment variable's value as yes/no
+DEFAULT_TRACE_SETTLE = 600     # the switch's 60-second cache plus a freshly published rule going live
+PROBE_POLL_SECONDS = 15        # how long one probe save's diagnostics row is looked for before probing again
+DIAG_READ_SECONDS = 60         # how long the measured saves' rows are looked for after the last save
+DIAG_POLL_INTERVAL = 5
 RECORD_FAILED = re.compile(r"asx_ProcessRunPage:record-failed:([0-9a-fA-F-]{36}):([^\r\n]*)")
 S4_VARIANTS = (("no-writes", "PERF-RULE-S4-READ"), ("set-update", "PERF-RULE-S4-WRITE"))
-ENGINE_PLUGIN = "Ascentix.RulesEngine.Plugin.RulesEnginePlugin"
 REPO_ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 REPORTS_DIR = os.path.join(REPO_ROOT, "docs", "perf", "reports")
 ENV_FILE = os.path.join(REPO_ROOT, ".env")
@@ -93,15 +96,9 @@ def check_dev_target(effective_url, env_file_url):
 
 
 def default_sample(scenario):
-    """Roots sampled per step: 10 for the save scenarios, whose figures come only from the saves whose
-    trace line Dataverse kept (see enough_captured); 5 for the others."""
+    """Roots sampled per step: 10 for the save scenarios (one save each, so each step's median rests on
+    10 saves); 5 for the others."""
     return 10 if scenario in SAVE_SCENARIOS else 5
-
-
-def enough_captured(captured, saves):
-    """Dataverse doesn't keep every plug-in trace row, even with tracing on All, so a missing asx-diag
-    line is not a failure: a save step needs a line for at least half its saves."""
-    return captured >= (saves + 1) // 2
 
 
 def roots_for_step(scenario, step, sample):
@@ -135,48 +132,37 @@ def bound_error(scenario, summary, expected=None):
     return None
 
 
-def parse_diag_lines(messageblock):
-    """Every asx-diag line of a plug-in trace messageblock. A line that doesn't parse as a JSON object
-    (cut off by the trace log's size limit, say) is skipped, so it counts as missing."""
-    found = []
-    for line in (messageblock or "").splitlines():
-        at = line.find(DIAG_PREFIX)
-        if at < 0:
-            continue
-        try:
-            diag = json.loads(line[at + len(DIAG_PREFIX):].strip())
-        except ValueError:
-            continue
-        if isinstance(diag, dict):
-            found.append(diag)
-    return found
+def parse_diagnostics(text):
+    """An asx_rulediagnostic row's diagnostics JSON as a dict, or None when it doesn't parse as a JSON
+    object (so the row counts as missing)."""
+    try:
+        diag = json.loads(text or "")
+    except ValueError:
+        return None
+    return diag if isinstance(diag, dict) else None
 
 
-def save_key(row):
-    """The save a plugintracelogs row belongs to. The log carries no record id, but every measured
-    PATCH is its own top-level request, so its correlation id identifies the save: a second engine
-    execution for the same save (another message or stage, or a nested write) shares it."""
-    return row.get("correlationid") or row.get("requestid") or row.get("plugintracelogid")
-
-
-def diag_lines_per_save(rows, exclude=()):
-    """One asx-diag line per save, in first-seen order, skipping saves in exclude. When the engine
-    plug-in ran more than once for a save, the line with the larger totalMs is kept.
-    Returns (lines, number of extra lines dropped)."""
+def diagnostics_per_save(rows, exclude=()):
+    """One diagnostics object per saved record id (lower-cased), skipping row ids in exclude and rows
+    that don't parse. Each sampled root is saved once while measuring, so a record id is a save; when
+    the engine plug-in ran more than once for it, the row with the larger totalMs is kept.
+    Returns ({record id: diagnostics}, number of extra rows dropped)."""
     best = {}
     duplicates = 0
     for row in rows:
-        key = save_key(row)
-        if key in exclude:
+        if row.get("asx_rulediagnosticid") in exclude:
             continue
-        for diag in parse_diag_lines(row.get("messageblock")):
-            if key not in best:
-                best[key] = diag
-                continue
-            duplicates += 1
-            if diag.get("totalMs", 0) > best[key].get("totalMs", 0):
-                best[key] = diag
-    return list(best.values()), duplicates
+        diag = parse_diagnostics(row.get("asx_diagnostics"))
+        if diag is None:
+            continue
+        key = (row.get("asx_recordid") or "").lower()
+        if key not in best:
+            best[key] = diag
+            continue
+        duplicates += 1
+        if diag.get("totalMs", 0) > best[key].get("totalMs", 0):
+            best[key] = diag
+    return best, duplicates
 
 
 def record_failed(text):
@@ -252,14 +238,17 @@ def run_ladder(ops, scenario, ladder, sample, log=print, results=None):
 
 
 def run(ops, scenario, ladder, sample, log=print, results=None):
-    """run_ladder, then reset the data and restore the trace setting, whatever happened. A failing
-    final reset is logged, not raised, so it never costs the results."""
+    """run_ladder, then reset the data and (S2, S3) put the capture switch back, whatever happened. The
+    switch's state is read before it is turned on, so it is restored even when turning it on fails
+    halfway. A failing final reset is logged, not raised, so it never costs the results."""
     results = [] if results is None else results
-    original = None
+    switch = None
     try:
         if scenario in SAVE_SCENARIOS:
-            original = ops.get_trace_setting()
-            ops.set_trace_setting(TRACE_ALL)
+            switch = ops.read_capture_switch()
+            ops.switch_capture_on(switch)
+            was = (f"value {switch['value']!r}" if switch["valueId"] else f"no value, default {switch['defaultValue']!r}")
+            log(f"{scenario}: {CAPTURE_SWITCH} on (was {was}; restored at the end)")
         return run_ladder(ops, scenario, ladder, sample, log, results)
     finally:
         try:
@@ -268,14 +257,20 @@ def run(ops, scenario, ladder, sample, log=print, results=None):
         except Exception as e:  # noqa: BLE001
             log(f"{scenario}: final reset failed, run reset-data.py by hand: {e}")
         finally:
-            if original is not None:
-                ops.set_trace_setting(original)
-                log(f"{scenario}: plug-in trace setting restored")
+            if switch is not None:
+                try:
+                    ops.restore_capture_switch(switch)
+                except BaseException:
+                    log(f"{scenario}: {CAPTURE_SWITCH} could not be restored; set it back by hand: "
+                        + ("delete its value row" if switch["valueId"] is None
+                           else f"set its value back to {switch['value']!r}"))
+                    raise
+                log(f"{scenario}: {CAPTURE_SWITCH} restored")
 
 
 def run_and_report(ops, scenario, ladder, sample, reports_dir, label, today=datetime.date.today, log=print):
     """run, then write the reports from whatever steps finished, even when run raised (Ctrl+C, a
-    failed trace restore). The date is taken at the start, so a ladder that crosses midnight is
+    failed switch restore). The date is taken at the start, so a ladder that crosses midnight is
     reported, and joins the capacity summary, under its start date. Returns (results, report paths)."""
     date_str = today().isoformat()
     results = []
@@ -330,7 +325,6 @@ class DataverseOps:
         self.log = log
         self._clock = clock
         self._sleep = sleep
-        self._org_id = None
         self._me = dv.whoami()["UserId"]
 
     def _now(self):
@@ -356,14 +350,55 @@ class DataverseOps:
     def prepare(self, scenario, step, sample):
         self._script("generate.py", generate_args(scenario, step, sample))
 
-    def get_trace_setting(self):
-        org = self._get("organizations?$select=organizationid,plugintracelogsetting")["value"][0]
-        self._org_id = org["organizationid"]
-        return org["plugintracelogsetting"]
+    # -- S2, S3: the asx_CaptureDiagnostics switch ---------------------------------
 
-    def set_trace_setting(self, value):
-        # No fixed settle wait: each save step's probe save waits for tracing and enforcement to be live.
-        self._call("PATCH", f"organizations({self._org_id})", {"plugintracelogsetting": value})
+    def read_capture_switch(self):
+        """The switch's state to restore: its definition id and default, and its value row's id and value
+        (both None when it has no value row). Refuses a missing definition, and an inactive or second value
+        row (the plug-in reads only an active one, so turning the switch on there would be guesswork)."""
+        flt = urllib.parse.quote(f"schemaname eq '{CAPTURE_SWITCH}'")
+        definitions = self._get("environmentvariabledefinitions?$select=environmentvariabledefinitionid,defaultvalue"
+                                f"&$filter={flt}")["value"]
+        if not definitions:
+            raise RuntimeError(f"{CAPTURE_SWITCH} is not defined on this environment: run "
+                               "Configure-RuleAuthoring.ps1 -Phase Schema")
+        definition = definitions[0]
+        values = self._capture_values(definition["environmentvariabledefinitionid"])
+        if len(values) > 1:
+            raise RuntimeError(f"{CAPTURE_SWITCH} has {len(values)} value rows: keep one and run again")
+        if values and values[0].get("statecode") != 0:
+            raise RuntimeError(f"{CAPTURE_SWITCH} has an inactive value row: activate or delete it and run again")
+        value = values[0] if values else None
+        return {"definitionId": definition["environmentvariabledefinitionid"],
+                "defaultValue": definition.get("defaultvalue"),
+                "valueId": value["environmentvariablevalueid"] if value else None,
+                "value": value.get("value") if value else None}
+
+    def _capture_values(self, definition_id):
+        return self._get("environmentvariablevalues?$select=environmentvariablevalueid,value,statecode"
+                         f"&$filter=_environmentvariabledefinitionid_value eq {definition_id}")["value"]
+
+    def switch_capture_on(self, state):
+        """Sets the switch's value to yes: PATCHes its value row, or creates one bound to the definition.
+        The plug-in's 60-second cache means saves see it within a minute (the enforcement probe waits)."""
+        if state["valueId"]:
+            self._call("PATCH", f"environmentvariablevalues({state['valueId']})", {"value": CAPTURE_ON})
+            return
+        nav = self._dv.resolve_nav_property("environmentvariablevalue", "environmentvariabledefinition",
+                                            "environmentvariabledefinitionid")
+        self._call("POST", "environmentvariablevalues",
+                   {"schemaname": CAPTURE_SWITCH, "value": CAPTURE_ON,
+                    f"{nav}@odata.bind": f"/environmentvariabledefinitions({state['definitionId']})"})
+
+    def restore_capture_switch(self, state):
+        """Puts the switch back as read_capture_switch found it: PATCHes the value row back, or, when there
+        was none, deletes whatever value row exists now (found afresh, so a create that timed out after
+        Dataverse made the row is undone too)."""
+        if state["valueId"]:
+            self._call("PATCH", f"environmentvariablevalues({state['valueId']})", {"value": state["value"]})
+            return
+        for value in self._capture_values(state["definitionId"]):
+            self._call("DELETE", f"environmentvariablevalues({value['environmentvariablevalueid']})")
 
     def drive(self, scenario, step, sample):
         if scenario in ("S1", "S6"):
@@ -386,7 +421,7 @@ class DataverseOps:
         summary = aggregate.summarize_saves(samples)
         return [aggregate.step_result(scenario, step, summary, bound_error(scenario, summary))]
 
-    # -- S2, S3: real saves, diagnostics read back from plugintracelogs ------
+    # -- S2, S3: real saves, diagnostics read back from asx_rulediagnostic ----------
 
     def _drive_saves(self, scenario, step, sample):
         roots = self._roots(roots_for_step(scenario, step, sample), ",_perf_lookup1id_value")
@@ -397,14 +432,14 @@ class DataverseOps:
             pool = [r["perf_lookup1id"] for r in self._get("perf_lookup1s?$select=perf_lookup1id&$top=20")["value"]]
             nav_l1 = self._dv.resolve_nav_property("perf_root", "perf_lookup1", "perf_lookup1id")
         try:
-            settled = self._await_enforcement(scenario, roots[0], pool, nav_l1)
+            settled = self._await_enforcement(scenario, roots, pool, nav_l1)
         except self._dv.DataverseError as e:
             return [aggregate.step_result(scenario, step, None, f"probe save: {e}")]
         if settled is None:
             return [aggregate.step_result(scenario, step, None,
-                                          f"enforcement did not settle: no asx-diag line for a probe save within "
+                                          f"enforcement did not settle: no diagnostics row for a probe save within "
                                           f"{self.trace_settle_seconds} s")]
-        since, probe_saves = settled
+        since, seen = settled
         saves, error = 0, None
         for i, root in enumerate(roots):
             saves += 1
@@ -414,18 +449,17 @@ class DataverseOps:
             except self._dv.DataverseError as e:
                 error = f"save {saves}: {e}"
                 break
-        # After a failed save, wait only for the lines of the saves that succeeded (the failed one may
-        # leave no line): polling for all of them would just sit out the timeout.
-        succeeded = saves if error is None else saves - 1
-        lines, duplicates = self._read_diag_lines(since, succeeded, probe_saves)
-        if error is None and not enough_captured(len(lines), saves):
-            error = f"found {len(lines)} of {saves} asx-diag lines in plugintracelogs"
-        result = aggregate.step_result(scenario, step, aggregate.summarize_saves(lines), error)
-        result["diagCaptured"] = f"{len(lines)}/{saves}"
+        # A failed save rolls its row back with it, so wait only for the rows of the saves that succeeded.
+        succeeded = [r["perf_rootid"] for r in roots[:saves if error is None else saves - 1]]
+        per_save, duplicates = self._read_diagnostics(succeeded, since, seen)
+        if error is None and len(per_save) < saves:
+            error = f"found {len(per_save)} of {saves} diagnostics rows"
+        result = aggregate.step_result(scenario, step, aggregate.summarize_saves(list(per_save.values())), error)
+        result["diagCaptured"] = f"{len(per_save)}/{saves}"
         if duplicates:
-            result["duplicateDiagLines"] = duplicates
-            self.log(f"  {duplicates} extra asx-diag line(s): the engine ran more than once for a save; "
-                     "kept the slower line per save")
+            result["duplicateDiagRows"] = duplicates
+            self.log(f"  {duplicates} extra diagnostics row(s): the engine ran more than once for a save; "
+                     "kept the slower row per save")
         return [result]
 
     @staticmethod
@@ -440,13 +474,16 @@ class DataverseOps:
             return {f"{nav_l1}@odata.bind": f"/perf_lookup1s({target})"}
         return {"perf_text": f"{S3_FIRE_MARKER}-{i}"}
 
-    def _await_enforcement(self, scenario, root, pool, nav_l1):
-        """Probe saves of one sampled root until one's asx-diag line shows up, so tracing and the step's
-        freshly published enforcement are live before measuring (retrying for up to --trace-settle).
-        S2 probes with a lookup change, like its measured saves; S3 with a perf_text without the fire
-        marker, so the probe runs the engine but leaves the root's rows untouched.
-        Returns (since, probe save keys) for reading the measured lines back, or None."""
-        before = self._latest_trace_time()
+    def _await_enforcement(self, scenario, roots, pool, nav_l1):
+        """Probe saves of the first sampled root until one writes a new diagnostics row, so the switch (read
+        through the plug-in's 60-second cache) and the step's freshly published enforcement are live before
+        measuring (retrying for up to --trace-settle). S2 probes with a lookup change, like its measured
+        saves; S3 with a perf_text without the fire marker, so the probe runs the engine but leaves the
+        root's rows untouched. "New" means a row id not there before the first probe: comparing ids, not
+        times, keeps the local clock out of it.
+        Returns (the probe row's createdon, every row id of the sampled roots by then), or None."""
+        root, ids = roots[0], [r["perf_rootid"] for r in roots]
+        before = {r["asx_rulediagnosticid"] for r in self._diagnostic_rows([root["perf_rootid"]])}
         deadline = self._clock() + self.trace_settle_seconds
         attempt = 0
         while attempt == 0 or self._clock() < deadline:
@@ -457,38 +494,37 @@ class DataverseOps:
             self._call("PATCH", f"perf_roots({root['perf_rootid']})", payload, timeout=150)
             look_until = min(deadline, self._clock() + PROBE_POLL_SECONDS)
             while True:
-                rows = self._engine_trace_rows("gt", before)
-                if diag_lines_per_save(rows)[0]:
-                    return max(r["createdon"] for r in rows), {save_key(r) for r in rows}
+                probe_rows = [r for r in self._diagnostic_rows([root["perf_rootid"]])
+                              if r["asx_rulediagnosticid"] not in before]
+                if probe_rows:
+                    seen = {r["asx_rulediagnosticid"] for r in self._diagnostic_rows(ids)}
+                    return max(r["createdon"] for r in probe_rows), seen
                 if self._clock() >= look_until:
                     break
-                self._sleep(TRACE_POLL_INTERVAL)
+                self._sleep(DIAG_POLL_INTERVAL)
         return None
 
-    def _latest_trace_time(self):
-        rows = self._get("plugintracelogs?$select=createdon&$orderby=createdon%20desc&$top=1")["value"]
-        return rows[0]["createdon"] if rows else "2000-01-01T00:00:00Z"
+    def _diagnostic_rows(self, record_ids, since=None):
+        """asx_rulediagnostic rows of saved perf_root records with these ids, created from (ge) since when
+        given, oldest first."""
+        if not record_ids:
+            return []
+        match = " or ".join(f"asx_recordid eq '{rid}'" for rid in record_ids)
+        flt = f"asx_tablelogicalname eq 'perf_root' and ({match})" + (f" and createdon ge {since}" if since else "")
+        return self._get("asx_rulediagnostics?$select=asx_rulediagnosticid,asx_recordid,asx_diagnostics,createdon"
+                         f"&$filter={urllib.parse.quote(flt)}&$orderby=createdon%20asc")["value"]
 
-    def _engine_trace_rows(self, op, since):
-        """The engine plug-in's trace rows for perf_root updates created after (gt) or from (ge) since.
-        Update and UpdateMultiple: a single save can reach the engine through either message."""
-        flt = urllib.parse.quote(f"startswith(typename,'{ENGINE_PLUGIN}') and primaryentity eq 'perf_root' "
-                                 f"and (messagename eq 'Update' or messagename eq 'UpdateMultiple') "
-                                 f"and createdon {op} {since}")
-        return self._get("plugintracelogs?$select=plugintracelogid,correlationid,requestid,messageblock,createdon"
-                         f"&$filter={flt}&$orderby=createdon%20asc")["value"]
-
-    def _read_diag_lines(self, since, expected, exclude, timeout_s=180):
-        """The measured saves' lines: rows from the probe's createdon on (createdon has whole-second
-        precision, so a save in the probe's second is not lost), less the probe's own saves. Stops as soon
-        as every expected save has a line, or when the window ends with whatever was captured: Dataverse
-        drops some trace rows, so the caller judges the count (enough_captured)."""
-        deadline = self._clock() + timeout_s
+    def _read_diagnostics(self, record_ids, since, seen):
+        """The measured saves' rows: rows of these records from the probe row's createdon on (server time,
+        whole seconds, so ge), less every row that existed before the measured saves. Stops as soon as every
+        record has a row, or when the read window ends with whatever was found (the caller judges the count).
+        Rows are written inside the save, so they are normally all there on the first read."""
+        deadline = self._clock() + DIAG_READ_SECONDS
         while True:
-            lines, duplicates = diag_lines_per_save(self._engine_trace_rows("ge", since), exclude)
-            if len(lines) >= expected or self._clock() > deadline:
-                return lines, duplicates
-            self._sleep(TRACE_POLL_INTERVAL)
+            per_save, duplicates = diagnostics_per_save(self._diagnostic_rows(record_ids, since), seen)
+            if len(per_save) >= len(record_ids) or self._clock() >= deadline:
+                return per_save, duplicates
+            self._sleep(DIAG_POLL_INTERVAL)
 
     # -- S4: Rule Runs paged by asx_ProcessRunPage ----------------------------
 
@@ -560,17 +596,21 @@ class DataverseOps:
             self._sleep(wait)
 
 
-def main(argv=None):
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Run one performance scenario up its ladder on DEV.")
     parser.add_argument("--scenario", required=True, choices=SCENARIOS)
     parser.add_argument("--ladder", help="comma list of step sizes (default: the scenario's ladder from the spec)")
     parser.add_argument("--label", default="baseline", help="report label (default: baseline)")
     parser.add_argument("--sample", type=int, default=None, help="roots sampled per step (default: 10 for S2 "
                                                                    "and S3, 5 for the others)")
-    parser.add_argument("--trace-settle", type=int, default=180,
-                        help="S2/S3: seconds to keep probing for a probe save's asx-diag line before a step's "
-                             "measured saves (default: 180)")
-    args = parser.parse_args(argv)
+    parser.add_argument("--trace-settle", type=int, default=DEFAULT_TRACE_SETTLE,
+                        help="S2/S3: seconds to keep probing for a probe save's diagnostics row before a step's "
+                             f"measured saves (default: {DEFAULT_TRACE_SETTLE})")
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
     ladder = parse_ladder(args.ladder) if args.ladder else DEFAULT_LADDERS[args.scenario]
 
     env_url = read_env_file_url(ENV_FILE)

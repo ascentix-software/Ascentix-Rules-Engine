@@ -17,14 +17,17 @@ aggregate = rs.aggregate
 profiles = rs.profiles
 
 
+SWITCH = {"definitionId": "def-1", "defaultValue": "no", "valueId": None, "value": None}
+
+
 class FakeOps:
     """Records every call; drive() passes (100 ms) unless told to fail, raise or be interrupted."""
 
-    def __init__(self, fail_at=None, raise_at=None, interrupt_at=None, setup_fails_at=None, trace=1,
+    def __init__(self, fail_at=None, raise_at=None, interrupt_at=None, setup_fails_at=None, switch=SWITCH,
                  reset_fails_on=(), clock=None):
         self.calls = []
         self.fail_at, self.raise_at, self.interrupt_at, self.setup_fails_at = fail_at, raise_at, interrupt_at, setup_fails_at
-        self.trace = trace
+        self.switch = switch
         self.reset_fails_on = reset_fails_on      # which reset calls (1-based) fail, the final reset included
         self.clock = clock                        # when given, every drive takes a minute
 
@@ -50,12 +53,19 @@ class FakeOps:
                    "totalMs": 3000 if step == self.fail_at else 100}
         return [aggregate.step_result(scenario, step, summary, rs.bound_error(scenario, summary))]
 
-    def get_trace_setting(self):
-        self.calls.append(("get_trace",))
-        return self.trace
+    def read_capture_switch(self):
+        self.calls.append(("read_switch",))
+        return self.switch
 
-    def set_trace_setting(self, value):
-        self.calls.append(("set_trace", value))
+    def switch_capture_on(self, state):
+        self.calls.append(("switch_on", state))
+
+    def restore_capture_switch(self, state):
+        self.calls.append(("restore_switch", state))
+
+
+def _touches_switch(calls):
+    return any(c[0] in ("read_switch", "switch_on", "restore_switch") for c in calls)
 
 
 def test_stops_at_the_first_failing_step_and_resets_between_and_after():
@@ -66,25 +76,38 @@ def test_stops_at_the_first_failing_step_and_resets_between_and_after():
     assert ("prepare", 2000) not in ops.calls
     assert [c for c in ops.calls if c[0] == "reset"] == [("reset",)] * 3
     assert ops.calls[0] == ("reset",) and ops.calls[-1] == ("reset",)
-    assert not any(c[0].endswith("_trace") for c in ops.calls)   # S1 leaves tracing alone
 
 
-def test_save_scenarios_switch_tracing_to_all_and_restore_it():
-    ops = FakeOps(trace=0)
+def test_only_the_save_scenarios_touch_the_capture_switch():
+    for scenario in ("S1", "S4", "S5", "S6"):
+        ops = FakeOps()
+        rs.run(ops, scenario, [1], 5, log=lambda *_: None)
+        assert not _touches_switch(ops.calls), scenario
+
+
+def test_save_scenarios_turn_the_capture_switch_on_and_restore_it():
+    ops = FakeOps()
     rs.run(ops, "S3", [100], 5, log=lambda *_: None)
-    assert ops.calls[:2] == [("get_trace",), ("set_trace", 2)]
-    assert ops.calls[-2:] == [("reset",), ("set_trace", 0)]
+    assert ops.calls[:2] == [("read_switch",), ("switch_on", SWITCH)]
+    assert ops.calls[-2:] == [("reset",), ("restore_switch", SWITCH)]
 
 
-def test_save_scenarios_restore_the_trace_setting_even_when_interrupted():
-    ops = FakeOps(interrupt_at=500, trace=1)
+def test_save_scenarios_restore_the_capture_switch_even_when_interrupted():
+    ops = FakeOps(interrupt_at=500)
     try:
         rs.run(ops, "S2", [100, 500, 2000], 5, log=lambda *_: None)
         assert False, "expected KeyboardInterrupt"
     except KeyboardInterrupt:
         pass
-    assert ("set_trace", 2) in ops.calls
-    assert ops.calls[-2:] == [("reset",), ("set_trace", 1)]
+    assert ("switch_on", SWITCH) in ops.calls
+    assert ops.calls[-2:] == [("reset",), ("restore_switch", SWITCH)]
+
+
+def test_save_scenarios_restore_the_capture_switch_after_a_failed_step():
+    ops = FakeOps(raise_at=500)
+    results = rs.run(ops, "S3", [100, 500, 2000], 5, log=lambda *_: None)
+    assert [r["passed"] for r in results] == [True, False]
+    assert ops.calls[-1] == ("restore_switch", SWITCH)
 
 
 def test_a_drive_error_is_a_failed_step():
@@ -111,30 +134,23 @@ def test_bounds():
     assert rs.bound_error("S5", {**done, "totalMs": 60001}, expected=10) == "totalMs 60001 > 60000"
 
 
-def test_parse_diag_lines_reads_every_asx_diag_line_of_a_messageblock():
-    block = "\n".join(["[+3ms] - Render language: 1033.",
-                       '[+120ms] - asx-diag {"totalMs":120,"writesSent":3,"stages":[]}',
-                       "[+1ms] - Exiting RulesEnginePlugin.Execute()"])
-    assert rs.parse_diag_lines(block) == [{"totalMs": 120, "writesSent": 3, "stages": []}]
-    assert rs.parse_diag_lines(None) == []
+def _row(rid, record, diag, created="2026-09-30T12:00:00Z"):
+    return {"asx_rulediagnosticid": rid, "asx_recordid": record, "asx_diagnostics": diag, "createdon": created}
 
 
-def test_parse_diag_lines_skips_a_line_that_does_not_parse():
-    # P10: a cut-off or garbled line is skipped (counted as missing), never a crash.
-    block = "\n".join(['asx-diag {"totalMs":120,"stages":[{"name":"queryEx',
-                       "asx-diag [1, 2]",
-                       'asx-diag {"totalMs":80}'])
-    assert rs.parse_diag_lines(block) == [{"totalMs": 80}]
+def test_diagnostics_per_save_keeps_one_row_per_saved_record_the_slowest():
+    # P14: two engine executions of one save (same record) count once, keeping the larger totalMs.
+    rows = [_row("d1", "root-1", '{"totalMs":100}'), _row("d2", "ROOT-1", '{"totalMs":250}'),
+            _row("d3", "root-2", '{"totalMs":90}'), _row("d4", "root-3", '{"totalMs":70}')]
+    per_save, duplicates = rs.diagnostics_per_save(rows, exclude={"d4"})
+    assert per_save == {"root-1": {"totalMs": 250}, "root-2": {"totalMs": 90}} and duplicates == 1
 
 
-def test_diag_lines_per_save_keeps_one_line_per_save_the_slowest():
-    # P14: two engine executions of one save (same correlation id) count once, keeping the larger totalMs.
-    rows = [{"plugintracelogid": "t1", "correlationid": "c1", "messageblock": 'asx-diag {"totalMs":100}'},
-            {"plugintracelogid": "t2", "correlationid": "c1", "messageblock": 'asx-diag {"totalMs":250}'},
-            {"plugintracelogid": "t3", "correlationid": "c2", "messageblock": 'asx-diag {"totalMs":90}'},
-            {"plugintracelogid": "t4", "correlationid": "c3", "messageblock": 'asx-diag {"totalMs":70}'}]
-    lines, duplicates = rs.diag_lines_per_save(rows, exclude={"c3"})
-    assert lines == [{"totalMs": 250}, {"totalMs": 90}] and duplicates == 1
+def test_diagnostics_per_save_skips_a_row_that_does_not_parse():
+    # P10: a garbled asx_diagnostics value is skipped (counted as missing), never a crash.
+    rows = [_row("d1", "root-1", '{"totalMs":120,"stages":[{"name":"queryEx'), _row("d2", "root-2", "[1, 2]"),
+            _row("d3", "root-3", None), _row("d4", "root-4", '{"totalMs":80}')]
+    assert rs.diagnostics_per_save(rows) == ({"root-4": {"totalMs": 80}}, 0)
 
 
 def test_record_failed_finds_the_marker_inside_a_wrapped_message():
@@ -260,14 +276,14 @@ def test_a_failing_step_reset_is_a_setup_failure_and_earlier_steps_are_still_rep
 
 
 def test_a_failing_final_reset_is_logged_and_the_results_are_still_reported():
-    ops = FakeOps(reset_fails_on={3}, trace=0)
+    ops = FakeOps(reset_fails_on={3})
     logged = []
     with tempfile.TemporaryDirectory() as d:
         results, paths = rs.run_and_report(ops, "S3", [100, 500], 5, d, "base",
                                            today=lambda: datetime.date(2026, 9, 30), log=logged.append)
         assert [(r["step"], r["passed"]) for r in results] == [("100", True), ("500", True)]
         assert any("final reset failed" in line and "reset-data.py failed" in line for line in logged)
-        assert ops.calls[-1] == ("set_trace", 0)                                 # tracing restored anyway
+        assert ops.calls[-1] == ("restore_switch", SWITCH)                       # the switch restored anyway
         assert os.path.exists(os.path.join(d, "2026-09-30-base-S3.json")) and paths[-1].endswith("capacity.md")
 
 
@@ -321,32 +337,61 @@ class FakeClock:
 
 
 class FakeDv:
-    """Just enough of _dv for DataverseOps: request() routed by path, with an in-memory plugintracelogs.
-    on_save(root_id, payload) returns the messageblocks the engine plug-in traces for that PATCH."""
+    """Just enough of _dv for DataverseOps: request() routed by path, with in-memory asx_rulediagnostic rows and
+    the asx_CaptureDiagnostics definition and value rows. on_save(root_id, payload) returns the diagnostics JSON
+    of each asx_rulediagnostic row the engine plug-in writes for that PATCH (rows are written inside the save)."""
 
     class DataverseError(Exception):
         def __init__(self, method, path, status, message):
             super().__init__(f"{method} {path}: {status}: {message}")
             self.status, self.message = status, message
 
-    def __init__(self, clock, roots=3, on_save=None, schedules=None, status=None):
+    def __init__(self, clock, roots=3, on_save=None, schedules=None, status=None, values=None, defined=True):
         self.clock = clock
         self.roots = [{"perf_rootid": f"root-{i}", "_perf_lookup1id_value": "l1-0"} for i in range(roots)]
         self.pool = [{"perf_lookup1id": f"l1-{i}"} for i in range(4)]
-        self.on_save = on_save or (lambda root_id, payload: ['asx-diag {"totalMs":100}'])
+        self.on_save = on_save or (lambda root_id, payload: ['{"totalMs":100}'])
         self.schedules = schedules or (lambda: [])
         self.status = status or []
-        self.traces = [{"plugintracelogid": "old", "correlationid": "old", "createdon": clock.iso(-3600),
-                        "messageblock": 'asx-diag {"totalMs":1}'}]     # a previous step's line
+        self.diagnostics = [{"asx_rulediagnosticid": "old", "asx_tablelogicalname": "perf_root",
+                             "asx_recordid": "root-0", "createdon": clock.iso(-3600),
+                             "asx_diagnostics": '{"totalMs":1}'}]           # a row the step's generate left
+        self.definitions = [{"environmentvariabledefinitionid": "def-1", "defaultvalue": "no"}] if defined else []
+        self.values = [dict(v) for v in (values or [])]
+        self.switch_writes = []                                   # (method, path, payload) on environmentvariablevalues
+        self.fail_value_post = False                              # POST creates the row, then times out
         self.saves = []
         self.posts = []
-        self._n = 0
 
     def whoami(self):
         return {"UserId": "me"}
 
     def resolve_nav_property(self, entity, referenced, attribute):
-        return "perf_lookup1id"
+        return {("perf_root", "perf_lookup1", "perf_lookup1id"): "perf_lookup1id",
+                ("environmentvariablevalue", "environmentvariabledefinition", "environmentvariabledefinitionid"):
+                    "EnvironmentVariableDefinitionId"}[(entity, referenced, attribute)]
+
+    def _switch_values(self, method, path, payload):
+        if method == "GET":
+            definition = re.search(r"_environmentvariabledefinitionid_value eq ([^&\s]+)", path).group(1)
+            return {}, {"value": [dict(v) for v in self.values
+                                  if v["_environmentvariabledefinitionid_value"] == definition]}
+        self.switch_writes.append((method, path, payload))
+        if method == "POST":
+            bind = payload["EnvironmentVariableDefinitionId@odata.bind"]
+            assert bind.startswith("/environmentvariabledefinitions(") and payload["schemaname"] == "asx_CaptureDiagnostics"
+            self.values.append({"environmentvariablevalueid": "val-new", "value": payload["value"], "statecode": 0,
+                                "_environmentvariabledefinitionid_value": bind[len("/environmentvariabledefinitions("):-1]})
+            if self.fail_value_post:
+                raise FakeDv.DataverseError(method, path, None, "timed out")
+            return {"OData-EntityId": "https://x/api/data/v9.2/environmentvariablevalues(val-new)"}, None
+        value_id = path[len("environmentvariablevalues("):-1]
+        [row] = [v for v in self.values if v["environmentvariablevalueid"] == value_id]
+        if method == "PATCH":
+            row.update(payload)
+        else:
+            self.values.remove(row)
+        return {}, None
 
     def request(self, method, path, payload=None, *, solution=False, timeout=180):
         path = urllib.parse.unquote(path)
@@ -354,25 +399,31 @@ class FakeDv:
         if method == "PATCH" and path.startswith("perf_roots("):
             root_id = path[len("perf_roots("):-1]
             self.saves.append((root_id, payload))
-            self._n += 1
-            for block in self.on_save(root_id, payload):
-                self.traces.append({"plugintracelogid": f"t{len(self.traces)}", "correlationid": f"c{self._n}",
-                                    "createdon": self.clock.iso(), "messageblock": block})
+            for diag in self.on_save(root_id, payload):
+                self.diagnostics.append({"asx_rulediagnosticid": f"d{len(self.diagnostics)}",
+                                         "asx_tablelogicalname": "perf_root", "asx_recordid": root_id,
+                                         "createdon": self.clock.iso(), "asx_diagnostics": diag})
             return {}, None
+        if path.startswith("environmentvariablevalues"):
+            return self._switch_values(method, path, payload)
         if method == "POST":
             self.posts.append((path, payload))
             if path == "asx_StartDueSchedules":
                 return {}, {"Diagnostics": json.dumps({"totalMs": 900, "schedulesStarted": 1})}
             raise AssertionError(f"unexpected POST {path}")
+        if path.startswith("environmentvariabledefinitions?"):
+            assert "schemaname eq 'asx_CaptureDiagnostics'" in path
+            return {}, {"value": self.definitions}
         if path.startswith("perf_roots?"):
             return {}, {"value": [dict(r) for r in self.roots]}
         if path.startswith("perf_lookup1s?"):
             return {}, {"value": self.pool}
-        if path.startswith("plugintracelogs?") and "createdon desc" in path:
-            return {}, {"value": sorted(self.traces, key=lambda r: r["createdon"])[-1:][::-1]}
-        if path.startswith("plugintracelogs?"):
-            op, since = re.search(r"createdon (gt|ge) (\S+)", path).groups()
-            keep = [r for r in self.traces if (r["createdon"] > since if op == "gt" else r["createdon"] >= since)]
+        if path.startswith("asx_rulediagnostics?"):
+            assert "asx_tablelogicalname eq 'perf_root'" in path
+            ids = set(re.findall(r"asx_recordid eq '([^']+)'", path))
+            since = re.search(r"createdon ge ([^&\s]+)", path)
+            keep = [dict(r) for r in self.diagnostics
+                    if r["asx_recordid"] in ids and (since is None or r["createdon"] >= since.group(1))]
             return {}, {"value": sorted(keep, key=lambda r: r["createdon"])}
         if path.startswith("asx_ruleschedules?"):
             return {}, {"value": self.schedules()}
@@ -385,16 +436,130 @@ def _ops(dv, clock, trace_settle=60):
     return rs.DataverseOps(rs.REPO_ROOT, trace_settle, log=lambda *_: None, dv=dv, clock=clock.time, sleep=clock.sleep)
 
 
+# -- asx_CaptureDiagnostics: switched on for S2/S3 and restored exactly ----------
+
+def _value(value="no", statecode=0, vid="val-1"):
+    return {"environmentvariablevalueid": vid, "value": value, "statecode": statecode,
+            "_environmentvariabledefinitionid_value": "def-1"}
+
+
+def test_the_switch_without_a_value_row_gets_one_created_then_deleted():
+    clock = FakeClock()
+    dv = FakeDv(clock)
+    ops = _ops(dv, clock)
+    state = ops.read_capture_switch()
+    assert state == {"definitionId": "def-1", "defaultValue": "no", "valueId": None, "value": None}
+    ops.switch_capture_on(state)
+    [(method, path, payload)] = dv.switch_writes
+    assert (method, path) == ("POST", "environmentvariablevalues") and payload["value"] == "yes"
+    assert payload["EnvironmentVariableDefinitionId@odata.bind"] == "/environmentvariabledefinitions(def-1)"
+    assert [v["value"] for v in dv.values] == ["yes"]
+    ops.restore_capture_switch(state)
+    assert dv.switch_writes[-1][:2] == ("DELETE", "environmentvariablevalues(val-new)") and dv.values == []
+
+
+def test_the_switch_with_a_value_row_is_patched_to_yes_then_back():
+    clock = FakeClock()
+    dv = FakeDv(clock, values=[_value("no")])
+    ops = _ops(dv, clock)
+    state = ops.read_capture_switch()
+    assert state["valueId"] == "val-1" and state["value"] == "no"
+    ops.switch_capture_on(state)
+    assert dv.values[0]["value"] == "yes"
+    ops.restore_capture_switch(state)
+    assert dv.switch_writes == [("PATCH", "environmentvariablevalues(val-1)", {"value": "yes"}),
+                                ("PATCH", "environmentvariablevalues(val-1)", {"value": "no"})]
+    assert dv.values == [_value("no")]
+
+
+def test_a_value_row_created_by_a_post_that_timed_out_is_still_deleted():
+    clock = FakeClock()
+    dv = FakeDv(clock)
+    dv.fail_value_post = True
+    ops = _ops(dv, clock)
+    state = ops.read_capture_switch()
+    try:
+        ops.switch_capture_on(state)
+        assert False, "expected DataverseError"
+    except FakeDv.DataverseError:
+        pass
+    ops.restore_capture_switch(state)
+    assert dv.values == []
+
+
+def test_the_switch_is_refused_when_it_is_missing_inactive_or_doubled():
+    clock = FakeClock()
+    for dv, expected in ((FakeDv(clock, defined=False), "Configure-RuleAuthoring.ps1 -Phase Schema"),
+                         (FakeDv(clock, values=[_value("yes", statecode=1)]), "inactive"),
+                         (FakeDv(clock, values=[_value("no"), _value("yes", vid="val-2")]), "2 value rows")):
+        try:
+            _ops(dv, clock).read_capture_switch()
+            assert False, "expected RuntimeError"
+        except RuntimeError as e:
+            assert expected in str(e), str(e)
+        assert not dv.switch_writes
+
+
+class _LadderOps(rs.DataverseOps):
+    """The real switch handling against FakeDv; reset, prepare and drive stubbed (no scripts, no saves)."""
+
+    def __init__(self, dv, clock, drive):
+        super().__init__(rs.REPO_ROOT, 60, log=lambda *_: None, dv=dv, clock=clock.time, sleep=clock.sleep)
+        self._stub_drive = drive
+        self.switch_seen = []
+
+    def reset(self):
+        pass
+
+    def prepare(self, scenario, step, sample):
+        pass
+
+    def drive(self, scenario, step, sample):
+        self.switch_seen.append([v["value"] for v in self._dv.values])
+        return self._stub_drive(scenario, step)
+
+
+def _interrupt(scenario, step):
+    raise KeyboardInterrupt()
+
+
+def test_an_interrupted_save_run_restores_the_switch_exactly():
+    for before in ([], [_value("no")], [_value("", vid="val-9")]):
+        clock = FakeClock()
+        dv = FakeDv(clock, values=before)
+        ops = _LadderOps(dv, clock, _interrupt)
+        try:
+            rs.run(ops, "S2", [100], 5, log=lambda *_: None)
+            assert False, "expected KeyboardInterrupt"
+        except KeyboardInterrupt:
+            pass
+        assert ops.switch_seen == [["yes"]] and dv.values == before
+
+
+def test_a_failed_save_step_restores_the_switch_exactly():
+    def fail(scenario, step):
+        return [aggregate.step_result(scenario, step, None, "found 4 of 5 diagnostics rows")]
+
+    clock = FakeClock()
+    dv = FakeDv(clock)
+    ops = _LadderOps(dv, clock, fail)
+    results = rs.run(ops, "S3", [100, 500], 5, log=lambda *_: None)
+    assert [r["passed"] for r in results] == [False] and ops.switch_seen == [["yes"]] and dv.values == []
+
+
+# -- S2, S3: probe until enforcement settles, then one diagnostics row per save ----
+
 def test_s3_probes_until_enforcement_settles_then_measures_only_the_real_saves():
-    # P2: the first probe save leaves no asx-diag line (enforcement not live yet); the second does.
+    # The first probe save writes no row (the switch or the step's rules aren't live yet); the second does.
+    # Neither the row generate left for root-0 nor the probe's own row is counted.
     clock = FakeClock()
     probes = []
 
     def on_save(root_id, payload):
         if profiles.S3_FIRE_MARKER not in payload["perf_text"]:
             probes.append(root_id)
-            return [] if len(probes) == 1 else ['asx-diag {"totalMs":5}']
-        return ['[+1ms] - Render language: 1033.\nasx-diag {"totalMs":400,"writesSent":2}']
+            return [] if len(probes) == 1 else ['{"totalMs":5}']
+        return ['{"totalMs":400,"writesSent":2}']
 
     dv = FakeDv(clock, roots=3, on_save=on_save)
     [result] = _ops(dv, clock).drive("S3", 100, 3)
@@ -402,27 +567,27 @@ def test_s3_probes_until_enforcement_settles_then_measures_only_the_real_saves()
     assert probes == ["root-0", "root-0"]
     measured = [p for _, p in dv.saves if profiles.S3_FIRE_MARKER in p["perf_text"]]
     assert [p["perf_text"] for p in measured] == ["S3FIRE-0", "S3FIRE-1", "S3FIRE-2"]
-    assert result["summary"]["samples"] == 3 and result["summary"]["totalMs"] == 400   # the probe lines are not counted
+    assert result["summary"]["samples"] == 3 and result["summary"]["totalMs"] == 400
+    assert result["diagCaptured"] == "3/3"
 
 
-def test_a_step_whose_probe_never_produces_a_line_fails_before_measuring():
+def test_a_step_whose_probe_never_writes_a_row_fails_before_measuring():
     clock = FakeClock()
     dv = FakeDv(clock, on_save=lambda root_id, payload: [])
     [result] = _ops(dv, clock, trace_settle=60).drive("S3", 100, 3)
-    assert not result["passed"] and result["error"].startswith("enforcement did not settle")
+    assert result["error"] == "enforcement did not settle: no diagnostics row for a probe save within 60 s"
     assert dv.saves and not any(profiles.S3_FIRE_MARKER in p["perf_text"] for _, p in dv.saves)
     assert clock.time() - START < 120                           # gave up after about --trace-settle
 
 
-def test_s2_counts_one_line_per_save_and_changes_each_root_to_another_lookup():
-    # P14: the engine plug-in runs twice for every measured save; each save counts once, the slower line kept.
+def test_s2_counts_one_row_per_save_and_changes_each_root_to_another_lookup():
+    # P14: the engine plug-in runs twice for every measured save; each save counts once, the slower row kept.
     clock = FakeClock()
-    dv = FakeDv(clock, roots=3,
-                on_save=lambda root_id, payload: ['asx-diag {"totalMs":300}', 'asx-diag {"totalMs":120}'])
+    dv = FakeDv(clock, roots=3, on_save=lambda root_id, payload: ['{"totalMs":300}', '{"totalMs":120}'])
     [result] = _ops(dv, clock).drive("S2", 100, 3)
     assert result["passed"], result["error"]
     assert result["summary"]["samples"] == 3 and result["summary"]["totalMs"] == 300
-    assert result["duplicateDiagLines"] == 3
+    assert result["duplicateDiagRows"] == 3
     current = {"root-0": "l1-0", "root-1": "l1-0", "root-2": "l1-0"}
     for root_id, payload in dv.saves:                           # the probe too: every save changes the lookup
         target = payload["perf_lookup1id@odata.bind"]
@@ -430,47 +595,49 @@ def test_s2_counts_one_line_per_save_and_changes_each_root_to_another_lookup():
         current[root_id] = target[len("/perf_lookup1s("):-1]
 
 
-def _s3_lines(kept):
-    """on_save for S3: every probe traces a line; measured save n (1-based) traces what kept(n) returns."""
+def _s3_rows(kept):
+    """on_save for S3: every probe writes a row; measured save n (1-based) writes what kept(n) returns."""
     measured = []
 
     def on_save(root_id, payload):
         if profiles.S3_FIRE_MARKER not in payload["perf_text"]:
-            return ['asx-diag {"totalMs":5}']
+            return ['{"totalMs":5}']
         measured.append(payload)
         return kept(len(measured))
     return on_save
 
 
-def test_a_step_passes_on_the_saves_whose_line_dataverse_kept():
-    # R6: Dataverse drops some trace rows even with tracing on All; 3 of 5 lines is enough.
+def test_one_missing_row_fails_the_step_after_the_read_window():
+    # The table replaces the lossy trace log: every measured save must have its row.
     clock = FakeClock()
-    dv = FakeDv(clock, roots=5, on_save=_s3_lines(lambda n: [] if n in (2, 4) else [f'asx-diag {{"totalMs":{n}00}}']))
+    dv = FakeDv(clock, roots=5, on_save=_s3_rows(lambda n: [] if n == 4 else [f'{{"totalMs":{n}00}}']))
     [result] = _ops(dv, clock).drive("S3", 100, 5)
-    assert result["passed"] and result["diagCaptured"] == "3/5"
-    assert result["summary"]["samples"] == 3 and result["summary"]["totalMs"] == 300
+    assert result["error"] == "found 4 of 5 diagnostics rows" and result["diagCaptured"] == "4/5"
+    assert result["summary"]["samples"] == 4
+    assert 60 <= clock.time() - START < 90                      # sat out the 60-second read window, no more
 
 
-def test_a_step_with_fewer_than_half_of_its_lines_fails_with_an_accurate_count():
-    # R6 and P10: under half captured fails; an unparseable line counts as missing.
+def test_an_unparseable_row_counts_as_missing():
     clock = FakeClock()
-    dv = FakeDv(clock, roots=5, on_save=_s3_lines(
-        lambda n: [] if n in (2, 4) else ['asx-diag {"totalMs":' if n == 5 else 'asx-diag {"totalMs":100}']))
-    [result] = _ops(dv, clock).drive("S3", 100, 5)
-    assert result["error"] == "found 2 of 5 asx-diag lines in plugintracelogs" and result["diagCaptured"] == "2/5"
-    assert result["summary"]["samples"] == 2
+    dv = FakeDv(clock, roots=3, on_save=_s3_rows(lambda n: ['{"totalMs":' if n == 2 else '{"totalMs":100}']))
+    [result] = _ops(dv, clock).drive("S3", 100, 3)
+    assert result["error"] == "found 2 of 3 diagnostics rows" and result["diagCaptured"] == "2/3"
 
 
-def test_reading_the_lines_back_stops_as_soon_as_every_save_is_captured():
+def test_reading_the_rows_back_stops_as_soon_as_every_save_has_one():
     clock = FakeClock()
-    dv = FakeDv(clock, roots=5, on_save=_s3_lines(lambda n: ['asx-diag {"totalMs":100}']))
+    dv = FakeDv(clock, roots=5, on_save=_s3_rows(lambda n: ['{"totalMs":100}']))
     [result] = _ops(dv, clock).drive("S3", 100, 5)
     assert result["passed"] and result["diagCaptured"] == "5/5"
-    assert clock.time() - START < 30                            # not the 180-second read window
+    assert clock.time() - START < 30                            # not the 60-second read window
 
 
 def test_save_scenarios_sample_ten_roots_by_default():
     assert [rs.default_sample(s) for s in rs.SCENARIOS] == [5, 10, 10, 5, 5, 5]
+
+
+def test_the_enforcement_probe_waits_up_to_ten_minutes_by_default():
+    assert rs.parse_args(["--scenario", "S2"]).trace_settle == 600
 
 
 def test_a_failed_measured_save_waits_only_for_the_saves_that_succeeded():
@@ -479,13 +646,13 @@ def test_a_failed_measured_save_waits_only_for_the_saves_that_succeeded():
     def on_save(root_id, payload):
         if payload["perf_text"] == "S3FIRE-1":
             raise FakeDv.DataverseError("PATCH", f"perf_roots({root_id})", 500, "plug-in timed out")
-        return ['asx-diag {"totalMs":100}']
+        return ['{"totalMs":100}']
 
     dv = FakeDv(clock, roots=3, on_save=on_save)
     [result] = _ops(dv, clock).drive("S3", 100, 3)
     assert result["error"].startswith("save 2: PATCH perf_roots(root-1)")
     assert result["summary"]["samples"] == 1 and result["diagCaptured"] == "1/2"
-    assert clock.time() - START < 60                            # no 180-second poll for a line that can't come
+    assert clock.time() - START < 30                            # no 60-second poll for a row that can't come
 
 
 def test_s5_treats_a_null_next_run_on_as_not_yet_due_and_keeps_waiting():

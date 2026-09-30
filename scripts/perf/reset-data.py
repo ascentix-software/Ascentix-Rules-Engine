@@ -7,6 +7,9 @@ Deletes (in order):
   1. asx_rule records named PERF-RULE-* (cascade removes groups/conditions/actions)
   2. Data rows from the 8 perf tables (followup, then children, then roots, then lookups)
      where perf_name startswith 'PERF'
+  3. asx_rulediagnostic rows of the perf tables (asx_tablelogicalname startswith 'perf_'): the
+     diagnostics S2/S3 saves write while run-scenario.py has asx_CaptureDiagnostics on. Last, so
+     rows written while the data was being deleted go too.
 
 Idempotent -- safe to re-run when already clean.
 ASCII-only console output.
@@ -75,9 +78,9 @@ def _batch_delete(entityset, ids, attempts=4):
             raise
 
 
-def delete_data_table(entityset, idfield, namefield="perf_name"):
-    """Page through rows whose name startswith 'PERF' and delete them via $batch."""
-    flt = _dv.urllib.parse.quote(f"startswith({namefield},'PERF')")
+def delete_data_table(entityset, idfield, namefield="perf_name", prefix="PERF"):
+    """Page through rows whose namefield startswith prefix and delete them via $batch."""
+    flt = _dv.urllib.parse.quote(f"startswith({namefield},'{prefix}')")
     total = 0
     while True:
         rows = get(f"{entityset}?$select={idfield}&$filter={flt}&$top=1000")["value"]
@@ -96,12 +99,12 @@ def main():
 
     # Step 1: RULES FIRST -- Block rules veto perf_root deletes once published.
     # Must remove enforcement before touching any data rows.
-    print("\n[1/2] Deleting generated rules...")
+    print("\n[1/3] Deleting generated rules...")
     delete_rules()
 
     # Step 2: Data rows -- children before parents to satisfy FK constraints.
     # Order: followup -> child3 -> child2 -> child1 -> roots -> lookup1 -> lookup2 -> lookup3
-    print("\n[2/2] Deleting generated data rows (children first)...")
+    print("\n[2/3] Deleting generated data rows (children first)...")
     delete_data_table("perf_followups", "perf_followupid")
     delete_data_table("perf_child3s",  "perf_child3id")
     delete_data_table("perf_child2s",  "perf_child2id")
@@ -110,6 +113,10 @@ def main():
     delete_data_table("perf_lookup1s", "perf_lookup1id")
     delete_data_table("perf_lookup2s", "perf_lookup2id")
     delete_data_table("perf_lookup3s", "perf_lookup3id")
+
+    # Step 3: the perf tables' diagnostics rows (harness artefacts; no lookups, so any order would do).
+    print("\n[3/3] Deleting perf diagnostics rows...")
+    delete_data_table("asx_rulediagnostics", "asx_rulediagnosticid", "asx_tablelogicalname", prefix="perf_")
 
     print("\nDONE. Fixture is clean -- schema and tableconfig tree intact.")
 

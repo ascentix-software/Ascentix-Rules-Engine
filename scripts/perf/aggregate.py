@@ -172,7 +172,7 @@ def _share(name, share):
 
 
 def _captures(results):
-    """Whether any step carries diagCaptured (S2/S3: the saves whose asx-diag line Dataverse kept)."""
+    """Whether any step carries diagCaptured (S2/S3: the saves whose asx_rulediagnostic row was found, of saved)."""
     return any(r.get("diagCaptured") for r in results)
 
 
@@ -201,7 +201,7 @@ def render_scenario_markdown(scenario, label, date_str, results):
     captured = _captures(results)
     lines = [f"# {scenario} -- {label} ({date_str})", "",
              "| Step | Result | Samples | total ms | max ms | Dominant stage | Error |"
-             + (" asx-diag lines captured |" if captured else ""),
+             + (" Diagnostics rows found |" if captured else ""),
              "|---|---|---|---|---|---|---|" + ("---|" if captured else "")]
     for r in results:
         s = r["summary"]
@@ -247,7 +247,7 @@ def render_capacity_markdown(label, date_str, rows):
     captured = _captures(rows)
     lines = [f"# Capacity summary -- {label} ({date_str})", "",
              "| Scenario | Last passing step | First failing step | Error | Dominant stage at the top passing step |"
-             + (" asx-diag lines captured there |" if captured else ""),
+             + (" Diagnostics rows found there |" if captured else ""),
              "|---|---|---|---|---|" + ("---|" if captured else "")]
     for r in rows:
         lines.append(f"| {r['scenario']} | {r['lastPass'] or 'none'} | {r['firstFail'] or 'none (every step passed)'} | "

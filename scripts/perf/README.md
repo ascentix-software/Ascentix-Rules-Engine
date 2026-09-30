@@ -10,6 +10,10 @@ profiling reports.
 > `create-schema.py` — it is idempotent (check-first) and will add the missing table and
 > relationship without touching anything already there. `reset-data.py` now expects
 > `perf_followup` to exist.
+>
+> `reset-data.py` also expects the product's `asx_rulediagnostic` table, and S2/S3 its
+> `asx_CaptureDiagnostics` environment variable. Both come from
+> `Configure-RuleAuthoring.ps1 -Phase Schema`; run it on an environment deployed before they existed.
 
 
 ## Prerequisites
@@ -128,7 +132,7 @@ first failing step.
 
 ```
 python scripts/perf/run-scenario.py --scenario S1..S6 [--ladder 100,500,2000] [--label baseline]
-                                    [--sample N] [--trace-settle 180]
+                                    [--sample N] [--trace-settle 600]
 ```
 
 | Flag | Default | Description |
@@ -137,14 +141,14 @@ python scripts/perf/run-scenario.py --scenario S1..S6 [--ladder 100,500,2000] [-
 | `--ladder` | the scenario's ladder below | Comma list of step sizes |
 | `--label` | baseline | Report label (used in the file names) |
 | `--sample` | 10 for S2 and S3, 5 for the others | Roots sampled per step (S1-S3, S5, S6) |
-| `--trace-settle` | 180 | S2, S3: seconds to keep probing for a probe save's `asx-diag` line before measuring |
+| `--trace-settle` | 600 | S2, S3: seconds to keep probing for a probe save's diagnostics row before measuring |
 
 Each step: reset the data (`reset-data.py`), generate the step's data and rules (`generate.py`
 with the flags below), drive the scenario, and record pass or fail with its error, the per-stage
 timings and the counters. After the last step, and also after an error or Ctrl+C, the data is reset
-once more and (S2, S3) the plug-in trace setting is restored. If that final reset fails, the driver
-logs it (run `reset-data.py` by hand) and keeps the results. The reports are written from every step
-that finished, even when the run is interrupted.
+once more and (S2, S3) the `asx_CaptureDiagnostics` switch is put back exactly as it was. If that
+final reset fails, the driver logs it (run `reset-data.py` by hand) and keeps the results. The
+reports are written from every step that finished, even when the run is interrupted.
 
 | Scenario | Default ladder | A step generates | Driven by |
 |---|---|---|---|
@@ -159,9 +163,8 @@ A step **fails**, and the ladder stops there, when:
 - `generate.py` or `reset-data.py` fails (recorded as `setup: ...`);
 - a call or save errors or times out (the 2-minute plug-in limit, the 25,000-row cap, ...);
 - S1, S6: the median total is above 2,000 ms;
-- S2, S3: the probe never produced an `asx-diag` line (`enforcement did not settle`), or fewer
-  than half the saves (rounded up) have an `asx-diag` line when the read window ends
-  (`found M of N ...`);
+- S2, S3: the probe never wrote a diagnostics row (`enforcement did not settle`), or any save
+  has no diagnostics row when the 60-second read window ends (`found M of N diagnostics rows`);
 - S4: a run page fails (a repeated record failure or any other error), or the run doesn't finish
   within its page budget;
 - S5: the call takes more than 60,000 ms, or fewer schedules were started or continued than were due.
@@ -169,24 +172,35 @@ A step **fails**, and the ladder stops there, when:
 **DEV only.** The driver refuses to run unless `DATAVERSE_URL` (the process environment wins over
 `.env`) is the DEV URL in `.env`. It never reads or prints secrets.
 
-**S2, S3 need plug-in tracing.** Their diagnostics come from the one `asx-diag` trace line the
-engine writes per save, which Dataverse keeps only when the environment's plug-in trace setting is
-All. The driver switches the setting to All and restores the original at the end, so it needs the
-privileges to update the organization and read `plugintracelogs`. Before a step's measured saves it
-probes: it saves one sampled root (S2 changes its lookup; S3 writes `perf_text` without the fire
-marker) until that save's line appears, retrying for up to `--trace-settle` seconds, so tracing
-and the step's newly published rules are live before anything is measured. Each save counts once:
-if the engine ran more than once for a save, the slower line is kept and the result notes
-`duplicateDiagLines`. Every S3 save creates follow-ups; the per-step reset removes them.
+**S2, S3 read the diagnostics table.** While the product's `asx_CaptureDiagnostics` environment
+variable (Boolean, default no) is on, every save the engine evaluates writes one `asx_rulediagnostic`
+row per saved record with its full diagnostics JSON. For S2 and S3 the driver turns it on for the
+whole run: it PATCHes the variable's value row to `yes`, or creates one bound to the definition when
+there is none. At the end, even after a failed step or Ctrl+C, it puts it back exactly: it PATCHes
+the previous value back, or deletes the value row when there was none before. It refuses to start
+when the definition is missing or has an inactive or second value row. It never touches the
+organization's plug-in trace setting, and S1, S4, S5 and S6 never touch the variable. It needs the
+privileges to read and write environment variable values and read `asx_rulediagnostic`.
 
-**Dataverse drops some trace rows.** Even with the trace setting on All, Dataverse doesn't keep
-every plug-in trace row: on DEV, 5 saves in a row left only 3 engine rows (the other 2 had no row
-at all). So a missing `asx-diag` line is not a failure. After the saves, the driver reads lines
-back for up to 3 minutes, stopping early once every save has one. The step's figures come from the
-saves it captured, and every S2 and S3 result records captured of saved (`diagCaptured`, for
-example `3/5`). That is why S2 and S3 sample 10 roots by default (at the 10,000 step the 50,000-row
-cap still limits them to 5). A freshly published rule can take a few minutes to go live, which is
-why `--trace-settle` defaults to 180 seconds.
+Before a step's measured saves the driver probes: it saves one sampled root (S2 changes its lookup;
+S3 writes `perf_text` without the fire marker) until that root gets a new diagnostics row, retrying
+for up to `--trace-settle` seconds. The plug-in reads the switch through a cache that refreshes at
+most once a minute, and a freshly published rule can take a few minutes to go live, which is why
+`--trace-settle` defaults to 600 seconds. After the saves, the driver reads back one row per
+measured save (by the root's record id, created from the probe row on, less every row that was
+there before), stopping as soon as every save has one and waiting at most 60 seconds. Each save
+counts once: if the engine ran more than once for a save, the slower row is kept and the result
+notes `duplicateDiagRows`. Every S3 save creates follow-ups; the per-step reset removes them, and
+the perf diagnostics rows too.
+
+**Why a table, not the trace log.** The first version read an `asx-diag` line per save from
+`plugintracelogs`, with the trace setting on All. On DEV that log arrived minutes late and dropped
+rows (5 saves in a row left only 3 engine rows), so a step had to pass on whatever lines survived.
+The diagnostics row is written inside the save itself, so it is there as soon as the save returns
+and never dropped: a step now needs every save's row, and every S2 and S3 result records found of
+saved (`diagCaptured`, for example `10/10`). The `asx-diag` trace line is still written, as a
+troubleshooting aid. S2 and S3 sample 10 roots by default (at the 10,000 step the 50,000-row cap
+still limits them to 5).
 
 **S5 waits.** Its schedules run every 15 minutes and Next run on is engine-owned, so each step
 waits until they are all due (about 15 minutes, 20 at most; a schedule without a Next run on yet
@@ -203,7 +217,7 @@ that runs past midnight (S4, S5) joins that day's capacity summary. For S4, a ca
 a failed record (`FailedRecordId`) processes no records and isn't counted as a page.
 
 - `<date>-<label>-<scenario>.md`: one row per step (result, samples, total and max ms, dominant
-  stage, error and, for S2 and S3, the `asx-diag` lines captured of the saves), then a stage table
+  stage, error and, for S2 and S3, the diagnostics rows found of the saves), then a stage table
   and a counter table across the steps.
 - `<date>-<label>-<scenario>.csv`: the same per step (S2 and S3 add a `diagCaptured` column), one
   column per counter and per stage.
@@ -212,8 +226,8 @@ a failed record (`FailedRecordId`) processes no records and isn't counted as a p
   Per scenario: the last passing step, the first failing step and its error, and the dominant
   stage at the top passing step with its share of the total ms. The page containers
   (`pageEvaluate`, `pageWrite`) count as the dominant stage only when no finer stage was timed.
-  When S2 or S3 is included, a last column gives the lines captured at the top passing step, so
-  you can see how many saves its figures rest on.
+  When S2 or S3 is included, a last column gives the diagnostics rows found at the top passing
+  step, so you can see how many saves its figures rest on.
 
 ## Reports
 
@@ -225,7 +239,8 @@ Filename format: `<date>-<label>.md` / `<date>-<label>.csv`
 
 ## Reset vs Teardown
 
-**Between runs** (keep schema + tableconfig tree, wipe data + rules):
+**Between runs** (keep schema + tableconfig tree, wipe data + rules + the perf tables'
+`asx_rulediagnostic` rows):
 ```
 python scripts/perf/reset-data.py
 ```
