@@ -31,7 +31,7 @@ namespace Ascentix.RulesEngine.Tests
 
         // The switch's definition (and, when given, its value row). A null default leaves the
         // definition without one; a null value leaves no value row.
-        private static List<Entity> Switch(string defaultValue, string value)
+        private static List<Entity> Switch(string defaultValue, string value, bool valueActive = true)
         {
             var definition = new Entity("environmentvariabledefinition", Guid.NewGuid())
             {
@@ -45,6 +45,7 @@ namespace Ascentix.RulesEngine.Tests
                 {
                     ["environmentvariabledefinitionid"] = definition.ToEntityReference(),
                     ["value"] = value,
+                    ["statecode"] = new OptionSetValue(valueActive ? 0 : 1),
                 });
             }
             return seed;
@@ -205,6 +206,7 @@ namespace Ascentix.RulesEngine.Tests
         [InlineData("no", null)]      // the shipped default
         [InlineData("false", null)]
         [InlineData("0", null)]
+        [InlineData("maybe", null)]   // anything else is off
         [InlineData("yes", "no")]     // a value overrides the default
         [InlineData("true", "false")]
         [InlineData("1", "0")]
@@ -236,6 +238,8 @@ namespace Ascentix.RulesEngine.Tests
         [InlineData("true", null)]
         [InlineData("yes", null)]
         [InlineData("1", null)]
+        [InlineData(" yes ", null)]  // trimmed
+        [InlineData("yes", " ")]     // a blank value row falls back to the default
         [InlineData("no", "TRUE")]   // a value overrides the default, case-insensitively
         [InlineData("false", "Yes")]
         [InlineData("0", "1")]
@@ -298,7 +302,7 @@ namespace Ascentix.RulesEngine.Tests
             Write();
             Assert.Equal(1, save.System.SwitchReads);
 
-            // Turned on 30 s later: the cached "off" still holds, with no second query.
+            // Turned on, and 59 s after the first read the cached "off" still holds, with no second query.
             save.Fake.GetOrganizationService().Create(new Entity("environmentvariablevalue")
             {
                 ["environmentvariabledefinitionid"] = seed[0].ToEntityReference(),
@@ -314,6 +318,59 @@ namespace Ascentix.RulesEngine.Tests
             Write();
             Assert.Equal(2, save.System.SwitchReads);
             Assert.Single(save.Rows());
+        }
+
+        [Fact]
+        public void A_clock_that_went_backwards_forces_a_re_read()
+        {
+            var save = new Save(Switch("no", null));
+            var pctx = new XrmFakedPluginExecutionContext { MessageName = "Update", CorrelationId = Guid.NewGuid() };
+
+            save.Capture.Write(save.System, pctx, "account", new[] { Guid.NewGuid() }, new RunDiagnostics(), new RecordingTrace());
+            save.Now = Start.AddSeconds(-1);
+            save.Capture.Write(save.System, pctx, "account", new[] { Guid.NewGuid() }, new RunDiagnostics(), new RecordingTrace());
+
+            Assert.Equal(2, save.System.SwitchReads);
+        }
+
+        [Fact]
+        public void A_reading_applies_only_to_the_organization_it_was_taken_for()
+        {
+            var seed = Switch("no", null);
+            var save = new Save(seed);
+            var orgA = new XrmFakedPluginExecutionContext { MessageName = "Update", CorrelationId = Guid.NewGuid(), OrganizationId = Guid.NewGuid() };
+            var orgB = new XrmFakedPluginExecutionContext { MessageName = "Update", CorrelationId = Guid.NewGuid(), OrganizationId = Guid.NewGuid() };
+            void Write(XrmFakedPluginExecutionContext pctx, string table) => save.Capture.Write(save.System, pctx, table,
+                new[] { Guid.NewGuid() }, new RunDiagnostics(), new RecordingTrace());
+
+            Write(orgA, "account");                                   // A reads: off
+            save.Fake.GetOrganizationService().Create(new Entity("environmentvariablevalue")
+            {
+                ["environmentvariabledefinitionid"] = seed[0].ToEntityReference(),
+                ["value"] = "yes",
+            });
+            save.Now = Start.AddSeconds(1);
+            Write(orgB, "contact");                                   // B reads its own: on
+            save.Now = Start.AddSeconds(2);
+            Write(orgA, "account");                                   // A keeps its cached off
+
+            Assert.Equal(2, save.System.SwitchReads);
+            var row = Assert.Single(save.Rows());
+            Assert.Equal("contact", row[Q(SchemaNames.RuleDiagnostic.TableLogicalName)]);
+        }
+
+        [Theory]
+        [InlineData("yes", "no", true)]    // an inactive "no" leaves the default "yes" in force
+        [InlineData("no", "yes", false)]   // an inactive "yes" doesn't turn the switch on
+        public void Only_an_active_value_row_overrides_the_default(string defaultValue, string inactiveValue, bool expectOn)
+        {
+            var save = new Save(Switch(defaultValue, inactiveValue, valueActive: false));
+            var pctx = new XrmFakedPluginExecutionContext { MessageName = "Update", CorrelationId = Guid.NewGuid() };
+
+            save.Capture.Write(save.System, pctx, "account", new[] { Guid.NewGuid() }, new RunDiagnostics(), new RecordingTrace());
+
+            if (expectOn) Assert.Single(save.Rows());
+            else Assert.Empty(save.Rows());
         }
 
         [Fact]

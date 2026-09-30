@@ -365,9 +365,10 @@ environment variable (§2.17) is on, `RulesEnginePlugin` creates one row per sav
 the system service, after the save's `totalMs` is taken (so the write is outside the measured
 time). It holds timings, counts and ids only, never record data. The engine never reads these rows.
 
-A failure to write a row is swallowed and written to the plug-in trace, and never changes the
-save's outcome. The row is part of the save's transaction, so a blocked or failed save rolls its
-row back.
+The row is part of the save's transaction, so a blocked or failed save rolls its row back. A failed
+switch read or row write is caught and written to the plug-in trace, but Dataverse may still fail
+the save itself: a failed request inside a synchronous plug-in dooms its transaction. The switch is
+meant for testing. If saves fail with a generic transaction error while it's on, turn it off.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -385,10 +386,14 @@ row back.
 | `asx_CaptureDiagnostics` | Boolean (`type` 100000002) | `no` | None shipped |
 
 Provisioned by `Configure-RuleAuthoring.ps1 -Phase Schema` as a definition only. Turning it on means
-creating (or setting) its `environmentvariablevalue` row to `yes`. A value overrides the default.
-The engine treats `yes`, `true` and `1` (any case) as on, and anything else, a missing definition,
-or a failed read as off. Each plug-in worker reads it at most once every 60 seconds, so a change
-takes up to a minute to apply, and a save normally pays no extra query.
+creating (or setting) its `environmentvariablevalue` row to `yes`. An active value row (`statecode`
+0) overrides the default; a blank one falls back to it. The engine treats `yes`, `true` and `1`
+(trimmed, any case) as on, and anything else, a missing definition, or a failed read as off.
+
+Each plug-in worker reads the switch at most once every 60 seconds per organization, whether it is
+on or off, so a change takes up to a minute to apply and a save normally pays no extra query. The
+read is one query on `environmentvariabledefinition`, a system table that always exists, so with the
+switch off (the default) a save never touches `asx_rulediagnostic`.
 
 ## 3. `asx_RunRules` Custom API
 

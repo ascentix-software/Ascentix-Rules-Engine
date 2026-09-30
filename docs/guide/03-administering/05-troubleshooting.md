@@ -137,7 +137,9 @@ The **Capture diagnostics** environment variable (`asx_CaptureDiagnostics`) is a
 3. Repeat the saves, then read the rows (for example `GET /api/data/v9.2/asx_rulediagnostics?$filter=asx_recordid eq '<record id>'`).
 4. Set the current value back to **No**, or remove it, and delete the rows. While it's on, every save the engine evaluates writes a row.
 
-A blocked or failed save leaves no row, because the row is written in the save's transaction and rolls back with it. For those saves, use the trace line. If a row can't be written, the save goes ahead as usual and the plug-in trace records why.
+A blocked or failed save leaves no row, because the row is written in the save's transaction and rolls back with it. For those saves, use the trace line.
+
+The switch is meant for testing, not for everyday use. If reading the switch or writing a row fails, the engine catches the error and the plug-in trace records why, but Dataverse may still fail the save itself: a failed request inside a synchronous plug-in dooms the save's transaction. If saves fail with a generic transaction error while the switch is on, turn it off. With the switch off, each plug-in worker still checks it once a minute (one query on a system table that always exists) and writes nothing.
 
 Don't include record data you wouldn't want outside your organization; rule
 names, messages, and diagnostics are enough.

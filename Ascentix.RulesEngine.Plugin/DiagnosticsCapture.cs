@@ -13,9 +13,12 @@ namespace Ascentix.RulesEngine.Plugin
     /// variable is true, a save writes one asx_rulediagnostic row per saved record carrying its full
     /// diagnostics JSON (the asx-diag trace line's content, uncapped). Timings, counts and ids only.
     ///
-    /// The switch is cached per worker: it is read at most once per <see cref="SwitchLifetime"/>, so
-    /// a save normally pays no query. A missing definition or value, or a failed read, counts as off.
-    /// Nothing here ever throws into the save: a failed read or row write is swallowed and traced.
+    /// The switch is cached per worker and per organization: it is read at most once per
+    /// <see cref="SwitchLifetime"/> for each organization, so a save normally pays no query and a
+    /// reading taken for one organization never applies to another. A missing definition or active
+    /// value, or a failed read, counts as off. Nothing here throws into the save: a failed read or
+    /// row write is caught and traced. (Dataverse may still fail the save itself, because a failed
+    /// request inside a synchronous plug-in dooms its transaction; the switch is for testing.)
     /// </summary>
     public sealed class DiagnosticsCapture
     {
@@ -31,9 +34,14 @@ namespace Ascentix.RulesEngine.Plugin
 
         private readonly Func<DateTime> _utcNow;
         private readonly object _gate = new object();
-        // The cache: the last switch reading and when it was taken (null until the first read).
-        private bool _on;
-        private DateTime? _readOnUtc;
+        // The cache, per organization id: the last switch reading and when it was taken.
+        private readonly Dictionary<Guid, Reading> _readings = new Dictionary<Guid, Reading>();
+
+        private struct Reading
+        {
+            public bool On;
+            public DateTime ReadOnUtc;
+        }
 
         public DiagnosticsCapture(Func<DateTime> utcNow)
         {
@@ -48,7 +56,7 @@ namespace Ascentix.RulesEngine.Plugin
             if (system == null || context == null || recordIds == null || diagnostics == null) return;
             try
             {
-                if (!IsOn(system, trace)) return;
+                if (!IsOn(system, context.OrganizationId, trace)) return;
 
                 var json = RunDiagnosticsSerializer.Serialize(diagnostics);
                 foreach (var recordId in recordIds)
@@ -60,26 +68,28 @@ namespace Ascentix.RulesEngine.Plugin
             }
         }
 
-        private bool IsOn(IOrganizationService system, ITracingService trace)
+        private bool IsOn(IOrganizationService system, Guid organizationId, ITracingService trace)
         {
             var now = _utcNow();
             lock (_gate)
             {
-                if (_readOnUtc.HasValue && now >= _readOnUtc.Value && now - _readOnUtc.Value < SwitchLifetime)
-                    return _on;
+                // A clock that went backwards forces a re-read.
+                if (_readings.TryGetValue(organizationId, out var cached)
+                    && now >= cached.ReadOnUtc && now - cached.ReadOnUtc < SwitchLifetime)
+                    return cached.On;
             }
 
-            // Two workers' threads may both refresh at expiry; each reading is equally good.
+            // Two threads may both refresh at expiry; each reading is equally good.
             var on = ReadSwitch(system, trace);
             lock (_gate)
             {
-                _on = on;
-                _readOnUtc = now;
+                _readings[organizationId] = new Reading { On = on, ReadOnUtc = now };
             }
             return on;
         }
 
-        // The definition by schema name, outer-joined to its value row: a value overrides the default.
+        // The definition by schema name, outer-joined to its active value row: a value overrides the
+        // default, as Dataverse resolves an environment variable's current value.
         private static bool ReadSwitch(IOrganizationService system, ITracingService trace)
         {
             try
@@ -95,6 +105,7 @@ namespace Ascentix.RulesEngine.Plugin
                     "environmentvariabledefinitionid", JoinOperator.LeftOuter);
                 value.EntityAlias = ValueAlias;
                 value.Columns = new ColumnSet("value");
+                value.LinkCriteria.AddCondition("statecode", ConditionOperator.Equal, 0);
 
                 var definition = system.RetrieveMultiple(query).Entities.FirstOrDefault();
                 if (definition == null) return false;
