@@ -94,6 +94,14 @@ function EnsureLookup([string]$From, [string]$To, [string]$Name, [string]$Displa
         CascadeConfiguration = @{ Assign = 'NoCascade'; Delete = $Delete; Merge = 'NoCascade'; Reparent = 'NoCascade'; Share = 'NoCascade'; Unshare = 'NoCascade' }
     } | Out-Null
 }
+# Creates an environment variable definition in the solution (the header names it) with its default
+# and no value row; an existing definition is left as it is, including any value set on it.
+function EnsureEnvironmentVariableDefinition([string]$SchemaName, [string]$Display, [int]$Type, [string]$Default, [string]$Description) {
+    $existing = Request GET "environmentvariabledefinitions?`$select=environmentvariabledefinitionid&`$filter=schemaname eq '$SchemaName'"
+    if ($existing.value.Count -gt 0) { return }
+    Request POST 'environmentvariabledefinitions' @{ schemaname = $SchemaName; displayname = $Display; description = $Description;
+        type = $Type; defaultvalue = $Default } | Out-Null
+}
 
 if ($Phase -eq 'Schema') {
     EnsureTable 'asx_RuleRevision' 'Rule Revision'
@@ -199,7 +207,17 @@ if ($Phase -eq 'Schema') {
     EnsureLookup 'asx_schedulerstatus' 'systemuser' 'asx_LastSeenBy' 'Last seen by' 'RemoveLink'
     EnsureLookup 'asx_nodefiltergroup' 'asx_ruleaction' 'asx_RuleAction' 'Rule action' 'Cascade' 'asx_ruleaction_nodefiltergroup'
     EnsureOptionValue 'asx_actiontype' 8 'Deactivate Record'
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_nodefiltergroup</entity></entities><optionsets><optionset>asx_triggers</optionset><optionset>asx_actiontype</optionset></optionsets></importexportxml>' } | Out-Null
+    # Opt-in diagnostics for form saves: one row per saved record while asx_CaptureDiagnostics is on.
+    EnsureTable 'asx_RuleDiagnostic' 'Rule Diagnostic'
+    foreach ($spec in @(@('asx_TableLogicalName', 'Table logical name', 100), @('asx_RecordId', 'Record id', 36),
+        @('asx_MessageName', 'Message name', 100), @('asx_CorrelationId', 'Correlation id', 36), @('asx_Diagnostics', 'Diagnostics', 1048576))) {
+        $type = if ([int]$spec[2] -gt 4000) { 'Memo' } else { 'String' }
+        $field = Field $spec[0] $type $spec[1]; $field.MaxLength = [int]$spec[2]
+        EnsureField 'asx_rulediagnostic' $field
+    }
+    # Environment variable type Boolean = 100000002; Dataverse stores a Boolean value as yes/no.
+    EnsureEnvironmentVariableDefinition 'asx_CaptureDiagnostics' 'Capture diagnostics' 100000002 'no' 'When yes, every form save the rules engine evaluates writes one Rule Diagnostic row per saved record with its timings and counts. Leave it at no outside a measurement.'
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity></entities><optionsets><optionset>asx_triggers</optionset><optionset>asx_actiontype</optionset></optionsets></importexportxml>' } | Out-Null
     # Only configure the product's shipped views; personal/customer views are not selected.
     foreach ($spec in @(@('asx_rule','asx_draftof'), @('asx_tableconfig','asx_isprivate'))) {
         $viewFolder = Join-Path $PSScriptRoot "../Solutions/$SolutionName/${SolutionName}_unmanaged/Entities/$($spec[0])/SavedQueries"
@@ -233,7 +251,7 @@ if ($Phase -eq 'Schema') {
             }
         }
     }
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_nodefiltergroup</entity></entities></importexportxml>' } | Out-Null
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity></entities></importexportxml>' } | Out-Null
     Write-Host '[revisions] additive schema ready'
     return
 }

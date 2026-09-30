@@ -277,6 +277,7 @@ foreach ($interrupt in @($false, $true)) {
     $tables = @{}
     $relationships = @{}
     $optionSets = @{}
+    $environmentVariables = @{}
     $schemaState = @{ Writes = 0; FailViewOnce = $false; TableUpdates = 0 }
     function Invoke-RestMethod {
         param($Method, $Uri, $Headers, $ContentType, $Body)
@@ -306,6 +307,9 @@ foreach ($interrupt in @($false, $true)) {
                 }
                 '^savedqueries\(([\w-]+)\)' {
                     return $viewContexts[$Matches[1]] + @{ fetchxml = $views[$Matches[1]] }
+                }
+                "^environmentvariabledefinitions\?.*schemaname eq '([^']+)'" {
+                    return @{ value = @(if ($environmentVariables.ContainsKey($Matches[1])) { $environmentVariables[$Matches[1]] }) }
                 }
             }
         }
@@ -337,6 +341,14 @@ foreach ($interrupt in @($false, $true)) {
                     return
                 }
                 '^PublishXml$' { return }
+                '^environmentvariabledefinitions$' {
+                    Assert (!$environmentVariables.ContainsKey($record.schemaname)) 'Duplicate environment variable definition.'
+                    Assert ($Headers['MSCRM.SolutionUniqueName'] -eq 'AscentixRulesEngine') 'An environment variable definition must be created in the solution.'
+                    $record.environmentvariabledefinitionid = [guid]::NewGuid().ToString()
+                    $environmentVariables[$record.schemaname] = $record
+                    $schemaState.Writes++
+                    return
+                }
                 '^UpdateOptionValue$' {
                     Assert ($optionSets.ContainsKey($record.OptionSetName) -and $optionSets[$record.OptionSetName].Value -eq $record.Value -and $record.MergeLabels -eq $true) 'Unexpected option label update.'
                     $optionSets[$record.OptionSetName].Label = ($record.Label.LocalizedLabels | Where-Object { $_.LanguageCode -eq 1033 }).Label
@@ -401,7 +413,7 @@ foreach ($interrupt in @($false, $true)) {
         throw "Unexpected schema request: $Method $path"
     }
     foreach ($interrupt in @($false, $true)) {
-        $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear(); $relationships.Clear()
+        $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear(); $relationships.Clear(); $environmentVariables.Clear()
         $optionSets.Clear(); $optionSets['asx_triggers'] = @{ Value = 3; Label = 'Manual' }
         $optionSets['asx_actiontype'] = @{ Value = 7; Label = 'Delete Record' }
         $schemaState.Writes = 0; $schemaState.FailViewOnce = $interrupt; $schemaState.TableUpdates = 0
@@ -427,7 +439,7 @@ foreach ($interrupt in @($false, $true)) {
             Assert $interrupted 'Schema retry scenario did not interrupt.'
         }
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($tables.Count -eq 5 -and $fields.Count -eq 47) 'Expected additive authoring tables and fields.'
+        Assert ($tables.Count -eq 6 -and $fields.Count -eq 52) 'Expected additive authoring tables and fields.'
         Assert ($null -ne $fields['asx_nodefiltergroup/asx_ruleaction']) 'Expected the Rows filter action lookup.'
         $rowFilterRelation = @($relationships.Values | Where-Object { $_.ReferencingEntity -eq 'asx_nodefiltergroup' -and $_.ReferencingAttribute -eq 'asx_ruleaction' })
         Assert ($rowFilterRelation.Count -eq 1 -and $rowFilterRelation[0].SchemaName -eq 'asx_ruleaction_nodefiltergroup' -and $rowFilterRelation[0].ReferencedEntity -eq 'asx_ruleaction') 'Rows filter relationship must be asx_ruleaction_nodefiltergroup.'
@@ -461,7 +473,21 @@ foreach ($interrupt in @($false, $true)) {
         Assert ((($patternOptions | Where-Object { $_.Value -eq 3 }).Label.LocalizedLabels[0].Label) -eq 'Daily') 'Incorrect label for pattern 3.'
         Assert ((($patternOptions | Where-Object { $_.Value -eq 4 }).Label.LocalizedLabels[0].Label) -eq 'Weekly') 'Incorrect label for pattern 4.'
         Assert ((($patternOptions | Where-Object { $_.Value -eq 5 }).Label.LocalizedLabels[0].Label) -eq 'Monthly') 'Incorrect label for pattern 5.'
-        Assert ($schemaState.Writes -eq (54 + $views.Count)) 'Unexpected metadata write count.'
+        Assert ($tables['asx_rulediagnostic'].OwnershipType -eq 'OrganizationOwned') 'Rule Diagnostic must be an organization-owned table.'
+        Assert ($tables['asx_rulediagnostic'].EntitySetName -ceq 'asx_rulediagnostics') 'Rule Diagnostic must keep the default entity set name.'
+        # (field, attribute type, max length)
+        foreach ($spec in @(@('asx_tablelogicalname', 'String', 100), @('asx_recordid', 'String', 36), @('asx_messagename', 'String', 100),
+            @('asx_correlationid', 'String', 36), @('asx_diagnostics', 'Memo', 1048576))) {
+            $field = $fields["asx_rulediagnostic/$($spec[0])"]
+            Assert ($null -ne $field -and $field['@odata.type'] -eq "Microsoft.Dynamics.CRM.$($spec[1])AttributeMetadata" -and $field.MaxLength -eq $spec[2]) "Incorrect Rule Diagnostic column $($spec[0])."
+        }
+        Assert ($environmentVariables.Count -eq 1) 'Expected exactly one environment variable definition.'
+        $capture = $environmentVariables['asx_CaptureDiagnostics']
+        Assert ($null -ne $capture -and $capture.type -eq 100000002 -and $capture.defaultvalue -eq 'no') 'asx_CaptureDiagnostics must be a Boolean (100000002) defaulting to no.'
+        Assert (![string]::IsNullOrWhiteSpace($capture.displayname)) 'asx_CaptureDiagnostics needs a display name.'
+        # 54 before the diagnostics table, + 1 table (its primary name rides in the table body)
+        # + 5 columns + 1 environment variable definition (no value row).
+        Assert ($schemaState.Writes -eq (61 + $views.Count)) 'Unexpected metadata write count.'
         $writes = $schemaState.Writes
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
         Assert ($schemaState.Writes -eq $writes) 'Schema retry changed already configured metadata.'

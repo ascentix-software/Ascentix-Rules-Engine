@@ -358,6 +358,38 @@ example the scheduler add-on flow), for hub indicators; the engine does not read
 | `asx_lastseenby` | Lookup → `systemuser`, RemoveLink | Identity of the last caller |
 | `asx_callstoday` | Integer (min 0) | Calls made so far in the current day |
 
+### 2.16 Rule Diagnostic (`asx_rulediagnostic`)
+
+Organization-owned. Opt-in diagnostics for form saves: while the `asx_CaptureDiagnostics`
+environment variable (§2.17) is on, `RulesEnginePlugin` creates one row per saved record, through
+the system service, after the save's `totalMs` is taken (so the write is outside the measured
+time). It holds timings, counts and ids only, never record data. The engine never reads these rows.
+
+A failure to write a row is swallowed and written to the plug-in trace, and never changes the
+save's outcome. The row is part of the save's transaction, so a blocked or failed save rolls its
+row back.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (200, primary) | `"<table> <message>"`, for example `account Update` |
+| `asx_tablelogicalname` | Text (100) | The saved record's table |
+| `asx_recordid` | Text (36) | The saved record's id (`D` format); all zeros for a Create that supplied no id |
+| `asx_messagename` | Text (100) | `Create`, `CreateMultiple`, `Update`, `UpdateMultiple` or `Delete` |
+| `asx_correlationid` | Text (36) | The save's correlation id (`D` format) |
+| `asx_diagnostics` | Memo (1,048,576) | The save's full diagnostics JSON (§3, *Diagnostics fields beyond evaluation*), with no 4 KB cap and so never `nodesTruncated`. `totalMs` is the whole save. A multi-record save writes the same JSON on each record's row |
+
+### 2.17 Environment variable `asx_CaptureDiagnostics`
+
+| Schema name | Type | Default | Value |
+|---|---|---|---|
+| `asx_CaptureDiagnostics` | Boolean (`type` 100000002) | `no` | None shipped |
+
+Provisioned by `Configure-RuleAuthoring.ps1 -Phase Schema` as a definition only. Turning it on means
+creating (or setting) its `environmentvariablevalue` row to `yes`. A value overrides the default.
+The engine treats `yes`, `true` and `1` (any case) as on, and anything else, a missing definition,
+or a failed read as off. Each plug-in worker reads it at most once every 60 seconds, so a change
+takes up to a minute to apply, and a save normally pays no extra query.
+
 ## 3. `asx_RunRules` Custom API
 
 An **unbound (global) Dataverse Custom API** that evaluates the rules engine against a single
@@ -389,7 +421,7 @@ both retrieves the persisted record and overlays the JSON fields on top.
 
 ### Diagnostics fields beyond evaluation
 
-`RunDiagnosticsSerializer` also emits these, each only when non-zero (`asx_ApplyRules` §6, `asx_ProcessRunPage` §7, `asx_StartDueSchedules` §9, and the form-save `asx-diag` trace line):
+`RunDiagnosticsSerializer` also emits these, each only when non-zero (`asx_ApplyRules` §6, `asx_ProcessRunPage` §7, `asx_StartDueSchedules` §9, the form-save `asx-diag` trace line, and the opt-in `asx_rulediagnostic` row §2.16):
 
 | Field | Meaning |
 |---|---|

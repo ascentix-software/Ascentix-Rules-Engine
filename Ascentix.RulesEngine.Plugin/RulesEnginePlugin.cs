@@ -17,11 +17,21 @@ namespace Ascentix.RulesEngine.Plugin
     /// Update/UpdateMultiple, and Delete. Normalizes Target/Targets/(delete)EntityReference into
     /// root inputs, delegates evaluation to the shared <see cref="RulesEngineRunner"/>, and
     /// throws once aggregating all fired Block messages (the enforcing adapter).
-    /// Writes one asx-diag diagnostics line per save to the plug-in trace (DiagnosticsOutput).
+    /// Writes one asx-diag diagnostics line per save to the plug-in trace (DiagnosticsOutput) and,
+    /// while the asx_CaptureDiagnostics environment variable is on, one asx_rulediagnostic row per
+    /// saved record (DiagnosticsCapture).
     /// </summary>
     public class RulesEnginePlugin : PluginBase
     {
-        public RulesEnginePlugin() : base(typeof(RulesEnginePlugin)) { }
+        private readonly DiagnosticsCapture _capture;
+
+        public RulesEnginePlugin() : this(DiagnosticsCapture.Shared) { }
+
+        /// <summary>Tests pass their own capture (and its clock) instead of the per-worker one.</summary>
+        internal RulesEnginePlugin(DiagnosticsCapture capture) : base(typeof(RulesEnginePlugin))
+        {
+            _capture = capture ?? throw new ArgumentNullException(nameof(capture));
+        }
 
         protected override void ExecuteCdsPlugin(ILocalPluginContext localPluginContext)
         {
@@ -80,11 +90,14 @@ namespace Ascentix.RulesEngine.Plugin
             finally
             {
                 // One asx-diag line per save, whether it goes on to succeed, block or fail; totalMs
-                // covers the whole save (evaluation and writes).
+                // covers the whole save (evaluation and writes). While asx_CaptureDiagnostics is on,
+                // one asx_rulediagnostic row per saved record too, written after the measured window.
                 if (outcome.Diagnostics != null)
                 {
                     outcome.Diagnostics.TotalMs = overall.ElapsedMilliseconds;
                     DiagnosticsOutput.Trace(trace, outcome.Diagnostics);
+                    _capture.Write(systemService, context, logicalName, inputs.Select(input => input.Id),
+                        outcome.Diagnostics, trace);
                 }
             }
         }

@@ -105,7 +105,8 @@ phones home (*Beta Limitations §10*). A report has to carry its own evidence:
   Pass `IncludeDiagnostics: true` and include the `Diagnostics` output: it
   carries the evaluation's timings and row counts, which is usually enough
   to show where the time or the rows went.
-- **For a slow or failing save:** its `asx-diag` line from the plug-in trace log (below).
+- **For a slow or failing save:** its `asx-diag` line from the plug-in trace log, or for a slow
+  save its Rule Diagnostic row (both below).
 - **For editor problems:** the browser and version, and any errors from the
   browser console (F12 → Console), including the error panel's text.
 - **The environment's base language**, especially if it isn't English.
@@ -124,6 +125,19 @@ Dataverse keeps plug-in trace lines only when the environment's **plug-in trace 
 4. Set the setting back: **All** records a trace for every plug-in in the environment.
 
 The line holds timings, counts and configuration node ids only, never record data. To stay well inside the trace log's 10 KB per execution, `nodes` is cut when the line would pass 4 KB (the busiest nodes are kept), and the line then carries `"nodesTruncated": true`.
+
+The trace log can show a line minutes after the save, and it doesn't keep every line. To time a series of saves, use the diagnostics table instead (next section).
+
+### Capture save diagnostics in a table
+
+The **Capture diagnostics** environment variable (`asx_CaptureDiagnostics`) is a Yes/No switch that ships set to **No**. While it's **Yes**, every save the engine evaluates writes one **Rule Diagnostic** row (`asx_rulediagnostic`) per saved record. The row holds the table, the record id, the message (`Update`, `Create`, …), the save's correlation id, and in **Diagnostics** the full JSON of the `asx-diag` line, with no 4 KB cut. Its `totalMs` is the whole save. Like the trace line, the row holds timings, counts and ids only, never record data.
+
+1. In the solution, or under **Environment variables** in the maker portal, open **Capture diagnostics** and set its current value to **Yes**.
+2. Wait a minute. Each plug-in worker checks the switch at most once a minute.
+3. Repeat the saves, then read the rows (for example `GET /api/data/v9.2/asx_rulediagnostics?$filter=asx_recordid eq '<record id>'`).
+4. Set the current value back to **No**, or remove it, and delete the rows. While it's on, every save the engine evaluates writes a row.
+
+A blocked or failed save leaves no row, because the row is written in the save's transaction and rolls back with it. For those saves, use the trace line. If a row can't be written, the save goes ahead as usual and the plug-in trace records why.
 
 Don't include record data you wouldn't want outside your organization; rule
 names, messages, and diagnostics are enough.

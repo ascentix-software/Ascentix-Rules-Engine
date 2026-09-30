@@ -237,3 +237,17 @@ hub's status chip. The engine itself never reads it.
 | Last Seen On | `asx_lastseenon` | DateTime (User Local) | No | Last time a caller reported in |
 | Last Seen By | `asx_lastseenby` | Lookup → `systemuser` | No | Identity of the last caller |
 | Calls Today | `asx_callstoday` | Whole Number | No | Calls made so far in the current day |
+
+### Rule Diagnostic (`asx_rulediagnostic`)
+
+Opt-in timings for form saves. While the **Capture diagnostics** environment variable
+(`asx_CaptureDiagnostics`, Yes/No, default No) is Yes, every save the engine evaluates
+writes one row per saved record; see *Troubleshooting*. The engine itself never reads it.
+
+| Column | Schema name | Type | Required | Notes |
+|---|---|---|---|---|
+| Table Logical Name | `asx_tablelogicalname` | Text (100) | No | The saved record's table |
+| Record Id | `asx_recordid` | Text (36) | No | The saved record's id |
+| Message Name | `asx_messagename` | Text (100) | No | `Create`, `Update`, `Delete` or a `…Multiple` message |
+| Correlation Id | `asx_correlationid` | Text (36) | No | The save's correlation id |
+| Diagnostics | `asx_diagnostics` | Multiline text (1,048,576) | No | The save's full diagnostics JSON (see *Custom APIs*); `totalMs` is the whole save |
