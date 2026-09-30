@@ -142,7 +142,9 @@ python scripts/perf/run-scenario.py --scenario S1..S6 [--ladder 100,500,2000] [-
 Each step: reset the data (`reset-data.py`), generate the step's data and rules (`generate.py`
 with the flags below), drive the scenario, and record pass or fail with its error, the per-stage
 timings and the counters. After the last step, and also after an error or Ctrl+C, the data is reset
-once more and (S2, S3) the plug-in trace setting is restored.
+once more and (S2, S3) the plug-in trace setting is restored. If that final reset fails, the driver
+logs it (run `reset-data.py` by hand) and keeps the results. The reports are written from every step
+that finished, even when the run is interrupted.
 
 | Scenario | Default ladder | A step generates | Driven by |
 |---|---|---|---|
@@ -186,7 +188,9 @@ minutes, and turn it back on afterwards. The driver never switches the flow itse
 
 ### Scenario reports
 
-Written to `docs/perf/reports/` (not committed):
+Written to `docs/perf/reports/` (not committed), dated with the day the run started, so a ladder
+that runs past midnight (S4, S5) joins that day's capacity summary. For S4, a call that only reports
+a failed record (`FailedRecordId`) processes no records and isn't counted as a page.
 
 - `<date>-<label>-<scenario>.md`: one row per step (result, samples, total and max ms, dominant
   stage, error), then a stage table and a counter table across the steps.

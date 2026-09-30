@@ -174,7 +174,8 @@ def record_failed(text):
 
 def drive_run(call, run_id, max_pages):
     """Calls asx_ProcessRunPage until Done, as the scheduler flow does: a record-failed error is
-    reported on the next call; a repeated one, any other error, or too many pages ends the run.
+    reported on the next call; a repeated one, any other error, or too many calls ends the run.
+    The report call processes no records, so its diagnostics are not a page sample (only its Done counts).
     call(payload) returns the response body or raises. Returns (per-page diagnostics, error or None)."""
     pages = []
     failed = None
@@ -193,7 +194,8 @@ def drive_run(call, run_id, max_pages):
                 return pages, str(e)
             failed = marker
             continue
-        pages.append(json.loads(body["Diagnostics"]))
+        if "FailedRecordId" not in payload:
+            pages.append(json.loads(body["Diagnostics"]))
         if body.get("Done"):
             return pages, None
     return pages, f"run {run_id} did not finish within {max_pages} pages"
@@ -211,13 +213,15 @@ def scheduler_busy(last_seen_on, last_seen_by, me, now, window_minutes=SCHEDULER
     return now - _parse_time(last_seen_on) < datetime.timedelta(minutes=window_minutes)
 
 
-def run_ladder(ops, scenario, ladder, sample, log=print):
-    results = []
+def run_ladder(ops, scenario, ladder, sample, log=print, results=None):
+    """Runs the ladder, appending to results as it goes (so a caller keeps the finished steps even if
+    this raises) and stopping at the first failing step. A failing reset or generate is a setup failure."""
+    results = [] if results is None else results
     for step in ladder:
-        log(f"{scenario} step {step}: reset")
-        ops.reset()
-        log(f"{scenario} step {step}: generate")
         try:
+            log(f"{scenario} step {step}: reset")
+            ops.reset()
+            log(f"{scenario} step {step}: generate")
             ops.prepare(scenario, step, sample)
         except Exception as e:  # noqa: BLE001
             results.append(aggregate.step_result(scenario, step, None, f"setup: {e}"))
@@ -235,22 +239,41 @@ def run_ladder(ops, scenario, ladder, sample, log=print):
     return results
 
 
-def run(ops, scenario, ladder, sample, log=print):
-    """run_ladder, then reset the data and restore the trace setting, whatever happened."""
+def run(ops, scenario, ladder, sample, log=print, results=None):
+    """run_ladder, then reset the data and restore the trace setting, whatever happened. A failing
+    final reset is logged, not raised, so it never costs the results."""
+    results = [] if results is None else results
     original = None
     try:
         if scenario in SAVE_SCENARIOS:
             original = ops.get_trace_setting()
             ops.set_trace_setting(TRACE_ALL)
-        return run_ladder(ops, scenario, ladder, sample, log)
+        return run_ladder(ops, scenario, ladder, sample, log, results)
     finally:
         try:
             log(f"{scenario}: final reset")
             ops.reset()
+        except Exception as e:  # noqa: BLE001
+            log(f"{scenario}: final reset failed, run reset-data.py by hand: {e}")
         finally:
             if original is not None:
                 ops.set_trace_setting(original)
                 log(f"{scenario}: plug-in trace setting restored")
+
+
+def run_and_report(ops, scenario, ladder, sample, reports_dir, label, today=datetime.date.today, log=print):
+    """run, then write the reports from whatever steps finished, even when run raised (Ctrl+C, a
+    failed trace restore). The date is taken at the start, so a ladder that crosses midnight is
+    reported, and joins the capacity summary, under its start date. Returns (results, report paths)."""
+    date_str = today().isoformat()
+    results = []
+    try:
+        run(ops, scenario, ladder, sample, log, results)
+    finally:
+        paths = write_reports(reports_dir, date_str, label, scenario, results) if results else []
+        if paths:
+            log("Reports: " + ", ".join(paths))
+    return results, paths
 
 
 def write_reports(reports_dir, date_str, label, scenario, results):
@@ -379,7 +402,10 @@ class DataverseOps:
             except self._dv.DataverseError as e:
                 error = f"save {saves}: {e}"
                 break
-        lines, duplicates = self._read_diag_lines(since, saves, probe_saves)
+        # After a failed save, wait only for the lines of the saves that succeeded (the failed one may
+        # leave no line): polling for all of them would just sit out the timeout.
+        succeeded = saves if error is None else saves - 1
+        lines, duplicates = self._read_diag_lines(since, succeeded, probe_saves)
         if error is None and len(lines) < saves:
             error = f"found {len(lines)} of {saves} asx-diag lines in plugintracelogs"
         result = aggregate.step_result(scenario, step, aggregate.summarize_saves(lines), error)
@@ -541,9 +567,7 @@ def main(argv=None):
             ops.check_scheduler_idle()
         except RuntimeError as e:
             raise SystemExit(f"Refusing to run S5: {e}")
-    results = run(ops, args.scenario, ladder, args.sample)
-    paths = write_reports(REPORTS_DIR, datetime.date.today().isoformat(), args.label, args.scenario, results)
-    print("Reports: " + ", ".join(paths))
+    run_and_report(ops, args.scenario, ladder, args.sample, REPORTS_DIR, args.label)
 
 
 if __name__ == "__main__":

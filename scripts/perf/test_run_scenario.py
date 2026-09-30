@@ -20,13 +20,18 @@ profiles = rs.profiles
 class FakeOps:
     """Records every call; drive() passes (100 ms) unless told to fail, raise or be interrupted."""
 
-    def __init__(self, fail_at=None, raise_at=None, interrupt_at=None, setup_fails_at=None, trace=1):
+    def __init__(self, fail_at=None, raise_at=None, interrupt_at=None, setup_fails_at=None, trace=1,
+                 reset_fails_on=(), clock=None):
         self.calls = []
         self.fail_at, self.raise_at, self.interrupt_at, self.setup_fails_at = fail_at, raise_at, interrupt_at, setup_fails_at
         self.trace = trace
+        self.reset_fails_on = reset_fails_on      # which reset calls (1-based) fail, the final reset included
+        self.clock = clock                        # when given, every drive takes a minute
 
     def reset(self):
         self.calls.append(("reset",))
+        if sum(1 for c in self.calls if c == ("reset",)) in self.reset_fails_on:
+            raise RuntimeError("reset-data.py failed: ERROR DELETE perf_roots(x): 500")
 
     def prepare(self, scenario, step, sample):
         self.calls.append(("prepare", step))
@@ -35,6 +40,8 @@ class FakeOps:
 
     def drive(self, scenario, step, sample):
         self.calls.append(("drive", step))
+        if self.clock:
+            self.clock.sleep(60)
         if step == self.interrupt_at:
             raise KeyboardInterrupt()
         if step == self.raise_at:
@@ -145,12 +152,31 @@ def test_drive_run_reports_a_record_failed_page_and_continues():
         sent.append(dict(payload))
         if len(sent) == 1:
             raise RuntimeError(f"400: asx_ProcessRunPage:record-failed:{rid}:boom")
+        if "FailedRecordId" in payload:           # report-only: processes no records
+            return {"Done": False, "Diagnostics": json.dumps({"totalMs": 999, "pageRecords": 0})}
         return {"Done": len(sent) == 3, "Diagnostics": json.dumps({"totalMs": 10, "pageRecords": 1})}
 
     pages, error = rs.drive_run(call, "run-1", 10)
-    assert error is None and len(pages) == 2
+    assert error is None and pages == [{"totalMs": 10, "pageRecords": 1}]   # the report-only call is no page
     assert sent[1]["FailedRecordId"] == rid and sent[1]["FailedMessage"] == "boom"
     assert "FailedRecordId" not in sent[2] and all(p["IncludeDiagnostics"] is True for p in sent)
+
+
+def test_drive_run_stops_when_a_report_only_call_ends_the_run():
+    # The safety stop can end the run on the report call itself; its diagnostics are still no page.
+    rid = "11111111-2222-3333-4444-555555555555"
+    sent = []
+
+    def call(payload):
+        sent.append(payload)
+        if len(sent) == 1:
+            return {"Done": False, "Diagnostics": json.dumps({"totalMs": 10, "pageRecords": 1})}
+        if len(sent) == 2:
+            raise RuntimeError(f"asx_ProcessRunPage:record-failed:{rid}:boom")
+        return {"Done": True, "Diagnostics": json.dumps({"totalMs": 999})}
+
+    pages, error = rs.drive_run(call, "run-1", 10)
+    assert error is None and len(sent) == 3 and pages == [{"totalMs": 10, "pageRecords": 1}]
 
 
 def test_drive_run_gives_up_on_a_repeated_record_failed_and_on_too_many_pages():
@@ -215,6 +241,62 @@ def test_write_reports_rebuilds_the_capacity_summary_from_every_scenario():
                                          "2026-09-30-base-capacity.md"]
         capacity = open(paths[-1], encoding="utf-8").read()
         assert "| S1 | 100 | none (every step passed) |" in capacity and "| S3 | none | 100 | save 1: boom |" in capacity
+
+
+def _noop(*_):
+    pass
+
+
+def test_a_failing_step_reset_is_a_setup_failure_and_earlier_steps_are_still_reported():
+    ops = FakeOps(reset_fails_on={2})
+    with tempfile.TemporaryDirectory() as d:
+        results, paths = rs.run_and_report(ops, "S1", [100, 500, 2000], 5, d, "base",
+                                           today=lambda: datetime.date(2026, 9, 30), log=_noop)
+        assert [(r["step"], r["passed"]) for r in results] == [("100", True), ("500", False)]
+        assert results[1]["error"].startswith("setup: reset-data.py failed")
+        assert ("prepare", 500) not in ops.calls and ops.calls[-1] == ("reset",)   # the final reset still ran
+        with open(os.path.join(d, "2026-09-30-base-S1.json"), encoding="utf-8") as f:
+            assert [r["step"] for r in json.load(f)] == ["100", "500"]
+
+
+def test_a_failing_final_reset_is_logged_and_the_results_are_still_reported():
+    ops = FakeOps(reset_fails_on={3}, trace=0)
+    logged = []
+    with tempfile.TemporaryDirectory() as d:
+        results, paths = rs.run_and_report(ops, "S3", [100, 500], 5, d, "base",
+                                           today=lambda: datetime.date(2026, 9, 30), log=logged.append)
+        assert [(r["step"], r["passed"]) for r in results] == [("100", True), ("500", True)]
+        assert any("final reset failed" in line and "reset-data.py failed" in line for line in logged)
+        assert ops.calls[-1] == ("set_trace", 0)                                 # tracing restored anyway
+        assert os.path.exists(os.path.join(d, "2026-09-30-base-S3.json")) and paths[-1].endswith("capacity.md")
+
+
+def test_an_interrupted_run_still_reports_the_steps_it_finished():
+    ops = FakeOps(interrupt_at=500)
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            rs.run_and_report(ops, "S2", [100, 500, 2000], 5, d, "base",
+                              today=lambda: datetime.date(2026, 9, 30), log=_noop)
+            assert False, "expected KeyboardInterrupt"
+        except KeyboardInterrupt:
+            pass
+        with open(os.path.join(d, "2026-09-30-base-S2.json"), encoding="utf-8") as f:
+            assert [r["step"] for r in json.load(f)] == ["100"]
+        assert os.path.exists(os.path.join(d, "2026-09-30-base-capacity.md"))
+
+
+def test_a_ladder_that_crosses_midnight_is_reported_under_its_start_date():
+    clock = FakeClock()
+    clock.t = datetime.datetime(2026, 9, 30, 23, 59, 30, tzinfo=datetime.timezone.utc).timestamp()
+
+    def today():
+        return datetime.datetime.fromtimestamp(clock.t, datetime.timezone.utc).date()
+
+    with tempfile.TemporaryDirectory() as d:
+        rs.run_and_report(FakeOps(clock=clock), "S5", [1, 10], 5, d, "base", today=today, log=_noop)
+        assert today() == datetime.date(2026, 10, 1)
+        assert sorted(os.listdir(d)) == ["2026-09-30-base-S5.csv", "2026-09-30-base-S5.json",
+                                         "2026-09-30-base-S5.md", "2026-09-30-base-capacity.md"]
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +443,21 @@ def test_a_missing_or_unparseable_save_line_fails_the_step_with_an_accurate_coun
     [result] = _ops(dv, clock).drive("S3", 100, 3)
     assert result["error"] == "found 2 of 3 asx-diag lines in plugintracelogs"
     assert result["summary"]["samples"] == 2
+
+
+def test_a_failed_measured_save_waits_only_for_the_saves_that_succeeded():
+    clock = FakeClock()
+
+    def on_save(root_id, payload):
+        if payload["perf_text"] == "S3FIRE-1":
+            raise FakeDv.DataverseError("PATCH", f"perf_roots({root_id})", 500, "plug-in timed out")
+        return ['asx-diag {"totalMs":100}']
+
+    dv = FakeDv(clock, roots=3, on_save=on_save)
+    [result] = _ops(dv, clock).drive("S3", 100, 3)
+    assert result["error"].startswith("save 2: PATCH perf_roots(root-1)")
+    assert result["summary"]["samples"] == 1
+    assert clock.time() - START < 60                            # no 180-second poll for a line that can't come
 
 
 def test_s5_treats_a_null_next_run_on_as_not_yet_due_and_keeps_waiting():
