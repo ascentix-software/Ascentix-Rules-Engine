@@ -14,12 +14,19 @@ a save needs, so the seeded rules enforce real perf_root saves.
 --rows-per-root N seeds exactly N perf_child1 rows per root (flat; categories cycling
 30001/30002/30003) and no child2/child3, overriding --child-fanout.
 
+--profile S1..S6 adds that scenario's rule shapes (profiles.rule_specs; --profile-step sets S5's
+schedule count and S6's table count) on top of the background rules, whose default count then
+comes from profiles.DEFAULT_BACKGROUND. S2/S3 downgrade background Blocks to Show Message; S4/S5
+skip the self-reference wiring. S5's schedules are created after publishing.
+
 Run from repo root:
     python scripts/perf/generate.py
     python scripts/perf/generate.py --records 5 --child-fanout 3 --rules 20
     python scripts/perf/generate.py --records 25 --rows-per-root 12 --rules 20
+    python scripts/perf/generate.py --records 25 --rows-per-root 100 --profile S1
+    python scripts/perf/generate.py --records 1000 --rows-per-root 1 --profile S5 --profile-step 10
 
-Option values used (sources cited inline):
+Option values used (PUBLISHED here, the rest in profiles.py; sources cited):
   PUBLISHED        = 753840000 — author-rules.py line 12, confirmed docs/Schema.md s2.1
   TRIG_ON_UPDATE   = "4"       — docs/Schema.md s1 (On Update = 4); harness passes Triggers="OnUpdate"
   COND_FIELD       = 1         — docs/Schema.md s1 (Field Comparison = 1); author-rules.py line 94
@@ -49,7 +56,8 @@ Operator pools per column type (ConditionEvaluator.cs authoritative):
   STRING_OPS   — Equals, NotEquals, Contains, DoesNotContain, IsNull, IsNotNull
   BOOL_OPS     — Equals, NotEquals  (compare to literal "1"/"0")
   CHOICE_OPS   — Equals, NotEquals  (compare to int option value as string)
-  perf_date    — NOT used in field-comparison conditions (DateTime ordering is an engine gap)
+  perf_date    — not used by the background rules; the S1/S6 profiles compare it with date
+                 expressions (asx_comparisonvaluesource 4)
   IsNull/IsNotNull conditions omit asx_comparisonvalue entirely (no value needed).
 """
 import argparse
@@ -67,6 +75,12 @@ sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "perf"))
 import _dv  # noqa: E402
 from _dv import get, post  # noqa: E402
 import profiles  # noqa: E402
+# Option-set values live in profiles.py, the single home of the harness's shared constants.
+from profiles import (  # noqa: E402
+    TRIG_ON_UPDATE, COND_FIELD, COND_ROWCOUNT,
+    OP_EQUALS, OP_NOT_EQUALS, OP_CONTAINS, OP_NOT_CONTAINS, OP_IS_NULL, OP_IS_NOT_NULL,
+    SRC_LITERAL, SRC_FIELDREF, LOG_AND, LOG_OR, FIREON_MATCH, FIREON_NOMATCH,
+)
 
 # ---------------------------------------------------------------------------
 # Option-set constants — sourced from author-rules.py and docs/Schema.md
@@ -75,25 +89,6 @@ import profiles  # noqa: E402
 # author-rules.py line 12: PUBLISHED = 753840000
 PUBLISHED = 753840000
 
-# docs/Schema.md s1: On Update = 4; harness calls asx_RunRules with Triggers="OnUpdate"
-TRIG_ON_UPDATE = "4"
-
-# asx_conditiontype — docs/Schema.md s1; author-rules.py lines 94, 123
-COND_FIELD    = 1   # Field Comparison
-COND_ROWCOUNT = 2   # Row Count
-
-# asx_comparisonoperator — docs/Schema.md s1
-OP_EQUALS      = 1
-OP_NOT_EQUALS  = 2
-OP_GT          = 3
-OP_GTE         = 4
-OP_LT          = 5
-OP_LTE         = 6
-OP_CONTAINS    = 7
-OP_NOT_CONTAINS = 8
-OP_IS_NULL     = 9
-OP_IS_NOT_NULL = 10
-
 # Operator pools keyed by column type — ConditionEvaluator.cs is authoritative.
 # The engine picks numeric-vs-string comparison AT RUNTIME: it uses the numeric path only
 # when BOTH operands parse as decimal (ConditionEvaluator.EvaluateComparison), else the string
@@ -101,27 +96,15 @@ OP_IS_NOT_NULL = 10
 # RHS operands, an operand can be null/non-numeric at runtime, so ordering ops are unsafe to emit
 # at all. Traversal cost (what this fixture profiles) is incurred regardless of whether a
 # condition matches, so we omit ordering ops entirely and use only operators safe in both paths.
-# perf_date is excluded from all field-comparison conditions (DateTime comparison is an engine gap).
+# perf_date is excluded from the background field-comparison conditions (the S1/S6 profiles cover dates).
 NUMERIC_OPS = [OP_EQUALS, OP_NOT_EQUALS]
 STRING_OPS  = [OP_EQUALS, OP_NOT_EQUALS, OP_CONTAINS, OP_NOT_CONTAINS, OP_IS_NULL, OP_IS_NOT_NULL]
 BOOL_OPS    = [OP_EQUALS, OP_NOT_EQUALS]
 CHOICE_OPS  = [OP_EQUALS, OP_NOT_EQUALS]
 
-# asx_comparisonvaluesource — docs/Schema.md s1; author-rules.py lines 96, 133
-SRC_LITERAL  = 1   # Literal
-SRC_FIELDREF = 2   # Field Reference
-
-# asx_logicaloperator — docs/Schema.md s1; author-rules.py lines 69, 142
-LOG_AND = 1
-LOG_OR  = 2
-
-# asx_actionfireon — docs/Schema.md s1; author-rules.py lines 97, 116
-FIREON_MATCH   = 1
-FIREON_NOMATCH = 2
-
 # asx_actiontype (profiles.ACT_SHOWMSG=3, profiles.ACT_BLOCK=4) and perf_category option values
-# (profiles.CATEGORY_OPTIONS = [30001, 30002, 30003], create-schema.py line 231) live in
-# profiles.py — the single home for harness constants shared with generate.py.
+# (profiles.CATEGORY_OPTIONS = [30001, 30002, 30003], create-schema.py line 231) also live in
+# profiles.py.
 
 # perf typed columns (from create-schema.py add_typed_columns)
 TYPED_COLS = {
@@ -918,6 +901,27 @@ def publish_rules(rule_ids):
             print(f"  published {i}/{len(rule_ids)}")
 
 
+def author_spec(spec, tc_ids):
+    """Create one profile rule as a Draft: rule, group, conditions (+ node filters) and actions
+    (+ Rows filters), mirroring client/test-dev/ruleBehavior/authoring.ts. Returns the rule id."""
+    rule_id = post("asx_rules", profiles.rule_payload(spec, tc_ids, nav))
+    group_id = post("asx_conditiongroups", profiles.group_payload(spec, rule_id, nav))
+    for i, cond in enumerate(spec["conditions"]):
+        condition_id = post("asx_ruleconditions", profiles.condition_payload(cond, i, spec["name"], group_id, tc_ids, nav))
+        if cond.get("filter"):
+            fg = post("asx_nodefiltergroups", profiles.condition_filter_group_payload(cond, group_id, condition_id, tc_ids, nav))
+            for crit in cond["filter"]:
+                post("asx_nodefiltercriterions", profiles.criterion_payload(crit, fg, nav))
+    for i, action in enumerate(spec["actions"]):
+        action_id = post("asx_ruleactions", profiles.action_payload(action, i, spec["name"], rule_id, tc_ids, nav))
+        if action.get("rowFilter"):
+            fg = post("asx_nodefiltergroups", profiles.row_filter_group_payload(action, action_id, tc_ids, nav))
+            for crit in action["rowFilter"]:
+                post("asx_nodefiltercriterions", profiles.criterion_payload(crit, fg, nav))
+    print(f"  Authored {spec['name']} ({rule_id})")
+    return rule_id
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -926,14 +930,27 @@ def main():
     parser = argparse.ArgumentParser(
         description="Perf volume generator: seed lookup pool, roots, children, and rules."
     )
-    parser.add_argument("--rules",          type=int, default=100, help="Number of asx_rule records (default 100)")
+    parser.add_argument("--rules", type=int, default=None,
+                        help="Background asx_rule records (default: 100, or the profile's default: S1/S2/S6 100, S3/S4/S5 0)")
     parser.add_argument("--records",        type=int, default=100, help="Number of perf_root records (default 100)")
     parser.add_argument("--child-fanout",   type=int, default=10,  help="Child fan-out per level (default 10)")
     parser.add_argument("--rows-per-root", type=int, default=None,
                         help="Flat mode: exactly N perf_child1 rows per root and no child2/child3 (overrides --child-fanout)")
     parser.add_argument("--lookup-breadth", type=int, default=4,   help="Sibling lookups per root (max 6, default 4)")
     parser.add_argument("--seed",           type=int, default=1234, help="Random seed (default 1234)")
+    parser.add_argument("--profile", choices=profiles.PROFILES, default=None,
+                        help="Add a scenario's rule shapes (see README)")
+    parser.add_argument("--profile-step", type=int, default=1,
+                        help="S5: number of scheduled rules (1-50); S6: number of tables compared (1-7)")
     args = parser.parse_args()
+
+    background = args.rules if args.rules is not None else (
+        profiles.DEFAULT_BACKGROUND[args.profile] if args.profile else 100)
+    try:
+        # Built (and the step validated) before anything is written.
+        specs = profiles.rule_specs(args.profile, args.profile_step) if args.profile else []
+    except ValueError as e:
+        parser.error(str(e))
 
     rng = random.Random(args.seed)
     date_rng = random.Random(args.seed + 1)
@@ -945,7 +962,9 @@ def main():
         print(f"  --records={args.records}  --rows-per-root={args.rows_per_root} (flat)")
     else:
         print(f"  --records={args.records}  --child-fanout={args.child_fanout}")
-    print(f"  --rules={args.rules}  --lookup-breadth={args.lookup_breadth}  --seed={args.seed}")
+    print(f"  background rules={background}  --lookup-breadth={args.lookup_breadth}  --seed={args.seed}")
+    if args.profile:
+        print(f"  --profile={args.profile}  --profile-step={args.profile_step}  ({len(specs)} profile rule(s))")
 
     # Resolve tableconfig IDs from Dataverse (author-config.py must have run first)
     print("\nResolving tableconfig IDs...")
@@ -956,7 +975,8 @@ def main():
     pool = seed_lookup_pool(rng, dates, pool_size=20)
 
     # 2. perf_root records
-    root_guids = seed_roots(rng, dates, args.records, pool, args.lookup_breadth)
+    root_guids = seed_roots(rng, dates, args.records, pool, args.lookup_breadth,
+                            patch_self_refs=args.profile not in profiles.NO_SELF_REF_PROFILES)
 
     # 3. Children (multiplicative fan-out, or flat rows-per-root)
     if args.rows_per_root is not None:
@@ -964,9 +984,20 @@ def main():
     else:
         child_counts = seed_children(rng, dates, root_guids, pool, args.child_fanout)
 
-    # 4. Rules — created as Draft, then published one by one (publish_rules)
-    shape_dist, rule_guids = seed_rules(rng, args.rules, tc_ids, args.lookup_breadth)
-    publish_rules(rule_guids)
+    # 4. Rules — created as Draft, then published one by one (publish_rules). Profile rules are
+    # authored after the background rules, so a profile shape the validator refuses still leaves
+    # the background rules for the next reset to clean.
+    shape_dist, rule_guids = seed_rules(rng, background, tc_ids, args.lookup_breadth,
+                                        block_as_message=args.profile in profiles.SAVE_PROFILES)
+    if specs:
+        print(f"  Authoring {len(specs)} {args.profile} profile rule(s)...")
+    profile_ids = [author_spec(spec, tc_ids) for spec in specs]
+    publish_rules(rule_guids + profile_ids)
+    for spec, rule_id in zip(specs, profile_ids):
+        if spec.get("schedule"):
+            # After publishing: a schedule belongs to the published rule. Next run on is engine-owned.
+            post("asx_ruleschedules", profiles.schedule_payload(spec["schedule"], rule_id, nav), solution=False)
+            print(f"  Scheduled {spec['name']} every {spec['schedule']['every']} minutes")
 
     # Summary — the effective rule count is len(rule_guids) (what was actually seeded and
     # published), not args.rules.
@@ -979,7 +1010,11 @@ def main():
     print("\n=== DONE ===")
     print(f"  Lookup pool:  L3={len(pool['l3'])}, L2={len(pool['l2'])}, L1={len(pool['l1'])}")
     print(f"  Data totals:  roots={n_roots}, child1={n_child1}, child2={n_child2}, child3={n_child3}")
-    print(f"  Rules:        {n_rules} (published through the Rule Builder path, trigger=OnUpdate)")
+    print(f"  Rules:        {n_rules} background (published through the Rule Builder path, trigger=OnUpdate)")
+    if args.profile:
+        n_scheduled = sum(1 for s in specs if s.get("schedule"))
+        print(f"  Profile:      {args.profile} step {args.profile_step}: {len(profile_ids)} rule(s) published, "
+              f"{n_scheduled} scheduled")
     print(f"\nShape distribution ({n_rules} rules across {len(SHAPE_NAMES)} shapes):")
     for shape, count in shape_dist.items():
         print(f"    {shape:<22} {count}")

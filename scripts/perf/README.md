@@ -49,12 +49,14 @@ All scripts are idempotent (check-first), so they are safe to re-run.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--rules N` | 100 | Number of `asx_rule` records to create |
+| `--rules N` | 100, or the profile's default | Number of background `asx_rule` records to create |
 | `--records N` | 100 | Number of `perf_root` records |
 | `--child-fanout N` | 10 | Children per parent at **each** child level. Multiplicative, so `--records 25 --child-fanout 10` seeds 25 roots, 250, 2,500 and 25,000 children |
 | `--rows-per-root N` | — | Flat mode: exactly N perf_child1 rows per root, categories cycling 30001/30002/30003, no child2/child3. Use for exact ladder steps. Overrides `--child-fanout` |
 | `--lookup-breadth N` | 4 | Sibling lookup nodes to exercise per root (max 6) |
 | `--seed N` | 1234 | Random seed for deterministic reproducibility |
+| `--profile S1..S6` | — | Add a performance scenario's rule shapes (see below) |
+| `--profile-step K` | 1 | S5: number of scheduled rules (1-50); S6: number of tables compared (1-7) |
 
 Every seeded row (lookup pool, roots, children) also gets a `perf_date` 0-60 days before today.
 
@@ -65,6 +67,34 @@ registers the enforcement steps, so the rules also enforce real saves of `perf_r
 Example:
 ```
 python scripts/perf/generate.py --records 25 --child-fanout 10 --rules 100 --lookup-breadth 4
+```
+
+#### Scenario profiles (`--profile`, `--profile-step`)
+
+`--profile` adds one scenario's rules on top of the background rules. Each is authored as a draft
+(rule, group, conditions with any node filter, actions with any Rows filter, the same records the
+Rule Builder writes) and published with the background rules. Every name starts `PERF-RULE-`, so
+`reset-data.py` and `teardown.py` remove them. The shapes and payloads live in `profiles.py` and
+are unit-tested by `test_profiles.py`.
+
+| Profile | Background default | Rules added |
+|---|---|---|
+| S1 | 100 | `PERF-RULE-S1-DATE-NOW`: Row Count on PERF Child1 with `perf_date ge now - 30 days` (pushes down). `PERF-RULE-S1-DATE-ROW`: Row Count on PERF Child1 with `perf_date le createdon + 30 days` of the same row (evaluated in memory). `PERF-RULE-S1-CALC`: Calculation `sum(PERF Child1 perf_amount)` over category 30001 rows (a filtered total). All On Update, Show Message |
+| S2 | 100 | `PERF-RULE-S2-PREVIOUS`: when PERF Child1 has a row, Update PERF L1's `perf_number` from the root, with Apply to previous parent (changing `perf_lookup1id` also updates the old L1) |
+| S3 | 0 | `PERF-RULE-S3-SET`: fires when the root's `perf_text` contains `S3FIRE`; on PERF Child1 rows, a set Update (category 30001), a set Deactivate (30002, active rows), a set Delete (30003) and a Create per row into `perf_followup` (30001) |
+| S4 | 0 | `PERF-RULE-S4-READ` (a field check on PERF L1, Show Message) and `PERF-RULE-S4-WRITE` (a set Update of active PERF Child1 rows). On demand, All records |
+| S5 | 0 | K rules `PERF-RULE-S5-000`... alternating the S4 read and write shapes, each with an every-15-minutes schedule (created after publishing; Next run on is engine-owned) |
+| S6 | 100 | `PERF-RULE-S6-<table>`: `perf_date >= now - 10 years` on each of the first K of perf_root, perf_lookup1-3, perf_child1-3. On Update, Show Message |
+
+`--rules` overrides the background default. For S2 and S3, which are measured with real saves, the
+background Block actions are created as Show Message actions with the same trigger, text and
+severity: the same condition and traversal cost, but a background rule can never fail the save
+being measured. S4 and S5 (up to 50,000 roots) skip wiring half the roots' `perf_parentrootid`
+self-reference, one PATCH per root; their rules never read PERF Self.
+
+```
+python scripts/perf/generate.py --records 25 --rows-per-root 2000 --profile S1
+python scripts/perf/generate.py --records 1000 --rows-per-root 1 --profile S5 --profile-step 10
 ```
 
 ### run-profile.py
