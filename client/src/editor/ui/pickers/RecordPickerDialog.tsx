@@ -81,7 +81,6 @@ export function RecordPickerDialog({ open, table, onSelect, onCancel }: {
     if (!view) return;
     const myReq = ++reqIdRef.current;
     setLastAttempt({ page: targetPage, append });
-    if (!append) setSelected(null);
     setLoading(true); setError(false);
     try {
       const userFilter = compileToFetchXml(filter);
@@ -91,12 +90,16 @@ export function RecordPickerDialog({ open, table, onSelect, onCancel }: {
       const batch = await records.queryByFetchXml(table, paged);
       if (myReq !== reqIdRef.current) return; // superseded by a newer query, so drop the stale result
       setRows((prev) => (append && prev ? [...prev, ...batch] : batch));
+      // A fresh page 1 drops a selection it no longer shows (Select can't return a hidden
+      // record), but keeps one it still does: a row clicked while the search debounce is
+      // still settling would otherwise be silently unpicked.
+      if (!append) setSelected((s) => (s && batch.some((r) => r.id === s.id) ? s : null));
       setHasMore(batch.length === PAGE_SIZE);
       setPage(targetPage);
     } catch {
       if (myReq !== reqIdRef.current) return; // superseded, so don't surface a stale error
       setError(true);
-      if (!append) setRows([]);
+      if (!append) { setRows([]); setSelected(null); }
     } finally {
       if (myReq === reqIdRef.current) setLoading(false);
     }
