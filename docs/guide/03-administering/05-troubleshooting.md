@@ -105,11 +105,25 @@ phones home (*Beta Limitations §10*). A report has to carry its own evidence:
   Pass `IncludeDiagnostics: true` and include the `Diagnostics` output: it
   carries the evaluation's timings and row counts, which is usually enough
   to show where the time or the rows went.
+- **For a slow or failing save:** its `asx-diag` line from the plug-in trace log (below).
 - **For editor problems:** the browser and version, and any errors from the
   browser console (F12 → Console), including the error panel's text.
 - **The environment's base language**, especially if it isn't English.
   Localization is spot-checked on one non-English org per release, not
   systematically (*Beta Limitations §14*).
+
+### Read a save's diagnostics from the plug-in trace log
+
+Every save the engine evaluates writes one line to the plug-in trace: `asx-diag ` followed by the same JSON `asx_RunRules` returns as `Diagnostics`, plus the save's write figures (`writesSent`, `bulkRequests`, …; see *Custom APIs*). Its `totalMs` is the whole save, evaluation and writes.
+
+Dataverse keeps plug-in trace lines only when the environment's **plug-in trace log** setting (System Settings, **Customization** tab, **Enable logging to plug-in trace log**) is **All**, or **Exception** for a save that failed. To read one:
+
+1. Set the setting to **All**.
+2. Repeat the save.
+3. Open **Plug-In Trace Log** in the classic Settings area (or query the `plugintracelogs` table), open the newest entry for `Ascentix.RulesEngine.Plugin.RulesEnginePlugin`, and copy the text after `asx-diag `.
+4. Set the setting back: **All** records a trace for every plug-in in the environment.
+
+The line holds timings, counts and configuration node ids only, never record data. To stay well inside the trace log's 10 KB per execution, `nodes` is cut when the line would pass 4 KB (the busiest nodes are kept), and the line then carries `"nodesTruncated": true`.
 
 Don't include record data you wouldn't want outside your organization; rule
 names, messages, and diagnostics are enough.

@@ -275,11 +275,15 @@ namespace Ascentix.RulesEngine.Schema
             // Input parameters: must equal InputParameters keys the handler reads.
             public const string ParamRuleId = "RuleId";
             public const string ParamRecordId = "RecordId";
+            /// <summary>Optional Boolean input: when true, the response carries Diagnostics.</summary>
+            public const string ParamIncludeDiagnostics = "IncludeDiagnostics";
 
             // Output parameters: must equal OutputParameters keys the handler writes.
             public const string PropIsValid = "IsValid";
             public const string PropResults = "Results";
             public const string PropWriteCount = "WriteCount";
+            /// <summary>String output, set only when IncludeDiagnostics is true: RunDiagnostics JSON.</summary>
+            public const string PropDiagnostics = "Diagnostics";
         }
 
         /// <summary>
@@ -294,6 +298,8 @@ namespace Ascentix.RulesEngine.Schema
             public const string ParamRunId = "RunId";
             public const string ParamFailedRecordId = "FailedRecordId";
             public const string ParamFailedMessage = "FailedMessage";
+            /// <summary>Optional Boolean input: when true, the response carries Diagnostics.</summary>
+            public const string ParamIncludeDiagnostics = "IncludeDiagnostics";
 
             // Output parameters: must equal OutputParameters keys the handler writes.
             public const string PropDone = "Done";
@@ -303,6 +309,8 @@ namespace Ascentix.RulesEngine.Schema
             public const string PropBlocked = "Blocked";
             public const string PropFailed = "Failed";
             public const string PropSkipped = "Skipped";
+            /// <summary>String output, set only when IncludeDiagnostics is true: RunDiagnostics JSON.</summary>
+            public const string PropDiagnostics = "Diagnostics";
         }
 
         /// <summary>
@@ -314,9 +322,15 @@ namespace Ascentix.RulesEngine.Schema
             /// <summary>Custom API message / unique name (registered in Dataverse).</summary>
             public const string MessageName = "StartDueSchedules";   // full: asx_StartDueSchedules
 
+            // Input parameters: must equal InputParameters keys the handler reads.
+            /// <summary>Optional Boolean input: when true, the response carries Diagnostics.</summary>
+            public const string ParamIncludeDiagnostics = "IncludeDiagnostics";
+
             // Output parameters: must equal OutputParameters keys the handler writes.
             public const string PropRunIds = "RunIds";
             public const string PropScheduledCount = "ScheduledCount";
+            /// <summary>String output, set only when IncludeDiagnostics is true: RunDiagnostics JSON.</summary>
+            public const string PropDiagnostics = "Diagnostics";
         }
 
         /// <summary>Relationship (schema) name fragments.</summary>

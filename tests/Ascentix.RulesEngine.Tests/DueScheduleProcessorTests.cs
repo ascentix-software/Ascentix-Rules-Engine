@@ -644,6 +644,30 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(new[] { runId }, RunState.ParseRecordIds(json).ToArray());
             Assert.Equal(1, (int)pctx.OutputParameters[SchemaNames.StartDueSchedulesApi.PropScheduledCount]);
             Assert.Equal(Caller, Assert.Single(StatusRows()).GetAttributeValue<EntityReference>(Q(SchemaNames.SchedulerStatus.LastSeenBy)).Id);
+            Assert.False(pctx.OutputParameters.ContainsKey(SchemaNames.StartDueSchedulesApi.PropDiagnostics));
+        }
+
+        [Fact]
+        public void With_IncludeDiagnostics_the_scheduler_api_returns_its_diagnostics()
+        {
+            var rule = Rule("All");
+            _ctx.Initialize(new List<Entity> { rule, Schedule(rule.Id, DateTime.UtcNow.AddMinutes(-1)) });
+            var pctx = new XrmFakedPluginExecutionContext
+            {
+                MessageName = Q(SchemaNames.StartDueSchedulesApi.MessageName),
+                Stage = 30,
+                InitiatingUserId = Caller,
+                InputParameters = new ParameterCollection { { SchemaNames.StartDueSchedulesApi.ParamIncludeDiagnostics, true } },
+                OutputParameters = new ParameterCollection(),
+            };
+
+            _ctx.ExecutePluginWith<StartDueSchedulesApi>(pctx);
+
+            var json = (string)pctx.OutputParameters[SchemaNames.StartDueSchedulesApi.PropDiagnostics];
+            Assert.Contains("\"schedulesStarted\":1", json);
+            Assert.Contains("\"heartbeat\"", json);
+            Assert.Contains("\"dueQuery\"", json);
+            Assert.Contains("\"scheduleStart\"", json);
         }
     }
 }

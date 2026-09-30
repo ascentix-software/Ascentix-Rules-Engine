@@ -178,7 +178,7 @@ function Invoke-RestMethod {
             $key = "$path/$apiId/$($record.uniquename)"
             Assert (!$parameters.ContainsKey($key)) 'Duplicate parameter create on retry.'
             if ($path -eq 'customapirequestparameters') {
-                $expectOptional = $record.uniquename -in @('FailedRecordId', 'FailedMessage')
+                $expectOptional = $record.uniquename -in @('FailedRecordId', 'FailedMessage', 'IncludeDiagnostics')
                 Assert ($record.isoptional -eq $expectOptional) "Unexpected optionality for $($record.uniquename)."
             }
             $parameters[$key] = $record
@@ -215,8 +215,8 @@ foreach ($interrupt in @($false, $true)) {
         Assert ($apis.Count -eq 3 -and $parameters.Count -eq 0) 'Unexpected partial-deployment state.'
     }
     Register
-    Assert ($apis.Count -eq 10 -and $parameters.Count -eq 27) 'Expected eight new APIs and twenty-seven parameters/properties.'
-    Assert ($state.Creates -eq 39) 'Expected exactly thirty-nine successful creates.'
+    Assert ($apis.Count -eq 10 -and $parameters.Count -eq 33) 'Expected eight new APIs and thirty-three parameters/properties.'
+    Assert ($state.Creates -eq 45) 'Expected exactly forty-five successful creates.'
     foreach ($spec in @(
         @('asx_ReadPublishedRule', 'RuleId', 10), @('asx_ReadPublishedRule', 'Definition', 10),
         @('asx_RestoreRuleDraft', 'RuleId', 10),
@@ -233,10 +233,13 @@ foreach ($interrupt in @($false, $true)) {
     foreach ($spec in @(
         @('asx_ApplyRules', 'RuleId', 12, $false, $false), @('asx_ApplyRules', 'RecordId', 12, $false, $false),
         @('asx_ApplyRules', 'IsValid', 0, $true, $false), @('asx_ApplyRules', 'Results', 10, $true, $false), @('asx_ApplyRules', 'WriteCount', 7, $true, $false),
+        @('asx_ApplyRules', 'IncludeDiagnostics', 0, $false, $true), @('asx_ApplyRules', 'Diagnostics', 10, $true, $false),
         @('asx_ProcessRunPage', 'RunId', 12, $false, $false), @('asx_ProcessRunPage', 'FailedRecordId', 12, $false, $true), @('asx_ProcessRunPage', 'FailedMessage', 10, $false, $true),
         @('asx_ProcessRunPage', 'Done', 0, $true, $false), @('asx_ProcessRunPage', 'Status', 7, $true, $false), @('asx_ProcessRunPage', 'Evaluated', 7, $true, $false),
         @('asx_ProcessRunPage', 'Changed', 7, $true, $false), @('asx_ProcessRunPage', 'Blocked', 7, $true, $false), @('asx_ProcessRunPage', 'Failed', 7, $true, $false), @('asx_ProcessRunPage', 'Skipped', 7, $true, $false),
-        @('asx_StartDueSchedules', 'RunIds', 10, $true, $false), @('asx_StartDueSchedules', 'ScheduledCount', 7, $true, $false)
+        @('asx_ProcessRunPage', 'IncludeDiagnostics', 0, $false, $true), @('asx_ProcessRunPage', 'Diagnostics', 10, $true, $false),
+        @('asx_StartDueSchedules', 'RunIds', 10, $true, $false), @('asx_StartDueSchedules', 'ScheduledCount', 7, $true, $false),
+        @('asx_StartDueSchedules', 'IncludeDiagnostics', 0, $false, $true), @('asx_StartDueSchedules', 'Diagnostics', 10, $true, $false)
     )) {
         $binding = "/customapis($($apis[$spec[0]].customapiid))"
         $match = @($parameters.Values | Where-Object { $_.uniquename -eq $spec[1] -and $_['CustomAPIId@odata.bind'] -eq $binding })
@@ -258,7 +261,7 @@ foreach ($interrupt in @($false, $true)) {
     Assert ($parameters.ContainsKey($otherVersionKey)) 'Registration removed another API parameter.'
     $parameters.Remove($otherVersionKey)
     Register
-    Assert ($parameters.Count -eq 27 -and $state.Creates -eq 39) 'Completed deployment retry changed the API contract.'
+    Assert ($parameters.Count -eq 33 -and $state.Creates -eq 45) 'Completed deployment retry changed the API contract.'
     Assert ($state.GuardCreates -eq 1 -and $state.DeleteStages.Count -eq 3 -and $state.DeleteStages.ContainsKey(10) -and $state.DeleteStages.ContainsKey(20) -and $state.DeleteStages.ContainsKey(40)) 'Expected capture in PreValidation and transactional cleanup in PreOperation/PostOperation.'
     Assert (!$state.RevisionGuard) 'Revision-table plugin vetoes must be removed.'
     Assert ($apis['asx_OpenRuleDraft'].executeprivilegename -eq 'prvWriteasx_rule') 'Opening a draft requires the platform Write privilege.'

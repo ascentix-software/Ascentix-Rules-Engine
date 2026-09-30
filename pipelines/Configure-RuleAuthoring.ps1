@@ -355,6 +355,8 @@ EnsureParameter $id 'RecordId' 12 $false 'Identifier of the persisted record to 
 EnsureParameter $id 'IsValid' 0 $true 'True when no Block action fired.'
 EnsureParameter $id 'Results' 10 $true 'JSON array of every fired action, in the asx_RunRules Results shape.'
 EnsureParameter $id 'WriteCount' 7 $true 'Number of write actions applied.'
+EnsureParameter $id 'IncludeDiagnostics' 0 $false 'When true, the response also carries Diagnostics: timings and counts for this call.' $true
+EnsureParameter $id 'Diagnostics' 10 $true 'JSON timings and counts for this call; set only when IncludeDiagnostics is true.'
 $processRunPageType = PluginType 'ProcessRunPageApi'
 $id = EnsureApi 'asx_ProcessRunPage' 'prvCreateasx_RuleRun' 'Processes the next page of a Rule Run.' 'Process Run Page' $processRunPageType
 EnsureParameter $id 'RunId' 12 $false 'Identifier of the Rule Run to process.'
@@ -367,6 +369,8 @@ EnsureParameter $id 'Changed' 7 $true 'Running total of records that had at leas
 EnsureParameter $id 'Blocked' 7 $true 'Running total of records that fired a Block action.'
 EnsureParameter $id 'Failed' 7 $true 'Running total of records that failed with an error.'
 EnsureParameter $id 'Skipped' 7 $true 'Running total of records that did not pass the execution conditions.'
+EnsureParameter $id 'IncludeDiagnostics' 0 $false 'When true, the response also carries Diagnostics: timings and counts for this call.' $true
+EnsureParameter $id 'Diagnostics' 10 $true 'JSON timings and counts for this call; set only when IncludeDiagnostics is true.'
 EnsureStep 'asx_rulerun' 'Create' (PluginType 'RuleRunPlugin') 1 20
 # Outside asx_ProcessRunPage, a run may only be cancelled.
 EnsureStep 'asx_rulerun' 'Update' (PluginType 'RuleRunUpdatePlugin') 1 20
@@ -374,6 +378,8 @@ $startDueSchedulesType = PluginType 'StartDueSchedulesApi'
 $id = EnsureApi 'asx_StartDueSchedules' 'prvCreateasx_RuleRun' 'Starts or continues runs for due rule schedules and returns the run ids to drive.' 'Start Due Schedules' $startDueSchedulesType
 EnsureParameter $id 'RunIds' 10 $true 'JSON array of the ids of the Rule Runs to drive: started, continued or resumed by this call.'
 EnsureParameter $id 'ScheduledCount' 7 $true 'Number of due schedules processed by this call.'
+EnsureParameter $id 'IncludeDiagnostics' 0 $false 'When true, the response also carries Diagnostics: timings and counts for this call.' $true
+EnsureParameter $id 'Diagnostics' 10 $true 'JSON timings and counts for this call; set only when IncludeDiagnostics is true.'
 $scheduleType = PluginType 'RuleSchedulePlugin'
 EnsureStep 'asx_ruleschedule' 'Create' $scheduleType 1 20
 EnsureStep 'asx_ruleschedule' 'Update' $scheduleType 1 20

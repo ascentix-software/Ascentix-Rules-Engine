@@ -941,6 +941,32 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(0, (int)pctx.OutputParameters[SchemaNames.ProcessRunPageApi.PropBlocked]);
             Assert.Equal(0, (int)pctx.OutputParameters[SchemaNames.ProcessRunPageApi.PropFailed]);
             Assert.Equal(0, (int)pctx.OutputParameters[SchemaNames.ProcessRunPageApi.PropSkipped]);
+            Assert.False(pctx.OutputParameters.ContainsKey(SchemaNames.ProcessRunPageApi.PropDiagnostics));
+        }
+
+        [Fact]
+        public void With_IncludeDiagnostics_the_page_api_returns_page_diagnostics()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1 });
+            var pctx = new XrmFakedPluginExecutionContext
+            {
+                MessageName = SchemaNames.ProcessRunPageApi.MessageName,
+                Stage = 30,
+                InputParameters = new ParameterCollection
+                {
+                    { SchemaNames.ProcessRunPageApi.ParamRunId, runId },
+                    { SchemaNames.ProcessRunPageApi.ParamIncludeDiagnostics, true },
+                },
+                OutputParameters = new ParameterCollection()
+            };
+
+            _ctx.ExecutePluginWith<ProcessRunPageApi>(pctx);
+
+            var json = (string)pctx.OutputParameters[SchemaNames.ProcessRunPageApi.PropDiagnostics];
+            Assert.Contains("\"pageRecords\":1", json);
+            Assert.Contains("\"pageSelect\"", json);
+            Assert.Contains("\"bookmark\"", json);
+            Assert.Contains("\"writesSent\":1", json);
         }
 
         private Action<OrganizationRequest> ThrowOnUpdateOf(Guid accountId) => request =>
