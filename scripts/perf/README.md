@@ -133,6 +133,7 @@ first failing step.
 ```
 python scripts/perf/run-scenario.py --scenario S1..S6 [--ladder 100,500,2000] [--label baseline]
                                     [--sample N] [--rules N] [--trace-settle 600] [--settle-probes 5]
+                                    [--settle-pause 120] [--retry-pause 60]
 ```
 
 | Flag | Default | Description |
@@ -142,8 +143,10 @@ python scripts/perf/run-scenario.py --scenario S1..S6 [--ladder 100,500,2000] [-
 | `--label` | baseline | Report label (used in the file names) |
 | `--sample` | 10 for S2 and S3, 5 for the others | Roots sampled per step (S1-S3, S5, S6) |
 | `--rules` | the profile's default (S1 100, S2 100, S3 0, S4 0, S5 0, S6 100) | Background rules per step, passed to `generate.py --rules`. Every step records its count (`backgroundRules`) and the reports show it. `--rules 0` measures a scenario's own rules alone |
-| `--trace-settle` | 600 | S2, S3: the enforcement-settle window, the seconds to keep probing for a probe save's diagnostics row before measuring. The flag keeps its name from when S2/S3 read the plug-in trace log |
+| `--trace-settle` | 600 | S2, S3: the enforcement-settle window, the whole wait (pauses included) for probe saves' diagnostics rows before measuring. The flag keeps its name from when S2/S3 read the plug-in trace log |
 | `--settle-probes` | 5 | S2, S3: probe saves in a row that must each write their diagnostics row before measuring; a missed row starts the count over |
+| `--settle-pause` | 120 | S2, S3: seconds to wait after publishing before the first probe save |
+| `--retry-pause` | 60 | S2, S3: seconds to wait after a missed probe row before the next attempt |
 
 Each step: reset the data (`reset-data.py`), generate the step's data and rules (`generate.py`
 with the flags below, plus `--rules` when given), drive the scenario, and record pass or fail with its error, the per-stage
@@ -186,16 +189,20 @@ when the definition is missing or has an inactive or second value row. It never 
 organization's plug-in trace setting, and S1, S4, S5 and S6 never touch the variable. It needs the
 privileges to read and write environment variable values and read `asx_rulediagnostic`.
 
-Before a step's measured saves the driver probes: it saves one sampled root (S2 changes its lookup;
-S3 writes `perf_text` without the fire marker) until `--settle-probes` (default 5) probe saves in a
-row have each written a new diagnostics row within 15 seconds. A missed row starts the count over,
-and the whole wait is capped at `--trace-settle` seconds. One captured probe isn't enough: after a
-publish, the engine's new step goes live on Dataverse's workers one at a time, and a save routed to
-a worker that doesn't have it yet never runs the engine, so it writes no row. On DEV, measuring after
-a single captured probe found only 40-60% of the saves' rows (6 of 10 in the S2 100 step), although
-every save succeeded. The plug-in also reads the switch through a cache that refreshes at most once a
-minute, and a freshly published rule can take a few minutes to go live, which is why
-`--trace-settle` defaults to 600 seconds. Every S2 and S3 result records the probe saves the settle
+Before a step's measured saves the driver waits `--settle-pause` seconds (default 120), then probes:
+it saves one sampled root (S2 changes its lookup; S3 writes `perf_text` without the fire marker) until
+`--settle-probes` (default 5) probe saves in a row have each written a new diagnostics row within 15
+seconds. A missed row ends the attempt: the count starts over after `--retry-pause` seconds (default
+60). The whole wait, pauses included, is capped at `--trace-settle` seconds (default 600); if the
+probes still miss by then, the step fails.
+
+One captured probe isn't enough. The reset deletes the engine's step on `perf_root`, and
+`generate.py` saves the table's rows while it has none. Before the engine updated each step it creates
+(see `DataverseRegistrationEnvironment.CreateStep`), Dataverse servers that ran those saves kept
+routing single saves to no step for 10 minutes or more after the step was published: such a save
+succeeded in about 100 ms without running the engine and wrote no row (on DEV, 7 to 20 of 20
+violating saves got past a Block rule). The probe streak still guards against any server that hasn't
+caught up, and the plug-in reads the switch through a cache that refreshes at most once a minute. Every S2 and S3 result records the probe saves the settle
 took (`probeSaves`), so its cost is visible. After the saves, the driver reads back one row per
 measured save (by the root's record id, created from the last probe row on, less every row that was
 there before), stopping as soon as every save has one and waiting at most 60 seconds. Each save

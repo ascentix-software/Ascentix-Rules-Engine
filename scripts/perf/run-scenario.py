@@ -6,6 +6,7 @@ docs/perf/reports/<date>-<label>-<scenario>.md / .csv / .json and the combined
 
     python scripts/perf/run-scenario.py --scenario S1 [--ladder 100,500,2000] [--label baseline]
                                         [--sample N] [--rules N] [--trace-settle 600] [--settle-probes 5]
+                                        [--settle-pause 120] [--retry-pause 60]
 
 Each step: reset the data (reset-data.py), generate the step's data and rules (generate.py), drive
 the scenario, record pass or fail with its error, per-stage timings and counters. S2 and S3 read each
@@ -49,7 +50,9 @@ SCHEDULER_WINDOW_MINUTES = 20  # another caller's heartbeat younger than this bl
 SCHEDULER_FLOW = "Rules Engine Scheduler"
 CAPTURE_SWITCH = "asx_CaptureDiagnostics"  # Boolean environment variable: saves write asx_rulediagnostic rows
 CAPTURE_ON = "yes"             # Dataverse stores a Boolean environment variable's value as yes/no
-DEFAULT_SETTLE_SECONDS = 600     # the switch's 60-second cache plus a freshly published rule going live
+DEFAULT_SETTLE_SECONDS = 600   # the whole enforcement wait, pauses included: then the step fails
+DEFAULT_SETTLE_PAUSE = 120     # wait after publishing before the first probe save
+DEFAULT_RETRY_PAUSE = 60       # wait after a missed probe row before the next attempt
 DEFAULT_SETTLE_PROBES = 5      # probe saves in a row that must each write their row before measuring (R16)
 PROBE_POLL_SECONDS = 15        # how long one probe save's diagnostics row is looked for before it counts as missed
 DIAG_READ_SECONDS = 60         # how long the measured saves' rows are looked for after the last save
@@ -357,13 +360,16 @@ class DataverseOps:
     dv, clock and sleep are injectable so the tests drive it with a fake client and a fake clock."""
 
     def __init__(self, repo_root, settle_seconds, log=print, dv=None, clock=time.time, sleep=time.sleep,
-                 settle_probes=DEFAULT_SETTLE_PROBES):
+                 settle_probes=DEFAULT_SETTLE_PROBES, settle_pause=DEFAULT_SETTLE_PAUSE,
+                 retry_pause=DEFAULT_RETRY_PAUSE):
         if dv is None:
             import _dv as dv  # reads .env through scripts/auth.py and fetches a token; never prints either
         self._dv = dv
         self.repo_root = repo_root
         self.settle_seconds = settle_seconds
         self.settle_probes = settle_probes
+        self.settle_pause = settle_pause
+        self.retry_pause = retry_pause
         self.log = log
         self._clock = clock
         self._sleep = sleep
@@ -522,12 +528,13 @@ class DataverseOps:
         return {"perf_text": f"{S3_FIRE_MARKER}-{i}"}
 
     def _await_enforcement(self, scenario, roots, pool, nav_l1, probe):
-        """Probe saves of the first sampled root until --settle-probes of them in a row each write a new
-        diagnostics row within PROBE_POLL_SECONDS, so the switch (read through the plug-in's 60-second cache)
-        and the step's freshly published enforcement are live before measuring. One captured probe proves
-        only the worker that took it: after a publish the step goes live on Dataverse's workers one at a
-        time, and a save routed to a worker without it never runs the engine (R16). A missed row restarts
-        the streak; the whole wait is capped at --trace-settle.
+        """Wait --settle-pause, then probe saves of the first sampled root until --settle-probes of them in a
+        row each write a new diagnostics row within PROBE_POLL_SECONDS, so the switch (read through the
+        plug-in's 60-second cache) and the step's freshly published enforcement are live before measuring.
+        One captured probe proves only the server that took it: a server that ran the table's saves while it
+        had no engine step keeps skipping a newly created step until its Dataverse cache clears, and a save
+        routed there never runs the engine (R16). A missed row ends the attempt: the streak starts over after
+        --retry-pause. The whole wait, pauses included, is capped at --trace-settle.
         S2 probes with a lookup change, like its measured saves; S3 with a perf_text without the fire
         marker, so the probe runs the engine but leaves the root's rows untouched. "New" means a row id
         not seen before that probe: comparing ids, not times, keeps the local clock out of it.
@@ -536,6 +543,8 @@ class DataverseOps:
         root, ids = roots[0], [r["perf_rootid"] for r in roots]
         known = {r["asx_rulediagnosticid"] for r in self._diagnostic_rows([root["perf_rootid"]])}
         deadline = self._clock() + self.settle_seconds
+        self.log(f"  waiting {self.settle_pause} s for the published rules to go live")
+        self._sleep(min(self.settle_pause, self.settle_seconds))
         streak = 0
         while probe["saves"] == 0 or self._clock() < deadline:
             probe["saves"] += 1
@@ -551,9 +560,11 @@ class DataverseOps:
                     break
                 self._sleep(DIAG_POLL_INTERVAL)
             if not probe_rows:
-                if streak:
-                    self.log(f"  probe save {attempt}: no diagnostics row; the streak of {streak} starts over")
+                pause = max(0, min(self.retry_pause, deadline - self._clock()))
+                self.log(f"  probe save {attempt}: no diagnostics row; the streak of {streak} starts over "
+                         f"in {pause:.0f} s")
                 streak = 0
+                self._sleep(pause)
                 continue
             known |= {r["asx_rulediagnosticid"] for r in probe_rows}
             streak += 1
@@ -669,9 +680,15 @@ def parse_args(argv=None):
                              + "); recorded in the reports")
     parser.add_argument("--trace-settle", dest="settle_seconds", metavar="SECONDS", type=int,
                         default=DEFAULT_SETTLE_SECONDS,
-                        help="S2/S3: the enforcement-settle window, the seconds to keep probing for a probe save's "
-                             f"diagnostics row before a step's measured saves (default: {DEFAULT_SETTLE_SECONDS}; "
+                        help="S2/S3: the enforcement-settle window, the whole wait (pauses included) for probe saves' "
+                             f"diagnostics rows before a step's measured saves (default: {DEFAULT_SETTLE_SECONDS}; "
                              "the name is kept from when S2/S3 read the trace log)")
+    parser.add_argument("--settle-pause", type=int, default=DEFAULT_SETTLE_PAUSE, metavar="SECONDS",
+                        help="S2/S3: the wait after publishing before the first probe save "
+                             f"(default: {DEFAULT_SETTLE_PAUSE})")
+    parser.add_argument("--retry-pause", type=int, default=DEFAULT_RETRY_PAUSE, metavar="SECONDS",
+                        help="S2/S3: the wait after a missed probe row before the next attempt "
+                             f"(default: {DEFAULT_RETRY_PAUSE})")
     parser.add_argument("--settle-probes", type=int, default=DEFAULT_SETTLE_PROBES,
                         help="S2/S3: probe saves in a row that must each write their diagnostics row before a "
                              "step's measured saves; a miss starts the count over (default: "
@@ -679,6 +696,8 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if args.settle_probes < 1:
         parser.error("--settle-probes must be at least 1")
+    if args.settle_pause < 0 or args.retry_pause < 0:
+        parser.error("--settle-pause and --retry-pause must not be negative")
     return args
 
 
@@ -691,7 +710,8 @@ def main(argv=None):
     print(f"DEV target confirmed. {args.scenario} ladder: {', '.join(str(s) for s in ladder)}; background rules: "
           f"{background_rules(args.scenario, args.rules)}")
 
-    ops = DataverseOps(REPO_ROOT, args.settle_seconds, settle_probes=args.settle_probes)
+    ops = DataverseOps(REPO_ROOT, args.settle_seconds, settle_probes=args.settle_probes,
+                       settle_pause=args.settle_pause, retry_pause=args.retry_pause)
     if args.scenario == "S5":
         try:
             ops.check_scheduler_idle()

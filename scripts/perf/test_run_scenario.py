@@ -519,9 +519,11 @@ class FakeDv:
         raise AssertionError(f"unexpected {method} {path}")
 
 
-def _ops(dv, clock, settle=60, probes=None):
+def _ops(dv, clock, settle=60, probes=None, pause=0, retry=0):
+    """No settle pauses unless a test asks: most tests are about the streak, not the waiting."""
     kw = {} if probes is None else {"settle_probes": probes}
-    return rs.DataverseOps(rs.REPO_ROOT, settle, log=lambda *_: None, dv=dv, clock=clock.time, sleep=clock.sleep, **kw)
+    return rs.DataverseOps(rs.REPO_ROOT, settle, log=lambda *_: None, dv=dv, clock=clock.time, sleep=clock.sleep,
+                           settle_pause=pause, retry_pause=retry, **kw)
 
 
 def test_the_fake_client_refuses_a_url_that_urlopen_would_refuse():
@@ -739,6 +741,54 @@ def test_a_step_whose_probe_never_writes_a_row_fails_before_measuring():
     assert result["error"].startswith("enforcement did not settle: 0 of 5 consecutive probe saves captured")
     assert dv.saves and not any(profiles.S3_FIRE_MARKER in p["perf_text"] for _, p in dv.saves)
     assert clock.time() - START < 120                           # gave up after about --trace-settle
+
+
+def _timed_probes(clock, hits):
+    """on_save for S3 that records when each probe save was made; probe n (1-based) writes a row when hits(n)."""
+    times = []
+
+    def on_save(root_id, payload):
+        if profiles.S3_FIRE_MARKER not in payload["perf_text"]:
+            times.append(clock.time())
+            return ['{"totalMs":5}'] if hits(len(times)) else []
+        return ['{"totalMs":400}']
+    return on_save, times
+
+
+def test_probing_starts_only_after_the_settle_pause():
+    clock = FakeClock()
+    on_save, times = _timed_probes(clock, lambda n: True)
+    [result] = _ops(FakeDv(clock, roots=2, on_save=on_save), clock, settle=600, probes=3, pause=120,
+                    retry=60).drive("S3", 100, 2)
+    assert result["passed"], result["error"]
+    assert len(times) == 3 and times[0] - START >= 120
+
+
+def test_a_missed_probe_waits_the_retry_pause_before_the_next_attempt():
+    clock = FakeClock()
+    on_save, times = _timed_probes(clock, lambda n: n != 2)          # hit MISS hit hit hit
+    [result] = _ops(FakeDv(clock, roots=2, on_save=on_save), clock, settle=600, probes=3, pause=120,
+                    retry=60).drive("S3", 100, 2)
+    assert result["passed"], result["error"]
+    assert len(times) == 5
+    assert times[2] - times[1] >= rs.PROBE_POLL_SECONDS + 60         # the miss's look, then the retry pause
+    assert times[1] - times[0] < 60 and times[3] - times[2] < 60    # hits follow each other straight away
+
+
+def test_the_settle_cap_includes_the_pauses():
+    # The user's rule: pause, retry, and give up once the whole wait reaches about ten minutes.
+    clock = FakeClock()
+    on_save, times = _timed_probes(clock, lambda n: False)
+    dv = FakeDv(clock, on_save=on_save)
+    [result] = _ops(dv, clock, settle=600, probes=5, pause=120, retry=60).drive("S3", 100, 3)
+    assert result["error"].startswith("enforcement did not settle: 0 of 5 consecutive probe saves captured")
+    assert 1 < len(times) <= (600 - 120) // 60 + 1
+    assert clock.time() - START < 660
+    assert not any(profiles.S3_FIRE_MARKER in p["perf_text"] for _, p in dv.saves)
+
+
+def test_the_defaults_are_a_two_minute_pause_one_minute_retries_and_a_ten_minute_cap():
+    assert rs.DEFAULT_SETTLE_PAUSE == 120 and rs.DEFAULT_RETRY_PAUSE == 60 and rs.DEFAULT_SETTLE_SECONDS == 600
 
 
 def test_s2_counts_one_row_per_save_and_changes_each_root_to_another_lookup():
