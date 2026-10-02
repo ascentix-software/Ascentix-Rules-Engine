@@ -101,9 +101,10 @@ export async function openHub(page: Page, appId: string): Promise<FrameLocator> 
 // tabIndex=0, and its accessible name is computed from its contents, which includes the
 // hover-revealed "Duplicate"/"Delete" action buttons. A frame-wide
 // getByRole("button", { name: "Delete" }) therefore strict-mode-fails (row + button), so
-// action buttons must be located THROUGH the row with exact: true.
+// action buttons must be located THROUGH the row with exact: true. Below 900px the hub
+// stacks each row into a "hub-card" (same role, onClick and action buttons), so match both.
 export function hubRow(frame: FrameLocator, name: string): Locator {
-  return frame.getByTestId("hub-row").filter({ has: frame.getByText(name, { exact: true }) });
+  return frame.getByTestId(/^hub-(row|card)$/).filter({ has: frame.getByText(name, { exact: true }) });
 }
 
 export async function openRuleFromHub(page: Page, appId: string, ruleName: string): Promise<FrameLocator> {
