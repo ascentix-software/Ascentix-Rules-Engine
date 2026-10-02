@@ -178,7 +178,7 @@ function Invoke-RestMethod {
             $key = "$path/$apiId/$($record.uniquename)"
             Assert (!$parameters.ContainsKey($key)) 'Duplicate parameter create on retry.'
             if ($path -eq 'customapirequestparameters') {
-                $expectOptional = $record.uniquename -in @('FailedRecordId', 'FailedMessage')
+                $expectOptional = $record.uniquename -in @('FailedRecordId', 'FailedMessage', 'IncludeDiagnostics')
                 Assert ($record.isoptional -eq $expectOptional) "Unexpected optionality for $($record.uniquename)."
             }
             $parameters[$key] = $record
@@ -215,8 +215,8 @@ foreach ($interrupt in @($false, $true)) {
         Assert ($apis.Count -eq 3 -and $parameters.Count -eq 0) 'Unexpected partial-deployment state.'
     }
     Register
-    Assert ($apis.Count -eq 10 -and $parameters.Count -eq 27) 'Expected eight new APIs and twenty-seven parameters/properties.'
-    Assert ($state.Creates -eq 39) 'Expected exactly thirty-nine successful creates.'
+    Assert ($apis.Count -eq 10 -and $parameters.Count -eq 33) 'Expected eight new APIs and thirty-three parameters/properties.'
+    Assert ($state.Creates -eq 45) 'Expected exactly forty-five successful creates.'
     foreach ($spec in @(
         @('asx_ReadPublishedRule', 'RuleId', 10), @('asx_ReadPublishedRule', 'Definition', 10),
         @('asx_RestoreRuleDraft', 'RuleId', 10),
@@ -233,10 +233,13 @@ foreach ($interrupt in @($false, $true)) {
     foreach ($spec in @(
         @('asx_ApplyRules', 'RuleId', 12, $false, $false), @('asx_ApplyRules', 'RecordId', 12, $false, $false),
         @('asx_ApplyRules', 'IsValid', 0, $true, $false), @('asx_ApplyRules', 'Results', 10, $true, $false), @('asx_ApplyRules', 'WriteCount', 7, $true, $false),
+        @('asx_ApplyRules', 'IncludeDiagnostics', 0, $false, $true), @('asx_ApplyRules', 'Diagnostics', 10, $true, $false),
         @('asx_ProcessRunPage', 'RunId', 12, $false, $false), @('asx_ProcessRunPage', 'FailedRecordId', 12, $false, $true), @('asx_ProcessRunPage', 'FailedMessage', 10, $false, $true),
         @('asx_ProcessRunPage', 'Done', 0, $true, $false), @('asx_ProcessRunPage', 'Status', 7, $true, $false), @('asx_ProcessRunPage', 'Evaluated', 7, $true, $false),
         @('asx_ProcessRunPage', 'Changed', 7, $true, $false), @('asx_ProcessRunPage', 'Blocked', 7, $true, $false), @('asx_ProcessRunPage', 'Failed', 7, $true, $false), @('asx_ProcessRunPage', 'Skipped', 7, $true, $false),
-        @('asx_StartDueSchedules', 'RunIds', 10, $true, $false), @('asx_StartDueSchedules', 'ScheduledCount', 7, $true, $false)
+        @('asx_ProcessRunPage', 'IncludeDiagnostics', 0, $false, $true), @('asx_ProcessRunPage', 'Diagnostics', 10, $true, $false),
+        @('asx_StartDueSchedules', 'RunIds', 10, $true, $false), @('asx_StartDueSchedules', 'ScheduledCount', 7, $true, $false),
+        @('asx_StartDueSchedules', 'IncludeDiagnostics', 0, $false, $true), @('asx_StartDueSchedules', 'Diagnostics', 10, $true, $false)
     )) {
         $binding = "/customapis($($apis[$spec[0]].customapiid))"
         $match = @($parameters.Values | Where-Object { $_.uniquename -eq $spec[1] -and $_['CustomAPIId@odata.bind'] -eq $binding })
@@ -258,7 +261,7 @@ foreach ($interrupt in @($false, $true)) {
     Assert ($parameters.ContainsKey($otherVersionKey)) 'Registration removed another API parameter.'
     $parameters.Remove($otherVersionKey)
     Register
-    Assert ($parameters.Count -eq 27 -and $state.Creates -eq 39) 'Completed deployment retry changed the API contract.'
+    Assert ($parameters.Count -eq 33 -and $state.Creates -eq 45) 'Completed deployment retry changed the API contract.'
     Assert ($state.GuardCreates -eq 1 -and $state.DeleteStages.Count -eq 3 -and $state.DeleteStages.ContainsKey(10) -and $state.DeleteStages.ContainsKey(20) -and $state.DeleteStages.ContainsKey(40)) 'Expected capture in PreValidation and transactional cleanup in PreOperation/PostOperation.'
     Assert (!$state.RevisionGuard) 'Revision-table plugin vetoes must be removed.'
     Assert ($apis['asx_OpenRuleDraft'].executeprivilegename -eq 'prvWriteasx_rule') 'Opening a draft requires the platform Write privilege.'
@@ -274,6 +277,7 @@ foreach ($interrupt in @($false, $true)) {
     $tables = @{}
     $relationships = @{}
     $optionSets = @{}
+    $environmentVariables = @{}
     $schemaState = @{ Writes = 0; FailViewOnce = $false; TableUpdates = 0 }
     function Invoke-RestMethod {
         param($Method, $Uri, $Headers, $ContentType, $Body)
@@ -303,6 +307,9 @@ foreach ($interrupt in @($false, $true)) {
                 }
                 '^savedqueries\(([\w-]+)\)' {
                     return $viewContexts[$Matches[1]] + @{ fetchxml = $views[$Matches[1]] }
+                }
+                "^environmentvariabledefinitions\?.*schemaname eq '([^']+)'" {
+                    return @{ value = @(if ($environmentVariables.ContainsKey($Matches[1])) { $environmentVariables[$Matches[1]] }) }
                 }
             }
         }
@@ -334,6 +341,14 @@ foreach ($interrupt in @($false, $true)) {
                     return
                 }
                 '^PublishXml$' { return }
+                '^environmentvariabledefinitions$' {
+                    Assert (!$environmentVariables.ContainsKey($record.schemaname)) 'Duplicate environment variable definition.'
+                    Assert ($Headers['MSCRM.SolutionUniqueName'] -eq 'AscentixRulesEngine') 'An environment variable definition must be created in the solution.'
+                    $record.environmentvariabledefinitionid = [guid]::NewGuid().ToString()
+                    $environmentVariables[$record.schemaname] = $record
+                    $schemaState.Writes++
+                    return
+                }
                 '^UpdateOptionValue$' {
                     Assert ($optionSets.ContainsKey($record.OptionSetName) -and $optionSets[$record.OptionSetName].Value -eq $record.Value -and $record.MergeLabels -eq $true) 'Unexpected option label update.'
                     $optionSets[$record.OptionSetName].Label = ($record.Label.LocalizedLabels | Where-Object { $_.LanguageCode -eq 1033 }).Label
@@ -398,7 +413,7 @@ foreach ($interrupt in @($false, $true)) {
         throw "Unexpected schema request: $Method $path"
     }
     foreach ($interrupt in @($false, $true)) {
-        $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear(); $relationships.Clear()
+        $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear(); $relationships.Clear(); $environmentVariables.Clear()
         $optionSets.Clear(); $optionSets['asx_triggers'] = @{ Value = 3; Label = 'Manual' }
         $optionSets['asx_actiontype'] = @{ Value = 7; Label = 'Delete Record' }
         $schemaState.Writes = 0; $schemaState.FailViewOnce = $interrupt; $schemaState.TableUpdates = 0
@@ -424,7 +439,7 @@ foreach ($interrupt in @($false, $true)) {
             Assert $interrupted 'Schema retry scenario did not interrupt.'
         }
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($tables.Count -eq 5 -and $fields.Count -eq 47) 'Expected additive authoring tables and fields.'
+        Assert ($tables.Count -eq 6 -and $fields.Count -eq 52) 'Expected additive authoring tables and fields.'
         Assert ($null -ne $fields['asx_nodefiltergroup/asx_ruleaction']) 'Expected the Rows filter action lookup.'
         $rowFilterRelation = @($relationships.Values | Where-Object { $_.ReferencingEntity -eq 'asx_nodefiltergroup' -and $_.ReferencingAttribute -eq 'asx_ruleaction' })
         Assert ($rowFilterRelation.Count -eq 1 -and $rowFilterRelation[0].SchemaName -eq 'asx_ruleaction_nodefiltergroup' -and $rowFilterRelation[0].ReferencedEntity -eq 'asx_ruleaction') 'Rows filter relationship must be asx_ruleaction_nodefiltergroup.'
@@ -458,7 +473,21 @@ foreach ($interrupt in @($false, $true)) {
         Assert ((($patternOptions | Where-Object { $_.Value -eq 3 }).Label.LocalizedLabels[0].Label) -eq 'Daily') 'Incorrect label for pattern 3.'
         Assert ((($patternOptions | Where-Object { $_.Value -eq 4 }).Label.LocalizedLabels[0].Label) -eq 'Weekly') 'Incorrect label for pattern 4.'
         Assert ((($patternOptions | Where-Object { $_.Value -eq 5 }).Label.LocalizedLabels[0].Label) -eq 'Monthly') 'Incorrect label for pattern 5.'
-        Assert ($schemaState.Writes -eq (54 + $views.Count)) 'Unexpected metadata write count.'
+        Assert ($tables['asx_rulediagnostic'].OwnershipType -eq 'OrganizationOwned') 'Rule Diagnostic must be an organization-owned table.'
+        Assert ($tables['asx_rulediagnostic'].EntitySetName -ceq 'asx_rulediagnostics') 'Rule Diagnostic must keep the default entity set name.'
+        # (field, attribute type, max length)
+        foreach ($spec in @(@('asx_tablelogicalname', 'String', 100), @('asx_recordid', 'String', 36), @('asx_messagename', 'String', 100),
+            @('asx_correlationid', 'String', 36), @('asx_diagnostics', 'Memo', 1048576))) {
+            $field = $fields["asx_rulediagnostic/$($spec[0])"]
+            Assert ($null -ne $field -and $field['@odata.type'] -eq "Microsoft.Dynamics.CRM.$($spec[1])AttributeMetadata" -and $field.MaxLength -eq $spec[2]) "Incorrect Rule Diagnostic column $($spec[0])."
+        }
+        Assert ($environmentVariables.Count -eq 1) 'Expected exactly one environment variable definition.'
+        $capture = $environmentVariables['asx_CaptureDiagnostics']
+        Assert ($null -ne $capture -and $capture.type -eq 100000002 -and $capture.defaultvalue -eq 'no') 'asx_CaptureDiagnostics must be a Boolean (100000002) defaulting to no.'
+        Assert (![string]::IsNullOrWhiteSpace($capture.displayname)) 'asx_CaptureDiagnostics needs a display name.'
+        # 54 before the diagnostics table, + 1 table (its primary name rides in the table body)
+        # + 5 columns + 1 environment variable definition (no value row).
+        Assert ($schemaState.Writes -eq (61 + $views.Count)) 'Unexpected metadata write count.'
         $writes = $schemaState.Writes
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
         Assert ($schemaState.Writes -eq $writes) 'Schema retry changed already configured metadata.'

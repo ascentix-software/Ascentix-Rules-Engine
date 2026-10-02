@@ -127,6 +127,27 @@ namespace Ascentix.RulesEngine.Schema
             public const string CallsToday = "callstoday";
         }
 
+        /// <summary>Opt-in diagnostics for form saves: one row per saved record while the
+        /// CaptureDiagnostics environment variable is on. Timings, counts and ids only.</summary>
+        public static class RuleDiagnostic
+        {
+            public const string Entity = "rulediagnostic";
+            public const string Name = "name";                          // "<table> <message>"
+            public const string TableLogicalName = "tablelogicalname";
+            public const string RecordId = "recordid";                  // the saved record's id, "D" format
+            public const string MessageName = "messagename";
+            public const string CorrelationId = "correlationid";        // the save's correlation id, "D" format
+            public const string Diagnostics = "diagnostics";            // full RunDiagnostics JSON (uncapped)
+        }
+
+        /// <summary>Environment variable schema-name fragments, qualified like tables and columns
+        /// (asx_CaptureDiagnostics). An environment variable's schema name keeps its case.</summary>
+        public static class EnvironmentVariables
+        {
+            /// <summary>Boolean, default false: form saves write asx_rulediagnostic rows while it is true.</summary>
+            public const string CaptureDiagnostics = "CaptureDiagnostics";
+        }
+
         public static class TableConfig
         {
             public const string IsPrivate = "isprivate";
@@ -275,11 +296,15 @@ namespace Ascentix.RulesEngine.Schema
             // Input parameters: must equal InputParameters keys the handler reads.
             public const string ParamRuleId = "RuleId";
             public const string ParamRecordId = "RecordId";
+            /// <summary>Optional Boolean input: when true, the response carries Diagnostics.</summary>
+            public const string ParamIncludeDiagnostics = "IncludeDiagnostics";
 
             // Output parameters: must equal OutputParameters keys the handler writes.
             public const string PropIsValid = "IsValid";
             public const string PropResults = "Results";
             public const string PropWriteCount = "WriteCount";
+            /// <summary>String output, set only when IncludeDiagnostics is true: RunDiagnostics JSON.</summary>
+            public const string PropDiagnostics = "Diagnostics";
         }
 
         /// <summary>
@@ -294,6 +319,8 @@ namespace Ascentix.RulesEngine.Schema
             public const string ParamRunId = "RunId";
             public const string ParamFailedRecordId = "FailedRecordId";
             public const string ParamFailedMessage = "FailedMessage";
+            /// <summary>Optional Boolean input: when true, the response carries Diagnostics.</summary>
+            public const string ParamIncludeDiagnostics = "IncludeDiagnostics";
 
             // Output parameters: must equal OutputParameters keys the handler writes.
             public const string PropDone = "Done";
@@ -303,6 +330,8 @@ namespace Ascentix.RulesEngine.Schema
             public const string PropBlocked = "Blocked";
             public const string PropFailed = "Failed";
             public const string PropSkipped = "Skipped";
+            /// <summary>String output, set only when IncludeDiagnostics is true: RunDiagnostics JSON.</summary>
+            public const string PropDiagnostics = "Diagnostics";
         }
 
         /// <summary>
@@ -314,9 +343,15 @@ namespace Ascentix.RulesEngine.Schema
             /// <summary>Custom API message / unique name (registered in Dataverse).</summary>
             public const string MessageName = "StartDueSchedules";   // full: asx_StartDueSchedules
 
+            // Input parameters: must equal InputParameters keys the handler reads.
+            /// <summary>Optional Boolean input: when true, the response carries Diagnostics.</summary>
+            public const string ParamIncludeDiagnostics = "IncludeDiagnostics";
+
             // Output parameters: must equal OutputParameters keys the handler writes.
             public const string PropRunIds = "RunIds";
             public const string PropScheduledCount = "ScheduledCount";
+            /// <summary>String output, set only when IncludeDiagnostics is true: RunDiagnostics JSON.</summary>
+            public const string PropDiagnostics = "Diagnostics";
         }
 
         /// <summary>Relationship (schema) name fragments.</summary>

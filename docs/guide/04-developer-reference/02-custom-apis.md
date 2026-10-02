@@ -159,7 +159,7 @@ for support conversations and your own sizing against the *Beta Limitations* bud
   "totalMs": 412,
   "rulesLoaded": 12, "rulesEvaluated": 12, "rulesFired": 1,
   "retrieveCount": 3, "retrieveMultipleCount": 4, "rowsFetched": 260,
-  "stages": [ { "name": "loadRules", "ms": 40 }, { "name": "queryExecute", "ms": 310 }, { "name": "evaluate", "ms": 62 } ],
+  "stages": [ { "name": "ruleLoad", "ms": 40 }, { "name": "queryExecute", "ms": 310 }, { "name": "evaluate", "ms": 62 } ],
   "nodes":  [ { "nodeId": "…", "table": "sample_orderline", "retrieveCount": 0, "retrieveMultipleCount": 2, "rows": 240 } ]
 }
 ```
@@ -167,6 +167,20 @@ for support conversations and your own sizing against the *Beta Limitations* bud
 `stages` are the engine's internal phases; the names may change between releases, so
 treat them as labels, not an API. `nodes` is one entry per traversed configuration
 node. The numbers are server-side evaluation cost only, not end-user save latency.
+
+The enforcing paths report more. `asx_ApplyRules`, `asx_ProcessRunPage` and `asx_StartDueSchedules` return the same object when called with `IncludeDiagnostics: true`, and every form save the engine finishes evaluating writes it to the plug-in trace (*Troubleshooting*); a save that fails during evaluation, for example at the 25,000-row limit, writes none. There `totalMs` covers the whole call or save, and these fields appear when they aren't zero:
+
+| Field | Meaning |
+|---|---|
+| `writesSent` | Rows written (creates, updates, deletes) |
+| `writesUnchanged` | Rows skipped because they already held the mapped values |
+| `writesMerged` | Writes of the same row merged into one |
+| `bulkRequests` / `singleRequests` | Bulk (`CreateMultiple`/`UpdateMultiple`) and single requests sent |
+| `inPlaceWrites` | Updates of the record being saved, applied to the save itself |
+| `pageRecords` / `pageChunks` / `pageBlocked` / `pageFailed` | What one `asx_ProcessRunPage` call handled |
+| `schedulesStarted` / `schedulesContinued` / `schedulesSkipped` | What one `asx_StartDueSchedules` call did |
+
+Their stages add `changeSetBuild`, `applyInPlace`, `dispatch:<operation>:<table>`, `pageSelect`, `pageEvaluate`, `pageWrite`, `bookmark`, `dueQuery`, `scheduleStart` and `heartbeat`; as above, treat stage names as labels.
 
 ## `asx_ApplyRules`: enforcing on-demand evaluation
 
@@ -183,6 +197,7 @@ a command button calls directly for a single record (see the recipe below).
 |---|---|---|---|
 | `RuleId` | Guid | No | The On demand rule to evaluate; must be Published with the On demand trigger |
 | `RecordId` | Guid | No | An existing record of the rule's table; for a User-context rule, one the caller can read |
+| `IncludeDiagnostics` | Boolean | Yes | When `true`, the response also carries `Diagnostics`. Default `false` |
 
 **Response**
 
@@ -191,6 +206,7 @@ a command button calls directly for a single record (see the recipe below).
 | `IsValid` | Boolean | `true` when no `Block` action fired |
 | `Results` | String | JSON array of every fired action, in the `asx_RunRules` `Results` shape above |
 | `WriteCount` | Integer | Number of rows written (rows skipped as unchanged don't count) |
+| `Diagnostics` | String | Only when `IncludeDiagnostics` was `true`: timings and counts for this call (see the `asx_RunRules` Diagnostics above) |
 
 Calling it requires the **Rule Run Create** privilege (`prvCreateasx_RuleRun`),
 the same gate as starting a Rule Run; *Running Rules On Demand* lists the rest of
@@ -214,6 +230,7 @@ or an integration can call it the same way (see the recipe below).
 | `RunId` | Guid | No | The Rule Run to process |
 | `FailedRecordId` | Guid | Yes | The record named by the previous call's record-failed error (see below); the call only counts it Failed once |
 | `FailedMessage` | String | Yes | The message from that error, stored on the run; default `"The write failed."` |
+| `IncludeDiagnostics` | Boolean | Yes | When `true`, the response also carries `Diagnostics`. Default `false` |
 
 **Response**
 
@@ -222,6 +239,7 @@ or an integration can call it the same way (see the recipe below).
 | `Done` | Boolean | `true` when the run has no further pages to process |
 | `Status` | Integer | Current `asx_status` of the run: Queued (1), Running (2), Completed (3), Completed with failures (4), Failed (5), Cancelled (6) |
 | `Evaluated` / `Changed` / `Blocked` / `Failed` / `Skipped` | Integer | Running totals as of this page (see *Running Rules On Demand*) |
+| `Diagnostics` | String | Only when `IncludeDiagnostics` was `true`: timings and counts for this call (see the `asx_RunRules` Diagnostics above) |
 
 If the run isn't Queued or Running (it already reached a terminal status, or was
 Cancelled), the call returns `Done = true` with that status and does nothing.
@@ -317,7 +335,9 @@ Scheduling Rules*). It also records a heartbeat on **Scheduler Status**
 
 **Request**
 
-None.
+| Parameter | Type | Optional | Notes |
+|---|---|---|---|
+| `IncludeDiagnostics` | Boolean | Yes | When `true`, the response also carries `Diagnostics`. Default `false` |
 
 **Response**
 
@@ -325,6 +345,7 @@ None.
 |---|---|---|
 | `RunIds` | String | JSON array of Rule Run ids (not a comma-separated list): the runs this call started, then the runs it continued, then any other active run of a scheduled rule left over from a previous wake-up; each id once |
 | `ScheduledCount` | Integer | Number of due schedules this call found (at most 50) |
+| `Diagnostics` | String | Only when `IncludeDiagnostics` was `true`: timings and counts for this call (see the `asx_RunRules` Diagnostics above) |
 
 ```http
 POST /api/data/v9.2/asx_StartDueSchedules

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Plugin;
 using Microsoft.Xrm.Sdk;
@@ -267,6 +268,70 @@ namespace Ascentix.RulesEngine.Tests
             var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
                 new WriteActionExecutor(_ => new NoBulk(), null).Execute(Outcome(Guid.NewGuid(), create), new List<Entity>(), svc, svc, false, new NullTrace()));
             Assert.Equal("Create task (action \"Make follow-up\"): boom", ex.Message);
+        }
+
+        [Fact]
+        public void Diagnostics_record_the_change_set_the_in_place_write_and_the_rows_sent()
+        {
+            var svc = new RecordingService();
+            var recId = Guid.NewGuid();
+            var rootUpdate = new WriteIntent { Operation = WriteOperation.Update, TargetTable = "account", TargetId = recId,
+                RootTargeted = true, Values = new Dictionary<string, object> { ["description"] = "x" } };
+            var related = new WriteIntent { Operation = WriteOperation.Update, TargetTable = "contact", TargetId = Guid.NewGuid(),
+                Values = new Dictionary<string, object> { ["jobtitle"] = "y" } };
+            var diag = new RunDiagnostics();
+
+            new WriteActionExecutor().Execute(Outcome(recId, rootUpdate, related), new List<Entity> { new Entity("account", recId) },
+                svc, svc, engineInitiated: false, new NullTrace(), diag);
+
+            Assert.Equal(1, diag.InPlaceWrites);
+            Assert.Equal(1, diag.WritesSent);
+            Assert.Equal(1, diag.SingleRequests);
+            Assert.Equal(0, diag.BulkRequests);
+            foreach (var stage in new[] { "changeSetBuild", "applyInPlace", "dispatch:Update:contact" })
+                Assert.Contains(diag.Stages, s => s.Name == stage);
+        }
+
+        [Fact]
+        public void An_engine_initiated_save_counts_its_in_place_write_but_sends_nothing()
+        {
+            var svc = new RecordingService();
+            var recId = Guid.NewGuid();
+            var rootUpdate = new WriteIntent { Operation = WriteOperation.Update, TargetTable = "account", TargetId = recId,
+                RootTargeted = true, Values = new Dictionary<string, object> { ["description"] = "x" } };
+            var related = new WriteIntent { Operation = WriteOperation.Update, TargetTable = "contact", TargetId = Guid.NewGuid(),
+                Values = new Dictionary<string, object> { ["jobtitle"] = "y" } };
+            var diag = new RunDiagnostics();
+
+            new WriteActionExecutor().Execute(Outcome(recId, rootUpdate, related), new List<Entity> { new Entity("account", recId) },
+                svc, svc, engineInitiated: true, new NullTrace(), diag);
+
+            Assert.Equal(1, diag.InPlaceWrites);
+            Assert.Equal(0, diag.WritesSent);
+            Assert.Equal(0, diag.SingleRequests);
+            Assert.DoesNotContain(diag.Stages, s => s.Name.StartsWith("dispatch:"));
+        }
+
+        [Fact]
+        public void Diagnostics_count_unchanged_and_merged_writes()
+        {
+            var svc = new RecordingService();
+            var merged = Guid.NewGuid();
+            var first = new WriteIntent { Operation = WriteOperation.Update, TargetTable = "contact", TargetId = merged, SourceActionOrder = 1,
+                Values = new Dictionary<string, object> { ["jobtitle"] = "y" } };
+            var second = new WriteIntent { Operation = WriteOperation.Update, TargetTable = "contact", TargetId = merged, SourceActionOrder = 2,
+                Values = new Dictionary<string, object> { ["description"] = "z" } };
+            var same = new WriteIntent { Operation = WriteOperation.Update, TargetTable = "contact", TargetId = Guid.NewGuid(), SourceActionOrder = 3,
+                Values = new Dictionary<string, object> { ["jobtitle"] = "y" },
+                LoadedValues = new Dictionary<string, object> { ["jobtitle"] = "y" } };
+            var diag = new RunDiagnostics();
+
+            new WriteActionExecutor().ExecuteRecord(Outcome(Guid.NewGuid(), first, second, same).Records[0], null,
+                svc, svc, engineInitiated: false, new NullTrace(), diag);
+
+            Assert.Equal(1, diag.WritesMerged);
+            Assert.Equal(1, diag.WritesUnchanged);
+            Assert.Equal(1, diag.WritesSent);
         }
     }
 }

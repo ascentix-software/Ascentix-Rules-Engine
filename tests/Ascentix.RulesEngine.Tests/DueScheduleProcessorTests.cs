@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Engine;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Core.Scheduling;
@@ -110,6 +111,30 @@ namespace Ascentix.RulesEngine.Tests
 
         private static DateTime? NextRunOn(Entity schedule) =>
             schedule.GetAttributeValue<DateTime?>(Q(SchemaNames.RuleSchedule.NextRunOn));
+
+        [Fact]
+        public void Diagnostics_time_the_call_and_count_started_continued_and_skipped_schedules()
+        {
+            var started = Rule("Start");
+            var continued = Rule("Continue");
+            var given = Rule("Given", OnDemandScope.GivenRecord); // not runnable on a schedule
+            _ctx.Initialize(new List<Entity>
+            {
+                started, continued, given,
+                Schedule(started.Id, Now.AddMinutes(-3)), Schedule(continued.Id, Now.AddMinutes(-2)), Schedule(given.Id, Now.AddMinutes(-1)),
+                ActiveRun(continued.Id),
+            });
+            var diag = new RunDiagnostics();
+
+            new DueScheduleProcessor(Service, Caller, new XrmFakedTracingService(), () => Now,
+                createRun: CreateThroughPlugin, diagnostics: diag).Process();
+
+            Assert.Equal(1, diag.SchedulesStarted);
+            Assert.Equal(1, diag.SchedulesContinued);
+            Assert.Equal(1, diag.SchedulesSkipped);
+            foreach (var stage in new[] { "heartbeat", "dueQuery", "scheduleStart" })
+                Assert.Contains(diag.Stages, s => s.Name == stage);
+        }
 
         [Fact]
         public void First_call_creates_the_heartbeat_row()
@@ -619,6 +644,30 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(new[] { runId }, RunState.ParseRecordIds(json).ToArray());
             Assert.Equal(1, (int)pctx.OutputParameters[SchemaNames.StartDueSchedulesApi.PropScheduledCount]);
             Assert.Equal(Caller, Assert.Single(StatusRows()).GetAttributeValue<EntityReference>(Q(SchemaNames.SchedulerStatus.LastSeenBy)).Id);
+            Assert.False(pctx.OutputParameters.ContainsKey(SchemaNames.StartDueSchedulesApi.PropDiagnostics));
+        }
+
+        [Fact]
+        public void With_IncludeDiagnostics_the_scheduler_api_returns_its_diagnostics()
+        {
+            var rule = Rule("All");
+            _ctx.Initialize(new List<Entity> { rule, Schedule(rule.Id, DateTime.UtcNow.AddMinutes(-1)) });
+            var pctx = new XrmFakedPluginExecutionContext
+            {
+                MessageName = Q(SchemaNames.StartDueSchedulesApi.MessageName),
+                Stage = 30,
+                InitiatingUserId = Caller,
+                InputParameters = new ParameterCollection { { SchemaNames.StartDueSchedulesApi.ParamIncludeDiagnostics, true } },
+                OutputParameters = new ParameterCollection(),
+            };
+
+            _ctx.ExecutePluginWith<StartDueSchedulesApi>(pctx);
+
+            var json = (string)pctx.OutputParameters[SchemaNames.StartDueSchedulesApi.PropDiagnostics];
+            Assert.Contains("\"schedulesStarted\":1", json);
+            Assert.Contains("\"heartbeat\"", json);
+            Assert.Contains("\"dueQuery\"", json);
+            Assert.Contains("\"scheduleStart\"", json);
         }
     }
 }

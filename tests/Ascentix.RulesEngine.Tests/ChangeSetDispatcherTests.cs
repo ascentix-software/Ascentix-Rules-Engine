@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Plugin;
@@ -225,6 +226,38 @@ namespace Ascentix.RulesEngine.Tests
             Assert.True(support.Supports("CreateMultiple", "task"));
             Assert.False(support.Supports("UpdateMultiple", "task"));
             Assert.Equal(2, service.Queries);
+        }
+
+        [Fact]
+        public void Diagnostics_count_rows_and_requests_and_time_each_batch_by_operation_and_table()
+        {
+            var diag = new RunDiagnostics();
+            var sender = new RecordingSender();
+            var d = new ChangeSetDispatcher(new FakeSupport("UpdateMultiple|contact"), sender, new NullTrace(), diagnostics: diag);
+            var intents = Enumerable.Range(0, 150).Select(_ => Upd("contact", Guid.NewGuid()))
+                .Concat(new[] { Del("task"), Del("task") }).ToList();
+
+            Assert.Equal(152, d.SendBatches(ChangeSet.Build(intents), User, SystemService));
+
+            Assert.Equal(152, diag.WritesSent);
+            Assert.Equal(2, diag.BulkRequests);   // 100 + 50
+            Assert.Equal(2, diag.SingleRequests); // deletes are always single
+            Assert.Contains(diag.Stages, s => s.Name == "dispatch:Update:contact");
+            Assert.Contains(diag.Stages, s => s.Name == "dispatch:Delete:task");
+        }
+
+        [Fact]
+        public void A_failed_request_is_not_counted_as_sent()
+        {
+            var diag = new RunDiagnostics();
+            var sender = new RecordingSender { FailWith = (request, index) => new InvalidOperationException("boom") };
+            var d = new ChangeSetDispatcher(new FakeSupport(), sender, new NullTrace(), diagnostics: diag);
+
+            Assert.Throws<InvalidPluginExecutionException>(() =>
+                d.SendBatches(ChangeSet.Build(new[] { Upd("contact", Guid.NewGuid()) }), User, SystemService));
+
+            Assert.Equal(0, diag.WritesSent);
+            Assert.Equal(0, diag.SingleRequests);
         }
     }
 }

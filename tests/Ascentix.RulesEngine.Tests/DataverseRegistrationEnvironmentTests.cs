@@ -72,6 +72,47 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void CreateStep_updates_the_new_step_so_single_saves_are_routed_to_it()
+        {
+            var (ctx, _, updateMsgId) = Seed();
+            var inner = ctx.GetOrganizationService();
+            inner.Create(new Entity("sdkmessagefilter")
+            {
+                ["sdkmessageid"] = new EntityReference("sdkmessage", updateMsgId),
+                ["primaryobjecttypecode"] = "account",
+            });
+            var service = new UpdateRecordingService(inner);
+
+            var env = new DataverseRegistrationEnvironment(service, PluginTypeName);
+            env.CreateStep(new StepRegistration { TableLogicalName = "account", MessageName = "Update", FilteringAttributes = "name" });
+            env.CreateStep(new StepRegistration { TableLogicalName = "account", MessageName = "Update" });
+
+            var stepIds = ctx.CreateQuery("sdkmessageprocessingstep").Select(s => s.Id).ToList();
+            Assert.Equal(2, stepIds.Count);
+            Assert.Equal(stepIds.OrderBy(id => id), service.Updated
+                .Where(e => e.LogicalName == "sdkmessageprocessingstep").Select(e => e.Id).OrderBy(id => id));
+            // The update rewrites the value the create set; it changes nothing.
+            Assert.Equal(new[] { "name", null }, service.Updated.Select(e => e.GetAttributeValue<string>("filteringattributes")));
+            Assert.Equal(new[] { "name", null }, ctx.CreateQuery("sdkmessageprocessingstep")
+                .AsEnumerable().Select(s => s.GetAttributeValue<string>("filteringattributes")).OrderBy(f => f == null));
+        }
+
+        private sealed class UpdateRecordingService : IOrganizationService
+        {
+            private readonly IOrganizationService _inner;
+            public readonly List<Entity> Updated = new List<Entity>();
+            public UpdateRecordingService(IOrganizationService inner) { _inner = inner; }
+            public void Update(Entity e) { Updated.Add(e); _inner.Update(e); }
+            public Guid Create(Entity e) => _inner.Create(e);
+            public EntityCollection RetrieveMultiple(Microsoft.Xrm.Sdk.Query.QueryBase q) => _inner.RetrieveMultiple(q);
+            public Entity Retrieve(string n, Guid id, Microsoft.Xrm.Sdk.Query.ColumnSet c) => _inner.Retrieve(n, id, c);
+            public OrganizationResponse Execute(OrganizationRequest r) => _inner.Execute(r);
+            public void Delete(string n, Guid id) => _inner.Delete(n, id);
+            public void Associate(string n, Guid id, Relationship r, EntityReferenceCollection c) => _inner.Associate(n, id, r, c);
+            public void Disassociate(string n, Guid id, Relationship r, EntityReferenceCollection c) => _inner.Disassociate(n, id, r, c);
+        }
+
+        [Fact]
         public void GetEngineSteps_returns_only_engine_owned_steps_for_the_table()
         {
             var (ctx, pluginTypeId, updateMsgId) = Seed();

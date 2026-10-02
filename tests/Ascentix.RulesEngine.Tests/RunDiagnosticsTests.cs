@@ -44,5 +44,34 @@ namespace Ascentix.RulesEngine.Tests
             using (d.Time("ruleLoad")) { }
             Assert.Contains(d.Stages, s => s.Name == "ruleLoad");
         }
+
+        [Fact]
+        public void Absorb_sums_counters_stages_and_nodes_but_not_totalMs()
+        {
+            var node = Guid.NewGuid();
+            var page = new RunDiagnostics { TotalMs = 900, PageChunks = 1 };
+            page.AddStage("pageSelect", 4);
+            var chunk = new RunDiagnostics { TotalMs = 50, RulesEvaluated = 2, WritesSent = 3 };
+            chunk.AddStage("queryExecute", 20);
+            chunk.RecordRetrieveMultiple(node, "perf_child1", 10);
+
+            page.Absorb(chunk);
+            page.Absorb(chunk);
+            page.Absorb(null);
+            page.Absorb(page);
+
+            Assert.Equal(900, page.TotalMs);
+            Assert.Equal(4, page.RulesEvaluated);
+            Assert.Equal(6, page.WritesSent);
+            Assert.Equal(1, page.PageChunks);
+            Assert.Equal(2, page.RetrieveMultipleCount);
+            Assert.Equal(20, page.RowsFetched);
+            Assert.Equal(40, page.Stages.Single(s => s.Name == "queryExecute").Ms);
+            Assert.Equal(4, page.Stages.Single(s => s.Name == "pageSelect").Ms);
+            var nd = page.Nodes.Single();
+            Assert.Equal(node, nd.NodeId);
+            Assert.Equal(2, nd.RetrieveMultipleCount);
+            Assert.Equal(20, nd.Rows);
+        }
     }
 }

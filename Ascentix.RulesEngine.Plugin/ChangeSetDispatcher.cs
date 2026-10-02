@@ -4,6 +4,7 @@ using System.Linq;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Query;
+using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
 
@@ -68,14 +69,18 @@ namespace Ascentix.RulesEngine.Plugin
         private readonly IWriteRequestSender _sender;
         private readonly ITracingService _trace;
         private readonly bool _bulkStateChanges;
+        private readonly RunDiagnostics _diagnostics;
 
+        /// <param name="diagnostics">Receives a dispatch:&lt;operation&gt;:&lt;table&gt; stage per batch and
+        /// the row/request counters; null means none.</param>
         public ChangeSetDispatcher(IBulkWriteSupport support, IWriteRequestSender sender, ITracingService trace,
-            bool bulkStateChanges = UpdateMultipleAcceptsStateChange)
+            bool bulkStateChanges = UpdateMultipleAcceptsStateChange, RunDiagnostics diagnostics = null)
         {
             _support = support;
             _sender = sender;
             _trace = trace;
             _bulkStateChanges = bulkStateChanges;
+            _diagnostics = diagnostics;
         }
 
         /// <summary>Copies the root-in-place values onto the in-flight Target. True when the change set
@@ -95,23 +100,27 @@ namespace Ascentix.RulesEngine.Plugin
             foreach (var batch in changeSet.Batches)
             {
                 var service = batch.Context == RuleEvaluationContext.System ? systemService : userService;
-                switch (batch.Operation)
+                using (_diagnostics?.Time($"dispatch:{batch.Operation}:{batch.Table}"))
                 {
-                    case WriteOperation.Delete:
-                        foreach (var write in batch.Writes)
-                            SendSingle(service, write, new DeleteRequest { Target = new EntityReference(write.Table, write.Id) });
-                        break;
-                    case WriteOperation.Create:
-                        SendCreatesOrUpdates(service, batch, batch.Writes, "CreateMultiple");
-                        break;
-                    default:
-                        var bulkable = batch.Writes.Where(w => _bulkStateChanges || !w.Values.ContainsKey("statecode")).ToList();
-                        SendCreatesOrUpdates(service, batch, bulkable, "UpdateMultiple");
-                        foreach (var write in batch.Writes.Except(bulkable))
-                            SendSingle(service, write, new UpdateRequest { Target = ToEntity(write) });
-                        break;
+                    switch (batch.Operation)
+                    {
+                        case WriteOperation.Delete:
+                            foreach (var write in batch.Writes)
+                                SendSingle(service, write, new DeleteRequest { Target = new EntityReference(write.Table, write.Id) });
+                            break;
+                        case WriteOperation.Create:
+                            SendCreatesOrUpdates(service, batch, batch.Writes, "CreateMultiple");
+                            break;
+                        default:
+                            var bulkable = batch.Writes.Where(w => _bulkStateChanges || !w.Values.ContainsKey("statecode")).ToList();
+                            SendCreatesOrUpdates(service, batch, bulkable, "UpdateMultiple");
+                            foreach (var write in batch.Writes.Except(bulkable))
+                                SendSingle(service, write, new UpdateRequest { Target = ToEntity(write) });
+                            break;
+                    }
                 }
                 sent += batch.Writes.Count;
+                if (_diagnostics != null) _diagnostics.WritesSent += batch.Writes.Count;
             }
             return sent;
         }
@@ -129,6 +138,7 @@ namespace Ascentix.RulesEngine.Plugin
                         : new UpdateMultipleRequest { Targets = targets };
                     try { Tagged(service, request); }
                     catch (Exception ex) { throw new InvalidPluginExecutionException($"{bulkMessage} {batch.Table}: {ex.Message}", ex); }
+                    if (_diagnostics != null) _diagnostics.BulkRequests++;
                     _trace?.Trace($"ChangeSetDispatcher: {bulkMessage} {batch.Table} ({targets.Entities.Count} rows).");
                 }
                 return;
@@ -144,6 +154,7 @@ namespace Ascentix.RulesEngine.Plugin
             {
                 throw new InvalidPluginExecutionException($"{write.Operation} {write.Table} (action \"{write.ActionLabel}\"): {ex.Message}", ex);
             }
+            if (_diagnostics != null) _diagnostics.SingleRequests++;
             _trace?.Trace($"ChangeSetDispatcher: {write.Operation} {write.Table} {write.Id}.");
         }
 

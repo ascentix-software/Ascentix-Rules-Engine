@@ -239,5 +239,44 @@ namespace Ascentix.RulesEngine.Tests
             Assert.True((bool)pctx.OutputParameters[SchemaNames.ApplyRulesApi.PropIsValid]);
             Assert.Equal(1, (int)pctx.OutputParameters[SchemaNames.ApplyRulesApi.PropWriteCount]);
         }
+
+        [Fact]
+        public void With_IncludeDiagnostics_the_api_returns_the_evaluation_and_write_diagnostics()
+        {
+            var ctx = new XrmFakedContext();
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("account", new StringAttributeMetadata { LogicalName = "description" }));
+            var (seed, ruleId) = Seed();
+            var recordId = Guid.NewGuid();
+            seed.Add(new Entity("account", recordId) { ["name"] = "Acme" });
+            ctx.Initialize(seed);
+
+            var input = Input(ruleId, recordId);
+            input[SchemaNames.ApplyRulesApi.ParamIncludeDiagnostics] = true;
+            var pctx = ApiContext(input);
+            ctx.ExecutePluginWith<ApplyRulesApi>(pctx);
+
+            var json = (string)pctx.OutputParameters[SchemaNames.ApplyRulesApi.PropDiagnostics];
+            Assert.Contains("\"totalMs\":", json);
+            Assert.Contains("\"ruleLoad\"", json);
+            Assert.Contains("\"changeSetBuild\"", json);
+            Assert.Contains("\"writesSent\":1", json);
+            Assert.Contains("\"singleRequests\":1", json);
+        }
+
+        [Fact]
+        public void ApplyRules_without_IncludeDiagnostics_sets_no_Diagnostics()
+        {
+            var ctx = new XrmFakedContext();
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("account", new StringAttributeMetadata { LogicalName = "description" }));
+            var (seed, ruleId) = Seed();
+            var recordId = Guid.NewGuid();
+            seed.Add(new Entity("account", recordId) { ["name"] = "Acme" });
+            ctx.Initialize(seed);
+
+            var pctx = ApiContext(Input(ruleId, recordId));
+            ctx.ExecutePluginWith<ApplyRulesApi>(pctx);
+
+            Assert.False(pctx.OutputParameters.ContainsKey(SchemaNames.ApplyRulesApi.PropDiagnostics));
+        }
     }
 }

@@ -358,6 +358,43 @@ example the scheduler add-on flow), for hub indicators; the engine does not read
 | `asx_lastseenby` | Lookup → `systemuser`, RemoveLink | Identity of the last caller |
 | `asx_callstoday` | Integer (min 0) | Calls made so far in the current day |
 
+### 2.16 Rule Diagnostic (`asx_rulediagnostic`)
+
+Organization-owned. Opt-in diagnostics for form saves: while the `asx_CaptureDiagnostics`
+environment variable (§2.17) is on, `RulesEnginePlugin` creates one row per saved record, through
+the system service, after the save's `totalMs` is taken (so the write is outside the measured
+time). It holds timings, counts and ids only, never record data. The engine never reads these rows.
+
+The row is part of the save's transaction, so a blocked or failed save rolls its row back. A failed
+switch read or row write is caught and written to the plug-in trace, but Dataverse may still fail
+the save itself: a failed request inside a synchronous plug-in dooms its transaction. The switch is
+meant for testing. If saves fail with a generic transaction error while it's on, turn it off.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (200, primary) | `"<table> <message>"`, for example `account Update` |
+| `asx_tablelogicalname` | Text (100) | The saved record's table |
+| `asx_recordid` | Text (36) | The saved record's id (`D` format); all zeros for a Create that supplied no id |
+| `asx_messagename` | Text (100) | `Create`, `CreateMultiple`, `Update`, `UpdateMultiple` or `Delete` |
+| `asx_correlationid` | Text (36) | The save's correlation id (`D` format) |
+| `asx_diagnostics` | Memo (1,048,576) | The save's full diagnostics JSON (§3, *Diagnostics fields beyond evaluation*), with no 4 KB cap and so never `nodesTruncated`. `totalMs` is the whole save. A multi-record save writes the same JSON on each record's row |
+
+### 2.17 Environment variable `asx_CaptureDiagnostics`
+
+| Schema name | Type | Default | Value |
+|---|---|---|---|
+| `asx_CaptureDiagnostics` | Boolean (`type` 100000002) | `no` | None shipped |
+
+Provisioned by `Configure-RuleAuthoring.ps1 -Phase Schema` as a definition only. Turning it on means
+creating (or setting) its `environmentvariablevalue` row to `yes`. An active value row (`statecode`
+0) overrides the default; a blank one falls back to it. The engine treats `yes`, `true` and `1`
+(trimmed, any case) as on, and anything else, a missing definition, or a failed read as off.
+
+Each plug-in worker reads the switch at most once every 60 seconds per organization, whether it is
+on or off, so a change takes up to a minute to apply and a save normally pays no extra query. The
+read is one query on `environmentvariabledefinition`, a system table that always exists, so with the
+switch off (the default) a save never touches `asx_rulediagnostic`.
+
 ## 3. `asx_RunRules` Custom API
 
 An **unbound (global) Dataverse Custom API** that evaluates the rules engine against a single
@@ -385,7 +422,24 @@ both retrieves the persisted record and overlays the JSON fields on top.
 | `FailedRuleCount` | Integer | Count of distinct rules with a fired `Block` action |
 | `Results` | String | JSON array of every fired action (see shape below) |
 | `ChangeSet` | String | JSON object `{ "creates": n, "updates": n, "deletes": n, "unchanged": n }`: what enforcement would write for the evaluated record after merging (a record with a fired Block counts zero) |
-| `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (`Ascentix.RulesEngine.Core/Diagnostics/RunDiagnosticsSerializer.cs`) containing `totalMs`, `rulesLoaded`, `rulesEvaluated`, `rulesFired`, `retrieveCount`, `retrieveMultipleCount`, `rowsFetched`, `stages[{name,ms}]`, `nodes[{nodeId,table,retrieveCount,retrieveMultipleCount,rows}]` |
+| `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (`Ascentix.RulesEngine.Core/Diagnostics/RunDiagnosticsSerializer.cs`) containing `totalMs`, `rulesLoaded`, `rulesEvaluated`, `rulesFired`, `retrieveCount`, `retrieveMultipleCount`, `rowsFetched`, `stages[{name,ms}]`, `nodes[{nodeId,table,retrieveCount,retrieveMultipleCount,rows}]`. The write, page and scheduler figures below appear only when non-zero, so asx_RunRules (which writes nothing) never carries them. |
+
+### Diagnostics fields beyond evaluation
+
+`RunDiagnosticsSerializer` also emits these, each only when non-zero (`asx_ApplyRules` §6, `asx_ProcessRunPage` §7, `asx_StartDueSchedules` §9, the form-save `asx-diag` trace line, and the opt-in `asx_rulediagnostic` row §2.16):
+
+| Field | Meaning |
+|---|---|
+| `writesSent` | Rows written with a service request (creates, updates, deletes) |
+| `writesUnchanged` | Rows dropped because every mapped value was already held |
+| `writesMerged` | Write intents merged into another write of the same row |
+| `bulkRequests` / `singleRequests` | `CreateMultiple`/`UpdateMultiple` requests / single `Create`/`Update`/`Delete` requests |
+| `inPlaceWrites` | Updates of the record being saved, applied to the save itself |
+| `pageRecords` / `pageChunks` / `pageBlocked` / `pageFailed` | One `asx_ProcessRunPage` call: records handled, chunks evaluated, records blocked, records failed |
+| `schedulesStarted` / `schedulesContinued` / `schedulesSkipped` | One `asx_StartDueSchedules` call |
+| `nodesTruncated` | `asx-diag` trace line only: `true` when `nodes` entries were left out to keep the line within 4 KB |
+
+Stages added: `changeSetBuild`, `applyInPlace`, `dispatch:<operation>:<table>` (summed per key), `pageSelect`, `pageEvaluate`, `pageWrite`, `bookmark`, `dueQuery`, `scheduleStart`, `heartbeat`. A run page sums its chunks' evaluation stages and counters into its own. On these APIs and the trace line, `totalMs` is the whole call or save.
 
 ### RecordJson encoding
 
@@ -794,6 +848,7 @@ role holding exactly these is the simplest way to grant them.
 |---|---|---|---|
 | `RuleId` | Guid | No | The On demand rule to evaluate; must be Published with the On demand trigger |
 | `RecordId` | Guid | No | A persisted record of the rule's table, readable in the rule's evaluation context |
+| `IncludeDiagnostics` | Boolean | Yes | When true, the response also carries `Diagnostics` (default `false`) |
 
 ### Response parameters
 
@@ -802,6 +857,7 @@ role holding exactly these is the simplest way to grant them.
 | `IsValid` | Boolean | True when no Block action fired |
 | `Results` | String | JSON array of every fired action, in the `asx_RunRules` Results shape (§3) |
 | `WriteCount` | Integer | Number of write actions applied |
+| `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (§3), including the write figures |
 
 ### Semantics
 
@@ -838,6 +894,7 @@ so every page starts fresh at plug-in depth 1.
 | `RunId` | Guid | No | The Rule Run to process |
 | `FailedRecordId` | Guid | Yes | The record named by the previous call's `record-failed` error (see **Failed writes**): the call only counts it Failed once and adds it to the skip list |
 | `FailedMessage` | String | Yes | The message from that error, stored in `asx_failures`; default `"The write failed."` |
+| `IncludeDiagnostics` | Boolean | Yes | When true, the response also carries `Diagnostics` (default `false`) |
 
 ### Response parameters
 
@@ -850,6 +907,7 @@ so every page starts fresh at plug-in depth 1.
 | `Blocked` | Integer | Running total of records that fired a Block action |
 | `Failed` | Integer | Running total of records that errored |
 | `Skipped` | Integer | Running total of records that did not pass the execution conditions |
+| `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (§3), including the page figures and the page's summed evaluation and write figures |
 
 ### Semantics
 
@@ -967,7 +1025,9 @@ solution.
 
 ### Request parameters
 
-None.
+| Parameter | Type | Optional | Notes |
+|---|---|---|---|
+| `IncludeDiagnostics` | Boolean | Yes | When true, the response also carries `Diagnostics` (default `false`) |
 
 ### Response parameters
 
@@ -975,6 +1035,7 @@ None.
 |---|---|---|
 | `RunIds` | String | JSON array of Rule Run ids (e.g. `["…","…"]`): the runs this call started, then the runs it continued, then any other Queued/Running run of a rule with an On schedule; each id once |
 | `ScheduledCount` | Integer | Number of due schedules this call found (at most 50), including any the call budget left for the next call |
+| `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (§3), including the scheduler figures |
 
 ### Semantics
 

@@ -89,6 +89,10 @@ namespace Ascentix.RulesEngine.Core.Execution
         public int Updates { get; private set; }
         public int Deletes { get; private set; }
         public int Unchanged { get; private set; }
+        /// <summary>Intents folded into another write: each update/delete that joined a row another
+        /// intent already wrote, plus every in-place update of the saved record after the first.
+        /// Creates never merge.</summary>
+        public int Merged { get; private set; }
         public int WriteCount => Creates + Updates + Deletes;
 
         /// <summary>True when the intent's merged write was dropped by the no-op skip.</summary>
@@ -118,6 +122,7 @@ namespace Ascentix.RulesEngine.Core.Execution
             var byKey = new Dictionary<string, ChangeSetWrite>(StringComparer.OrdinalIgnoreCase);
             var rootValues = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
             var seen = 0;
+            var merged = 0; var rootIntents = 0;
 
             foreach (var intent in ordered)
             {
@@ -138,6 +143,7 @@ namespace Ascentix.RulesEngine.Core.Execution
                 if (intent.Operation == WriteOperation.Update && IsRoot(intent, id, rootInPlace))
                 {
                     cs.HasRootInPlace = true;
+                    rootIntents++;
                     foreach (var kv in values) rootValues[kv.Key] = kv.Value;
                     continue;
                 }
@@ -147,6 +153,10 @@ namespace Ascentix.RulesEngine.Core.Execution
                 {
                     write = new ChangeSetWrite(intent.Operation, intent.TargetTable, id, intent.Context, seen);
                     byKey[key] = write;
+                }
+                else
+                {
+                    merged++;
                 }
                 write.Add(intent);
                 cs._writeOf[intent] = write;
@@ -189,6 +199,7 @@ namespace Ascentix.RulesEngine.Core.Execution
             cs.Updates = sendable.Count(w => w.Operation == WriteOperation.Update);
             cs.Deletes = sendable.Count(w => w.Operation == WriteOperation.Delete);
             cs.Unchanged = cs._unchanged.Count;
+            cs.Merged = merged + Math.Max(0, rootIntents - 1);
             return cs;
         }
 

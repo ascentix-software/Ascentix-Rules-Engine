@@ -94,6 +94,14 @@ function EnsureLookup([string]$From, [string]$To, [string]$Name, [string]$Displa
         CascadeConfiguration = @{ Assign = 'NoCascade'; Delete = $Delete; Merge = 'NoCascade'; Reparent = 'NoCascade'; Share = 'NoCascade'; Unshare = 'NoCascade' }
     } | Out-Null
 }
+# Creates an environment variable definition in the solution (the header names it) with its default
+# and no value row; an existing definition is left as it is, including any value set on it.
+function EnsureEnvironmentVariableDefinition([string]$SchemaName, [string]$Display, [int]$Type, [string]$Default, [string]$Description) {
+    $existing = Request GET "environmentvariabledefinitions?`$select=environmentvariabledefinitionid&`$filter=schemaname eq '$SchemaName'"
+    if ($existing.value.Count -gt 0) { return }
+    Request POST 'environmentvariabledefinitions' @{ schemaname = $SchemaName; displayname = $Display; description = $Description;
+        type = $Type; defaultvalue = $Default } | Out-Null
+}
 
 if ($Phase -eq 'Schema') {
     EnsureTable 'asx_RuleRevision' 'Rule Revision'
@@ -199,7 +207,17 @@ if ($Phase -eq 'Schema') {
     EnsureLookup 'asx_schedulerstatus' 'systemuser' 'asx_LastSeenBy' 'Last seen by' 'RemoveLink'
     EnsureLookup 'asx_nodefiltergroup' 'asx_ruleaction' 'asx_RuleAction' 'Rule action' 'Cascade' 'asx_ruleaction_nodefiltergroup'
     EnsureOptionValue 'asx_actiontype' 8 'Deactivate Record'
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_nodefiltergroup</entity></entities><optionsets><optionset>asx_triggers</optionset><optionset>asx_actiontype</optionset></optionsets></importexportxml>' } | Out-Null
+    # Opt-in diagnostics for form saves: one row per saved record while asx_CaptureDiagnostics is on.
+    EnsureTable 'asx_RuleDiagnostic' 'Rule Diagnostic'
+    foreach ($spec in @(@('asx_TableLogicalName', 'Table logical name', 100), @('asx_RecordId', 'Record id', 36),
+        @('asx_MessageName', 'Message name', 100), @('asx_CorrelationId', 'Correlation id', 36), @('asx_Diagnostics', 'Diagnostics', 1048576))) {
+        $type = if ([int]$spec[2] -gt 4000) { 'Memo' } else { 'String' }
+        $field = Field $spec[0] $type $spec[1]; $field.MaxLength = [int]$spec[2]
+        EnsureField 'asx_rulediagnostic' $field
+    }
+    # Environment variable type Boolean = 100000002; Dataverse stores a Boolean value as yes/no.
+    EnsureEnvironmentVariableDefinition 'asx_CaptureDiagnostics' 'Capture diagnostics' 100000002 'no' 'When yes, every form save the rules engine evaluates writes one Rule Diagnostic row per saved record with its timings and counts. Leave it at no outside a measurement.'
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity></entities><optionsets><optionset>asx_triggers</optionset><optionset>asx_actiontype</optionset></optionsets></importexportxml>' } | Out-Null
     # Only configure the product's shipped views; personal/customer views are not selected.
     foreach ($spec in @(@('asx_rule','asx_draftof'), @('asx_tableconfig','asx_isprivate'))) {
         $viewFolder = Join-Path $PSScriptRoot "../Solutions/$SolutionName/${SolutionName}_unmanaged/Entities/$($spec[0])/SavedQueries"
@@ -233,7 +251,7 @@ if ($Phase -eq 'Schema') {
             }
         }
     }
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_nodefiltergroup</entity></entities></importexportxml>' } | Out-Null
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity></entities></importexportxml>' } | Out-Null
     Write-Host '[revisions] additive schema ready'
     return
 }
@@ -355,6 +373,8 @@ EnsureParameter $id 'RecordId' 12 $false 'Identifier of the persisted record to 
 EnsureParameter $id 'IsValid' 0 $true 'True when no Block action fired.'
 EnsureParameter $id 'Results' 10 $true 'JSON array of every fired action, in the asx_RunRules Results shape.'
 EnsureParameter $id 'WriteCount' 7 $true 'Number of write actions applied.'
+EnsureParameter $id 'IncludeDiagnostics' 0 $false 'When true, the response also carries Diagnostics: timings and counts for this call.' $true
+EnsureParameter $id 'Diagnostics' 10 $true 'JSON timings and counts for this call; set only when IncludeDiagnostics is true.'
 $processRunPageType = PluginType 'ProcessRunPageApi'
 $id = EnsureApi 'asx_ProcessRunPage' 'prvCreateasx_RuleRun' 'Processes the next page of a Rule Run.' 'Process Run Page' $processRunPageType
 EnsureParameter $id 'RunId' 12 $false 'Identifier of the Rule Run to process.'
@@ -367,6 +387,8 @@ EnsureParameter $id 'Changed' 7 $true 'Running total of records that had at leas
 EnsureParameter $id 'Blocked' 7 $true 'Running total of records that fired a Block action.'
 EnsureParameter $id 'Failed' 7 $true 'Running total of records that failed with an error.'
 EnsureParameter $id 'Skipped' 7 $true 'Running total of records that did not pass the execution conditions.'
+EnsureParameter $id 'IncludeDiagnostics' 0 $false 'When true, the response also carries Diagnostics: timings and counts for this call.' $true
+EnsureParameter $id 'Diagnostics' 10 $true 'JSON timings and counts for this call; set only when IncludeDiagnostics is true.'
 EnsureStep 'asx_rulerun' 'Create' (PluginType 'RuleRunPlugin') 1 20
 # Outside asx_ProcessRunPage, a run may only be cancelled.
 EnsureStep 'asx_rulerun' 'Update' (PluginType 'RuleRunUpdatePlugin') 1 20
@@ -374,6 +396,8 @@ $startDueSchedulesType = PluginType 'StartDueSchedulesApi'
 $id = EnsureApi 'asx_StartDueSchedules' 'prvCreateasx_RuleRun' 'Starts or continues runs for due rule schedules and returns the run ids to drive.' 'Start Due Schedules' $startDueSchedulesType
 EnsureParameter $id 'RunIds' 10 $true 'JSON array of the ids of the Rule Runs to drive: started, continued or resumed by this call.'
 EnsureParameter $id 'ScheduledCount' 7 $true 'Number of due schedules processed by this call.'
+EnsureParameter $id 'IncludeDiagnostics' 0 $false 'When true, the response also carries Diagnostics: timings and counts for this call.' $true
+EnsureParameter $id 'Diagnostics' 10 $true 'JSON timings and counts for this call; set only when IncludeDiagnostics is true.'
 $scheduleType = PluginType 'RuleSchedulePlugin'
 EnsureStep 'asx_ruleschedule' 'Create' $scheduleType 1 20
 EnsureStep 'asx_ruleschedule' 'Update' $scheduleType 1 20
