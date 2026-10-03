@@ -179,6 +179,8 @@ The enforcing paths report more. `asx_ApplyRules`, `asx_ProcessRunPage` and `asx
 | `inPlaceWrites` | Updates of the record being saved, applied to the save itself |
 | `pageRecords` / `pageChunks` / `pageBlocked` / `pageFailed` | What one `asx_ProcessRunPage` call handled |
 | `schedulesStarted` / `schedulesContinued` / `schedulesSkipped` | What one `asx_StartDueSchedules` call did |
+| `fetchesShared` | Reads answered from rows an earlier rule in the same call or save already fetched |
+| `fetchesWidened` | Shared reads fetched again with more columns; expected 0, so report any other value |
 
 Their stages add `changeSetBuild`, `applyInPlace`, `dispatch:<operation>:<table>`, `pageSelect`, `pageEvaluate`, `pageWrite`, `bookmark`, `dueQuery`, `scheduleStart` and `heartbeat`; as above, treat stage names as labels.
 

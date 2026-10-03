@@ -73,5 +73,14 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(2, nd.RetrieveMultipleCount);
             Assert.Equal(20, nd.Rows);
         }
+
+        [Fact]
+        public void Absorb_sums_the_fetch_sharing_counters()
+        {
+            var page = new RunDiagnostics { FetchesShared = 2, FetchesWidened = 1 };
+            page.Absorb(new RunDiagnostics { FetchesShared = 3, FetchesWidened = 0 });
+            Assert.Equal(5, page.FetchesShared);
+            Assert.Equal(1, page.FetchesWidened);
+        }
     }
 }
