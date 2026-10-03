@@ -81,19 +81,18 @@ namespace Ascentix.RulesEngine.Core.Execution
                 return inputs.Select(i => i.Overlay).ToList();
             }
 
-            // One copy per id: inputs repeating an id share it, as they shared the retrieved
-            // entity before the read was shared between buckets.
+            // One copy per retrieved id: inputs repeating an id share it, as they shared the
+            // retrieved entity before the read was shared between buckets. An input with no
+            // retrieved row (no id, or the id was not found) gets its own empty root, as before.
             var copies = new Dictionary<Guid, Entity>();
             var result = new List<Entity>();
             foreach (var input in inputs)
             {
-                if (!copies.TryGetValue(input.Id, out var root))
-                {
-                    root = retrieved != null && retrieved.TryGetValue(input.Id, out var persisted)
-                        ? CopyWithFormatting(persisted)
-                        : new Entity(logicalName, input.Id);
-                    copies[input.Id] = root;
-                }
+                Entity root;
+                if (input.Id == Guid.Empty || retrieved == null || !retrieved.TryGetValue(input.Id, out var persisted))
+                    root = new Entity(logicalName, input.Id);
+                else if (!copies.TryGetValue(input.Id, out root))
+                    copies[input.Id] = root = CopyWithFormatting(persisted);
 
                 if (saved != null) saved.Add(Copy(root));
 

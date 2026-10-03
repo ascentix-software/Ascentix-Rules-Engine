@@ -186,6 +186,28 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void Assemble_gives_each_input_without_a_retrieved_row_its_own_root()
+        {
+            var missing = Guid.NewGuid();
+            var inputs = new List<RootInput>
+            {
+                new RootInput { Id = Guid.Empty, Overlay = new Entity("account") { ["name"] = "First" } },
+                new RootInput { Id = Guid.Empty, Overlay = new Entity("account") { ["description"] = "Second" } },
+                new RootInput { Id = missing, Overlay = new Entity("account", missing) { ["name"] = "Third" } },
+                new RootInput { Id = missing, Overlay = new Entity("account", missing) { ["description"] = "Fourth" } },
+            };
+
+            var roots = RootEntityBuilder.Assemble("account", inputs, new Dictionary<Guid, Entity>(), RootBuildMode.RetrieveAndOverlay);
+
+            Assert.Equal(4, roots.Distinct().Count());
+            Assert.Equal(new[] { "name" }, roots[0].Attributes.Keys);
+            Assert.Equal(new[] { "description" }, roots[1].Attributes.Keys);
+            Assert.Equal(new[] { "name" }, roots[2].Attributes.Keys);
+            Assert.Equal(new[] { "description" }, roots[3].Attributes.Keys);
+            Assert.Equal(missing, roots[3].Id);
+        }
+
+        [Fact]
         public void Assemble_in_UseTarget_mode_returns_the_targets_themselves()
         {
             var target = new Entity("account", Guid.NewGuid()) { ["name"] = "New" };
