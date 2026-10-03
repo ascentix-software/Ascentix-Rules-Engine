@@ -189,6 +189,38 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void Update_overlays_a_copy_and_leaves_the_fetched_row_untouched()
+        {
+            var parent = Guid.NewGuid();
+            var id = Guid.NewGuid();
+            var fetched = new Entity("sample_orderline", id)
+            {
+                ["sample_amount"] = 1m,
+                ["sample_orderid"] = new EntityReference("sample_order", parent),
+            };
+            fetched.FormattedValues["sample_amount"] = "1.00";
+            var rows = new List<Entity> { fetched };
+            var node = new TableConfig
+            {
+                Id = Guid.NewGuid(), TableLogicalName = "sample_orderline",
+                ConfigType = TableConfigType.ChildTable, ChildLinkField = "sample_orderid",
+            };
+            var target = new Entity("sample_orderline", id) { ["sample_amount"] = 5m };
+            var batch = new InFlightBatch { LogicalName = "sample_orderline", Operation = InFlightOperation.Update };
+            batch.Records.Add(new InFlightRecord { Id = id, Target = target, Root = target });
+
+            InFlightReconciler.Apply(rows, node, batch, new[] { parent });
+
+            Assert.Equal(1m, fetched["sample_amount"]);
+            Assert.Equal("1.00", fetched.FormattedValues["sample_amount"]);
+            var row = Assert.Single(rows);
+            Assert.NotSame(fetched, row);
+            Assert.Equal(5m, row["sample_amount"]);
+            Assert.Equal(parent, row.GetAttributeValue<EntityReference>("sample_orderid").Id);
+            Assert.False(row.FormattedValues.ContainsKey("sample_amount"));
+        }
+
+        [Fact]
         public void Update_moving_a_row_leaves_lookup_results_alone()
         {
             // Only collections are scoped by a link column; a lookup node's row stays.

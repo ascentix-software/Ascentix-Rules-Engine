@@ -103,12 +103,17 @@ namespace Ascentix.RulesEngine.Core.Execution
 
                 if (existing != null)
                 {
-                    Overlay(existing, record.Target);
+                    // Fetched rows can be shared with other buckets of the run (RunFetchStore):
+                    // overlay a copy and put it in this result's place, never the shared row.
+                    var copy = CopyRow(existing);
+                    rows[rows.IndexOf(existing)] = copy;
+                    byId[record.Id] = copy;
+                    Overlay(copy, record.Target);
                     // A save that moves the row to another parent takes it out of every collection
                     // scoped to the old parent (the new parent's fetch adds it through Belongs).
-                    if (isCollection && MovedOutOfScope(existing, node, record.Target, scope))
+                    if (isCollection && MovedOutOfScope(copy, node, record.Target, scope))
                     {
-                        rows.Remove(existing);
+                        rows.Remove(copy);
                         byId.Remove(record.Id);
                     }
                     continue;
@@ -188,6 +193,17 @@ namespace Ascentix.RulesEngine.Core.Execution
                 foreach (var formatted in source.FormattedValues)
                     copy.FormattedValues[formatted.Key] = formatted.Value;
             if (source.Id == Guid.Empty) CopyOf.Add(copy, source);
+            return copy;
+        }
+
+        // A persisted row's copy (it has an id, so no CopyOf entry is needed for IsRowOf).
+        private static Entity CopyRow(Entity source)
+        {
+            var copy = new Entity(source.LogicalName) { Id = source.Id };
+            foreach (var attr in source.Attributes) copy[attr.Key] = attr.Value;
+            if (source.FormattedValues != null)
+                foreach (var formatted in source.FormattedValues)
+                    copy.FormattedValues[formatted.Key] = formatted.Value;
             return copy;
         }
 
