@@ -221,6 +221,69 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void Update_batch_overlays_a_copy_of_every_matched_row_in_place()
+        {
+            // UpdateMultiple of several sibling lines whose rules traverse those same lines.
+            var ids = Enumerable.Range(0, 4).Select(_ => Guid.NewGuid()).ToList();
+            var originals = ids.Select((id, i) => Line(id, i + 1)).ToList();
+            var untouchedRow = Line(Guid.NewGuid(), 50m);
+            var rows = new List<Entity> { originals[0], originals[1], untouchedRow, originals[2], originals[3] };
+            var batch = Batch(InFlightOperation.Update, ids.Select((id, i) => new InFlightRecord
+            {
+                Id = id,
+                Target = new Entity("sample_orderline", id) { ["sample_lineamount"] = new Money(100m * (i + 1)) },
+                Root = Line(id, 100m * (i + 1)),
+            }).ToArray());
+
+            InFlightReconciler.Apply(rows, Lines(), batch, new List<Guid> { OrderId });
+
+            Assert.Equal(new[] { ids[0], ids[1], untouchedRow.Id, ids[2], ids[3] }, rows.Select(r => r.Id));
+            Assert.Same(untouchedRow, rows[2]);
+            foreach (var (original, row, amount) in new[]
+                { (originals[0], rows[0], 100m), (originals[1], rows[1], 200m), (originals[2], rows[3], 300m), (originals[3], rows[4], 400m) })
+            {
+                Assert.NotSame(original, row);
+                Assert.Equal(amount, ((Money)row["sample_lineamount"]).Value);
+            }
+            Assert.Equal(new[] { 1m, 2m, 3m, 4m }, originals.Select(o => ((Money)o["sample_lineamount"]).Value));
+        }
+
+        // Counts equality probes: a lookup by position (List.IndexOf / Remove) probes the rows one
+        // by one, which makes each in-flight record cost O(rows).
+        private sealed class ProbedLine : Entity
+        {
+            public static int Probes;
+            public ProbedLine(Guid id) : base("sample_orderline", id) { }
+            public override bool Equals(object obj) { Probes++; return base.Equals(obj); }
+            public override int GetHashCode() => base.GetHashCode();
+        }
+
+        [Theory]
+        [InlineData(InFlightOperation.Update)]
+        [InlineData(InFlightOperation.Delete)]
+        public void A_batch_never_searches_the_rows_for_each_record(InFlightOperation operation)
+        {
+            var rows = Enumerable.Range(0, 50).Select(_ =>
+            {
+                var line = new ProbedLine(Guid.NewGuid());
+                line["sample_orderid"] = new EntityReference("sample_order", OrderId);
+                return (Entity)line;
+            }).ToList();
+            var moved = new Entity("sample_orderline", rows[48].Id) { ["sample_orderid"] = new EntityReference("sample_order", OtherOrderId) };
+            var batch = Batch(operation,
+                new InFlightRecord { Id = rows[45].Id, Target = new Entity("sample_orderline", rows[45].Id) { ["sample_lineamount"] = new Money(1m) }, Root = rows[45] },
+                new InFlightRecord { Id = rows[48].Id, Target = moved, Root = moved });
+            ProbedLine.Probes = 0;
+
+            InFlightReconciler.Apply(rows, Lines(), batch, new List<Guid> { OrderId });
+
+            Assert.Equal(0, ProbedLine.Probes);
+            // Update: line 45 overlaid in place, line 48 moved to another order. Delete: both gone.
+            Assert.Equal(operation == InFlightOperation.Delete ? 48 : 49, rows.Count);
+            Assert.DoesNotContain(rows, r => r.Id == moved.Id);
+        }
+
+        [Fact]
         public void Update_moving_a_row_leaves_lookup_results_alone()
         {
             // Only collections are scoped by a link column; a lookup node's row stays.
