@@ -6,6 +6,8 @@ using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
 using FakeXrmEasy;
 using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Messages;
+using Microsoft.Xrm.Sdk.Metadata;
 using Xunit;
 
 namespace Ascentix.RulesEngine.Tests
@@ -49,6 +51,42 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(1, outcome.Diagnostics.FetchesShared);
             Assert.Equal(0, outcome.Diagnostics.FetchesWidened);
             Assert.Equal(1, outcome.Diagnostics.RetrieveMultipleCount);
+        }
+
+        [Fact]
+        public void Two_published_rules_on_different_root_columns_read_the_root_once()
+        {
+            // A blocks unless name equals "Valid"; B blocks when telephone1 equals "555". Each
+            // verdict needs its own column from the persisted row: the Target carries neither.
+            Guid first = Guid.NewGuid(), second = Guid.NewGuid(), account = Guid.NewGuid();
+            var a = Rule(first, "A"); var b = Rule(second, "B");
+            b[2]["asx_comparisoncolumn"] = "telephone1";
+            b[2]["asx_comparisonoperator"] = new OptionSetValue((int)ComparisonOperator.NotEquals);
+            b[2]["asx_comparisonvalue"] = "555";
+            a.Add(new Entity("account", account) { ["name"] = "Valid", ["telephone1"] = "555" });
+            var context = Context(a, b);
+            var service = context.GetOrganizationService();
+            var metadata = ((RetrieveEntityResponse)service.Execute(new RetrieveEntityRequest { LogicalName = "account" })).EntityMetadata;
+            typeof(EntityMetadata).GetProperty("Attributes").SetValue(metadata, new AttributeMetadata[]
+                { new StringAttributeMetadata { LogicalName = "name" }, new StringAttributeMetadata { LogicalName = "telephone1" } });
+            context.SetEntityMetadata(metadata);
+            Freeze(service, first); Freeze(service, second);
+            var counting = new CountingOrganizationService(service);
+
+            var outcome = new RulesEngineRunner().Run(counting, counting, "account",
+                new List<RootInput> { new RootInput { Id = account, Overlay = new Entity("account", account) } },
+                RuleTrigger.OnUpdate, RuleChannel.Standard, 1033, RootBuildMode.RetrieveAndOverlay, new XrmFakedTracingService());
+
+            Assert.Equal(1, counting.Count("account"));
+            var columns = counting.Queries.Single(q => q.EntityName == "account").ColumnSet;
+            Assert.False(columns.AllColumns);
+            Assert.Contains("name", columns.Columns);
+            Assert.Contains("telephone1", columns.Columns);
+            Assert.Equal(2, outcome.Diagnostics.RulesEvaluated);
+            var fired = Assert.Single(outcome.Records.Single().FiredActions);
+            Assert.Equal(second, fired.RuleId);
+            Assert.Equal(1, outcome.Diagnostics.FetchesShared);
+            Assert.Equal(0, outcome.Diagnostics.FetchesWidened);
         }
 
         [Fact]

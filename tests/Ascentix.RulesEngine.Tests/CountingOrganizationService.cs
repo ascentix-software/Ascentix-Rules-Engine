@@ -6,12 +6,14 @@ using Microsoft.Xrm.Sdk.Query;
 namespace Ascentix.RulesEngine.Tests
 {
     /// <summary>Wraps a service and counts RetrieveMultiple calls per queried table (FetchXML and
-    /// QueryExpression), keeping each FetchXML query. Everything else passes straight through.</summary>
+    /// QueryExpression), keeping each FetchXML query and each QueryExpression. Everything else passes
+    /// straight through.</summary>
     internal sealed class CountingOrganizationService : IOrganizationService
     {
         private readonly IOrganizationService _inner;
         public readonly Dictionary<string, int> RetrieveMultipleByTable = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         public readonly List<string> FetchXml = new List<string>();
+        public readonly List<QueryExpression> Queries = new List<QueryExpression>();
 
         public CountingOrganizationService(IOrganizationService inner) { _inner = inner; }
 
@@ -20,7 +22,7 @@ namespace Ascentix.RulesEngine.Tests
         public EntityCollection RetrieveMultiple(QueryBase query)
         {
             string table = null;
-            if (query is QueryExpression qe) table = qe.EntityName;
+            if (query is QueryExpression qe) { table = qe.EntityName; Queries.Add(qe); }
             if (query is FetchExpression fe)
             {
                 FetchXml.Add(fe.Query);

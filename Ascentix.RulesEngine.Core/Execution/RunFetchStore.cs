@@ -120,10 +120,15 @@ namespace Ascentix.RulesEngine.Core.Execution
             return fetched;
         }
 
-        /// <summary>Registers a bucket's root columns (Retrieve modes only).</summary>
+        /// <summary>Registers a bucket's root columns (Retrieve modes only). Every demand must come
+        /// before the service's root is read: the root is never re-read, so a later demand could
+        /// not be served and is refused.</summary>
         public void DemandRootColumns(IOrganizationService service, ISet<string> columns, bool allColumns)
         {
             var read = Root(service);
+            if (read.Rows != null)
+                throw new InvalidOperationException(
+                    "Root columns were demanded after the root was read for this service; register every bucket's demand first.");
             if (columns != null) read.Columns.UnionWith(columns);
             read.AllColumns |= allColumns;
         }

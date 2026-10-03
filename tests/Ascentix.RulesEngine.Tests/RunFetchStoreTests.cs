@@ -226,5 +226,19 @@ namespace Ascentix.RulesEngine.Tests
             store.RootsFor(user, "account", new List<RootInput> { new RootInput { Id = Guid.NewGuid() } });
             Assert.True(user.ColumnSets[0].AllColumns);
         }
+
+        [Fact]
+        public void Root_demand_after_that_services_root_was_read_is_refused()
+        {
+            var store = new RunFetchStore();
+            var user = new RootService();
+            var system = new RootService();
+            store.DemandRootColumns(user, Cols("name"), false);
+            store.RootsFor(user, "account", new List<RootInput> { new RootInput { Id = Guid.NewGuid() } });
+
+            // The stored root could not serve the new columns: fail loudly, never read them as null.
+            Assert.Throws<InvalidOperationException>(() => store.DemandRootColumns(user, Cols("revenue"), false));
+            store.DemandRootColumns(system, Cols("revenue"), false);
+        }
     }
 }
