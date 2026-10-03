@@ -51,6 +51,10 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(1, outcome.Diagnostics.FetchesShared);
             Assert.Equal(0, outcome.Diagnostics.FetchesWidened);
             Assert.Equal(1, outcome.Diagnostics.RetrieveMultipleCount);
+            // Both rules see the one contact, as each does when run alone: neither blocks.
+            Assert.Equal(2, outcome.Diagnostics.RulesEvaluated);
+            Assert.Empty(outcome.Records.Single().FiredActions);
+            Assert.True(outcome.IsValid);
         }
 
         [Fact]
