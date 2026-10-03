@@ -16,8 +16,9 @@ namespace Ascentix.RulesEngine.Core.Diagnostics
         public int RetrieveMultipleCount { get; set; }
         public int RowsFetched { get; set; }
 
-        // Shared run reads (RunFetchStore): a traversal or root read answered from what an
-        // earlier bucket of the same run already fetched, and a stored fetch re-read wider
+        // Shared run reads (RunFetchStore): a traversal or root read answered from an earlier
+        // read in the same call or save (another bucket, another root of the same bulk save, or
+        // a previous-parent re-run), and a stored fetch re-read wider
         // because a request needed columns the combined demand missed (expected 0).
         public int FetchesShared { get; set; }
         public int FetchesWidened { get; set; }

@@ -12,9 +12,9 @@ namespace Ascentix.RulesEngine.Core.Engine
     /// <summary>
     /// Shared rules-engine orchestrator: a composition of three stages. GATHER
     /// (<see cref="RuleBuckets"/> + <see cref="EvaluationGatherer"/>) reads Dataverse (rules,
-    /// bucketed by evaluation context, then per bucket the config tree and plan, then, through
-    /// one RunFetchStore per run, the roots and every row each record needs (each distinct read
-    /// once)) into one <see cref="EvaluationInput"/> per bucket. EVALUATE
+    /// bucketed by evaluation context, then per bucket the config tree and plan, then the roots
+    /// and every row each record needs, through one RunFetchStore per run so each distinct read
+    /// happens once) into one <see cref="EvaluationInput"/> per bucket. EVALUATE
     /// (<see cref="BucketEvaluator"/>) decides what fires from that input alone. DISPATCH
     /// (<see cref="RunOutcomeAssembler"/>) returns every fired action per record. Config and
     /// metadata reads always use systemService; a bucket's traversal service follows its
