@@ -38,11 +38,19 @@ namespace Ascentix.RulesEngine.Core.Execution
             public HashSet<string> Columns; // null = full width
         }
 
+        private sealed class RootRead
+        {
+            public readonly HashSet<string> Columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            public bool AllColumns;
+            public Dictionary<Guid, Entity> Rows;
+        }
+
         private readonly RunDiagnostics _diagnostics;
         private readonly List<IOrganizationService> _services = new List<IOrganizationService>();
         private readonly Dictionary<string, Stored> _fetches = new Dictionary<string, Stored>(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _demand = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         private readonly HashSet<string> _fullWidth = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<int, RootRead> _roots = new Dictionary<int, RootRead>();
 
         public RunFetchStore(RunDiagnostics diagnostics = null)
         {
@@ -110,6 +118,35 @@ namespace Ascentix.RulesEngine.Core.Execution
                 Columns = columns == null ? null : new HashSet<string>(columns, StringComparer.OrdinalIgnoreCase)
             };
             return fetched;
+        }
+
+        /// <summary>Registers a bucket's root columns (Retrieve modes only).</summary>
+        public void DemandRootColumns(IOrganizationService service, ISet<string> columns, bool allColumns)
+        {
+            var read = Root(service);
+            if (columns != null) read.Columns.UnionWith(columns);
+            read.AllColumns |= allColumns;
+        }
+
+        /// <summary>The persisted root records, read once per service with the combined columns.
+        /// Shared: build each bucket's roots with RootEntityBuilder.Assemble, which copies.</summary>
+        public Dictionary<Guid, Entity> RootsFor(IOrganizationService service, string logicalName, IList<RootInput> inputs)
+        {
+            var read = Root(service);
+            if (read.Rows != null)
+            {
+                if (_diagnostics != null) _diagnostics.FetchesShared++;
+                return read.Rows;
+            }
+            read.Rows = RootEntityBuilder.Retrieve(service, logicalName, inputs, read.Columns, read.AllColumns);
+            return read.Rows;
+        }
+
+        private RootRead Root(IOrganizationService service)
+        {
+            var index = ServiceIndex(service);
+            if (!_roots.TryGetValue(index, out var read)) _roots[index] = read = new RootRead();
+            return read;
         }
 
         private static bool Covers(HashSet<string> stored, HashSet<string> requested) =>

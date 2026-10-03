@@ -146,5 +146,54 @@ namespace Ascentix.RulesEngine.Tests
                 new HashSet<string>(), RootBuildMode.UseTarget, saved: saved);
             Assert.Null(Assert.Single(saved));
         }
+
+        [Fact]
+        public void Assemble_returns_copies_and_never_edits_the_retrieved_rows()
+        {
+            var id = Guid.NewGuid();
+            var persisted = new Entity("account", id) { ["name"] = "Old", ["revenue"] = 10m };
+            persisted.FormattedValues["revenue"] = "$10.00";
+            var retrieved = new Dictionary<Guid, Entity> { [id] = persisted };
+            var inputs = new List<RootInput> { new RootInput { Id = id, Overlay = new Entity("account", id) { ["name"] = "New" } } };
+
+            var a = RootEntityBuilder.Assemble("account", inputs, retrieved, RootBuildMode.RetrieveAndOverlay);
+            var b = RootEntityBuilder.Assemble("account", inputs, retrieved, RootBuildMode.RetrieveAndOverlay);
+
+            Assert.Equal("Old", persisted["name"]);
+            Assert.NotSame(a[0], b[0]);
+            Assert.Equal("New", a[0]["name"]);
+            Assert.Equal("$10.00", a[0].FormattedValues["revenue"]);
+            a[0]["name"] = "Edited";
+            Assert.Equal("New", b[0]["name"]);
+        }
+
+        [Fact]
+        public void Assemble_shares_one_copy_between_inputs_with_the_same_id()
+        {
+            var id = Guid.NewGuid();
+            var retrieved = new Dictionary<Guid, Entity> { [id] = new Entity("account", id) { ["name"] = "Old" } };
+            var inputs = new List<RootInput>
+            {
+                new RootInput { Id = id, Overlay = new Entity("account", id) { ["name"] = "First" } },
+                new RootInput { Id = id, Overlay = new Entity("account", id) { ["description"] = "Second" } },
+            };
+
+            var roots = RootEntityBuilder.Assemble("account", inputs, retrieved, RootBuildMode.RetrieveAndOverlay);
+
+            Assert.Same(roots[0], roots[1]);
+            Assert.Equal("First", roots[0]["name"]);
+            Assert.Equal("Second", roots[0]["description"]);
+        }
+
+        [Fact]
+        public void Assemble_in_UseTarget_mode_returns_the_targets_themselves()
+        {
+            var target = new Entity("account", Guid.NewGuid()) { ["name"] = "New" };
+            var saved = new List<Entity>();
+            var roots = RootEntityBuilder.Assemble("account", new List<RootInput> { new RootInput { Id = target.Id, Overlay = target } },
+                null, RootBuildMode.UseTarget, saved);
+            Assert.Same(target, roots[0]);
+            Assert.Null(Assert.Single(saved));
+        }
     }
 }

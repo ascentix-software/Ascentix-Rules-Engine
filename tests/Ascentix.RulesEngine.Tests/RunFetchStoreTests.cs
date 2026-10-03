@@ -6,6 +6,7 @@ using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
 using Microsoft.Xrm.Sdk;
 using Xunit;
+using Microsoft.Xrm.Sdk.Query;
 
 namespace Ascentix.RulesEngine.Tests
 {
@@ -168,6 +169,62 @@ namespace Ascentix.RulesEngine.Tests
             var f = new Fetcher();
             store.GetOrFetch(UserService, FetchKind.Child, Child(), parent, null, Cols("a"), f.Fetch);
             Assert.Equal(1, f.Calls);
+        }
+
+        private sealed class RootService : IOrganizationService
+        {
+            public int Calls;
+            public readonly List<ColumnSet> ColumnSets = new List<ColumnSet>();
+            public EntityCollection RetrieveMultiple(QueryBase query)
+            {
+                Calls++;
+                var q = (QueryExpression)query;
+                ColumnSets.Add(q.ColumnSet);
+                var c = new EntityCollection();
+                foreach (var v in q.Criteria.Conditions[0].Values) c.Entities.Add(new Entity(q.EntityName, (Guid)v) { ["name"] = "Persisted" });
+                return c;
+            }
+            public Entity Retrieve(string entityName, Guid id, ColumnSet columnSet) => throw new NotSupportedException();
+            public Guid Create(Entity entity) => throw new NotSupportedException();
+            public void Update(Entity entity) => throw new NotSupportedException();
+            public void Delete(string entityName, Guid id) => throw new NotSupportedException();
+            public OrganizationResponse Execute(OrganizationRequest request) => throw new NotSupportedException();
+            public void Associate(string entityName, Guid entityId, Relationship relationship, EntityReferenceCollection relatedEntities) => throw new NotSupportedException();
+            public void Disassociate(string entityName, Guid entityId, Relationship relationship, EntityReferenceCollection relatedEntities) => throw new NotSupportedException();
+        }
+
+        [Fact]
+        public void Root_is_read_once_per_service_with_the_combined_columns()
+        {
+            var diag = new RunDiagnostics();
+            var store = new RunFetchStore(diag);
+            var user = new RootService();
+            var system = new RootService();
+            var inputs = new List<RootInput> { new RootInput { Id = Guid.NewGuid() } };
+            store.DemandRootColumns(user, Cols("name"), false);
+            store.DemandRootColumns(user, Cols("revenue"), false);
+            store.DemandRootColumns(system, Cols("name"), false);
+
+            var first = store.RootsFor(user, "account", inputs);
+            var second = store.RootsFor(user, "account", inputs);
+            store.RootsFor(system, "account", inputs);
+
+            Assert.Same(first, second);
+            Assert.Equal(1, user.Calls);
+            Assert.Equal(1, system.Calls);
+            Assert.True(new HashSet<string>(user.ColumnSets[0].Columns).SetEquals(new[] { "name", "revenue" }));
+            Assert.Equal(1, diag.FetchesShared);
+        }
+
+        [Fact]
+        public void Any_full_width_root_demand_reads_all_columns()
+        {
+            var store = new RunFetchStore();
+            var user = new RootService();
+            store.DemandRootColumns(user, Cols("name"), false);
+            store.DemandRootColumns(user, Cols(), true);
+            store.RootsFor(user, "account", new List<RootInput> { new RootInput { Id = Guid.NewGuid() } });
+            Assert.True(user.ColumnSets[0].AllColumns);
         }
     }
 }
