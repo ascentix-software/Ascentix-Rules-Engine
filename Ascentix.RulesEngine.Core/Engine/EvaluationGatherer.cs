@@ -12,26 +12,45 @@ using Ascentix.RulesEngine.Core.Resolution;
 
 namespace Ascentix.RulesEngine.Core.Engine
 {
+    /// <summary>One bucket's plan, built before any business data is read: what
+    /// <see cref="EvaluationGatherer.Gather"/> needs, and the demands the run's
+    /// <see cref="RunFetchStore"/> combines across buckets.</summary>
+    public sealed class PreparedBucket
+    {
+        internal IOrganizationService TraversalService;
+        internal List<Entity> Rules;
+        internal RuleEvaluationContext Context;
+        internal List<ConditionGroup> RootGroups;
+        internal Dictionary<Guid, List<RuleAction>> ActionsByRule;
+        internal Dictionary<Guid, List<FieldMappingEntry>> ParsedMappings;
+        internal List<RuleAction> AllActions;
+        internal TableConfigTree Tree;
+        internal Dictionary<Guid, DateSemantics> DatesByRule;
+        internal QueryExecutionPlan Plan;
+        internal PushdownPlan Pushdown;
+        internal HashSet<string> RootColumns;
+        internal bool RootAllColumns;
+        internal AttributeMetadataProvider Metadata;
+    }
+
     /// <summary>
-    /// Gather, step two: everything one context bucket's evaluation needs, read from Dataverse
-    /// in a fixed order (conditionMap → actionLoad → references → tableConfigLoad → planBuild
-    /// → self-node pass → rootBuild → in-flight batch → per-root queryExecute) and handed over
-    /// as an <see cref="EvaluationInput"/>. Owns those stage timers. Nothing here evaluates a
-    /// rule; nothing after here reads a service. systemService reads rule config and metadata;
+    /// Gather, step two, in two halves: <see cref="Prepare"/> builds a bucket's plan without
+    /// reading business data (conditionMap → actionLoad → references → tableConfigLoad →
+    /// planBuild → self-node pass); <see cref="Gather"/> reads the bucket's rows (rootBuild →
+    /// in-flight batch → per-root queryExecute) through the run's <see cref="RunFetchStore"/>.
+    /// Owns those stage timers. Nothing here evaluates a rule; nothing after here reads a
+    /// service. configurationService reads rule config and metadata;
     /// traversalService reads business data (root retrieval + QueryExecutor). On Update, a
     /// changed root-level lookup with ticked actions runs the same plan a second time, rooted at
     /// the lookup's previous record (see <see cref="PreviousParent"/>).
     /// </summary>
     public static class EvaluationGatherer
     {
-        public static EvaluationInput ForBucket(
-            IOrganizationService systemService,
+        public static PreparedBucket Prepare(
+            IOrganizationService configurationService,
             IOrganizationService traversalService,
             string logicalName,
-            IList<RootInput> inputs,
             RootBuildMode buildMode,
-            RuleTrigger trigger,
-            int languageId,
             List<Entity> rules,
             RuleEvaluationContext bucketContext,
             DateTime utcNow,
@@ -48,7 +67,7 @@ namespace Ascentix.RulesEngine.Core.Engine
             }
             Dictionary<Guid, List<RuleAction>> actionsByRule;
             using (diag.Time("actionLoad"))
-                actionsByRule = new RuleActionLoader(systemService).LoadActionsByRule(rules.Select(r => r.Id));
+                actionsByRule = new RuleActionLoader(configurationService).LoadActionsByRule(rules.Select(r => r.Id));
 
             var parsedMappings = new Dictionary<Guid, List<FieldMappingEntry>>();
             List<FieldMappingEntry> ParseMapping(Guid actionId, string json)
@@ -69,21 +88,21 @@ namespace Ascentix.RulesEngine.Core.Engine
             var allActions = actionsByRule.Values.SelectMany(v => v).ToList();
             TableConfigTree createTargets;
             using (diag.Time("tableConfigLoad"))
-                createTargets = new TableConfigLoader(systemService).LoadCreateTargets(allActions);
+                createTargets = new TableConfigLoader(configurationService).LoadCreateTargets(allActions);
             var refs = RuleReferences.Compute(
                 rootGroups, allActions, a => ParseMapping(a.Id, a.FieldMapping), createTargets);
 
             TableConfigTree tree;
             using (diag.Time("tableConfigLoad"))
                 tree = refs.NodesToLoad.Count > 0
-                    ? new TableConfigLoader(systemService).LoadConfigs(refs.NodesToLoad.Cast<object>().ToArray(), refs.OptionalNodes)
+                    ? new TableConfigLoader(configurationService).LoadConfigs(refs.NodesToLoad.Cast<object>().ToArray(), refs.OptionalNodes)
                     : TableConfigTree.Empty;
 
             // Lazy and service-backed: one RetrieveEntityRequest per distinct table, on first
             // ask. The runner shares one provider across every bucket of a run (null ⇒ one for
             // this bucket). Not pre-warmed: the evaluator only sees the interfaces. The planner
             // reads date behaviors from it too (exact date pushdown).
-            metadata = metadata ?? new AttributeMetadataProvider(systemService);
+            metadata = metadata ?? new AttributeMetadataProvider(configurationService);
 
             // Per-rule date semantics: column behavior from metadata (read lazily, per table, on
             // the first date comparison) and the rule's time zone. An unknown zone fails the
@@ -138,12 +157,60 @@ namespace Ascentix.RulesEngine.Core.Engine
             var rootAllColumns = buildMode == RootBuildMode.RetrieveAndOverlay
                 && selfNodes.Any(e => e.Columns == null && e.Variants != null && e.Variants.Count > 0);
 
+            return new PreparedBucket
+            {
+                TraversalService = traversalService,
+                Rules = rules,
+                Context = bucketContext,
+                RootGroups = rootGroups,
+                ActionsByRule = actionsByRule,
+                ParsedMappings = parsedMappings,
+                AllActions = allActions,
+                Tree = tree,
+                DatesByRule = datesByRule,
+                Plan = plan,
+                Pushdown = pushdownPlan,
+                RootColumns = rootColumns,
+                RootAllColumns = rootAllColumns,
+                Metadata = metadata,
+            };
+        }
+
+        /// <summary>Registers the bucket's child-column and root-column demands with the run's
+        /// store, so every bucket's requests ask for the combined columns.</summary>
+        public static void Demand(PreparedBucket bucket, RunFetchStore store, RootBuildMode buildMode)
+        {
+            foreach (var entry in bucket.Plan.Levels.SelectMany(l => l))
+                if (entry.Node.ConfigType == TableConfigType.ChildTable)
+                    store.DemandColumns(bucket.TraversalService, entry.Node, entry.Columns);
+            if (buildMode != RootBuildMode.UseTarget)
+                store.DemandRootColumns(bucket.TraversalService, bucket.RootColumns, bucket.RootAllColumns);
+        }
+
+        public static EvaluationInput Gather(
+            PreparedBucket bucket,
+            string logicalName,
+            IList<RootInput> inputs,
+            RootBuildMode buildMode,
+            RuleTrigger trigger,
+            int languageId,
+            RunFetchStore store,
+            DateTime utcNow,
+            RunDiagnostics diag)
+        {
+            var tree = bucket.Tree;
+
             // On Update the saved record (before the overlay) tells which lookups this save changed.
             var saved = trigger == RuleTrigger.OnUpdate && buildMode == RootBuildMode.RetrieveAndOverlay
                 ? new List<Entity>() : null;
             List<Entity> roots;
             using (diag.Time("rootBuild"))
-                roots = RootEntityBuilder.Build(traversalService, logicalName, inputs, rootColumns, buildMode, rootAllColumns, saved);
+            {
+                var retrieved = buildMode == RootBuildMode.UseTarget
+                    ? null
+                    : store.RootsFor(bucket.TraversalService, logicalName, inputs);
+                roots = RootEntityBuilder.Assemble(logicalName, inputs, retrieved, buildMode, saved);
+            }
             var inFlight = BuildInFlightBatch(logicalName, trigger, inputs, roots);
 
             var records = new List<EvaluationInput.EvaluationRecord>(roots.Count);
@@ -155,20 +222,21 @@ namespace Ascentix.RulesEngine.Core.Engine
                 if (tree.Count > 0)
                 {
                     using (diag.Time("queryExecute"))
-                        new QueryExecutor(traversalService, cache, tree, diag, utcNow, trigger == RuleTrigger.OnCreate)
-                            .Execute(root, plan, inFlight);
+                        new QueryExecutor(bucket.TraversalService, cache, tree, diag, utcNow, trigger == RuleTrigger.OnCreate, store)
+                            .Execute(root, bucket.Plan, inFlight);
 
                     // A changed lookup with ticked actions: run the same plan again with the lookup
                     // pointed at its previous record (own cache; same in-flight batch, so the moved
-                    // row leaves the previous parent's collections).
+                    // row leaves the previous parent's collections). Same store: collections the
+                    // two runs share are read once.
                     if (saved != null)
-                        foreach (var changed in PreviousParent.Changed(tree, allActions, saved[i], inputs[i].Overlay))
+                        foreach (var changed in PreviousParent.Changed(tree, bucket.AllActions, saved[i], inputs[i].Overlay))
                         {
                             var previousRoot = PreviousParent.RootFor(root, changed);
                             var previousCache = new QueryResultCache(tree);
                             using (diag.Time("queryExecute"))
-                                new QueryExecutor(traversalService, previousCache, tree, diag, utcNow, rootIsNew: false)
-                                    .Execute(previousRoot, plan, inFlight);
+                                new QueryExecutor(bucket.TraversalService, previousCache, tree, diag, utcNow, rootIsNew: false, store: store)
+                                    .Execute(previousRoot, bucket.Plan, inFlight);
                             previousRuns.Add(new EvaluationInput.PreviousRun(changed.Lookup, previousRoot, previousCache));
                         }
                 }
@@ -176,20 +244,20 @@ namespace Ascentix.RulesEngine.Core.Engine
             }
 
             return new EvaluationInput(
-                ruleIds: rules.Select(r => r.Id).ToList(),
-                rootGroups: rootGroups,
-                actionsByRule: actionsByRule,
-                mappingsByAction: parsedMappings,
+                ruleIds: bucket.Rules.Select(r => r.Id).ToList(),
+                rootGroups: bucket.RootGroups,
+                actionsByRule: bucket.ActionsByRule,
+                mappingsByAction: bucket.ParsedMappings,
                 tree: tree,
-                pushdown: pushdownPlan,
+                pushdown: bucket.Pushdown,
                 records: records,
                 languageId: languageId,
-                context: bucketContext,
+                context: bucket.Context,
                 utcNow: utcNow,
-                metadata: metadata,
-                labels: metadata,
+                metadata: bucket.Metadata,
+                labels: bucket.Metadata,
                 trigger: trigger,
-                datesByRule: datesByRule);
+                datesByRule: bucket.DatesByRule);
         }
 
         // The pending row change, as the traversal must see it. Built from the whole input set,

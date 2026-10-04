@@ -16,6 +16,13 @@ namespace Ascentix.RulesEngine.Core.Diagnostics
         public int RetrieveMultipleCount { get; set; }
         public int RowsFetched { get; set; }
 
+        // Shared run reads (RunFetchStore): a traversal or root read answered from an earlier
+        // read in the same call or save (another bucket, another root of the same bulk save, or
+        // a previous-parent re-run), and a stored fetch re-read wider
+        // because a request needed columns the combined demand missed (expected 0).
+        public int FetchesShared { get; set; }
+        public int FetchesWidened { get; set; }
+
         // Write path (WriteActionExecutor → ChangeSetDispatcher).
         /// <summary>Rows sent with a service request (creates, updates, deletes); in-place writes excluded.</summary>
         public int WritesSent { get; set; }
@@ -89,6 +96,8 @@ namespace Ascentix.RulesEngine.Core.Diagnostics
             RetrieveCount += other.RetrieveCount;
             RetrieveMultipleCount += other.RetrieveMultipleCount;
             RowsFetched += other.RowsFetched;
+            FetchesShared += other.FetchesShared;
+            FetchesWidened += other.FetchesWidened;
             WritesSent += other.WritesSent;
             WritesUnchanged += other.WritesUnchanged;
             WritesMerged += other.WritesMerged;

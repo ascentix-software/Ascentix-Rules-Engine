@@ -167,6 +167,20 @@ namespace Ascentix.RulesEngine.Tests
             return Encoding.UTF8.GetByteCount(line);
         }
 
+        [Fact]
+        public void Fetch_sharing_counters_are_written_only_when_non_zero()
+        {
+            var quiet = new RunDiagnostics();
+            var quietJson = RunDiagnosticsSerializer.Serialize(quiet);
+            Assert.DoesNotContain("fetchesShared", quietJson);
+            Assert.DoesNotContain("fetchesWidened", quietJson);
+
+            var busy = new RunDiagnostics { FetchesShared = 50, FetchesWidened = 1 };
+            var json = RunDiagnosticsSerializer.Serialize(busy);
+            Assert.Contains("\"fetchesShared\":50", json);
+            Assert.Contains("\"fetchesWidened\":1", json);
+        }
+
         private static int Occurrences(string text, string value)
         {
             var count = 0;

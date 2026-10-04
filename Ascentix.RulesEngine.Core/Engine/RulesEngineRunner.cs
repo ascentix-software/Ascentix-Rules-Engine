@@ -12,8 +12,9 @@ namespace Ascentix.RulesEngine.Core.Engine
     /// <summary>
     /// Shared rules-engine orchestrator: a composition of three stages. GATHER
     /// (<see cref="RuleBuckets"/> + <see cref="EvaluationGatherer"/>) reads Dataverse (rules,
-    /// bucketed by evaluation context, then per bucket the config tree, plan, roots and every
-    /// row each record needs) into one <see cref="EvaluationInput"/> per bucket. EVALUATE
+    /// bucketed by evaluation context, then per bucket the config tree and plan, then the roots
+    /// and every row each record needs, through one RunFetchStore per run so each distinct read
+    /// happens once) into one <see cref="EvaluationInput"/> per bucket. EVALUATE
     /// (<see cref="BucketEvaluator"/>) decides what fires from that input alone. DISPATCH
     /// (<see cref="RunOutcomeAssembler"/>) returns every fired action per record. Config and
     /// metadata reads always use systemService; a bucket's traversal service follows its
@@ -69,12 +70,23 @@ namespace Ascentix.RulesEngine.Core.Engine
             // straight through to it).
             var metadata = new AttributeMetadataProvider(systemService);
 
+            // Every bucket is planned before any business data is read, so the run's store knows
+            // every bucket's columns and serves each distinct read once (RunFetchStore).
+            var store = new RunFetchStore(diag);
+            var prepared = new List<PreparedBucket>();
             foreach (var bucket in RuleBuckets.Load(systemService, logicalName, trigger, channel, diag, trace, selection))
             {
                 var traversalService = bucket.Context == RuleEvaluationContext.User ? userService : systemService;
-                var input = EvaluationGatherer.ForBucket(
-                    bucket.ConfigurationService ?? systemService, traversalService, logicalName, inputs, buildMode, trigger, languageId,
-                    bucket.Rules, bucket.Context, utcNow, diag, metadata);
+                prepared.Add(EvaluationGatherer.Prepare(
+                    bucket.ConfigurationService ?? systemService, traversalService, logicalName, buildMode,
+                    bucket.Rules, bucket.Context, utcNow, diag, metadata));
+            }
+            foreach (var bucket in prepared)
+                EvaluationGatherer.Demand(bucket, store, buildMode);
+
+            foreach (var bucket in prepared)
+            {
+                var input = EvaluationGatherer.Gather(bucket, logicalName, inputs, buildMode, trigger, languageId, store, utcNow, diag);
                 var verdict = BucketEvaluator.Evaluate(input, trace, diag);
                 for (var k = 0; k < input.Records.Count; k++)
                 {

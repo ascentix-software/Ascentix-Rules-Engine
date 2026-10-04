@@ -41,17 +41,20 @@ namespace Ascentix.RulesEngine.Core.Execution
         private NewRecordStamp _stamp;
         private string _rootTable;
         private InFlightBatch _inFlight;
+        private readonly RunFetchStore _store;
 
         /// <param name="utcNow">The run's evaluation instant (date placeholders anchored on "now"
         /// never reach here; it feeds <see cref="NewRecordStamp"/>).</param>
         /// <param name="rootIsNew">True on Create: the root's createdon/modifiedon bind to utcNow.</param>
+        /// <param name="store">The run's shared reads (null: fetch everything, as one bucket alone).</param>
         public QueryExecutor(
             IOrganizationService service,
             QueryResultCache cache,
             TableConfigTree tree,
             Ascentix.RulesEngine.Core.Diagnostics.RunDiagnostics diagnostics = null,
             DateTime utcNow = default,
-            bool rootIsNew = false)
+            bool rootIsNew = false,
+            RunFetchStore store = null)
         {
             _service = service;
             _cache = cache;
@@ -59,6 +62,7 @@ namespace Ascentix.RulesEngine.Core.Execution
             _diagnostics = diagnostics;
             _utcNow = utcNow;
             _rootIsNew = rootIsNew;
+            _store = store;
         }
 
         public void Execute(Entity triggeringRecord, QueryExecutionPlan plan)
@@ -146,18 +150,26 @@ namespace Ascentix.RulesEngine.Core.Execution
             }
 
             var filterXml = FilterXml(variant);
-            var resolved = new List<Entity>();
-            foreach (var chunk in Chunk(targetIds, LookupChunkSize))
-            {
-                var fetchXml = BuildLookupFetch(entry.Node.TableLogicalName, idAttr, chunk, filterXml);
-                var results = _service.RetrieveMultiple(new FetchExpression(fetchXml));
-                _diagnostics?.RecordRetrieveMultiple(entry.Node.Id, entry.Node.TableLogicalName, results.Entities.Count);
-                resolved.AddRange(results.Entities);
-                EnforceCap(entry.Node, resolved.Count);
-            }
+            var shared = Fetch(FetchKind.Lookup, entry.Node, targetIds, filterXml, null,
+                _ => FetchLookupRows(entry.Node, idAttr, targetIds, filterXml));
+            var resolved = new List<Entity>(shared);
 
             InFlightReconciler.Apply(resolved, entry.Node, _inFlight, targetIds);
             StoreVariant(entry, variant, resolved);
+        }
+
+        private List<Entity> FetchLookupRows(TableConfig node, string idAttr, List<Guid> targetIds, string filterXml)
+        {
+            var resolved = new List<Entity>();
+            foreach (var chunk in Chunk(targetIds, LookupChunkSize))
+            {
+                var fetchXml = BuildLookupFetch(node.TableLogicalName, idAttr, chunk, filterXml);
+                var results = _service.RetrieveMultiple(new FetchExpression(fetchXml));
+                _diagnostics?.RecordRetrieveMultiple(node.Id, node.TableLogicalName, results.Entities.Count);
+                resolved.AddRange(results.Entities);
+                EnforceCap(node, resolved.Count);
+            }
+            return resolved;
         }
 
         private static string BuildLookupFetch(string entity, string idAttribute, IList<Guid> ids, string pushedFilterXml)
@@ -193,6 +205,19 @@ namespace Ascentix.RulesEngine.Core.Execution
             }
 
             var filterXml = FilterXml(variant);
+            var columns = _store == null ? entry.Columns : _store.ColumnsFor(_service, entry.Node, entry.Columns);
+            var shared = Fetch(FetchKind.Child, entry.Node, parentIds, filterXml, columns,
+                cols => FetchChildRows(entry.Node, parentIds, filterXml, cols));
+            var all = new List<Entity>(shared);
+
+            // After every chunk/page, so the record is matched against the whole result and
+            // the parent scope is the full set the fetch covered, not one chunk of it.
+            InFlightReconciler.Apply(all, entry.Node, _inFlight, parentIds);
+            StoreVariant(entry, variant, all);
+        }
+
+        private List<Entity> FetchChildRows(TableConfig node, List<Guid> parentIds, string filterXml, HashSet<string> columns)
+        {
             var all = new List<Entity>();
             foreach (var chunk in Chunk(parentIds, ChildChunkSize))
             {
@@ -200,22 +225,25 @@ namespace Ascentix.RulesEngine.Core.Execution
                 string cookie = null;
                 while (true)
                 {
-                    var fetchXml = BuildChildTableFetch(entry.Node, chunk, page, cookie, filterXml, PageSize, entry.Columns);
+                    var fetchXml = BuildChildTableFetch(node, chunk, page, cookie, filterXml, PageSize, columns);
                     var results = _service.RetrieveMultiple(new FetchExpression(fetchXml));
-                    _diagnostics?.RecordRetrieveMultiple(entry.Node.Id, entry.Node.TableLogicalName, results.Entities.Count);
+                    _diagnostics?.RecordRetrieveMultiple(node.Id, node.TableLogicalName, results.Entities.Count);
                     all.AddRange(results.Entities);
-                    EnforceCap(entry.Node, all.Count);
+                    EnforceCap(node, all.Count);
                     if (!results.MoreRecords) break;
                     page++;
                     cookie = results.PagingCookie;
                 }
             }
-
-            // After every chunk/page, so the record is matched against the whole result and
-            // the parent scope is the full set the fetch covered, not one chunk of it.
-            InFlightReconciler.Apply(all, entry.Node, _inFlight, parentIds);
-            StoreVariant(entry, variant, all);
+            return all;
         }
+
+        // Through the run's store when there is one; the stored list is shared, so callers copy it.
+        private List<Entity> Fetch(FetchKind kind, TableConfig node, List<Guid> scope, string filterXml,
+            HashSet<string> columns, Func<HashSet<string>, List<Entity>> fetch) =>
+            _store == null
+                ? fetch(columns)
+                : _store.GetOrFetch(_service, kind, node, scope, filterXml, columns, fetch);
 
         private static string BuildChildTableFetch(TableConfig node, IList<Guid> parentIds, int page, string cookie, string pushedFilterXml, int pageSize = PageSize, HashSet<string> columns = null)
         {

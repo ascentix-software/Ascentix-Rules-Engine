@@ -58,6 +58,8 @@ namespace Ascentix.RulesEngine.Core.Diagnostics
             [DataMember(Name = "schedulesContinued", Order = 21, EmitDefaultValue = false)] public int SchedulesContinued { get; set; }
             [DataMember(Name = "schedulesSkipped", Order = 22, EmitDefaultValue = false)] public int SchedulesSkipped { get; set; }
             [DataMember(Name = "nodesTruncated", Order = 23, EmitDefaultValue = false)] public bool NodesTruncated { get; set; }
+            [DataMember(Name = "fetchesShared", Order = 24, EmitDefaultValue = false)] public int FetchesShared { get; set; }
+            [DataMember(Name = "fetchesWidened", Order = 25, EmitDefaultValue = false)] public int FetchesWidened { get; set; }
         }
 
         /// <summary>Starts the one diagnostics line a form save writes to the plug-in trace.</summary>
@@ -150,6 +152,8 @@ namespace Ascentix.RulesEngine.Core.Diagnostics
             SchedulesStarted = d.SchedulesStarted,
             SchedulesContinued = d.SchedulesContinued,
             SchedulesSkipped = d.SchedulesSkipped,
+            FetchesShared = d.FetchesShared,
+            FetchesWidened = d.FetchesWidened,
         };
 
         // Built once: construction is the expensive part, and WriteObject is safe to share across

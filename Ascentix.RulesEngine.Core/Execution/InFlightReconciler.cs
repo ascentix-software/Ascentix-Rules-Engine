@@ -81,34 +81,41 @@ namespace Ascentix.RulesEngine.Core.Execution
             var isCollection = node.ConfigType == TableConfigType.ChildTable;
             var scope = AsSet(scopeIds);
 
-            // One pass over the fetched rows; the batch then costs O(records), not O(records x rows).
-            var byId = new Dictionary<Guid, Entity>();
-            foreach (var row in rows)
-                if (row.Id != Guid.Empty && !byId.ContainsKey(row.Id)) byId[row.Id] = row;
+            // One pass over the fetched rows, then O(1) per record: the batch costs
+            // O(rows + records), not O(records x rows). Positions stay valid because rows are only
+            // appended inside the loop; removals are collected and made in one pass at the end.
+            var byId = new Dictionary<Guid, int>();
+            for (var i = 0; i < rows.Count; i++)
+                if (rows[i].Id != Guid.Empty && !byId.ContainsKey(rows[i].Id)) byId[rows[i].Id] = i;
+            HashSet<Entity> removed = null;
 
             foreach (var record in inFlight.Records)
             {
-                Entity existing = null;
-                if (record.Id != Guid.Empty) byId.TryGetValue(record.Id, out existing);
+                var at = -1;
+                if (record.Id != Guid.Empty && byId.TryGetValue(record.Id, out var index)) at = index;
 
                 if (inFlight.Operation == InFlightOperation.Delete)
                 {
-                    if (isCollection && existing != null)
+                    if (isCollection && at >= 0)
                     {
-                        rows.Remove(existing);
+                        Remove(ref removed, rows[at]);
                         byId.Remove(record.Id);
                     }
                     continue;
                 }
 
-                if (existing != null)
+                if (at >= 0)
                 {
-                    Overlay(existing, record.Target);
+                    // Fetched rows can be shared with other buckets of the run (RunFetchStore):
+                    // overlay a copy and put it in this result's place, never the shared row.
+                    var copy = CopyRow(rows[at]);
+                    rows[at] = copy;
+                    Overlay(copy, record.Target);
                     // A save that moves the row to another parent takes it out of every collection
                     // scoped to the old parent (the new parent's fetch adds it through Belongs).
-                    if (isCollection && MovedOutOfScope(existing, node, record.Target, scope))
+                    if (isCollection && MovedOutOfScope(copy, node, record.Target, scope))
                     {
-                        rows.Remove(existing);
+                        Remove(ref removed, copy);
                         byId.Remove(record.Id);
                     }
                     continue;
@@ -117,8 +124,25 @@ namespace Ascentix.RulesEngine.Core.Execution
                 if (!Belongs(record, node, isCollection, scope)) continue;
                 var added = Clone(record.Root);
                 rows.Add(added);
-                if (added.Id != Guid.Empty) byId[added.Id] = added;
+                if (added.Id != Guid.Empty) byId[added.Id] = rows.Count - 1;
             }
+
+            if (removed != null) rows.RemoveAll(removed.Contains);
+        }
+
+        private static void Remove(ref HashSet<Entity> removed, Entity row)
+        {
+            if (removed == null) removed = new HashSet<Entity>(SameRow.Instance);
+            removed.Add(row);
+        }
+
+        // Rows are told apart by reference, as List.Remove did (Entity keeps object equality),
+        // without calling into the rows themselves.
+        private sealed class SameRow : IEqualityComparer<Entity>
+        {
+            public static readonly SameRow Instance = new SameRow();
+            public bool Equals(Entity x, Entity y) => ReferenceEquals(x, y);
+            public int GetHashCode(Entity row) => RuntimeHelpers.GetHashCode(row);
         }
 
         // Would this node's own fetch have been scoped to the record? For a collection, the
@@ -188,6 +212,17 @@ namespace Ascentix.RulesEngine.Core.Execution
                 foreach (var formatted in source.FormattedValues)
                     copy.FormattedValues[formatted.Key] = formatted.Value;
             if (source.Id == Guid.Empty) CopyOf.Add(copy, source);
+            return copy;
+        }
+
+        // A persisted row's copy (it has an id, so no CopyOf entry is needed for IsRowOf).
+        private static Entity CopyRow(Entity source)
+        {
+            var copy = new Entity(source.LogicalName) { Id = source.Id };
+            foreach (var attr in source.Attributes) copy[attr.Key] = attr.Value;
+            if (source.FormattedValues != null)
+                foreach (var formatted in source.FormattedValues)
+                    copy.FormattedValues[formatted.Key] = formatted.Value;
             return copy;
         }
 
