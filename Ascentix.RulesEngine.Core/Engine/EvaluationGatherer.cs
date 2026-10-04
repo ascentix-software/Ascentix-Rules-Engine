@@ -213,33 +213,36 @@ namespace Ascentix.RulesEngine.Core.Engine
             }
             var inFlight = BuildInFlightBatch(logicalName, trigger, inputs, roots);
 
+            // One group fetch per plan node for all of the bucket's roots (QueryExecutor.ExecuteMany),
+            // split back per root; a single save is a group of one.
+            IReadOnlyList<QueryResultCache> caches = null;
+            if (tree.Count > 0)
+                using (diag.Time("queryExecute"))
+                    caches = new QueryExecutor(bucket.TraversalService, new QueryResultCache(tree), tree, diag, utcNow,
+                            trigger == RuleTrigger.OnCreate, store)
+                        .ExecuteMany(roots, bucket.Plan, inFlight);
+
             var records = new List<EvaluationInput.EvaluationRecord>(roots.Count);
             for (var i = 0; i < roots.Count; i++)
             {
                 var root = roots[i];
-                var cache = new QueryResultCache(tree);
+                var cache = caches != null ? caches[i] : new QueryResultCache(tree);
                 var previousRuns = new List<EvaluationInput.PreviousRun>();
-                if (tree.Count > 0)
-                {
-                    using (diag.Time("queryExecute"))
-                        new QueryExecutor(bucket.TraversalService, cache, tree, diag, utcNow, trigger == RuleTrigger.OnCreate, store)
-                            .Execute(root, bucket.Plan, inFlight);
 
-                    // A changed lookup with ticked actions: run the same plan again with the lookup
-                    // pointed at its previous record (own cache; same in-flight batch, so the moved
-                    // row leaves the previous parent's collections). Same store: collections the
-                    // two runs share are read once.
-                    if (saved != null)
-                        foreach (var changed in PreviousParent.Changed(tree, bucket.AllActions, saved[i], inputs[i].Overlay))
-                        {
-                            var previousRoot = PreviousParent.RootFor(root, changed);
-                            var previousCache = new QueryResultCache(tree);
-                            using (diag.Time("queryExecute"))
-                                new QueryExecutor(bucket.TraversalService, previousCache, tree, diag, utcNow, rootIsNew: false, store: store)
-                                    .Execute(previousRoot, bucket.Plan, inFlight);
-                            previousRuns.Add(new EvaluationInput.PreviousRun(changed.Lookup, previousRoot, previousCache));
-                        }
-                }
+                // A changed lookup with ticked actions: run the same plan again with the lookup
+                // pointed at its previous record (own cache; same in-flight batch, so the moved
+                // row leaves the previous parent's collections). Same store: collections the
+                // two runs share are read once.
+                if (tree.Count > 0 && saved != null)
+                    foreach (var changed in PreviousParent.Changed(tree, bucket.AllActions, saved[i], inputs[i].Overlay))
+                    {
+                        var previousRoot = PreviousParent.RootFor(root, changed);
+                        var previousCache = new QueryResultCache(tree);
+                        using (diag.Time("queryExecute"))
+                            new QueryExecutor(bucket.TraversalService, previousCache, tree, diag, utcNow, rootIsNew: false, store: store)
+                                .Execute(previousRoot, bucket.Plan, inFlight);
+                        previousRuns.Add(new EvaluationInput.PreviousRun(changed.Lookup, previousRoot, previousCache));
+                    }
                 records.Add(new EvaluationInput.EvaluationRecord(i, root, cache, previousRuns));
             }
 
