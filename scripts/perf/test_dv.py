@@ -7,6 +7,7 @@ import os
 import sys
 import types
 import urllib.error
+import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -135,6 +136,27 @@ def test_generate_batch_create_retries_once_with_a_fresh_token_on_401():
     sent = t.requests[-1]
     assert sent.full_url.endswith("/$batch") and sent.get_header("Content-type").startswith("multipart/mixed; boundary=")
     assert sent.get_header("Mscrm.solutionname") == _dv.SOLUTION
+
+
+def test_bulk_create_recovers_a_dropped_chunk_by_name_and_creates_only_the_missing_rows():
+    # $batch has no changeset, so after a dropped connection any part may already exist on the server.
+    found = '{"value": [{"perf_rootid": "g-2", "perf_name": "PERF-ROOT-0002"}]}'
+    created = "--batchresponse\r\nOData-EntityId: https://fake.invalid/api/data/v9.2/perf_roots(g-1)\r\n"
+    t = _with(FakeTransport(_drop(), found, created))
+    payloads = [{"perf_name": "PERF-ROOT-0001"}, {"perf_name": "PERF-ROOT-0002"}]
+    assert generate.bulk_create("perf_roots", payloads, "roots") == ["g-1", "g-2"]
+    lookup, resend = t.requests[1], t.requests[2]
+    assert lookup.get_method() == "GET" and "PERF-ROOT-0001" in urllib.parse.unquote(lookup.full_url)
+    assert resend.data.count(b"PERF-ROOT-0001") == 1 and b"PERF-ROOT-0002" not in resend.data
+
+
+def test_bulk_create_does_not_guess_when_rows_have_no_name():
+    t = _with(FakeTransport(_drop()))
+    try:
+        generate.bulk_create("asx_ruleactions", [{"asx_actiontype": 3}], "actions")
+        assert False, "expected SystemExit"
+    except SystemExit as e:
+        assert "no asx_name" in str(e) and len(t.requests) == 1
 
 
 def test_reset_batch_delete_retries_once_with_a_fresh_token_on_401():

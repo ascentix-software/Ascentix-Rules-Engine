@@ -185,14 +185,46 @@ def batch_post(requests_list):
     return guids
 
 
+def _name_field(entity_set):
+    return "asx_name" if entity_set.startswith("asx_") else "perf_name"
+
+
+def _recover_chunk(entity_set, chunk):
+    """After a dropped connection the server may have created none, some or all of a chunk's rows ($batch
+    without a changeset commits each part on its own). Finds the chunk's rows by their unique names, creates
+    only the missing ones, and returns every id in request order, so children still bind to the right parent.
+    A chunk whose rows have no unique name can't be matched, so it stops rather than risk duplicates."""
+    field = _name_field(entity_set)
+    names = [p.get(field) for p in chunk]
+    if any(n is None for n in names) or len(set(names)) != len(names):
+        raise SystemExit(f"ERROR: the connection dropped creating {entity_set} rows with no {field} to "
+                         "match them by; run reset-data.py and generate again.")
+    id_field = entity_set[:-1] + "id"
+    in_names = ",".join("'" + n.replace("'", "''") + "'" for n in names)
+    flt = urllib.parse.quote(f"Microsoft.Dynamics.CRM.In(PropertyName='{field}',PropertyValues=[{in_names}])")
+    found = {r[field]: r[id_field] for r in get(f"{entity_set}?$select={id_field},{field}&$filter={flt}")["value"]}
+    missing = [p for p, n in zip(chunk, names) if n not in found]
+    print(f"  connection dropped: {len(chunk) - len(missing)} of {len(chunk)} already created; creating the rest")
+    if missing:
+        guids = batch_post([(entity_set, p) for p in missing])
+        if len(guids) != len(missing):
+            raise SystemExit(f"ERROR: recovering {entity_set}: {len(guids)} id(s) for {len(missing)} rows")
+        found.update(zip((p[field] for p in missing), guids))
+    return [found[n] for n in names]
+
+
 def bulk_create(entity_set, payloads, label="records"):
-    """Bulk-create records in BATCH_SIZE chunks. Returns list of created GUIDs."""
+    """Bulk-create records in BATCH_SIZE chunks. Returns list of created GUIDs. A chunk lost to a dropped
+    connection is recovered by name (_recover_chunk)."""
     all_guids = []
     chunks = [payloads[i:i + BATCH_SIZE] for i in range(0, len(payloads), BATCH_SIZE)]
     for ci, chunk in enumerate(chunks):
         print(f"  $batch chunk {ci + 1}/{len(chunks)} ({len(chunk)} {label})...")
         requests_list = [(entity_set, p) for p in chunk]
-        guids = batch_post(requests_list)
+        try:
+            guids = batch_post(requests_list)
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            guids = _recover_chunk(entity_set, chunk)
         if len(guids) != len(chunk):
             # Counts must match 1:1 in request order — children bind to parents by
             # index, so a partial result would scramble FK wiring. Fail loudly rather
