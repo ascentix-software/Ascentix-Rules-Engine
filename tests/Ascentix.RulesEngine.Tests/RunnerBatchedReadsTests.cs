@@ -37,5 +37,45 @@ namespace Ascentix.RulesEngine.Tests
             // Rule(...) fires its Block when the condition does NOT match: only the account without a contact.
             Assert.Equal(new[] { false, true, false }, outcome.Records.Select(r => r.HasBlock).ToArray());
         }
+
+        [Fact]
+        public void A_shared_rules_cache_loads_the_rules_once_and_keeps_the_counters()
+        {
+            var id = Guid.NewGuid(); var service = Context(Rule(id)).GetOrganizationService(); Freeze(service, id);
+            var counting = new CountingOrganizationService(service);
+            var cache = new LoadedRulesCache();
+            RuleEvaluationOutcome Evaluate() => new RulesEngineRunner().Run(counting, counting, "account",
+                new List<RootInput> { new RootInput { Overlay = new Entity("account", Guid.NewGuid()) { ["name"] = "Invalid" } } },
+                RuleTrigger.OnDemand, RuleChannel.Standard, 1033, RootBuildMode.UseTarget, new XrmFakedTracingService(),
+                rules: cache);
+
+            var first = Evaluate();
+            var reads = counting.Count("asx_rule");
+            var second = Evaluate();
+
+            Assert.Equal(reads, counting.Count("asx_rule"));
+            Assert.Equal(first.Diagnostics.RulesLoaded, second.Diagnostics.RulesLoaded);
+            Assert.Equal(first.Diagnostics.RulesEvaluated, second.Diagnostics.RulesEvaluated);
+            Assert.DoesNotContain(second.Diagnostics.Stages, s => s.Name == "ruleLoad");
+            Assert.Equal(first.Records.Single().FiredActions.Count, second.Records.Single().FiredActions.Count);
+        }
+
+        [Fact]
+        public void Rules_are_cached_per_rule()
+        {
+            var a = Guid.NewGuid(); var b = Guid.NewGuid();
+            var service = Context(Rule(a, "A"), Rule(b, "B")).GetOrganizationService(); Freeze(service, a); Freeze(service, b);
+            var evaluator = new Ascentix.RulesEngine.Plugin.OnDemandEvaluator(service, service, 1033, new XrmFakedTracingService());
+            var account = Guid.NewGuid();
+            service.Create(new Entity("account", account) { ["name"] = "Invalid" });
+            var ruleA = new OnDemandRule(a, "account", "A", OnDemandScope.GivenRecord, null, RuleEvaluationContext.User);
+            var ruleB = new OnDemandRule(b, "account", "B", OnDemandScope.GivenRecord, null, RuleEvaluationContext.User);
+
+            var outA = evaluator.Evaluate(ruleA, new[] { account });
+            var outB = evaluator.Evaluate(ruleB, new[] { account });
+
+            Assert.Equal(a, outA.Records.Single().FiredActions.Single().RuleId);
+            Assert.Equal(b, outB.Records.Single().FiredActions.Single().RuleId);
+        }
     }
 }

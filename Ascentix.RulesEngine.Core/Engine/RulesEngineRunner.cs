@@ -33,9 +33,10 @@ namespace Ascentix.RulesEngine.Core.Engine
             int languageId,
             RootBuildMode buildMode,
             ITracingService trace,
-            RuleSelection selection = null)
+            RuleSelection selection = null,
+            LoadedRulesCache rules = null)
             => Run(systemService, userService, logicalName, inputs, trigger, channel, languageId, buildMode, trace,
-                DateTime.UtcNow, selection);
+                DateTime.UtcNow, selection, rules);
 
         /// <summary>Evaluates every bucket at <paramref name="utcNow"/>, so all rules in one run
         /// agree on "now" (date expressions, pushed date literals).</summary>
@@ -50,7 +51,8 @@ namespace Ascentix.RulesEngine.Core.Engine
             RootBuildMode buildMode,
             ITracingService trace,
             DateTime utcNow,
-            RuleSelection selection = null)
+            RuleSelection selection = null,
+            LoadedRulesCache rules = null)
         {
             var diag = new RunDiagnostics();
             var overall = Stopwatch.StartNew();
@@ -74,7 +76,25 @@ namespace Ascentix.RulesEngine.Core.Engine
             // every bucket's columns and serves each distinct read once (RunFetchStore).
             var store = new RunFetchStore(diag);
             var prepared = new List<PreparedBucket>();
-            foreach (var bucket in RuleBuckets.Load(systemService, logicalName, trigger, channel, diag, trace, selection))
+            IReadOnlyList<RuleBuckets.Bucket> buckets;
+            if (rules?.Buckets != null)
+            {
+                buckets = rules.Buckets;
+                diag.RulesLoaded = rules.RulesLoaded;
+                diag.RulesEvaluated = rules.RulesEvaluated;
+            }
+            else
+            {
+                buckets = RuleBuckets.Load(systemService, logicalName, trigger, channel, diag, trace, selection);
+                if (rules != null)
+                {
+                    rules.Buckets = buckets;
+                    rules.RulesLoaded = diag.RulesLoaded;
+                    rules.RulesEvaluated = diag.RulesEvaluated;
+                }
+            }
+
+            foreach (var bucket in buckets)
             {
                 var traversalService = bucket.Context == RuleEvaluationContext.User ? userService : systemService;
                 prepared.Add(EvaluationGatherer.Prepare(
