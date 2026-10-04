@@ -84,6 +84,7 @@ def render_markdown(agg, meta):
 
 COUNTER_KEYS = [
     "rulesLoaded", "rulesEvaluated", "rulesFired", "retrieveCount", "retrieveMultipleCount", "rowsFetched",
+    "fetchesShared", "fetchesWidened",
     "writesSent", "writesUnchanged", "writesMerged", "bulkRequests", "singleRequests", "inPlaceWrites",
     "pageRecords", "pageChunks", "pageBlocked", "pageFailed",
     "schedulesStarted", "schedulesContinued", "schedulesSkipped",
