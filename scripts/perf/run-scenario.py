@@ -31,8 +31,16 @@ import urllib.parse
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import aggregate  # noqa: E402  (pure: no Dataverse)
+import datastate  # noqa: E402  (pure: no Dataverse)
 import profiles  # noqa: E402  (pure: no Dataverse)
 from profiles import SAVE_PROFILES as SAVE_SCENARIOS, S3_FIRE_MARKER  # noqa: E402
+
+# Scenarios whose data a re-run can reuse: S1/S6 only read, S2's saves move roots between lookups (still a
+# valid S2 dataset), and S4's one edit (the set-update run's perf_text) is undone before each reuse. S3 deletes
+# and deactivates its rows and S5 creates schedules, so both always start from a reset.
+REUSABLE_SCENARIOS = ("S1", "S2", "S4", "S6")
+S4_UPDATED_TEXT = "S4-UPDATED"   # what PERF-RULE-S4-WRITE writes (profiles._s4_write)
+S4_ORIGINAL_TEXT = "c1text0"     # the seeded perf_text of S4's one child row per root (flat_child_payload, j = 0)
 
 SCENARIOS = profiles.PROFILES
 DEFAULT_LADDERS = {
@@ -233,6 +241,23 @@ def scheduler_busy(last_seen_on, last_seen_by, me, now, window_minutes=SCHEDULER
     return now - _parse_time(last_seen_on) < datetime.timedelta(minutes=window_minutes)
 
 
+def prepare_step(ops, scenario, step, sample, log, rules=None):
+    """The step's data and rules: reused when the data a previous run left on DEV is exactly this step's
+    (S4's run edits restored first), otherwise reset and generated, then recorded so a re-run can reuse it.
+    Scenarios that change their data beyond repair (S3 deletes rows, S5 creates schedules) never reuse."""
+    reusable = scenario in REUSABLE_SCENARIOS
+    if reusable and ops.data_matches(scenario, step, sample, rules):
+        log(f"{scenario} step {step}: reusing the data already on DEV")
+        ops.restore(scenario)
+        return
+    log(f"{scenario} step {step}: reset")
+    ops.reset()
+    log(f"{scenario} step {step}: generate")
+    ops.prepare(scenario, step, sample, rules)
+    if reusable:
+        ops.record_data(scenario, step, sample, rules)
+
+
 def run_ladder(ops, scenario, ladder, sample, log=print, results=None, rules=None):
     """Runs the ladder, appending to results as it goes (so a caller keeps the finished steps even if
     this raises) and stopping at the first failing step (an error, never a time target: see target_note). A failing reset or generate is a setup failure.
@@ -241,10 +266,7 @@ def run_ladder(ops, scenario, ladder, sample, log=print, results=None, rules=Non
     count = background_rules(scenario, rules)
     for step in ladder:
         try:
-            log(f"{scenario} step {step}: reset")
-            ops.reset()
-            log(f"{scenario} step {step}: generate")
-            ops.prepare(scenario, step, sample, rules)
+            prepare_step(ops, scenario, step, sample, log, rules)
         except Exception as e:  # noqa: BLE001
             results.append({**aggregate.step_result(scenario, step, None, f"setup: {e}"), "backgroundRules": count})
             break
@@ -264,10 +286,12 @@ def run_ladder(ops, scenario, ladder, sample, log=print, results=None, rules=Non
     return results
 
 
-def run(ops, scenario, ladder, sample, log=print, results=None, rules=None):
+def run(ops, scenario, ladder, sample, log=print, results=None, rules=None, keep=False):
     """run_ladder, then reset the data and (S2, S3) put the capture switch back, whatever happened. The
     switch's state is read before it is turned on, so it is restored even when turning it on fails
-    halfway. A failing final reset is logged, not raised, so it never costs the results."""
+    halfway. A failing final reset is logged, not raised, so it never costs the results. keep leaves the
+    last step's data and rules on DEV for a reusable scenario (REUSABLE_SCENARIOS), so a re-run of that step
+    skips the reset and generate; the other scenarios are always reset."""
     results = [] if results is None else results
     switch = None
     try:
@@ -279,8 +303,11 @@ def run(ops, scenario, ladder, sample, log=print, results=None, rules=None):
         return run_ladder(ops, scenario, ladder, sample, log, results, rules)
     finally:
         try:
-            log(f"{scenario}: final reset")
-            ops.reset()
+            if keep and scenario in REUSABLE_SCENARIOS:
+                log(f"{scenario}: keeping the data on DEV for the next run (reset-data.py clears it)")
+            else:
+                log(f"{scenario}: final reset")
+                ops.reset()
         except Exception as e:  # noqa: BLE001
             log(f"{scenario}: final reset failed, run reset-data.py by hand: {e}")
         finally:
@@ -296,14 +323,14 @@ def run(ops, scenario, ladder, sample, log=print, results=None, rules=None):
 
 
 def run_and_report(ops, scenario, ladder, sample, reports_dir, label, today=datetime.date.today, log=print,
-                   rules=None):
+                   rules=None, keep=False):
     """run, then write the reports from whatever steps finished, even when run raised (Ctrl+C, a
     failed switch restore). The date is taken at the start, so a ladder that crosses midnight is
     reported, and joins the capacity summary, under its start date. Returns (results, report paths)."""
     date_str = today().isoformat()
     results = []
     try:
-        run(ops, scenario, ladder, sample, log, results, rules)
+        run(ops, scenario, ladder, sample, log, results, rules, keep)
     finally:
         paths = write_reports(reports_dir, date_str, label, scenario, results) if results else []
         if paths:
@@ -369,7 +396,9 @@ class DataverseOps:
 
     def __init__(self, repo_root, settle_seconds, log=print, dv=None, clock=time.time, sleep=time.sleep,
                  settle_probes=DEFAULT_SETTLE_PROBES, settle_pause=DEFAULT_SETTLE_PAUSE,
-                 retry_pause=DEFAULT_RETRY_PAUSE):
+                 retry_pause=DEFAULT_RETRY_PAUSE, state_file=datastate.STATE_FILE):
+        self.state_file = state_file
+        self._reused = False      # this step runs on data (and published rules) a previous run left
         if dv is None:
             import _dv as dv  # reads .env through scripts/auth.py and fetches a token; never prints either
         self._dv = dv
@@ -401,10 +430,69 @@ class DataverseOps:
             raise RuntimeError(f"{name} failed: " + " | ".join(tail))
 
     def reset(self):
+        self._reused = False
         self._script("reset-data.py", [])
 
     def prepare(self, scenario, step, sample, rules=None):
+        self._reused = False
         self._script("generate.py", generate_args(scenario, step, sample, rules))
+
+    # -- Reusing the data a previous run left on DEV (datastate.py) ---------------
+
+    PERF_COUNTED = (("perf_root", "perf_name", "PERF"), ("perf_child1", "perf_name", "PERF"),
+                    ("perf_child2", "perf_name", "PERF"), ("perf_child3", "perf_name", "PERF"),
+                    ("perf_lookup1", "perf_name", "PERF"), ("perf_lookup2", "perf_name", "PERF"),
+                    ("perf_lookup3", "perf_name", "PERF"), ("perf_followup", "perf_name", "PERF"),
+                    ("asx_rule", "asx_name", "PERF-RULE"))
+
+    def _perf_counts(self):
+        """PERF rows per table and PERF rules on DEV right now (FetchXML aggregate counts)."""
+        counts = {}
+        for entity, field, prefix in self.PERF_COUNTED:
+            fetch = (f"<fetch aggregate='true'><entity name='{entity}'>"
+                     f"<attribute name='{entity}id' aggregate='count' alias='n'/>"
+                     f"<filter><condition attribute='{field}' operator='like' value='{prefix}%'/></filter>"
+                     "</entity></fetch>")
+            counts[entity] = self._get(f"{entity}s?fetchXml={urllib.parse.quote(fetch)}")["value"][0]["n"]
+        return counts
+
+    def _fingerprint(self, scenario, step, sample, rules):
+        return datastate.fingerprint(scenario, step, generate_args(scenario, step, sample, rules))
+
+    def data_matches(self, scenario, step, sample, rules=None):
+        """True when DEV holds exactly the data and rules this step generated last time (see datastate.py)."""
+        state = datastate.load(self.state_file)
+        fp = self._fingerprint(scenario, step, sample, rules)
+        self._reused = bool(state) and state.get("fingerprint") == fp and datastate.matches(state, fp, self._perf_counts())
+        return self._reused
+
+    def record_data(self, scenario, step, sample, rules=None):
+        datastate.save(self._fingerprint(scenario, step, sample, rules), self._perf_counts(), self.state_file)
+
+    S4_RESTORE_BATCH = 1000
+
+    def restore(self, scenario):
+        """Undoes what driving a reused step changed: S4's set-update run rewrote perf_text on every active
+        child row, so a second run would find nothing to change. Puts the seeded value back with
+        UpdateMultiple, a batch at a time, until no row carries the run's value."""
+        if scenario != "S4":
+            return
+        flt = urllib.parse.quote(f"perf_text eq '{S4_UPDATED_TEXT}'")
+        seen, restored = set(), 0
+        while True:
+            rows = self._get(f"perf_child1s?$select=perf_child1id&$filter={flt}&$top={self.S4_RESTORE_BATCH}")["value"]
+            if not rows:
+                break
+            ids = [r["perf_child1id"] for r in rows]
+            if seen.issuperset(ids):
+                raise RuntimeError("restoring S4's perf_text: the same rows came back after UpdateMultiple")
+            seen.update(ids)
+            targets = [{"@odata.type": "Microsoft.Dynamics.CRM.perf_child1", "perf_child1id": i,
+                        "perf_text": S4_ORIGINAL_TEXT} for i in ids]
+            self._call("POST", "perf_child1s/Microsoft.Dynamics.CRM.UpdateMultiple", {"Targets": targets}, timeout=300)
+            restored += len(ids)
+        if restored:
+            self.log(f"  restored perf_text on {restored} child row(s) the last set-update run changed")
 
     # -- S2, S3: the asx_CaptureDiagnostics switch ---------------------------------
 
@@ -552,8 +640,11 @@ class DataverseOps:
         root, ids = roots[0], [r["perf_rootid"] for r in roots]
         known = {r["asx_rulediagnosticid"] for r in self._diagnostic_rows([root["perf_rootid"]])}
         deadline = self._clock() + self.settle_seconds
-        self.log(f"  waiting {self.settle_pause} s for the published rules to go live")
-        self._sleep(min(self.settle_pause, self.settle_seconds))
+        if self._reused:
+            self.log("  reused step: the rules were published by an earlier run, no wait before probing")
+        else:
+            self.log(f"  waiting {self.settle_pause} s for the published rules to go live")
+            self._sleep(min(self.settle_pause, self.settle_seconds))
         streak = 0
         while probe["saves"] == 0 or self._clock() < deadline:
             probe["saves"] += 1
@@ -684,6 +775,10 @@ def parse_args(argv=None):
     parser.add_argument("--label", default="baseline", help="report label (default: baseline)")
     parser.add_argument("--sample", type=int, default=None, help="roots sampled per step (default: 10 for S2 "
                                                                    "and S3, 5 for the others)")
+    parser.add_argument("--clean", action="store_true",
+                        help="reset the data at the end even for a scenario whose data a re-run can reuse "
+                             f"({', '.join(REUSABLE_SCENARIOS)}); by default their last step's data and rules stay "
+                             "on DEV and a re-run of that step skips reset and generate")
     parser.add_argument("--rules", type=int, default=None,
                         help="background rules per step, passed to generate.py (default: the profile's default: "
                              + ", ".join(f"{k} {v}" for k, v in profiles.DEFAULT_BACKGROUND.items())
@@ -728,7 +823,7 @@ def main(argv=None):
         except RuntimeError as e:
             raise SystemExit(f"Refusing to run S5: {e}")
     sample = args.sample or default_sample(args.scenario)
-    run_and_report(ops, args.scenario, ladder, sample, REPORTS_DIR, args.label, rules=args.rules)
+    run_and_report(ops, args.scenario, ladder, sample, REPORTS_DIR, args.label, rules=args.rules, keep=not args.clean)
 
 
 if __name__ == "__main__":

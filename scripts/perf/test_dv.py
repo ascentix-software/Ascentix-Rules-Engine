@@ -1,5 +1,6 @@
 """Unit tests for _dv's token handling with a fake auth module and a fake HTTP transport (no network, no .env).
 Run: python scripts/perf/test_dv.py"""
+import contextlib
 import http.client
 import importlib.util
 import io
@@ -144,7 +145,8 @@ def test_bulk_create_recovers_a_dropped_chunk_by_name_and_creates_only_the_missi
     created = "--batchresponse\r\nOData-EntityId: https://fake.invalid/api/data/v9.2/perf_roots(g-1)\r\n"
     t = _with(FakeTransport(_drop(), found, created))
     payloads = [{"perf_name": "PERF-ROOT-0001"}, {"perf_name": "PERF-ROOT-0002"}]
-    assert generate.bulk_create("perf_roots", payloads, "roots") == ["g-1", "g-2"]
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert generate.bulk_create("perf_roots", payloads, "roots") == ["g-1", "g-2"]
     lookup, resend = t.requests[1], t.requests[2]
     assert lookup.get_method() == "GET" and "PERF-ROOT-0001" in urllib.parse.unquote(lookup.full_url)
     assert resend.data.count(b"PERF-ROOT-0001") == 1 and b"PERF-ROOT-0002" not in resend.data
@@ -153,7 +155,8 @@ def test_bulk_create_recovers_a_dropped_chunk_by_name_and_creates_only_the_missi
 def test_bulk_create_does_not_guess_when_rows_have_no_name():
     t = _with(FakeTransport(_drop()))
     try:
-        generate.bulk_create("asx_ruleactions", [{"asx_actiontype": 3}], "actions")
+        with contextlib.redirect_stdout(io.StringIO()):
+            generate.bulk_create("asx_ruleactions", [{"asx_actiontype": 3}], "actions")
         assert False, "expected SystemExit"
     except SystemExit as e:
         assert "no asx_name" in str(e) and len(t.requests) == 1
