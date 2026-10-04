@@ -25,9 +25,10 @@ class FakeOps:
     """Records every call; drive() passes (100 ms) unless told to fail, raise or be interrupted."""
 
     def __init__(self, fail_at=None, raise_at=None, interrupt_at=None, setup_fails_at=None, switch=SWITCH,
-                 reset_fails_on=(), clock=None):
+                 reset_fails_on=(), clock=None, slow_at=None):
         self.calls = []
         self.fail_at, self.raise_at, self.interrupt_at, self.setup_fails_at = fail_at, raise_at, interrupt_at, setup_fails_at
+        self.slow_at = slow_at                    # this step runs 3000 ms: over the S1/S6 target, still a pass
         self.switch = switch
         self.reset_fails_on = reset_fails_on      # which reset calls (1-based) fail, the final reset included
         self.clock = clock                        # when given, every drive takes a minute
@@ -51,8 +52,9 @@ class FakeOps:
         if step == self.raise_at:
             raise RuntimeError("PATCH perf_roots(x): 500: plug-in timed out")
         summary = {**aggregate.empty_summary(), "samples": 1, "stages": {"queryExecute": 50},
-                   "totalMs": 3000 if step == self.fail_at else 100}
-        return [aggregate.step_result(scenario, step, summary, rs.bound_error(scenario, summary))]
+                   "totalMs": 3000 if step == self.slow_at else 100}
+        error = "found 2 of 5 diagnostics rows" if step == self.fail_at else rs.bound_error(scenario, summary)
+        return [aggregate.step_result(scenario, step, summary, error, note=rs.target_note(scenario, summary))]
 
     def read_capture_switch(self):
         self.calls.append(("read_switch",))
@@ -73,7 +75,7 @@ def test_stops_at_the_first_failing_step_and_resets_between_and_after():
     ops = FakeOps(fail_at=500)
     results = rs.run(ops, "S1", [100, 500, 2000], 5, log=lambda *_: None)
     assert [(r["step"], r["passed"]) for r in results] == [("100", True), ("500", False)]
-    assert results[1]["error"] == "median totalMs 3000 > 2000"
+    assert results[1]["error"] == "found 2 of 5 diagnostics rows"
     assert ("prepare", 2000) not in ops.calls
     assert [c for c in ops.calls if c[0] == "reset"] == [("reset",)] * 3
     assert ops.calls[0] == ("reset",) and ops.calls[-1] == ("reset",)
@@ -126,13 +128,32 @@ def test_a_setup_error_is_a_failed_step_and_stops_the_ladder():
 
 def test_bounds():
     s = aggregate.empty_summary()
-    assert rs.bound_error("S1", {**s, "totalMs": 2000}) is None
-    assert rs.bound_error("S6", {**s, "totalMs": 2001}) == "median totalMs 2001 > 2000"
-    assert rs.bound_error("S3", {**s, "totalMs": 99999}) is None
+    # Time targets are data, never a failure.
+    assert rs.bound_error("S1", {**s, "totalMs": 2001}) is None
+    assert rs.bound_error("S6", {**s, "totalMs": 99999}) is None
     done = {**s, "totalMs": 5000, "counters": {**s["counters"], "schedulesStarted": 6, "schedulesContinued": 4}}
     assert rs.bound_error("S5", done, expected=10) is None
+    assert rs.bound_error("S5", {**done, "totalMs": 60001}, expected=10) is None
     assert rs.bound_error("S5", done, expected=12) == "10 of 12 due schedules started or continued"
-    assert rs.bound_error("S5", {**done, "totalMs": 60001}, expected=10) == "totalMs 60001 > 60000"
+
+
+def test_target_notes():
+    s = aggregate.empty_summary()
+    assert rs.target_note("S1", {**s, "totalMs": 2000}) is None
+    assert rs.target_note("S6", {**s, "totalMs": 2001}) == "over target: median totalMs 2001 > 2000"
+    assert rs.target_note("S3", {**s, "totalMs": 99999}) is None
+    assert rs.target_note("S5", {**s, "totalMs": 60000}) is None
+    assert rs.target_note("S5", {**s, "totalMs": 60001}) == "over target: totalMs 60001 > 60000"
+
+
+def test_a_step_over_its_time_target_passes_with_a_note_and_the_ladder_goes_on():
+    logged = []
+    ops = FakeOps(slow_at=500)
+    results = rs.run(ops, "S1", [100, 500, 2000], 5, log=logged.append)
+    assert [(r["step"], r["passed"], r.get("note")) for r in results] == [
+        ("100", True, None), ("500", True, "over target: median totalMs 3000 > 2000"), ("2000", True, None)]
+    assert ("drive", 2000) in ops.calls
+    assert "  500: pass (3000 ms; over target: median totalMs 3000 > 2000)" in logged
 
 
 def _row(rid, record, diag, created="2026-09-30T12:00:00Z"):

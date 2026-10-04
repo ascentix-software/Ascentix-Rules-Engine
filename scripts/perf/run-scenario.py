@@ -135,15 +135,22 @@ def background_rules(scenario, rules):
 
 
 def bound_error(scenario, summary, expected=None):
-    """The scenario-specific failure bound (spec §2); None when the step is within it."""
-    if scenario in ("S1", "S6") and summary["totalMs"] > SYNC_TARGET_MS:
-        return f"median totalMs {summary['totalMs']} > {SYNC_TARGET_MS}"
+    """A step's functional failure beyond an engine error: S5 must start or continue every due schedule.
+    None when it did. Running slower than a time target is not a failure (see target_note)."""
     if scenario == "S5":
-        if summary["totalMs"] > SCHEDULER_BUDGET_MS:
-            return f"totalMs {summary['totalMs']} > {SCHEDULER_BUDGET_MS}"
         handled = summary["counters"].get("schedulesStarted", 0) + summary["counters"].get("schedulesContinued", 0)
         if expected is not None and handled < expected:
             return f"{handled} of {expected} due schedules started or continued"
+    return None
+
+
+def target_note(scenario, summary):
+    """A note when a step ran slower than its scenario's time target (S1/S6: median 2,000 ms; S5: 60,000 ms).
+    Over target is data to report, not a failure: the step passes and the ladder goes on. None within target."""
+    if scenario in ("S1", "S6") and summary["totalMs"] > SYNC_TARGET_MS:
+        return f"over target: median totalMs {summary['totalMs']} > {SYNC_TARGET_MS}"
+    if scenario == "S5" and summary["totalMs"] > SCHEDULER_BUDGET_MS:
+        return f"over target: totalMs {summary['totalMs']} > {SCHEDULER_BUDGET_MS}"
     return None
 
 
@@ -228,7 +235,7 @@ def scheduler_busy(last_seen_on, last_seen_by, me, now, window_minutes=SCHEDULER
 
 def run_ladder(ops, scenario, ladder, sample, log=print, results=None, rules=None):
     """Runs the ladder, appending to results as it goes (so a caller keeps the finished steps even if
-    this raises) and stopping at the first failing step. A failing reset or generate is a setup failure.
+    this raises) and stopping at the first failing step (an error, never a time target: see target_note). A failing reset or generate is a setup failure.
     Every result records its background rule count (backgroundRules)."""
     results = [] if results is None else results
     count = background_rules(scenario, rules)
@@ -250,7 +257,8 @@ def run_ladder(ops, scenario, ladder, sample, log=print, results=None, rules=Non
             r["backgroundRules"] = count
         results.extend(step_results)
         for r in step_results:
-            log(f"  {r['step']}: {'pass' if r['passed'] else 'FAIL ' + str(r['error'])} ({r['summary']['totalMs']} ms)")
+            note = f"; {r['note']}" if r.get("note") else ""
+            log(f"  {r['step']}: {'pass' if r['passed'] else 'FAIL ' + str(r['error'])} ({r['summary']['totalMs']} ms{note})")
         if any(not r["passed"] for r in step_results):
             break
     return results
@@ -468,7 +476,8 @@ class DataverseOps:
                                                        "Triggers": "OnUpdate", "IncludeDiagnostics": True})[1]
             samples.append(json.loads(body["Diagnostics"]))
         summary = aggregate.summarize_saves(samples)
-        return [aggregate.step_result(scenario, step, summary, bound_error(scenario, summary))]
+        return [aggregate.step_result(scenario, step, summary, bound_error(scenario, summary),
+                                      note=target_note(scenario, summary))]
 
     # -- S2, S3: real saves, diagnostics read back from asx_rulediagnostic ----------
 
@@ -636,7 +645,8 @@ class DataverseOps:
         self._wait_until_due(step)
         body = self._call("POST", "asx_StartDueSchedules", {"IncludeDiagnostics": True}, timeout=150)[1]
         summary = aggregate.summarize_saves([json.loads(body["Diagnostics"])])
-        return [aggregate.step_result("S5", step, summary, bound_error("S5", summary, expected=step))]
+        return [aggregate.step_result("S5", step, summary, bound_error("S5", summary, expected=step),
+                                      note=target_note("S5", summary))]
 
     def _wait_until_due(self, expected, cap_minutes=20):
         """Wait until every PERF schedule is due (a minute past the latest Next run on). A null Next run

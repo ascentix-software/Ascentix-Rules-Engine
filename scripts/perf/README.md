@@ -167,14 +167,17 @@ reports are written from every step that finished, even when the run is interrup
 A step **fails**, and the ladder stops there, when:
 - `generate.py` or `reset-data.py` fails (recorded as `setup: ...`);
 - a call or save errors or times out (the 2-minute plug-in limit, the 25,000-row cap, ...);
-- S1, S6: the median total is above 2,000 ms;
 - S2, S3: `--settle-probes` probe saves in a row never all wrote their diagnostics row within
   `--trace-settle` seconds (`enforcement did not settle: k of K consecutive probe saves captured`),
   or any measured save has no diagnostics row when the 60-second read window ends
   (`found M of N diagnostics rows`);
 - S4: a run page fails (a repeated record failure or any other error), or the run doesn't finish
   within its page budget;
-- S5: the call takes more than 60,000 ms, or fewer schedules were started or continued than were due.
+- S5: fewer schedules were started or continued than were due.
+
+A step slower than its time target (S1, S6: median above 2,000 ms; S5: above 60,000 ms) still
+**passes**: the time is data, so the report's Note column says `over target: ...` and the ladder goes
+on.
 
 **DEV only.** The driver refuses to run unless `DATAVERSE_URL` (the process environment wins over
 `.env`) is the DEV URL in `.env`. It never reads or prints secrets.

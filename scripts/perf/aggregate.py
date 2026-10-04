@@ -148,9 +148,14 @@ def summarize_pages(pages):
     }
 
 
-def step_result(scenario, step, summary, error):
-    return {"scenario": scenario, "step": str(step), "passed": error is None, "error": error,
+def step_result(scenario, step, summary, error, note=None):
+    """note: what to report about a passing step, e.g. that it ran over its time target."""
+    return {"scenario": scenario, "step": str(step), "passed": error is None, "error": error, "note": note,
             "summary": summary if summary is not None else empty_summary()}
+
+
+def _has_notes(results):
+    return any(r.get("note") for r in results)
 
 
 def dominant_stage(summary):
@@ -206,12 +211,13 @@ def step_rows(results):
     captured = _captures(results)
     probes = _has_probes(results)
     rules = _has_rules(results)
+    notes = _has_notes(results)
     stage_names = []
     for r in results:
         for n in r["summary"]["stages"]:
             if n not in stage_names:
                 stage_names.append(n)
-    header = (["scenario", "step", "result", "error"] + (["diagCaptured"] if captured else [])
+    header = (["scenario", "step", "result", "error"] + (["note"] if notes else []) + (["diagCaptured"] if captured else [])
               + (["probeSaves"] if probes else []) + (["backgroundRules"] if rules else [])
               + ["samples", "totalMs", "maxMs", "recordsPerHour"]
               + COUNTER_KEYS + ["stage:" + n for n in stage_names])
@@ -219,6 +225,7 @@ def step_rows(results):
     for r in results:
         s = r["summary"]
         rows.append([r["scenario"], r["step"], "pass" if r["passed"] else "fail", r["error"] or ""]
+                    + ([r.get("note") or ""] if notes else [])
                     + ([r.get("diagCaptured") or ""] if captured else [])
                     + (["" if r.get("probeSaves") is None else r["probeSaves"]] if probes else [])
                     + (["" if r.get("backgroundRules") is None else r["backgroundRules"]] if rules else [])
@@ -231,14 +238,16 @@ def step_rows(results):
 def render_scenario_markdown(scenario, label, date_str, results):
     captured = _captures(results)
     probes = _has_probes(results)
+    notes = _has_notes(results)
     lines = [f"# {scenario} -- {label} ({date_str})", ""] + ([_rules_line(results), ""] if _has_rules(results) else [])
-    lines += ["| Step | Result | Samples | total ms | max ms | Dominant stage | Error |"
+    lines += ["| Step | Result | Samples | total ms | max ms | Dominant stage | Error |" + (" Note |" if notes else "")
               + (" Diagnostics rows found |" if captured else "") + (" Probe saves |" if probes else ""),
-              "|---|---|---|---|---|---|---|" + ("---|" if captured else "") + ("---|" if probes else "")]
+              "|---|---|---|---|---|---|---|" + ("---|" if notes else "") + ("---|" if captured else "") + ("---|" if probes else "")]
     for r in results:
         s = r["summary"]
         lines.append(f"| {r['step']} | {'pass' if r['passed'] else 'fail'} | {s['samples']} | {s['totalMs']} | "
                      f"{s['maxMs']} | {_share(*dominant_stage(s))} | {_cell(r['error'])} |"
+                     + (f" {_cell(r.get('note'))} |" if notes else "")
                      + (f" {_cell(r.get('diagCaptured'))} |" if captured else "")
                      + (f" {_cell(r.get('probeSaves'))} |" if probes else ""))
     header, rows = step_rows(results)

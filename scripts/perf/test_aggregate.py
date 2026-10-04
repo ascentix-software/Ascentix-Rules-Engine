@@ -83,6 +83,20 @@ def test_scenario_markdown_lists_each_step_and_its_stages():
     assert "| queryExecute | 300 | 2100 |" in md
 
 
+def test_a_note_shows_in_its_own_column_only_when_a_step_has_one():
+    plain = [step_result("S1", 100, _summary(samples=5, totalMs=400), None)]
+    assert "note" not in step_rows(plain)[0]
+    assert "Note |" not in render_scenario_markdown("S1", "x", "2026-10-04", plain)
+    noted = plain + [step_result("S1", 2000, _summary(samples=5, totalMs=2954, maxMs=3309, stages={"queryExecute": 1698}),
+                                 None, note="over target: median totalMs 2954 > 2000")]
+    header, rows = step_rows(noted)
+    assert header[3:5] == ["error", "note"]
+    assert rows[1][2:5] == ["pass", "", "over target: median totalMs 2954 > 2000"] and rows[0][4] == ""
+    md = render_scenario_markdown("S1", "x", "2026-10-04", noted)
+    assert "| Step | Result | Samples | total ms | max ms | Dominant stage | Error | Note |" in md
+    assert "| 2000 | pass | 5 | 2954 | 3309 | queryExecute (57%) |  | over target: median totalMs 2954 > 2000 |" in md
+
+
 def test_capacity_summary_names_the_last_pass_the_first_fail_and_its_error():
     s1 = [step_result("S1", "100", _summary(totalMs=400, stages={"queryExecute": 300, "evaluate": 50}), None),
           step_result("S1", "500", _summary(totalMs=1500, stages={"queryExecute": 1200}), None),
