@@ -25,9 +25,11 @@ class FakeOps:
     """Records every call; drive() passes (100 ms) unless told to fail, raise or be interrupted."""
 
     def __init__(self, fail_at=None, raise_at=None, interrupt_at=None, setup_fails_at=None, switch=SWITCH,
-                 reset_fails_on=(), clock=None):
+                 reset_fails_on=(), clock=None, slow_at=None, kept=None):
         self.calls = []
+        self.kept = kept                          # (scenario, step) whose data is already on DEV, or None
         self.fail_at, self.raise_at, self.interrupt_at, self.setup_fails_at = fail_at, raise_at, interrupt_at, setup_fails_at
+        self.slow_at = slow_at                    # this step runs 3000 ms: over the S1/S6 target, still a pass
         self.switch = switch
         self.reset_fails_on = reset_fails_on      # which reset calls (1-based) fail, the final reset included
         self.clock = clock                        # when given, every drive takes a minute
@@ -51,8 +53,20 @@ class FakeOps:
         if step == self.raise_at:
             raise RuntimeError("PATCH perf_roots(x): 500: plug-in timed out")
         summary = {**aggregate.empty_summary(), "samples": 1, "stages": {"queryExecute": 50},
-                   "totalMs": 3000 if step == self.fail_at else 100}
-        return [aggregate.step_result(scenario, step, summary, rs.bound_error(scenario, summary))]
+                   "totalMs": 3000 if step == self.slow_at else 100}
+        error = "found 2 of 5 diagnostics rows" if step == self.fail_at else rs.bound_error(scenario, summary)
+        return [aggregate.step_result(scenario, step, summary, error, note=rs.target_note(scenario, summary))]
+
+    def data_matches(self, scenario, step, sample, rules=None):
+        self.calls.append(("matches?", step))
+        return self.kept == (scenario, step)
+
+    def record_data(self, scenario, step, sample, rules=None):
+        self.calls.append(("record", step))
+        self.kept = (scenario, step)
+
+    def restore(self, scenario):
+        self.calls.append(("restore", scenario))
 
     def read_capture_switch(self):
         self.calls.append(("read_switch",))
@@ -73,10 +87,10 @@ def test_stops_at_the_first_failing_step_and_resets_between_and_after():
     ops = FakeOps(fail_at=500)
     results = rs.run(ops, "S1", [100, 500, 2000], 5, log=lambda *_: None)
     assert [(r["step"], r["passed"]) for r in results] == [("100", True), ("500", False)]
-    assert results[1]["error"] == "median totalMs 3000 > 2000"
+    assert results[1]["error"] == "found 2 of 5 diagnostics rows"
     assert ("prepare", 2000) not in ops.calls
     assert [c for c in ops.calls if c[0] == "reset"] == [("reset",)] * 3
-    assert ops.calls[0] == ("reset",) and ops.calls[-1] == ("reset",)
+    assert ops.calls[:2] == [("matches?", 100), ("reset",)] and ops.calls[-1] == ("reset",)
 
 
 def test_only_the_save_scenarios_touch_the_capture_switch():
@@ -124,15 +138,77 @@ def test_a_setup_error_is_a_failed_step_and_stops_the_ladder():
     assert ("drive", 500) not in ops.calls and ("prepare", 2000) not in ops.calls
 
 
+def test_a_step_whose_data_is_still_on_dev_skips_reset_and_generate():
+    ops = FakeOps(kept=("S2", 10000))
+    results = rs.run(ops, "S2", [10000], 10, log=lambda *_: None, keep=True)
+    assert [(r["step"], r["passed"]) for r in results] == [("10000", True)]
+    assert ("reset",) not in ops.calls and not any(c[0] in ("prepare", "record") for c in ops.calls)
+    assert ("drive", 10000) in ops.calls
+
+
+def test_generated_data_is_recorded_and_kept_at_the_end_when_asked():
+    ops = FakeOps()
+    rs.run(ops, "S1", [100, 500], 5, log=lambda *_: None, keep=True)
+    steps = [c for c in ops.calls if c[0] in ("reset", "prepare", "record", "drive")]
+    assert steps == [("reset",), ("prepare", 100), ("record", 100), ("drive", 100),
+                     ("reset",), ("prepare", 500), ("record", 500), ("drive", 500)]   # no final reset
+
+
+def test_without_keep_the_data_is_still_reset_at_the_end():
+    ops = FakeOps(kept=("S1", 100))
+    rs.run(ops, "S1", [100], 5, log=lambda *_: None)
+    assert ops.calls[-1] == ("reset",)
+
+
+def test_scenarios_that_change_their_data_never_reuse_it_and_always_reset_at_the_end():
+    for scenario in ("S3", "S5"):
+        ops = FakeOps(kept=(scenario, 100))
+        rs.run(ops, scenario, [100], 5, log=lambda *_: None, keep=True)
+        assert not any(c[0] in ("matches?", "record") for c in ops.calls)
+        assert ("prepare", 100) in ops.calls and ops.calls[-1] in (("reset",), ("restore_switch", SWITCH))
+        assert ("reset",) in ops.calls[ops.calls.index(("drive", 100)):]
+
+
+def test_data_is_kept_unless_clean_is_asked_for():
+    assert rs.parse_args(["--scenario", "S2"]).clean is False
+    assert rs.parse_args(["--scenario", "S2", "--clean"]).clean is True
+
+
+def test_kept_s4_data_is_restored_before_it_is_driven_again():
+    ops = FakeOps(kept=("S4", 1000))
+    rs.run(ops, "S4", [1000], 5, log=lambda *_: None, keep=True)
+    assert ops.calls.index(("restore", "S4")) < ops.calls.index(("drive", 1000))
+    assert ("reset",) not in ops.calls
+
+
 def test_bounds():
     s = aggregate.empty_summary()
-    assert rs.bound_error("S1", {**s, "totalMs": 2000}) is None
-    assert rs.bound_error("S6", {**s, "totalMs": 2001}) == "median totalMs 2001 > 2000"
-    assert rs.bound_error("S3", {**s, "totalMs": 99999}) is None
+    # Time targets are data, never a failure.
+    assert rs.bound_error("S1", {**s, "totalMs": 2001}) is None
+    assert rs.bound_error("S6", {**s, "totalMs": 99999}) is None
     done = {**s, "totalMs": 5000, "counters": {**s["counters"], "schedulesStarted": 6, "schedulesContinued": 4}}
     assert rs.bound_error("S5", done, expected=10) is None
+    assert rs.bound_error("S5", {**done, "totalMs": 60001}, expected=10) is None
     assert rs.bound_error("S5", done, expected=12) == "10 of 12 due schedules started or continued"
-    assert rs.bound_error("S5", {**done, "totalMs": 60001}, expected=10) == "totalMs 60001 > 60000"
+
+
+def test_target_notes():
+    s = aggregate.empty_summary()
+    assert rs.target_note("S1", {**s, "totalMs": 2000}) is None
+    assert rs.target_note("S6", {**s, "totalMs": 2001}) == "over target: median totalMs 2001 > 2000"
+    assert rs.target_note("S3", {**s, "totalMs": 99999}) is None
+    assert rs.target_note("S5", {**s, "totalMs": 60000}) is None
+    assert rs.target_note("S5", {**s, "totalMs": 60001}) == "over target: totalMs 60001 > 60000"
+
+
+def test_a_step_over_its_time_target_passes_with_a_note_and_the_ladder_goes_on():
+    logged = []
+    ops = FakeOps(slow_at=500)
+    results = rs.run(ops, "S1", [100, 500, 2000], 5, log=logged.append)
+    assert [(r["step"], r["passed"], r.get("note")) for r in results] == [
+        ("100", True, None), ("500", True, "over target: median totalMs 3000 > 2000"), ("2000", True, None)]
+    assert ("drive", 2000) in ops.calls
+    assert "  500: pass (3000 ms; over target: median totalMs 3000 > 2000)" in logged
 
 
 def _row(rid, record, diag, created="2026-09-30T12:00:00Z"):
@@ -437,6 +513,8 @@ class FakeDv:
         self.saves = []
         self.posts = []
         self.paths = []
+        self.counts = {}                                          # entity -> PERF rows (FetchXML aggregate counts)
+        self.child_texts = {}                                     # perf_child1id -> perf_text (S4 restore)
 
     def whoami(self):
         return {"UserId": "me"}
@@ -495,7 +573,18 @@ class FakeDv:
                 return {"OData-EntityId": f"https://x/api/data/v9.2/asx_ruleruns(run-{len(self.posts)})"}, None
             if path == "asx_ProcessRunPage":
                 return {}, {"Done": True, "Diagnostics": json.dumps({"totalMs": 50, "pageRecords": 1})}
+            if path == "perf_child1s/Microsoft.Dynamics.CRM.UpdateMultiple":
+                for target in payload["Targets"]:
+                    self.child_texts[target["perf_child1id"]] = target["perf_text"]
+                return {}, None
             raise AssertionError(f"unexpected POST {path}")
+        if "fetchXml=" in path:
+            entity = re.search(r"<entity name='([^']+)'", path).group(1)
+            return {}, {"value": [{"n": self.counts.get(entity, 0)}]}
+        if path.startswith("perf_child1s?"):
+            top = int(re.search(r"\$top=(\d+)", path).group(1))
+            text = re.search(r"perf_text eq '([^']+)'", path).group(1)
+            return {}, {"value": [{"perf_child1id": i} for i, t in self.child_texts.items() if t == text][:top]}
         if path.startswith("asx_rules?"):
             return {}, {"value": [{"asx_ruleid": "rule-1"}]}
         if path.startswith("environmentvariabledefinitions?"):
@@ -519,11 +608,57 @@ class FakeDv:
         raise AssertionError(f"unexpected {method} {path}")
 
 
-def _ops(dv, clock, settle=60, probes=None, pause=0, retry=0):
+# Tests never touch the real docs/perf/.data-state.json.
+TEST_STATE = os.path.join(tempfile.gettempdir(), f"perf-test-data-state-{os.getpid()}.json")
+
+
+def _ops(dv, clock, settle=60, probes=None, pause=0, retry=0, log=None):
     """No settle pauses unless a test asks: most tests are about the streak, not the waiting."""
     kw = {} if probes is None else {"settle_probes": probes}
-    return rs.DataverseOps(rs.REPO_ROOT, settle, log=lambda *_: None, dv=dv, clock=clock.time, sleep=clock.sleep,
-                           settle_pause=pause, retry_pause=retry, **kw)
+    return rs.DataverseOps(rs.REPO_ROOT, settle, log=log or (lambda *_: None), dv=dv, clock=clock.time,
+                           sleep=clock.sleep, settle_pause=pause, retry_pause=retry, state_file=TEST_STATE, **kw)
+
+
+def test_data_matches_only_when_the_fingerprint_and_the_counts_on_dev_agree():
+    clock = FakeClock()
+    dv = FakeDv(clock)
+    dv.counts = {"perf_root": 5, "perf_child1": 50000, "asx_rule": 101}
+    rs.datastate.clear(TEST_STATE)
+    ops = _ops(dv, clock)
+    assert not ops.data_matches("S2", 10000, 10)                # nothing recorded yet
+    ops.record_data("S2", 10000, 10)
+    assert ops.data_matches("S2", 10000, 10)
+    assert not ops.data_matches("S2", 5000, 10)                 # another step's data
+    assert not ops.data_matches("S2", 10000, 10, rules=20)      # another background rule count
+    dv.counts["perf_child1"] = 49900                            # rows deleted since
+    assert not ops.data_matches("S2", 10000, 10)
+    rs.datastate.clear(TEST_STATE)
+
+
+def test_a_reused_save_step_probes_without_the_publish_wait():
+    clock = FakeClock()
+    dv = FakeDv(clock, roots=3)
+    logged = []
+    ops = _ops(dv, clock, pause=120, probes=1, log=logged.append)
+    ops._reused = True
+    ops.drive("S2", 100, 3)
+    assert not any("waiting 120 s" in line for line in logged)
+    assert any("no wait before probing" in line for line in logged)
+
+
+def test_restoring_s4_puts_the_seeded_text_back_on_every_row_the_set_update_changed():
+    clock = FakeClock()
+    dv = FakeDv(clock)
+    dv.child_texts = {f"c-{i}": "S4-UPDATED" for i in range(2500)}
+    dv.child_texts["c-untouched"] = "c1text0"
+    ops = _ops(dv, clock)
+    ops.restore("S4")
+    assert set(dv.child_texts.values()) == {"c1text0"}
+    updates = [p for path, p in dv.posts if path == "perf_child1s/Microsoft.Dynamics.CRM.UpdateMultiple"]
+    assert [len(p["Targets"]) for p in updates] == [1000, 1000, 500]
+    assert updates[0]["Targets"][0]["@odata.type"] == "Microsoft.Dynamics.CRM.perf_child1"
+    ops.restore("S2")                                           # nothing to undo for the other scenarios
+    assert len([1 for path, _ in dv.posts if "UpdateMultiple" in path]) == 3
 
 
 def test_the_fake_client_refuses_a_url_that_urlopen_would_refuse():
@@ -633,7 +768,8 @@ class _LadderOps(rs.DataverseOps):
     """The real switch handling against FakeDv; reset, prepare and drive stubbed (no scripts, no saves)."""
 
     def __init__(self, dv, clock, drive):
-        super().__init__(rs.REPO_ROOT, 60, log=lambda *_: None, dv=dv, clock=clock.time, sleep=clock.sleep)
+        super().__init__(rs.REPO_ROOT, 60, log=lambda *_: None, dv=dv, clock=clock.time, sleep=clock.sleep,
+                         state_file=TEST_STATE)
         self._stub_drive = drive
         self.switch_seen = []
 

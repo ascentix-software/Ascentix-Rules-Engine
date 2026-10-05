@@ -2,7 +2,9 @@
 
     python scripts/perf/test_reset_data.py
 """
+import contextlib
 import importlib.util
+import io
 import os
 import sys
 import types
@@ -63,6 +65,21 @@ def test_any_other_failed_part_still_stops_the_reset():
         assert False, "expected SystemExit"
     except SystemExit as e:
         assert "1 part(s) failed" in str(e) and "403" in str(e)
+
+
+def test_a_reset_forgets_the_kept_data_before_deleting_anything():
+    # An interrupted reset leaves DEV half-cleared: the state file must already be gone by then.
+    order = []
+    saved = (rd.datastate.clear, rd.delete_rules, rd.delete_data_table)
+    rd.datastate.clear = lambda *a: order.append("clear")
+    rd.delete_rules = lambda: order.append("rules")
+    rd.delete_data_table = lambda *a, **k: order.append("data")
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            rd.main()
+    finally:
+        rd.datastate.clear, rd.delete_rules, rd.delete_data_table = saved
+    assert order[0] == "clear" and order.count("clear") == 1 and "rules" in order
 
 
 if __name__ == "__main__":

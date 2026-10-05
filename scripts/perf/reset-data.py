@@ -11,6 +11,9 @@ Deletes (in order):
      diagnostics S2/S3 saves write while run-scenario.py has asx_CaptureDiagnostics on. Last, so
      rows written while the data was being deleted go too.
 
+First of all it forgets the data run-scenario.py kept for reuse (datastate.py), so an interrupted reset
+never leaves half-deleted data marked as reusable.
+
 Idempotent -- safe to re-run when already clean.
 ASCII-only console output.
 """
@@ -22,6 +25,7 @@ import uuid
 
 sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "perf"))
 import _dv  # noqa: E402
+import datastate  # noqa: E402
 from _dv import get, delete  # noqa: E402
 
 
@@ -96,6 +100,7 @@ def delete_data_table(entityset, idfield, namefield="perf_name", prefix="PERF"):
 
 def main():
     print("=== Perf fixture reset (rules + data; schema + tableconfig kept) ===")
+    datastate.clear()
 
     # Step 1: RULES FIRST -- Block rules veto perf_root deletes once published.
     # Must remove enforcement before touching any data rows.
