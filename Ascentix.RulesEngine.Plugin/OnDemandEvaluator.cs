@@ -22,6 +22,9 @@ namespace Ascentix.RulesEngine.Plugin
         private readonly int _languageId;
         private readonly ITracingService _trace;
 
+        // One loaded rule set per rule for the life of this evaluator (one Rule Run page).
+        private readonly Dictionary<Guid, LoadedRulesCache> _rules = new Dictionary<Guid, LoadedRulesCache>();
+
         public OnDemandEvaluator(IOrganizationService system, IOrganizationService user, int languageId, ITracingService trace)
         {
             _system = system;
@@ -50,11 +53,15 @@ namespace Ascentix.RulesEngine.Plugin
 
         /// <summary>Evaluates <paramref name="rule"/> against <paramref name="ids"/>: one Runner
         /// call, trigger OnDemand, retrieved persisted records, standard channel, narrowed to
-        /// this rule across any channel it is tagged for.</summary>
-        public RuleEvaluationOutcome Evaluate(OnDemandRule rule, IList<Guid> ids) =>
-            new RulesEngineRunner().Run(_system, _user, rule.Table,
+        /// this rule across any channel it is tagged for. The rule is loaded on the first call for it
+        /// and reused by later calls on this evaluator.</summary>
+        public RuleEvaluationOutcome Evaluate(OnDemandRule rule, IList<Guid> ids)
+        {
+            if (!_rules.TryGetValue(rule.RuleId, out var loaded)) _rules[rule.RuleId] = loaded = new LoadedRulesCache();
+            return new RulesEngineRunner().Run(_system, _user, rule.Table,
                 ids.Select(id => new RootInput { Id = id, Overlay = null }).ToList(),
                 RuleTrigger.OnDemand, RuleChannel.Standard, _languageId, RootBuildMode.RetrieveOnly, _trace,
-                new RuleSelection { RuleId = rule.RuleId, AnyChannel = true });
+                new RuleSelection { RuleId = rule.RuleId, AnyChannel = true }, loaded);
+        }
     }
 }

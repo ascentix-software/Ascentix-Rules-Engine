@@ -232,6 +232,26 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void A_page_of_several_groups_loads_its_rule_once()
+        {
+            // Rule reads for a page of one group are the baseline; three groups of one record
+            // (ChunkSize = 1) on one page must read the rule no more often.
+            int RuleReads(IEnumerable<Guid> ids)
+            {
+                var counting = new CountingOrganizationService(_service);
+                var runId = SeedRun(OnDemandScope.GivenRecord, ids);
+                var result = Processor(new RunPageLimits { PageSize = 10, ChunkSize = 1 }, counting).Process(runId, null, null);
+                Assert.True(result.Done);
+                return counting.Count(Q(SchemaNames.Rule.Entity));
+            }
+
+            var oneGroup = RuleReads(new[] { _zz1 });
+            var threeGroups = RuleReads(new[] { _zz1, _zz2, _zz3 });
+
+            Assert.Equal(oneGroup, threeGroups);
+        }
+
+        [Fact]
         public void A_failure_report_page_counts_one_failed_record_and_no_chunks()
         {
             var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1 });
