@@ -5,6 +5,7 @@ using Ascentix.RulesEngine.Core.Resolution;
 using Ascentix.RulesEngine.Core.Validation;
 using Ascentix.RulesEngine.Core.Publication;
 using Ascentix.RulesEngine.Plugin.Publication;
+using Ascentix.RulesEngine.Plugin.DataUpdates;
 using Microsoft.Xrm.Sdk.Query;
 
 namespace Ascentix.RulesEngine.Plugin
@@ -27,6 +28,11 @@ namespace Ascentix.RulesEngine.Plugin
             if (!context.InputParameters.TryGetValue("Target", out var t) || !(t is Entity target)) return;
 
             if (target.GetAttributeValue<OptionSetValue>("statuscode")?.Value != (int)RuleStatus.Published) return;
+
+            // A pending data update must convert existing rules before any rule is published (docs/Schema.md §5.1).
+            var pendingUpdate = DataUpdateGate.FirstPending(service, DataUpdateRegistry.All);
+            if (pendingUpdate != null)
+                throw new InvalidPluginExecutionException(DataUpdateGate.PublishRefusal(pendingUpdate.Number));
 
             var header = service.Retrieve("asx_rule", target.Id, new ColumnSet(true));
             if (header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf) == null &&
