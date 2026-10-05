@@ -300,5 +300,90 @@ namespace Ascentix.RulesEngine.Tests
             Assert.True(cs.HasRootInPlace);
             Assert.Equal(2, cs.Merged);
         }
+
+        private static (Guid, ChangeSet) Rec(params WriteIntent[] intents)
+        {
+            var id = Guid.NewGuid();
+            return (id, ChangeSet.Build(intents, null, id));
+        }
+
+        [Fact]
+        public void Same_row_updates_from_two_records_merge_and_the_later_record_wins()
+        {
+            var row = Guid.NewGuid();
+            var a = Rec(Update("contact", row, 1, "jobtitle", "A"), Update("contact", row, 1, "telephone1", "1"));
+            var b = Rec(Update("contact", row, 1, "jobtitle", "B"));
+            var combined = ChangeSet.Combine(new[] { a, b });
+            var write = Assert.Single(Assert.Single(combined.Batches).Writes);
+            Assert.Equal("B", write.Values["jobtitle"]);
+            Assert.Equal("1", write.Values["telephone1"]);
+            Assert.Equal(new[] { a.Item1, b.Item1 }, combined.RecordsOf(write));
+            Assert.Equal(1, combined.Updates);
+        }
+
+        [Fact]
+        public void An_update_then_a_delete_of_one_row_across_records_is_a_delete()
+        {
+            var row = Guid.NewGuid();
+            var combined = ChangeSet.Combine(new[] { Rec(Update("contact", row, 1, "jobtitle", "A")), Rec(Delete("contact", row, 1)) });
+            var batch = Assert.Single(combined.Batches);
+            Assert.Equal(WriteOperation.Delete, batch.Operation);
+            Assert.Single(batch.Writes);
+            Assert.Equal(1, combined.Deletes);
+            Assert.Equal(0, combined.Updates);
+        }
+
+        [Fact]
+        public void A_delete_then_an_update_of_one_row_across_records_stays_a_delete()
+        {
+            var row = Guid.NewGuid();
+            var combined = ChangeSet.Combine(new[] { Rec(Delete("contact", row, 1)), Rec(Update("contact", row, 1, "jobtitle", "B")) });
+            Assert.Equal(WriteOperation.Delete, Assert.Single(combined.Batches).Operation);
+        }
+
+        [Fact]
+        public void Creates_never_merge_and_repeated_deletes_collapse()
+        {
+            var row = Guid.NewGuid();
+            var combined = ChangeSet.Combine(new[]
+            {
+                Rec(Create("task", 1), Delete("contact", row, 2)),
+                Rec(Create("task", 1), Delete("contact", row, 2)),
+            });
+            Assert.Equal(2, combined.Creates);
+            Assert.Equal(1, combined.Deletes);
+            Assert.Equal(new[] { WriteOperation.Create, WriteOperation.Delete }, combined.Batches.Select(b => b.Operation).ToArray());
+        }
+
+        [Fact]
+        public void Unchanged_writes_stay_dropped_and_are_counted()
+        {
+            var row = Guid.NewGuid();
+            var noOp = Rec(WithLoaded(Update("contact", row, 1, "jobtitle", "Same"), "jobtitle", "Same"));
+            var real = Rec(Update("contact", Guid.NewGuid(), 1, "jobtitle", "New"));
+            var combined = ChangeSet.Combine(new[] { noOp, real });
+            Assert.Equal(1, combined.Updates);
+            Assert.Equal(1, combined.Unchanged);
+            Assert.Equal(new[] { real.Item1 }, combined.RecordsOf(Assert.Single(Assert.Single(combined.Batches).Writes)));
+        }
+
+        [Fact]
+        public void Batches_follow_record_order_per_table_and_context()
+        {
+            var a = Rec(Update("contact", Guid.NewGuid(), 1, "jobtitle", "A"));
+            var b = Rec(Update("account", Guid.NewGuid(), 1, "name", "B"));
+            var c = Rec(Update("contact", Guid.NewGuid(), 1, "jobtitle", "C"));
+            var combined = ChangeSet.Combine(new[] { a, b, c });
+            Assert.Equal(new[] { "contact", "account" }, combined.Batches.Select(x => x.Table).ToArray());
+            Assert.Equal(new object[] { "A", "C" }, combined.Batches[0].Writes.Select(w => w.Values["jobtitle"]).ToArray());
+        }
+
+        [Fact]
+        public void A_combined_write_keeps_its_first_action_label_for_error_messages()
+        {
+            var row = Guid.NewGuid();
+            var combined = ChangeSet.Combine(new[] { Rec(Update("contact", row, 1, "jobtitle", "A")), Rec(Update("contact", row, 2, "jobtitle", "B")) });
+            Assert.Equal("a1", Assert.Single(Assert.Single(combined.Batches).Writes).ActionLabel);
+        }
     }
 }
