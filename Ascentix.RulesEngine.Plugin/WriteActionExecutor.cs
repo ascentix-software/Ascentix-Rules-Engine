@@ -132,7 +132,7 @@ namespace Ascentix.RulesEngine.Plugin
                         $"{combined.Updates} update(s), {combined.Deletes} delete(s), {combined.Unchanged} unchanged.");
             try
             {
-                new ChangeSetDispatcher(support, _sender, trace, diagnostics: diagnostics).SendBatches(combined, userService, systemService);
+                new ChangeSetDispatcher(support, _sender, trace, diagnostics: diagnostics, tagFailedWrites: true).SendBatches(combined, userService, systemService);
             }
             catch (InvalidPluginExecutionException ex)
             {

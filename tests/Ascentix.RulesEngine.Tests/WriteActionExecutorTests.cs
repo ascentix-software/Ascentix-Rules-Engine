@@ -436,6 +436,38 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void A_per_record_failure_carries_no_failed_write()
+        {
+            var recorder = new Recorder { FailWhen = r => true };
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
+                new WriteActionExecutor(_ => new AlwaysBulk(), recorder).ExecuteRecord(
+                    RecordWith(DeleteOf("account", Guid.NewGuid())), null, null, null, false, new NullTrace()));
+            Assert.False(ex.Data.Contains(ChangeSetDispatcher.FailedWriteKey));
+        }
+
+        [Fact]
+        public void Group_diagnostics_stay_zero_when_nothing_goes_and_carry_the_combined_counts_when_it_does()
+        {
+            var diag = new RunDiagnostics();
+            var none = new[] { RecordWith(DeleteOf("contact", Guid.NewGuid())), RecordWith(DeleteOf("contact", Guid.NewGuid())) };
+            Assert.False(new WriteActionExecutor(_ => new AlwaysBulk(), new Recorder())
+                .TryExecuteGroup(none, null, null, false, new NullTrace(), diag, out _));
+            Assert.Equal(0, diag.WritesUnchanged);
+            Assert.Equal(0, diag.WritesMerged);
+
+            var shared = Guid.NewGuid();
+            var records = new[]
+            {
+                RecordWith(UpdateOf("contact", shared, "jobtitle", "x")),
+                RecordWith(UpdateOf("contact", shared, "jobtitle", "x")),
+                RecordWith(UpdateOf("contact", Guid.NewGuid(), "jobtitle", "y")),
+            };
+            Assert.True(new WriteActionExecutor(_ => new AlwaysBulk(), new Recorder())
+                .TryExecuteGroup(records, null, null, false, new NullTrace(), diag, out _));
+            Assert.True(diag.WritesMerged >= 1);
+        }
+
+        [Fact]
         public void An_engine_initiated_group_is_left_to_the_per_record_path()
         {
             var records = new[] { RecordWith(UpdateOf("contact", Guid.NewGuid(), "jobtitle", "a")), RecordWith(UpdateOf("contact", Guid.NewGuid(), "jobtitle", "b")) };
