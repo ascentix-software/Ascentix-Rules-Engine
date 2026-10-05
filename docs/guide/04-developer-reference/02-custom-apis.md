@@ -265,6 +265,8 @@ records already reported this way. Send `FailedRecordId` only on the call right
 after a record-failed error — any other error means stop and try again later;
 the run stays Queued or Running and resumes from its bookmark.
 
+When a batched group write fails, the id in the error may stand for the group rather than a record; send it back as `FailedRecordId` exactly as for a record — the next calls write that group one record at a time and report the record that fails.
+
 ```http
 POST /api/data/v9.2/asx_ProcessRunPage
 Content-Type: application/json
