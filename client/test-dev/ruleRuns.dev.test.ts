@@ -97,9 +97,12 @@ function recordFailure(err: unknown): { recordId: string; message: string } | nu
 // Drives a run with the real record-failed retry protocol: a record-failed error rolls the page
 // back, and the next call reports that record once (FailedRecordId/FailedMessage) and processes
 // nothing; the call after that re-processes the page without it.
-async function driveWithRetries(runId: string): Promise<{ last: Awaited<ReturnType<typeof processRunPage>>; retries: number }> {
+async function driveWithRetries(
+  runId: string,
+): Promise<{ last: Awaited<ReturnType<typeof processRunPage>>; retries: number; reported: string[] }> {
   let failed: { recordId: string; message: string } | undefined;
   let retries = 0;
+  const reported: string[] = [];
   for (let calls = 0; calls < 500; calls++) {
     let last: Awaited<ReturnType<typeof processRunPage>>;
     try {
@@ -110,9 +113,10 @@ async function driveWithRetries(runId: string): Promise<{ last: Awaited<ReturnTy
       if (!parsed) throw err;
       failed = parsed;
       retries++;
+      reported.push(parsed.recordId.toLowerCase());
       continue;
     }
-    if (last.done) return { last, retries };
+    if (last.done) return { last, retries, reported };
   }
   throw new Error("driveWithRetries: the run did not finish within 500 calls.");
 }
@@ -262,14 +266,21 @@ describe("on-demand Rule Runs", () => {
       }
 
       const runId = await createRun(undefined, failRule.ruleId);
-      const { last, retries } = await driveWithRetries(runId);
+      const { last, reported } = await driveWithRetries(runId);
 
       expect(last.status).toBe(4); // Completed with failures
       expect(last.changed).toBe(matching.length);
       expect(last.failed).toBe(failing.length);
-      // The 10 records are one group: its batched write fails once (a stand-in re-call), then the
-      // group writes one record at a time with one rollback per failing record, never repeated.
-      expect(retries).toBe(failing.length + 1);
+      // One rollback per failing record, never repeated. The run reads the whole sample_orders table,
+      // so these records can share groups of 25 with other rows: each group whose batched write fails
+      // adds one re-call with a stand-in id (not a record), and after 3 such failures the run writes
+      // one record at a time.
+      const failingIds = failing.map((id) => id.toLowerCase());
+      const realReports = reported.filter((id) => failingIds.includes(id));
+      const standIns = reported.filter((id) => !failingIds.includes(id));
+      expect([...realReports].sort()).toEqual([...failingIds].sort());
+      expect(standIns.length).toBeLessThanOrEqual(3);
+      for (const id of standIns) expect(matching.map((m) => m.toLowerCase())).not.toContain(id);
 
       const run = await api.retrieveRecord(ENTITY_SET.ruleRun, runId, "?$select=asx_failures");
       const failures: Array<{ recordId: string; kind: string }> = JSON.parse(run.asx_failures ?? "[]");
