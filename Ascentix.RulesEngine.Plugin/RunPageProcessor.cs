@@ -152,12 +152,17 @@ namespace Ascentix.RulesEngine.Plugin
 
             // A failed group batch reported its group's stand-in (StandIn): mark the group to write one
             // record at a time and count nothing. After BatchFailuresBeforeSingleWrites of these the run
-            // writes one record at a time for good. Anything else is today's record-failed report.
-            if (failedRecordId.HasValue && IsStandIn(run, failedRecordId.Value, out var isolatedStart))
+            // writes one record at a time for good. Anything else is today's record-failed report. A
+            // repeated report for a group already marked is a duplicate (a marked group never batches),
+            // so it counts no second failed batch.
+            if (failedRecordId.HasValue && IsStandIn(run, allRecords, ids, failedRecordId.Value, out var isolatedStart))
             {
-                if (!row.Bookmark.Isolate.Contains(isolatedStart)) row.Bookmark.Isolate.Add(isolatedStart);
-                row.Bookmark.BatchFailures++;
-                if (row.Bookmark.BatchFailures >= BatchFailuresBeforeSingleWrites) row.Bookmark.SingleWrites = true;
+                if (!row.Bookmark.Isolate.Contains(isolatedStart))
+                {
+                    row.Bookmark.Isolate.Add(isolatedStart);
+                    row.Bookmark.BatchFailures++;
+                    if (row.Bookmark.BatchFailures >= BatchFailuresBeforeSingleWrites) row.Bookmark.SingleWrites = true;
+                }
                 if (row.Status == RuleRunStatus.Queued) row.Status = RuleRunStatus.Running;
                 row.LastPageOn = _utcNow();
                 _trace.Trace($"RunPageProcessor: batched write failed for the group starting at {isolatedStart}; " +
@@ -290,11 +295,13 @@ namespace Ascentix.RulesEngine.Plugin
 
                 // Batch the group's writes unless the run has switched to single writes or this group was
                 // isolated after a failed batch. TryExecuteGroup returns false (nothing sent) when nothing in
-                // the group can go bulk; the loop below then writes per record exactly as before.
+                // the group can go bulk; the loop below then writes per record exactly as before. A group
+                // whose stand-in is in the skip list (once taken for a record) also writes per record:
+                // batching again could only re-report a stand-in its re-call would ignore.
                 HashSet<Guid> groupWritten = null;
                 var groupStart = existingIds[0];
                 var isolated = row.Bookmark.Isolate.Contains(groupStart);
-                if (!row.Bookmark.SingleWrites && !isolated)
+                if (!row.Bookmark.SingleWrites && !isolated && !skip.Contains(StandIn(groupStart)))
                 {
                     var toWrite = outcome.Records.Where(rec => !rec.GatedRuleIds.Contains(rule.RuleId) && !rec.HasBlock).ToList();
                     try
@@ -398,11 +405,14 @@ namespace Ascentix.RulesEngine.Plugin
             return Save(runId, row, done: false);
         }
 
-        // True when id is a stand-in: its decoding is a record of the run's table and id itself is not.
-        // Any failure to resolve the run's rule means "not a stand-in" (today's report path handles it).
-        private bool IsStandIn(Entity run, Guid id, out Guid groupStart)
+        // True when id is a stand-in: its decoding is a record of the run and id itself is not. A given-records
+        // run decides from its own ids with no reads (a listed id is always a record's report). An all-records
+        // run checks the rule's table; any failure to resolve the run's rule there means "not a stand-in"
+        // (today's report path handles it).
+        private bool IsStandIn(Entity run, bool allRecords, List<Guid> ids, Guid id, out Guid groupStart)
         {
             groupStart = StandIn(id);
+            if (!allRecords) return ids.Contains(groupStart) && !ids.Contains(id);
             try
             {
                 var rule = OnDemandRules.Resolve(_system, run.GetAttributeValue<EntityReference>(Q(SchemaNames.RuleRun.Rule))?.Id ?? Guid.Empty, _trace);

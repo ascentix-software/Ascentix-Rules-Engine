@@ -464,7 +464,7 @@ namespace Ascentix.RulesEngine.Tests
             };
             Assert.True(new WriteActionExecutor(_ => new AlwaysBulk(), new Recorder())
                 .TryExecuteGroup(records, null, null, false, new NullTrace(), diag, out _));
-            Assert.True(diag.WritesMerged >= 1);
+            Assert.Equal(1, diag.WritesMerged);
         }
 
         [Fact]
