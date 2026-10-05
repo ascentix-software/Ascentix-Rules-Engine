@@ -14,6 +14,11 @@ import { ENTITY_SET, BIND_NAV, LOOKUP } from "../src/editor/load/odata";
 // touches the 3 orders this suite seeds. Everything self-cleans: the rule's own delete cascade
 // (docs/Schema.md §2.14/§2.13 — deleting the rule deletes its schedule and its runs) backstops
 // the explicit cleanup below.
+//
+// DEV runs the scheduler add-on's flow, which calls asx_StartDueSchedules on its own timer. It can
+// start or continue this suite's due schedule before the test's own call does, so the Due and
+// Continue tests check what happened to the schedule and the rule's runs, never that the test's own
+// call returned the run (the flow runs the same engine code, so the end state is the same).
 
 const TIMESTAMP = Date.now();
 const PREFIX = `ZZ_RB_sched_${TIMESTAMP}`;
@@ -66,6 +71,14 @@ async function activeRuns(): Promise<Array<{ id: string }>> {
     `?$filter=${LOOKUP.ruleOfRun} eq ${rule.ruleId} and (asx_status eq 1 or asx_status eq 2)&$select=asx_rulerunid`,
   );
   return r.entities.map((e: any) => ({ id: e.asx_rulerunid as string }));
+}
+
+// Every run of the suite's rule, in any status (lower-cased ids).
+async function ruleRunIds(): Promise<string[]> {
+  const r = await api.retrieveMultipleRecords(
+    ENTITY_SET.ruleRun, `?$filter=${LOOKUP.ruleOfRun} eq ${rule.ruleId}&$select=asx_rulerunid`,
+  );
+  return r.entities.map((e: any) => (e.asx_rulerunid as string).toLowerCase());
 }
 
 async function cancelActiveRuns(): Promise<void> {
@@ -165,14 +178,13 @@ describe("rule schedules", () => {
   it("Due: starts a run, advances Next run on by ~24h, and the run applies the rule", async () => {
     const dueAt = await makeDueInTwoMinutes();
 
-    const result = await startDueSchedules();
+    await startDueSchedules();
 
     const runs = await api.retrieveMultipleRecords(
       ENTITY_SET.ruleRun, `?$filter=${LOOKUP.ruleOfRun} eq ${rule.ruleId}&$select=asx_rulerunid`,
     );
     expect(runs.entities).toHaveLength(1);
     const runId = runs.entities[0].asx_rulerunid as string;
-    expect(result.runIds.map((id: string) => id.toLowerCase())).toContain(runId.toLowerCase());
 
     const after = await getSchedule("asx_lastoutcome,asx_nextrunon");
     expect(after.asx_lastoutcome).toBe(1); // Started a run
@@ -189,19 +201,20 @@ describe("rule schedules", () => {
   }, 240000);
 
   it("Continue: a schedule due while its rule already has an active run continues that run", async () => {
+    const earlier = new Set(await ruleRunIds()); // the Due test's run
     const runId = await createRun(); // left Queued deliberately: no processRunPage call
     await makeDueInTwoMinutes();
 
-    const result = await startDueSchedules();
-    expect(result.runIds.map((id: string) => id.toLowerCase())).toContain(runId.toLowerCase());
+    await startDueSchedules();
 
     const after = await getSchedule("asx_lastoutcome");
     expect(after.asx_lastoutcome).toBe(2); // Continued the active run
 
-    const active = await activeRuns();
-    expect(active).toHaveLength(1); // no second run was created
-    expect(active[0].id.toLowerCase()).toBe(runId.toLowerCase());
+    // No second run was created. The run may already have finished: when the flow continues a run
+    // it also drives it, so this counts every run the rule gained during this test, in any status.
+    const gained = (await ruleRunIds()).filter((id) => !earlier.has(id));
+    expect(gained).toEqual([runId.toLowerCase()]);
 
-    await updateDevRecord(ENTITY_SET.ruleRun, runId, { asx_status: 6 }); // Cancelled
+    await cancelActiveRuns();
   }, 240000);
 });
