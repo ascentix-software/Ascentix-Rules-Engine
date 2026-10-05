@@ -21,6 +21,7 @@ trigger:
       - pipelines/plugin-ci.yml
       - pipelines/Deploy-PluginAssembly.ps1
       - pipelines/Configure-RuleAuthoring.ps1
+      - pipelines/Invoke-DataUpdates.ps1
       - pipelines/plugintypes.json
 
 pr: none
@@ -138,6 +139,7 @@ stages:
                       -AssemblyName "$(dataversePluginAssemblyName)" `
                       -PluginTypesManifest "$(Build.SourcesDirectory)/pipelines/plugintypes.json"
                     & "$(Build.SourcesDirectory)/pipelines/Configure-RuleAuthoring.ps1" -Phase Register -EnvUrl $resource -AccessToken $token
+                    & "$(Build.SourcesDirectory)/pipelines/Invoke-DataUpdates.ps1" -EnvUrl $resource -AccessToken $token
               # Queue the live-L2 verification run (single trigger path, deduped when a
               # cross-cutting merge deploys via both CI pipelines). See the template.
               - template: templates/queue-live-l2.yml

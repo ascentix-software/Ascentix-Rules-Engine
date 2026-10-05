@@ -18,6 +18,31 @@ export interface RunPageResult {
   failed: number;
   skipped: number;
 }
+/** A data update the environment still needs (asx_ApplyDataUpdates `Pending`, docs/Schema.md §10). */
+export interface DataUpdateRef { number: number; title: string; }
+/** The last-touched data update (asx_ApplyDataUpdates `Latest`). */
+export interface DataUpdateReport {
+  number: number; title: string; status: number; succeeded: number; failed: number;
+  failures: { item: string; message: string }[];
+}
+/** Camel-cased outputs of the asx_ApplyDataUpdates Custom API. */
+export interface DataUpdateStatus {
+  required: number; pending: DataUpdateRef[]; latest: DataUpdateReport | null; canApply: boolean; done: boolean;
+}
+/** asx_dataupdate.asx_status values. */
+export const DATA_UPDATE_STATUS = { Running: 1, Completed: 2, CompletedWithFailures: 3 } as const;
+
+export function parseDataUpdateStatus(raw: any): DataUpdateStatus {
+  const pending = raw?.Pending ? JSON.parse(raw.Pending) : [];
+  const latest = raw?.Latest ? JSON.parse(raw.Latest) : null;
+  return {
+    required: raw?.Required ?? 0,
+    pending: Array.isArray(pending) ? pending : [],
+    latest: latest ?? null,
+    canApply: !!raw?.CanApply,
+    done: !!raw?.Done,
+  };
+}
 
 // Thin port over the read operations the editor needs. All editor load logic
 // depends on this interface, never on Xrm directly, so it is mockable in tests.
@@ -41,6 +66,8 @@ export interface WebApiPort {
   unpublishRule(ruleId: string): Promise<void>;
   /** Call asx_RunRules (report-only) for one record and return its fired actions and change set. */
   dryRun?(table: string, recordId: string, triggers: string): Promise<DryRunResult>;
+  /** asx_ApplyDataUpdates: "Status" for anyone with rule read; "Apply" for administrators (docs/Schema.md §10). */
+  applyDataUpdates?(mode: "Status" | "Apply", options?: { retry?: number; failed?: { item: string; message: string } }): Promise<DataUpdateStatus>;
 }
 
 // A full-page web resource can reach the Client API on the window or its parent.
@@ -115,6 +142,14 @@ export function createWebApiPort(): EditorApi {
         skipped: raw.Skipped,
       };
     },
+    async applyDataUpdates(mode, options) {
+      const raw = await revisionRequest(base, "asx_ApplyDataUpdates", {
+        Mode: mode,
+        ...(options?.retry !== undefined ? { Retry: options.retry } : {}),
+        ...(options?.failed ? { FailedItem: options.failed.item, FailedMessage: options.failed.message } : {}),
+      });
+      return parseDataUpdateStatus(raw);
+    },
     async dryRun(table, recordId, triggers) {
       return parseDryRun(await revisionRequest(base, "asx_RunRules", { TableName: table, RecordId: recordId, Triggers: triggers }));
     },
@@ -187,7 +222,7 @@ async function patchStatus(base: string, op: string, ruleId: string, statuscode:
   if (!res.ok) { const raw = await res.json().catch(() => null); throw new Error(`${op} PATCH failed (${res.status}): ${raw?.error?.message ?? "Request failed"}`); }
 }
 
-async function revisionRequest(base: string, name: string, body: Record<string, string>): Promise<any> {
+async function revisionRequest(base: string, name: string, body: Record<string, string | number>): Promise<any> {
   const response = await fetch(`${base}/api/data/${API_VERSION}/${name}`, {
     method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body),

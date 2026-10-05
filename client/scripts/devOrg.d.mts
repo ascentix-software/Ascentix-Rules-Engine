@@ -104,6 +104,11 @@ export interface OrgHandle {
   applyRules(ruleId: string, recordId: string): Promise<ApplyRulesResult>;
   /** Call asx_ProcessRunPage: advances one Rule Run by a page. */
   processRunPage(runId: string, failed?: ProcessRunPageFailure): Promise<ProcessRunPageResult>;
+  /** Call asx_ApplyDataUpdates: check or apply pending data updates. */
+  applyDataUpdates(mode: "Status" | "Apply"): Promise<{
+    required: number; pending: { number: number; title: string }[];
+    latest: unknown; canApply: boolean; done: boolean;
+  }>;
   /** Call asx_StartDueSchedules: starts/continues every due Rule Schedule and records the heartbeat. */
   startDueSchedules(): Promise<StartDueSchedulesResult>;
 }

@@ -13,5 +13,6 @@
   "Ascentix.RulesEngine.Plugin.RuleRunPlugin",
   "Ascentix.RulesEngine.Plugin.RuleRunUpdatePlugin",
   "Ascentix.RulesEngine.Plugin.RuleSchedulePlugin",
-  "Ascentix.RulesEngine.Plugin.StartDueSchedulesApi"
+  "Ascentix.RulesEngine.Plugin.StartDueSchedulesApi",
+  "Ascentix.RulesEngine.Plugin.ApplyDataUpdatesApi"
 ]

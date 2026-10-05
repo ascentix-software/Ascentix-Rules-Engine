@@ -26,7 +26,7 @@ namespace Ascentix.RulesEngine.Tests
         private static Entity RefRow(string entity, Guid id, string parentField, string parentEntity, Guid parent) =>
             new Entity(entity, id) { [parentField] = new EntityReference(parentEntity, parent) };
 
-        private static List<Entity> Rule(Guid id, string name = "Live")
+        internal static List<Entity> Rule(Guid id, string name = "Live")
         {
             var group = RefRow("asx_conditiongroup", Guid.NewGuid(), "asx_rule", "asx_rule", id);
             group["asx_logicaloperator"] = new OptionSetValue(1); group["asx_isexecutioncondition"] = false;
@@ -43,7 +43,7 @@ namespace Ascentix.RulesEngine.Tests
             return new List<Entity> { header, group, condition, action };
         }
 
-        private static TransactionalPluginContext Context(params List<Entity>[] rules)
+        internal static TransactionalPluginContext Context(params List<Entity>[] rules)
         {
             var context = new TransactionalPluginContext();
             var rows = rules.SelectMany(r => r).ToList();

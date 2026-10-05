@@ -25,6 +25,8 @@ import { NewConfigDialog } from "./hub/NewConfigDialog";
 import { ConfirmDeleteDialog } from "./hub/ConfirmDeleteDialog";
 import { activateOnKey } from "./keyboard";
 import { formatError } from "./errors";
+import { useDataUpdates } from "../dataUpdates/DataUpdateContext";
+import { DataUpdateBanner } from "../dataUpdates/DataUpdateBanner";
 import { canRunNow, RunNowDialog, type RunNowRule } from "../runs/RunNowDialog";
 import { RunsDialog } from "../runs/RunsDialog";
 import { executionConditionNames } from "../runs/runsData";
@@ -96,6 +98,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   api: EditorApi; rules: RuleListItem[]; configs: ConfigListItem[]; truncated?: boolean;
 }) {
   const styles = useEditorStyles();
+  const { readOnly } = useDataUpdates();
   const stacked = !useIsWide(900);
   const [rules, setRules] = React.useState(initialRules);
   const [configs, setConfigs] = React.useState(initialConfigs);
@@ -241,6 +244,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
               </Callout>
             </div>
           )}
+          <DataUpdateBanner api={api} />
 
           {/* Tabs */}
           <div style={{ borderBottom: `1px solid ${color.line}`, margin: "18px 0 16px",
@@ -262,10 +266,12 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
 
           {/* Command bar */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-            <Button appearance="primary" icon={<Add16Regular />} disabled={busy}
-              onClick={() => (tab === "rules" ? setNewRuleOpen(true) : setNewConfigOpen(true))}>
-              {tab === "rules" ? "New rule" : "New table configuration"}
-            </Button>
+            {!readOnly && (
+              <Button appearance="primary" icon={<Add16Regular />} disabled={busy}
+                onClick={() => (tab === "rules" ? setNewRuleOpen(true) : setNewConfigOpen(true))}>
+                {tab === "rules" ? "New rule" : "New table configuration"}
+              </Button>
+            )}
             <SearchBox placeholder={tab === "rules" ? "Search rules" : "Search configurations"} value={search}
               onChange={(_e, d) => { setSearch(d.value); reset(); }} style={{ minWidth: 240 }} />
             {tab === "rules" ? (
@@ -339,8 +345,10 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                           <Button size="small" appearance="subtle" icon={<History16Regular />} aria-label="Runs" title="Runs"
                             disabled={busy} onClick={() => setRunsRule({ id: r.id, name: r.name, table: r.tableLogicalName })} />
                         )}
-                        <Button size="small" appearance="subtle" icon={<Copy16Regular />} aria-label="Duplicate" title="Duplicate" disabled={busy} onClick={() => onDuplicateRule(r.id)} />
-                        <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete" title="Delete" disabled={busy} style={{ color: color.danger }} onClick={() => setPendingDelete({ kind: "rule", id: r.id, name: r.name })} />
+                        {!readOnly && (<>
+                          <Button size="small" appearance="subtle" icon={<Copy16Regular />} aria-label="Duplicate" title="Duplicate" disabled={busy} onClick={() => onDuplicateRule(r.id)} />
+                          <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete" title="Delete" disabled={busy} style={{ color: color.danger }} onClick={() => setPendingDelete({ kind: "rule", id: r.id, name: r.name })} />
+                        </>)}
                       </span>
                     ) },
                   ];
@@ -369,11 +377,13 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                     { label: "Modified", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{modified(c.modifiedOn, c.modifiedBy)}</span> },
                     { label: "", node: (
                       <span style={{ display: "flex", gap: 2, justifyContent: stacked ? "flex-start" : "flex-end" }} onClick={(e) => e.stopPropagation()}>
-                        <Button size="small" appearance="subtle" icon={<Copy16Regular />} aria-label="Duplicate" title="Duplicate" disabled={busy} onClick={() => onDuplicateConfig(c.id)} />
-                        <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete"
-                          title={c.usedByCount > 0 ? "In use, can't delete" : "Delete"}
-                          disabled={busy || c.usedByCount > 0} style={{ color: c.usedByCount > 0 ? undefined : color.danger }}
-                          onClick={() => setPendingDelete({ kind: "config", id: c.id, name: c.name })} />
+                        {!readOnly && (<>
+                          <Button size="small" appearance="subtle" icon={<Copy16Regular />} aria-label="Duplicate" title="Duplicate" disabled={busy} onClick={() => onDuplicateConfig(c.id)} />
+                          <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete"
+                            title={c.usedByCount > 0 ? "In use, can't delete" : "Delete"}
+                            disabled={busy || c.usedByCount > 0} style={{ color: c.usedByCount > 0 ? undefined : color.danger }}
+                            onClick={() => setPendingDelete({ kind: "config", id: c.id, name: c.name })} />
+                        </>)}
                       </span>
                     ) },
                   ];

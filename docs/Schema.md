@@ -395,6 +395,28 @@ on or off, so a change takes up to a minute to apply and a save normally pays no
 read is one query on `environmentvariabledefinition`, a system table that always exists, so with the
 switch off (the default) a save never touches `asx_rulediagnostic`.
 
+### 2.18 Data Update (`asx_dataupdate`)
+
+Organization-owned. One row per release data update that has started, written only by
+`asx_ApplyDataUpdates` (§10). The row id is fixed per update number, so a number has at most one row.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (200, primary) | The update's title |
+| `asx_number` | Integer (min 0) | The update's number; never reused |
+| `asx_status` | Choice (local) | Running (1), Completed (2), Completed with failures (3) |
+| `asx_cursor` | Memo (100,000) | Where the update resumes; owned by the update |
+| `asx_succeeded` | Integer (min 0) | Items converted |
+| `asx_failed` | Integer (min 0) | Items that failed |
+| `asx_failures` | Memo (100,000) | JSON array of the first 50 `{item, message}` |
+| `asx_startedon` | DateTime (UserLocal) | Set when the update (or a retry) starts |
+| `asx_completedon` | DateTime (UserLocal) | Set when it finishes |
+| `asx_lastpageon` | DateTime (UserLocal) | Set on every call (the row lock) |
+| `asx_runby` | Lookup → `systemuser`, RemoveLink | The administrator who last applied it |
+
+**Pending:** an update the assembly carries with no row, or with a Running row. Completed and
+Completed with failures are not pending. The shipped roles grant no privileges on this table.
+
 ## 3. `asx_RunRules` Custom API
 
 An **unbound (global) Dataverse Custom API** that evaluates the rules engine against a single
@@ -802,6 +824,10 @@ Target. Invalid publication throws, rolling back the revision, pointer, and
 registration changes. Other authored attributes must be saved before publishing.
 Non-publication draft edits retain the old active revision.
 
+**Data update gate:** while any data update is pending (§10), the gate refuses Draft → Published
+with *An administrator must apply data update N before rules can be published.* (N is the
+lowest-numbered pending update).
+
 ### 5.2 Revision Custom APIs
 
 All are unbound POST Actions, with no additional custom processing steps, implemented
@@ -1072,7 +1098,75 @@ solution.
 
 ---
 
-## 10. Relationships (explicit schema names)
+## 10. `asx_ApplyDataUpdates` Custom API
+
+An **unbound (global) Dataverse Custom API Action** (`IsFunction = false`) that reports the data
+updates a release carries and applies the ones still pending. A data update converts existing rules
+for a release; the assembly lists its updates by number, and each started one has a row in
+`asx_dataupdate` (§2.18). The Rule Builder drives it; a script can too.
+
+**Registration:** bound to plugin type `Ascentix.RulesEngine.Plugin.ApplyDataUpdatesApi`;
+`ExecutePrivilegeName = prvReadasx_rule`. `Mode = Apply` additionally requires
+`prvWriteSdkMessageProcessingStep`, held by System Administrator and System Customizer; the plug-in
+checks it. No additional custom processing steps. In the `AscentixRulesEngine` solution.
+
+### Request parameters
+
+| Parameter | Type | Optional | Notes |
+|---|---|---|---|
+| `Mode` | String | No | `Status` or `Apply` (any case). Anything else is refused |
+| `Retry` | Integer | Yes | `Apply` only: the number of an update that Completed with failures; it starts again from the beginning |
+| `FailedItem` | String | Yes | `Apply` only: the failed-item token (`<number>/<item>`) from the previous call's item-failed error, sent back exactly as received |
+| `FailedMessage` | String | Yes | `Apply` only: the message from that error, stored with the failure; default `"The item failed."` |
+
+### Response parameters
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `Required` | Integer | The highest update number this release carries; `0` when it carries none |
+| `Pending` | String | JSON array `[{"number":1,"title":"…"}]` of the updates still to apply, lowest number first; `[]` when none |
+| `Latest` | String | JSON of the most recently touched update row, or `null` when no update has started: `{"number":1,"title":"…","status":2,"succeeded":10,"failed":1,"failures":[{"item":"…","message":"…"}]}`. `status` is the `asx_status` value; `failures` holds at most 50 entries |
+| `CanApply` | Boolean | `true` when the caller may apply (holds `prvWriteSdkMessageProcessingStep`) |
+| `Done` | Boolean | `true` when no update is pending |
+
+### Semantics
+
+- **Status** changes nothing. It is open to any caller with the privilege above, so every user of the
+  Rule Builder can see that an update is pending. **Apply** by a caller without
+  `prvWriteSdkMessageProcessingStep` is refused: "asx_ApplyDataUpdates: only a System Administrator or
+  System Customizer can apply data updates."
+- **One call, one step:** an Apply call finishes at most one update and returns. It works for at most
+  about **60 seconds**, saves its progress in the row's `asx_cursor`, and returns. `Done` is `true`
+  only when nothing is pending, so a caller re-calls until `Done` (also after an update finishes,
+  because the next pending update starts on the next call).
+- **Row lock:** each call writes `asx_lastpageon` first, which locks the row until the call's
+  transaction ends. A second caller waits, then continues from what the first saved. An update
+  another caller has just finished is not run again. An update's first Apply creates its row
+  instead, so two administrators starting it at the same moment can make one fail with a
+  duplicate-row error; applying again carries on from what the other saved.
+- **Failed items:** an item that throws fails the whole call, and the platform rolls it back. The
+  error message contains `asx_ApplyDataUpdates:item-failed:<token>:<message>` (Dataverse may wrap it, so
+  search for the marker). The token is `<number>/<item>`: the update's number and the item it failed
+  on (items never contain `:`, `/` or whitespace). Call again with `FailedItem` set to the token,
+  exactly as received, and `FailedMessage` from it: that call only records the failure against that
+  update (once per item, the item stored without the number, message cut to 1,000 characters, first
+  50 kept in `asx_failures`, all counted in `asx_failed`) and makes the update skip the item, then
+  returns. If that update has meanwhile been finished by another caller, or this release doesn't
+  carry it, the call records nothing and returns. A `FailedItem` that isn't a token is refused:
+  "asx_ApplyDataUpdates: FailedItem '<value>' is not a failed-item token." The next call, made
+  without `FailedItem`, carries on. An update whose items all fail still
+  finishes, with one such re-call per item.
+- **Finishing:** an update with no failed items ends Completed; one with any ends **Completed with
+  failures**. Neither is pending afterwards.
+- **Retry:** `Retry = N` on an update that Completed with failures clears its counts and cursor and
+  runs it again from the start. Retrying an update that is Completed, unknown or has no row is
+  refused. A retry that is already running is left alone, so a re-sent request does nothing twice.
+- **Publishing:** while any update is pending, publishing a rule is refused (§5.1). Enforcement,
+  Run now and schedules are unaffected.
+
+---
+
+## 11. Relationships (explicit schema names)
 
 | Relationship | Parent (1) | Child (N), holds the lookup |
 |---|---|---|
@@ -1097,10 +1191,11 @@ solution.
 | `asx_rule_ruleaction` | `asx_rule` | `asx_ruleaction` |
 | `asx_ruleaction_localizedmessage` | `asx_ruleaction` | `asx_localizedmessage` |
 | `asx_ruleaction_nodefiltergroup` | `asx_ruleaction` | `asx_nodefiltergroup` (Cascade) |
+| `asx_dataupdate_asx_runby_revision` | `systemuser` | `asx_dataupdate` (`asx_runby`, RemoveLink) |
 
 ---
 
-## 11. Test fixture schema (not shipped)
+## 12. Test fixture schema (not shipped)
 
 The live client suites (`client/test-dev`, `client/e2e`, `client/scripts/seed-*`) run against a
 disposable **`sample_*` Order-domain model** that is **not part of the product**. It lives in the

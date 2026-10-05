@@ -71,6 +71,28 @@ routing saves through a newly registered step. If the first save after a
 publish goes through when it shouldn't have, wait and save again before
 treating it as a bug.
 
+## Rules can't be edited and a banner names an update
+
+The Rule Builder shows *Update N · title must be applied before rules can be edited.* A release has
+a data update that converts existing rules, and it hasn't been applied yet. Until it is, rules can be
+viewed but not edited, and publishing is refused. Enforcement, **Run now** and schedules keep
+working.
+
+Ask a System Administrator or System Customizer to open the Rule Builder and choose **Apply now**.
+Keep the tab open until it reports the result. If the banner stays after an administrator has
+applied it, reload the Rule Builder. See *Data Updates*.
+
+## A data update completed with failures
+
+After applying, an administrator sees *Update N · title finished with N failed item(s).* and a list
+of items with a message each. An item is one piece of existing configuration (for example a rule)
+that the update could not convert. Every other item was converted, and rules are editable again; the
+failed items are left as they were.
+
+Fix the cause the message names, then choose **Retry failed items**. The update runs again from the
+start. The list shows at most 50 failures; the count includes all of them. If the same items keep
+failing, report a problem (below) with the item names and messages.
+
 ## Uninstall says dependencies exist
 
 Deleting the managed solution while engine-generated enforcement steps still

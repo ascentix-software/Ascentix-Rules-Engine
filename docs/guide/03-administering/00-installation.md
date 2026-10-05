@@ -32,7 +32,9 @@ assembly with its bootstrap registration steps, the Custom APIs, the model-drive
 Existing rules work after import. Open a published rule and choose **Edit rule**
 to create or resume its working draft. The published rule continues enforcing
 until you publish the draft. Internal coordination and configuration preservation
-are handled automatically; no migration command or customer pipeline is required.
+are handled automatically. A release that must convert existing rules ships a *data
+update*: after importing it, a System Administrator or System Customizer applies it
+from the Rule Builder (see *Data Updates*).
 
 ## Assign roles
 
@@ -79,6 +81,10 @@ behavior). Published rules, their configurations, and their generated
 enforcement steps are unaffected. Each beta release is verified to upgrade
 from its immediate predecessor (*Beta Limitations §12*); don't skip versions
 without testing in a sandbox first.
+
+If the release carries a *data update*, the Rule Builder shows a banner after the
+import; a System Administrator or System Customizer applies it from there (see
+*Data Updates*).
 
 ## Uninstalling
 

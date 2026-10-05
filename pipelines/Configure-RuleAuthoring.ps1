@@ -217,7 +217,29 @@ if ($Phase -eq 'Schema') {
     }
     # Environment variable type Boolean = 100000002; Dataverse stores a Boolean value as yes/no.
     EnsureEnvironmentVariableDefinition 'asx_CaptureDiagnostics' 'Capture diagnostics' 100000002 'no' 'When yes, every form save the rules engine evaluates writes one Rule Diagnostic row per saved record with its timings and counts. Leave it at no outside a measurement.'
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity></entities><optionsets><optionset>asx_triggers</optionset><optionset>asx_actiontype</optionset></optionsets></importexportxml>' } | Out-Null
+    # Data updates (docs/Schema.md §2.18): one row per release data update, written only by asx_ApplyDataUpdates.
+    EnsureTable 'asx_DataUpdate' 'Data Update'
+    $field = Field 'asx_Number' 'Integer' 'Number'; $field.MinValue = 0; $field.MaxValue = 2147483647
+    EnsureField 'asx_dataupdate' $field
+    $status = Field 'asx_Status' 'Picklist' 'Status'
+    $status.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.OptionSetMetadata'; IsGlobal = $false; OptionSetType = 'Picklist';
+        Options = @(@{ Value = 1; Label = (Label 'Running') }, @{ Value = 2; Label = (Label 'Completed') },
+            @{ Value = 3; Label = (Label 'Completed with failures') }) }
+    EnsureField 'asx_dataupdate' $status
+    foreach ($spec in @(@('asx_Cursor', 'Cursor', 100000), @('asx_Failures', 'Failures', 100000))) {
+        $field = Field $spec[0] 'Memo' $spec[1]; $field.MaxLength = [int]$spec[2]
+        EnsureField 'asx_dataupdate' $field
+    }
+    foreach ($spec in @(@('asx_Succeeded', 'Succeeded'), @('asx_Failed', 'Failed'))) {
+        $field = Field $spec[0] 'Integer' $spec[1]; $field.MinValue = 0; $field.MaxValue = 2147483647
+        EnsureField 'asx_dataupdate' $field
+    }
+    foreach ($spec in @(@('asx_StartedOn', 'Started On'), @('asx_CompletedOn', 'Completed On'), @('asx_LastPageOn', 'Last Page On'))) {
+        $field = Field $spec[0] 'DateTime' $spec[1]; $field.Format = 'DateAndTime'; $field.DateTimeBehavior = @{ Value = 'UserLocal' }
+        EnsureField 'asx_dataupdate' $field
+    }
+    EnsureLookup 'asx_dataupdate' 'systemuser' 'asx_RunBy' 'Run by' 'RemoveLink'
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity><entity>asx_dataupdate</entity></entities><optionsets><optionset>asx_triggers</optionset><optionset>asx_actiontype</optionset></optionsets></importexportxml>' } | Out-Null
     # Only configure the product's shipped views; personal/customer views are not selected.
     foreach ($spec in @(@('asx_rule','asx_draftof'), @('asx_tableconfig','asx_isprivate'))) {
         $viewFolder = Join-Path $PSScriptRoot "../Solutions/$SolutionName/${SolutionName}_unmanaged/Entities/$($spec[0])/SavedQueries"
@@ -251,7 +273,7 @@ if ($Phase -eq 'Schema') {
             }
         }
     }
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity></entities></importexportxml>' } | Out-Null
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity><entity>asx_dataupdate</entity></entities></importexportxml>' } | Out-Null
     Write-Host '[revisions] additive schema ready'
     return
 }
@@ -401,4 +423,15 @@ EnsureParameter $id 'Diagnostics' 10 $true 'JSON timings and counts for this cal
 $scheduleType = PluginType 'RuleSchedulePlugin'
 EnsureStep 'asx_ruleschedule' 'Create' $scheduleType 1 20
 EnsureStep 'asx_ruleschedule' 'Update' $scheduleType 1 20
+$applyDataUpdatesType = PluginType 'ApplyDataUpdatesApi'
+$id = EnsureApi 'asx_ApplyDataUpdates' 'prvReadasx_rule' 'Reports or applies the data updates this release needs.' 'Apply Data Updates' $applyDataUpdatesType
+EnsureParameter $id 'Mode' 10 $false 'Status reports pending data updates; Apply runs them (System Administrator or System Customizer only).'
+EnsureParameter $id 'Retry' 7 $false 'Number of a data update that completed with failures, to run again from the start.' $true
+EnsureParameter $id 'FailedItem' 10 $false 'The item named by the previous call''s item-failed error.' $true
+EnsureParameter $id 'FailedMessage' 10 $false 'Error text for the item named in FailedItem.' $true
+EnsureParameter $id 'Required' 7 $true 'Highest data update number this release carries.'
+EnsureParameter $id 'Pending' 10 $true 'JSON array of the data updates still to apply.'
+EnsureParameter $id 'Latest' 10 $true 'JSON of the last data update run, with its failures.'
+EnsureParameter $id 'CanApply' 0 $true 'True when the caller may apply data updates.'
+EnsureParameter $id 'Done' 0 $true 'True when no data update is pending.'
 Write-Host '[revisions] guards, lifecycle ordering, and APIs registered'

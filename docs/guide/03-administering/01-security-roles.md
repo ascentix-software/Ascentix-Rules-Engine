@@ -42,6 +42,13 @@ below), so the client form library reaches configuration without it. The
 component that reads configuration in the calling user's own context is the
 Rule Builder, whose users hold Author.
 
+## Applying data updates
+
+Applying a release's data update (see *Data Updates*) needs a System Administrator or System
+Customizer; the plug-in checks it. The shipped roles grant nothing on the Data Update table
+(`asx_dataupdate`): everyone who can open the Rule Builder can see that an update is pending, and
+only an administrator can apply it.
+
 ## Running and scheduling rules
 
 Neither role grants the privileges to run or schedule rules; an administrator

@@ -1,3 +1,4 @@
+import { DataUpdateProvider } from "./dataUpdates/DataUpdateContext";
 import type { ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createWebApiPort } from "./webapi";
@@ -66,11 +67,13 @@ async function renderView(root: Root) {
 
   const withProviders = (area: string, child: ReactNode) => (
     <ErrorBoundary area={area}>
-      <MetadataProvider service={service}>
-        <RecordSearchProvider service={records}>
-          <SystemChoicesProvider>{child}</SystemChoicesProvider>
-        </RecordSearchProvider>
-      </MetadataProvider>
+      <DataUpdateProvider api={api}>
+        <MetadataProvider service={service}>
+          <RecordSearchProvider service={records}>
+            <SystemChoicesProvider>{child}</SystemChoicesProvider>
+          </RecordSearchProvider>
+        </MetadataProvider>
+      </DataUpdateProvider>
     </ErrorBoundary>
   );
 

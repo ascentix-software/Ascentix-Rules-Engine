@@ -101,8 +101,8 @@ function TypeTag({ kind }: { kind: import("../model/types").TableConfigTypeLabel
   return <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".04em", color: color.inkMuted, textTransform: "uppercase" }}>{arrow} {label}</span>;
 }
 
-export function TableConfigTree({ graph, selection, handlers, usedNodeIds }: {
-  graph: RuleGraph; selection: Selection; handlers: TableConfigTreeHandlers; usedNodeIds: Set<string>;
+export function TableConfigTree({ graph, selection, handlers, usedNodeIds, readOnly }: {
+  graph: RuleGraph; selection: Selection; handlers: TableConfigTreeHandlers; usedNodeIds: Set<string>; readOnly?: boolean;
 }) {
   const rootId = graph.rule.rootTableConfigId;
   const rows = rootId ? flattenForDisplay(graph.tableConfigs, rootId) : [];
@@ -126,13 +126,15 @@ export function TableConfigTree({ graph, selection, handlers, usedNodeIds }: {
               <Text weight="semibold" style={{ fontSize: 13.5 }}>{node.name}</Text>
               <Text size={200} style={{ color: color.inkMuted }}>{node.tableLogicalName}</Text>
               <NodeHintBadge hints={hintsByNode.get(node.id) ?? []} />
-              <span style={{ marginLeft: "auto", display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
-                <AddRelated table={node.tableLogicalName} onPick={(kind, target) => handlers.onAddNode(node.id, kind, target)} />
-                {node.tableConfigType !== "RootTable" && (
-                  <Button size="small" appearance="subtle" icon={<Delete16Regular />} title={del.ok ? "Delete node" : del.reason}
-                    style={{ color: del.ok ? color.danger : undefined }} disabled={!del.ok} onClick={() => handlers.onDeleteNode(node.id)} />
-                )}
-              </span>
+              {!readOnly && (
+                <span style={{ marginLeft: "auto", display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                  <AddRelated table={node.tableLogicalName} onPick={(kind, target) => handlers.onAddNode(node.id, kind, target)} />
+                  {node.tableConfigType !== "RootTable" && (
+                    <Button size="small" appearance="subtle" icon={<Delete16Regular />} title={del.ok ? "Delete node" : del.reason}
+                      style={{ color: del.ok ? color.danger : undefined }} disabled={!del.ok} onClick={() => handlers.onDeleteNode(node.id)} />
+                  )}
+                </span>
+              )}
             </div>
           );
         })}

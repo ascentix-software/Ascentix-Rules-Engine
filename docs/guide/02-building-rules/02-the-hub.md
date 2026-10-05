@@ -34,6 +34,11 @@ for what you land on.
 Above the list sit **New rule** (see *Creating a New Rule*), **Search rules**,
 and the **Table** and **Status** filters.
 
+While a release's data update is waiting to be applied, a banner appears above the list: *Update N ·
+title must be applied before rules can be edited.* **New rule**, **Duplicate** and **Delete** are
+hidden until it has been applied. A System Administrator or System Customizer sees **Apply now** in
+the banner; everyone else sees who to ask. See *Data Updates*.
+
 ## Table configurations tab
 
 The Table configurations tab lists the shared table-config trees. A table
