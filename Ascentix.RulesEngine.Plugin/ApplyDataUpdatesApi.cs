@@ -42,7 +42,9 @@ namespace Ascentix.RulesEngine.Plugin
             else
             {
                 if (!canApply) throw new InvalidPluginExecutionException(NotAdminMessage);
+                // Dataverse passes an optional Integer the caller left out as 0; update numbers start at 1.
                 var retry = Input(context, SchemaNames.ApplyDataUpdatesApi.ParamRetry) as int?;
+                if (retry <= 0) retry = null;
                 var failedItem = Input(context, SchemaNames.ApplyDataUpdatesApi.ParamFailedItem) as string;
                 var failedMessage = Input(context, SchemaNames.ApplyDataUpdatesApi.ParamFailedMessage) as string;
                 result = processor.Apply(retry, string.IsNullOrWhiteSpace(failedItem) ? null : failedItem.Trim(), failedMessage);

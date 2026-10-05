@@ -86,6 +86,16 @@ namespace Ascentix.RulesEngine.Tests
             Assert.True((bool)call.OutputParameters[SchemaNames.ApplyDataUpdatesApi.PropDone]);
         }
 
+        [Fact]
+        public void A_retry_of_zero_means_no_retry()
+        {
+            // Dataverse passes an optional Integer parameter the caller left out as 0.
+            var ctx = Seed(admin: true);
+            var call = Call((SchemaNames.ApplyDataUpdatesApi.ParamMode, "Apply"), (SchemaNames.ApplyDataUpdatesApi.ParamRetry, 0));
+            ctx.ExecutePluginWith<ApplyDataUpdatesApi>(call);
+            Assert.True((bool)call.OutputParameters[SchemaNames.ApplyDataUpdatesApi.PropDone]);
+        }
+
         [Theory]
         [InlineData(null)]
         [InlineData("Run")]
