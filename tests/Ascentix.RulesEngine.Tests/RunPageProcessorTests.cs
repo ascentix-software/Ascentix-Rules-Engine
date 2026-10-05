@@ -169,6 +169,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             public readonly List<OrganizationRequest> Sent = new List<OrganizationRequest>();
             public Guid? FailOn;
+            public readonly HashSet<Guid> AlsoFailOn = new HashSet<Guid>();
             public Action OnSend;
             public void Send(IOrganizationService service, OrganizationRequest request)
             {
@@ -177,7 +178,7 @@ namespace Ascentix.RulesEngine.Tests
                 var targets = request is UpdateMultipleRequest m ? m.Targets.Entities.ToList()
                     : request is UpdateRequest u ? new List<Entity> { u.Target } : null;
                 if (targets == null) { service.Execute(request); return; }
-                if (FailOn.HasValue && targets.Any(t => t.Id == FailOn.Value)) throw new InvalidOperationException("boom");
+                if (targets.Any(t => t.Id == FailOn || AlsoFailOn.Contains(t.Id))) throw new InvalidOperationException("boom");
                 foreach (var t in targets) service.Update(t);
             }
         }
@@ -304,6 +305,47 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(1, last.Failed);
             Assert.Contains(FailuresOf(Run(runId)), f => f.RecordId == _zz3 && f.Kind == "Failed");
             Assert.DoesNotContain(FailuresOf(Run(runId)), f => f.RecordId == standIn);
+            Assert.Empty(BookmarkOf(runId).Isolate);
+        }
+
+        [Fact]
+        public void A_failed_group_stays_isolated_when_its_first_record_is_the_one_that_failed()
+        {
+            // The group's first record fails and is skipped, so the next call's group starts with another
+            // id. It must still write one record at a time: batching again would fail on the second bad
+            // record and report another stand-in.
+            var ids = Enumerable.Range(1, 4).Select(OrderedId).ToList();
+            foreach (var id in ids)
+                _service.Create(new Entity("account", id) { ["name"] = "ZZ" + id, ["numberofemployees"] = 50 });
+            var runId = SeedRun(OnDemandScope.GivenRecord, ids);
+            var sender = new BulkSender { FailOn = ids[0] };
+            sender.AlsoFailOn.Add(ids[2]);
+            var processor = Processor(new RunPageLimits { PageSize = 4, ChunkSize = 4 }, executor: BulkExecutor(sender));
+
+            // Drive the run as a caller does: re-call with the reported id after each record-failed error.
+            var reported = new List<Guid>();
+            RunPageResult last = null;
+            Guid? failedId = null;
+            for (var calls = 0; calls < 20 && (last == null || !last.Done); calls++)
+            {
+                try
+                {
+                    last = processor.Process(runId, failedId, failedId.HasValue ? "boom" : null);
+                    failedId = null;
+                }
+                catch (InvalidPluginExecutionException e) when (e.Message.StartsWith(RunPageProcessor.RecordFailedPrefix))
+                {
+                    failedId = Guid.Parse(e.Message.Substring(RunPageProcessor.RecordFailedPrefix.Length, 36));
+                    reported.Add(failedId.Value);
+                }
+            }
+
+            Assert.Equal(new[] { RunPageProcessor.StandIn(ids[0]), ids[0], ids[2] }, reported);
+            Assert.Single(sender.Sent.OfType<UpdateMultipleRequest>());
+            Assert.True(last.Done);
+            Assert.Equal(2, last.Changed);
+            Assert.Equal(2, last.Failed);
+            Assert.Equal(1, BookmarkOf(runId).BatchFailures);
             Assert.Empty(BookmarkOf(runId).Isolate);
         }
 

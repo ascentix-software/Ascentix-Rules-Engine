@@ -267,7 +267,9 @@ describe("on-demand Rule Runs", () => {
       expect(last.status).toBe(4); // Completed with failures
       expect(last.changed).toBe(matching.length);
       expect(last.failed).toBe(failing.length);
-      expect(retries).toBe(failing.length); // one rollback per failing record, never repeated
+      // The 10 records are one group: its batched write fails once (a stand-in re-call), then the
+      // group writes one record at a time with one rollback per failing record, never repeated.
+      expect(retries).toBe(failing.length + 1);
 
       const run = await api.retrieveRecord(ENTITY_SET.ruleRun, runId, "?$select=asx_failures");
       const failures: Array<{ recordId: string; kind: string }> = JSON.parse(run.asx_failures ?? "[]");
