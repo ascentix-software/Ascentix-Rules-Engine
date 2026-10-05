@@ -53,6 +53,8 @@ import { executionConditionNames } from "../runs/runsData";
 import type { RuleSchedule } from "../schedule/scheduleModel";
 import { emptySchedule, scheduleApplies, validateSchedule } from "../schedule/scheduleModel";
 import { loadRuleSchedule, diffSchedule } from "../schedule/scheduleData";
+import { useDataUpdates } from "../dataUpdates/DataUpdateContext";
+import { DataUpdateBanner } from "../dataUpdates/DataUpdateBanner";
 
 const clone = (g: RuleGraph): RuleGraph => JSON.parse(JSON.stringify(g));
 // Deterministic-enough unique ids for batch/changeset boundaries.
@@ -166,10 +168,11 @@ export function RuleEditorApp({
   const dirty = graphDirty || scheduleOps.length > 0;
   const recovery = useRuleRecovery(recoveryKey(api.getClientUrl?.() ?? window.location.origin, initialGraph.rule.activeRuleId ?? initialGraph.rule.id), snapshot, working);
   const needsDraft = (published || !!working.rule.publishedRevisionId) && !working.rule.activeRuleId;
-  const editable = !publishedView && !busy && !recovery.pending && !needsDraft;
+  const updateLocked = useDataUpdates().readOnly;
+  const editable = !publishedView && !busy && !recovery.pending && !needsDraft && !updateLocked;
   // A schedule never needs a publish: on a published rule that isn't being edited, the Schedule
   // section stays editable (the rule's own fields don't) and Save sends only its ops.
-  const scheduleEditable = !publishedView && !busy && !recovery.pending && scheduleStatus === "ok";
+  const scheduleEditable = !publishedView && !busy && !recovery.pending && scheduleStatus === "ok" && !updateLocked;
   const canSave = !scheduleError && (editable ? dirty : scheduleEditable && needsDraft && !graphDirty && scheduleOps.length > 0);
   const setWorking: React.Dispatch<React.SetStateAction<RuleGraph>> = (value) => {
     if (editable) history.set(value);
@@ -580,26 +583,30 @@ export function RuleEditorApp({
               actions={
                 <div aria-busy={busy} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   {dirty && <UnsavedPill />}
-                  {needsDraft && !publishedView && <Button appearance="primary" disabled={busy || !api.openRuleDraft} onClick={onEdit}>Edit rule</Button>}
-                  <Button appearance={needsDraft ? "secondary" : "primary"} disabled={!canSave} title={scheduleSaveBlockReason ?? undefined} onClick={onSave}>Save</Button>
+                  {!updateLocked && needsDraft && !publishedView && <Button appearance="primary" disabled={busy || !api.openRuleDraft} onClick={onEdit}>Edit rule</Button>}
+                  {!updateLocked && <Button appearance={needsDraft ? "secondary" : "primary"} disabled={!canSave} title={scheduleSaveBlockReason ?? undefined} onClick={onSave}>Save</Button>}
                   <Button disabled={busy || !!publishedView} onClick={() => guardNavigate(onReload)}>Reload</Button>
                   <Button disabled={busy || !!recovery.pending || !!publishedView || (dirty && !!scheduleError)} title={scheduleSaveBlockReason ?? undefined} onClick={onValidate}>{dirty ? "Save & validate" : "Validate"}</Button>
                   {/* scheduleError disables Save/Validate everywhere, not just in the rule panel where the
                       Schedule section lives, so the reason must be visible regardless of the current selection. */}
                   {scheduleSaveBlockReason && <span style={{ fontSize: 12.5, color: color.danger }}>{scheduleSaveBlockReason}</span>}
-                  <Button
-                    appearance="primary"
-                    disabled={!editable || dirty || !validationResult?.isValid}
-                    onClick={onPublish}
-                  >
-                    Publish
-                  </Button>
-                  <Button
-                    disabled={busy || !!recovery.pending || !published}
-                    onClick={() => setUnpublishOpen(true)}
-                  >
-                    Unpublish
-                  </Button>
+                  {!updateLocked && (
+                    <Button
+                      appearance="primary"
+                      disabled={!editable || dirty || !validationResult?.isValid}
+                      onClick={onPublish}
+                    >
+                      Publish
+                    </Button>
+                  )}
+                  {!updateLocked && (
+                    <Button
+                      disabled={busy || !!recovery.pending || !published}
+                      onClick={() => setUnpublishOpen(true)}
+                    >
+                      Unpublish
+                    </Button>
+                  )}
                   {canRunNow(serverStatus, runNowTriggers) && (
                     <Button icon={<Play16Regular />} disabled={busy || loadingRunNow} onClick={onOpenRunNow}>
                       Run now
@@ -617,16 +624,17 @@ export function RuleEditorApp({
               }
             />
             <div aria-label="Edit history" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-              <Button size="small" disabled={!editable || !history.canUndo} onClick={() => { history.undo(); setSelection({ kind: "rule" }); }}>Undo</Button>
-              <Button size="small" disabled={!editable || !history.canRedo} onClick={() => { history.redo(); setSelection({ kind: "rule" }); }}>Redo</Button>
+              {!updateLocked && <Button size="small" disabled={!editable || !history.canUndo} onClick={() => { history.undo(); setSelection({ kind: "rule" }); }}>Undo</Button>}
+              {!updateLocked && <Button size="small" disabled={!editable || !history.canRedo} onClick={() => { history.redo(); setSelection({ kind: "rule" }); }}>Redo</Button>}
               <Button size="small" disabled={busy || !dirty} onClick={() => setReviewOpen(true)}>Review changes</Button>
               <Button size="small" disabled={busy || (!published && !working.rule.publishedRevisionId) || !api.readPublishedRule} onClick={onViewPublished}>{publishedView ? "Back to draft" : "View published"}</Button>
-              <Button size="small" disabled={!editable || !working.rule.activeRuleId || !api.restoreRuleDraft} onClick={() => setRestoreOpen(true)}>Restore published to draft</Button>
+              {!updateLocked && <Button size="small" disabled={!editable || !working.rule.activeRuleId || !api.restoreRuleDraft} onClick={() => setRestoreOpen(true)}>Restore published to draft</Button>}
             </div>
           </div>
         }
       >
         <div style={{ padding: "0 24px 24px" }}>
+          <DataUpdateBanner api={api} />
           {(published || publishedView) && <Callout intent="info" title={publishedView ? "Viewing the published revision — read-only" : "The published version stays active while you edit"}>
             {publishedView ? "This is the configuration currently used for enforcement." : needsDraft ? "Choose Edit rule to open a separate working draft. This published rule keeps enforcing while you make changes." : "Save and validate your draft here. Publish replaces the live version after server validation; shared data-model changes also take effect only when this rule is republished."}
           </Callout>}

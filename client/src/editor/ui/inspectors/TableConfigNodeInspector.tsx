@@ -11,7 +11,7 @@ export function TableConfigNodeInspector({
 }: {
   node: TableConfigRef;
   nodes?: Record<string, TableConfigRef>;
-  onRename(name: string): void;
+  onRename?(name: string): void;
   onAddRelated?(kind: "lookup" | "child", target: { table: string; column: string; targetIdAttribute?: string }): void;
   onDelete?(): void;
   canDelete?: { ok: boolean; reason?: string };
@@ -25,7 +25,7 @@ export function TableConfigNodeInspector({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <Field label="Node name" hint="Shown in condition & action pickers across every rule using this tree.">
-        <Input value={node.name} onChange={(_e, d) => onRename(d.value)} />
+        <Input value={node.name} readOnly={!onRename} onChange={(_e, d) => onRename?.(d.value)} />
       </Field>
       <Field label="Table"><Input value={node.tableLogicalName} readOnly style={{ background: color.canvas }} /></Field>
       <Field label="Relationship"><Text size={200}>{detail}</Text></Field>

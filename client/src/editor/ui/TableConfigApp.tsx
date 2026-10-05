@@ -5,6 +5,8 @@ import {
 import { Edit16Regular } from "@fluentui/react-icons";
 import { AppProvider } from "./AppProvider";
 import { formatError } from "./errors";
+import { useDataUpdates } from "../dataUpdates/DataUpdateContext";
+import { DataUpdateBanner } from "../dataUpdates/DataUpdateBanner";
 import { ScreenShell } from "./ScreenShell";
 import type { RuleGraph, Selection } from "../model/types";
 import type { EditorApi } from "../webapi";
@@ -36,6 +38,7 @@ export function TableConfigApp({ initialGraph, initialUsage, api, reload }: {
   initialGraph: RuleGraph; initialUsage: ConfigUsage; api: EditorApi;
   reload(): Promise<{ graph: RuleGraph; usage: ConfigUsage }>;
 }) {
+  const readOnly = useDataUpdates().readOnly;
   const [snapshot, setSnapshot] = React.useState<RuleGraph>(() => clone(initialGraph));
   const [working, setWorking] = React.useState<RuleGraph>(() => clone(initialGraph));
   const [usage, setUsage] = React.useState<ConfigUsage>(initialUsage);
@@ -123,8 +126,10 @@ export function TableConfigApp({ initialGraph, initialUsage, api, reload }: {
                     ) : (
                       <>
                         <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-.01em", color: color.ink }}>{root?.name || "(configuration)"}</span>
-                        <Button appearance="subtle" size="small" icon={<Edit16Regular />} aria-label="Rename configuration"
-                          onClick={() => { cancelledRef.current = false; setNameDraft(root?.name ?? ""); setRenaming(true); }} />
+                        {!readOnly && (
+                          <Button appearance="subtle" size="small" icon={<Edit16Regular />} aria-label="Rename configuration"
+                            onClick={() => { cancelledRef.current = false; setNameDraft(root?.name ?? ""); setRenaming(true); }} />
+                        )}
                       </>
                     )}
                     <Pill tone="warn">SHARED</Pill>
@@ -137,7 +142,7 @@ export function TableConfigApp({ initialGraph, initialUsage, api, reload }: {
               actions={
                 <>
                   {dirty && <UnsavedPill />}
-                  <Button appearance="primary" disabled={busy || !dirty} onClick={onSave}>Save</Button>
+                  {!readOnly && <Button appearance="primary" disabled={busy || !dirty} onClick={onSave}>Save</Button>}
                   <Button disabled={busy} onClick={() => confirmNavigate(onReload)}>Reload</Button>
                   {stacked && (
                     <Button appearance="secondary" size="small" onClick={() => setPanelOpen(true)}>Properties</Button>
@@ -149,6 +154,7 @@ export function TableConfigApp({ initialGraph, initialUsage, api, reload }: {
         }
       >
         <div style={{ padding: "0 24px 24px" }}>
+          <DataUpdateBanner api={api} />
           {/* Shared-scope warning */}
           <div style={{ marginTop: 16 }}>
             <Callout intent="warning" title={`This configuration is shared by ${usage.rulesUsingCount} rules.`}>
@@ -169,7 +175,7 @@ export function TableConfigApp({ initialGraph, initialUsage, api, reload }: {
             ...(stacked ? { flexDirection: "column" } : {}),
           }}>
             <div style={{ flex: stacked ? "1 1 auto" : "1 1 60%", minWidth: 0, width: stacked ? "100%" : undefined }}>
-              <TableConfigTree graph={working} selection={selection} handlers={handlers} usedNodeIds={usage.usedNodeIds} />
+              <TableConfigTree graph={working} selection={selection} handlers={handlers} usedNodeIds={usage.usedNodeIds} readOnly={readOnly} />
             </div>
             <InspectorShell
               mode={stacked ? "overlay" : "docked"}
@@ -183,9 +189,9 @@ export function TableConfigApp({ initialGraph, initialUsage, api, reload }: {
                 <TableConfigNodeInspector
                   node={selectedNode}
                   nodes={working.tableConfigs}
-                  onRename={(name) => setWorking((g) => renameNode(g, selectedNode.id, name))}
-                  onAddRelated={(kind, target) => setWorking((g) => addNode(g, selectedNode.id, kind, target))}
-                  onDelete={() => { setWorking((g) => deleteNode(g, selectedNode.id)); setSelection({ kind: "rule" }); }}
+                  onRename={readOnly ? undefined : (name) => setWorking((g) => renameNode(g, selectedNode.id, name))}
+                  onAddRelated={readOnly ? undefined : (kind, target) => setWorking((g) => addNode(g, selectedNode.id, kind, target))}
+                  onDelete={readOnly ? undefined : () => { setWorking((g) => deleteNode(g, selectedNode.id)); setSelection({ kind: "rule" }); }}
                   canDelete={canDeleteConfigNode(working, selectedNode.id, usage.usedNodeIds)}
                 />
               ) : (
