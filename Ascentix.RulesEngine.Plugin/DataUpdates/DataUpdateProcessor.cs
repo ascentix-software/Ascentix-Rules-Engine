@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Microsoft.Xrm.Sdk;
 
@@ -32,7 +33,8 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
     /// <summary>
     /// Reports and applies the data updates an assembly carries (docs/Schema.md §10). One call does
     /// at most one budget's work and saves it; callers re-call until Done. A failing item fails the
-    /// call with <see cref="ItemFailedPrefix"/>; the re-call names it, and this records and skips it.
+    /// call with <see cref="ItemFailedPrefix"/> and a failed-item token, <c>&lt;number&gt;/&lt;item&gt;</c>;
+    /// the re-call sends the token back, and this records the item against that update and skips it.
     /// </summary>
     public sealed class DataUpdateProcessor
     {
@@ -67,9 +69,9 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
             var start = _utcNow();
             if (retry.HasValue) StartRetry(retry.Value);
 
-            // The previous call failed on this item and rolled back: record it, make the update skip it,
-            // and save without other work. Each report commits in its own call, so an update with several
-            // failing items converges.
+            // The previous call failed on this item and rolled back: record it against the update the token
+            // names, make that update skip it, and save without other work. Each report commits in its own
+            // call, so an update with several failing items converges.
             if (!string.IsNullOrEmpty(failedItem))
             {
                 RecordFailure(failedItem, failedMessage);
@@ -94,7 +96,7 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
                     catch (DataUpdateItemException e)
                     {
                         // Rolls the whole call back; the caller re-calls with this item reported.
-                        throw new InvalidPluginExecutionException($"{ItemFailedPrefix}{e.Item}:{Truncate(e.Message)}");
+                        throw new InvalidPluginExecutionException($"{ItemFailedPrefix}{update.Number}/{e.Item}:{Truncate(e.Message)}");
                     }
 
                     row.Cursor = step.Cursor;
@@ -130,17 +132,32 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
             DataUpdateRows.Save(_system, row);
         }
 
-        private void RecordFailure(string item, string message)
+        /// <summary>
+        /// Records the item a failed-item token (<c>&lt;number&gt;/&lt;item&gt;</c>) names against that update.
+        /// Records nothing when the update isn't in this assembly or another caller has finished it, so a
+        /// late report can't land on a different update.
+        /// </summary>
+        private void RecordFailure(string token, string message)
         {
-            var rows = DataUpdateRows.Load(_system);
-            var update = _updates.FirstOrDefault(u => DataUpdateRows.IsPending(Find(rows, u.Number)))
-                ?? throw new InvalidPluginExecutionException("asx_ApplyDataUpdates: no data update is pending to record a failed item against.");
-            var row = Lock(update, Find(rows, update.Number));
+            var slash = token.IndexOf('/');
+            if (slash <= 0 || slash == token.Length - 1 ||
+                !int.TryParse(token.Substring(0, slash), NumberStyles.None, CultureInfo.InvariantCulture, out var number))
+                throw new InvalidPluginExecutionException($"asx_ApplyDataUpdates: FailedItem '{token}' is not a failed-item token.");
+            var item = token.Substring(slash + 1);
+
+            var update = _updates.FirstOrDefault(u => u.Number == number);
+            if (update == null) return;
+            var existing = Find(DataUpdateRows.Load(_system), number);
+            // No row is pending too: the call that would have created it rolled back, so Lock creates it.
+            if (!DataUpdateRows.IsPending(existing)) return;
+            var row = Lock(update, existing);
             // Another caller finished the update while this call waited; don't record.
             if (!DataUpdateRows.IsPending(row)) return;
             if (row.Failures.Any(f => f.Item == item))
             {
-                DataUpdateRows.Save(_system, row);   // a repeated report counts once
+                // A repeated report counts once; skipping again is harmless (Skip is idempotent).
+                row.Cursor = update.Skip(row.Cursor, item);
+                DataUpdateRows.Save(_system, row);
                 return;
             }
             row.Failed++;

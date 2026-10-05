@@ -1116,7 +1116,7 @@ checks it. No additional custom processing steps. In the `AscentixRulesEngine` s
 |---|---|---|---|
 | `Mode` | String | No | `Status` or `Apply` (any case). Anything else is refused |
 | `Retry` | Integer | Yes | `Apply` only: the number of an update that Completed with failures; it starts again from the beginning |
-| `FailedItem` | String | Yes | `Apply` only: the item named by the previous call's item-failed error |
+| `FailedItem` | String | Yes | `Apply` only: the failed-item token (`<number>/<item>`) from the previous call's item-failed error, sent back exactly as received |
 | `FailedMessage` | String | Yes | `Apply` only: the message from that error, stored with the failure; default `"The item failed."` |
 
 ### Response parameters
@@ -1143,11 +1143,16 @@ checks it. No additional custom processing steps. In the `AscentixRulesEngine` s
   transaction ends. A second caller waits, then continues from what the first saved. An update
   another caller has just finished is not run again.
 - **Failed items:** an item that throws fails the whole call, and the platform rolls it back. The
-  error message contains `asx_ApplyDataUpdates:item-failed:<item>:<message>` (Dataverse may wrap it, so
-  search for the marker). Call again with `FailedItem` and `FailedMessage` from it: that call only
-  records the failure (once per item, message cut to 1,000 characters, first 50 kept in
-  `asx_failures`, all counted in `asx_failed`) and makes the update skip the item, then returns. The
-  next call, made without `FailedItem`, carries on. An update whose items all fail still
+  error message contains `asx_ApplyDataUpdates:item-failed:<token>:<message>` (Dataverse may wrap it, so
+  search for the marker). The token is `<number>/<item>`: the update's number and the item it failed
+  on (items never contain `:`, `/` or whitespace). Call again with `FailedItem` set to the token,
+  exactly as received, and `FailedMessage` from it: that call only records the failure against that
+  update (once per item, the item stored without the number, message cut to 1,000 characters, first
+  50 kept in `asx_failures`, all counted in `asx_failed`) and makes the update skip the item, then
+  returns. If that update has meanwhile been finished by another caller, or this release doesn't
+  carry it, the call records nothing and returns. A `FailedItem` that isn't a token is refused:
+  "asx_ApplyDataUpdates: FailedItem '<value>' is not a failed-item token." The next call, made
+  without `FailedItem`, carries on. An update whose items all fail still
   finishes, with one such re-call per item.
 - **Finishing:** an update with no failed items ends Completed; one with any ends **Completed with
   failures**. Neither is pending afterwards.

@@ -82,7 +82,8 @@ namespace Ascentix.RulesEngine.Tests
         [InlineData("")]
         [InlineData("a:b")]
         [InlineData("a b")]
-        public void An_item_id_with_a_colon_or_whitespace_is_rejected(string item)
+        [InlineData("a/b")]
+        public void An_item_id_with_a_colon_slash_or_whitespace_is_rejected(string item)
         {
             Assert.Throws<ArgumentException>(() => new DataUpdateItemException(item, "m"));
         }

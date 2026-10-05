@@ -56,16 +56,16 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
 
     /// <summary>
     /// One item failed. The call rolls back; asx_ApplyDataUpdates reports
-    /// <c>asx_ApplyDataUpdates:item-failed:&lt;item&gt;:&lt;message&gt;</c> and the caller re-calls with
-    /// FailedItem. The item is an id the update understands (e.g. a guid): no ':' and no whitespace,
-    /// so callers can split the error.
+    /// <c>asx_ApplyDataUpdates:item-failed:&lt;number&gt;/&lt;item&gt;:&lt;message&gt;</c> and the caller re-calls
+    /// with FailedItem = <c>&lt;number&gt;/&lt;item&gt;</c>. The item is an id the update understands (e.g. a
+    /// guid): no ':', '/' or whitespace, so callers can split the error and the token.
     /// </summary>
     public sealed class DataUpdateItemException : Exception
     {
         public DataUpdateItemException(string item, string message) : base(message)
         {
-            if (string.IsNullOrEmpty(item) || item.IndexOf(':') >= 0 || item.Any(char.IsWhiteSpace))
-                throw new ArgumentException("A data update item must be non-empty, with no ':' or whitespace.", nameof(item));
+            if (string.IsNullOrEmpty(item) || item.IndexOf(':') >= 0 || item.IndexOf('/') >= 0 || item.Any(char.IsWhiteSpace))
+                throw new ArgumentException("A data update item must be non-empty, with no ':', '/' or whitespace.", nameof(item));
             Item = item;
         }
 

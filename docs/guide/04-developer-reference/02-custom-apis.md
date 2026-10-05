@@ -341,7 +341,7 @@ the same way (the engine's own deploy pipeline does).
 |---|---|---|---|
 | `Mode` | String | No | `Status` reports; `Apply` applies. Anything else is refused |
 | `Retry` | Integer | Yes | `Apply` only: the number of an update that completed with failures, to run again from the start |
-| `FailedItem` | String | Yes | `Apply` only: the item named by the previous call's item-failed error (see below) |
+| `FailedItem` | String | Yes | `Apply` only: the failed-item token from the previous call's item-failed error, sent back exactly as received (see below) |
 | `FailedMessage` | String | Yes | The message from that error; default `"The item failed."` |
 
 **Response**
@@ -364,11 +364,13 @@ returns. **Call again until `Done` is `true`.** Two callers take turns: each cal
 row while it works.
 
 **Retrying a failed item.** An item that throws fails the whole call with an error whose message
-contains the marker `asx_ApplyDataUpdates:item-failed:<item>:<message>` (Dataverse may wrap it, so
-search for the marker), and the platform rolls that call back. Call again with `FailedItem` and
-`FailedMessage` set from the marker: that call only records the failure and returns. The call after it,
-made without `FailedItem`, carries on and skips the item. Send `FailedItem` only on the call right
-after an item-failed error; any other error means stop and try again later, because the update resumes
+contains the marker `asx_ApplyDataUpdates:item-failed:<token>:<message>` (Dataverse may wrap it, so
+search for the marker), and the platform rolls that call back. The token is `<number>/<item>`: which
+update failed and on which item. Treat it as opaque and send it back exactly as received: call again
+with `FailedItem` set to the token and `FailedMessage` set from the marker. That call only records the
+failure against that update and returns (it records nothing if another caller has finished that
+update meanwhile). The call after it, made without `FailedItem`, carries on and skips the item. Send
+`FailedItem` only on the call right after an item-failed error; any other error means stop and try again later, because the update resumes
 from its saved position. An update whose items all fail still finishes: it ends **Completed with
 failures**, with every failure listed in `Latest`. Call with `Retry` set to its number to run it
 again after fixing the cause.
@@ -384,7 +386,7 @@ async function applyDataUpdates() {
   let failed = null;
   for (;;) {
     const params = { Mode: "Apply" };
-    if (failed) { params.FailedItem = failed.item; params.FailedMessage = failed.message; }
+    if (failed) { params.FailedItem = failed.token; params.FailedMessage = failed.message; }
     let response;
     try {
       response = await callAction("asx_ApplyDataUpdates", params); // your own POST to the Web API
@@ -392,7 +394,7 @@ async function applyDataUpdates() {
     } catch (error) {
       const m = /asx_ApplyDataUpdates:item-failed:([^:\s]+):([\s\S]*)$/.exec(error.message);
       if (!m) throw error;          // any other error: stop and try again later
-      failed = { item: m[1], message: m[2] };
+      failed = { token: m[1], message: m[2] }; // the token goes back unchanged
       continue;                     // the next call reports the item
     }
     if (response.Done) return JSON.parse(response.Latest);

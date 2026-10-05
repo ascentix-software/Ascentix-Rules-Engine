@@ -9,7 +9,8 @@ namespace Ascentix.RulesEngine.Plugin
     /// asx_ApplyDataUpdates (docs/Schema.md §10). Mode = Status reports the data updates this release
     /// carries and which are pending (any caller with rule read). Mode = Apply runs the pending ones,
     /// one budget per call (System Administrator / System Customizer only); the caller re-calls until
-    /// Done, re-calling with FailedItem/FailedMessage after an item-failed error.
+    /// Done, re-calling after an item-failed error with FailedItem = the error's failed-item token
+    /// (&lt;number&gt;/&lt;item&gt;, sent back exactly as received) and FailedMessage.
     /// </summary>
     public class ApplyDataUpdatesApi : PluginBase
     {

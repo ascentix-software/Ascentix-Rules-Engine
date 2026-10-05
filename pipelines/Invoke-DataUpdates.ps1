@@ -1,7 +1,8 @@
 # Applies every pending data update in the target environment (docs/Schema.md §10), calling
 # asx_ApplyDataUpdates until it reports Done. Run by plugin-ci after each plug-in deploy, before
-# live L2. An item-failed error is reported back on the next call (the Rule Run protocol); any other
-# error fails the pipeline. An update that completed with failures is a pipeline warning listing them.
+# live L2. An item-failed error is reported back on the next call (the Rule Run protocol): its token
+# (<update number>/<item>) is sent back as FailedItem exactly as received; any other error fails the
+# pipeline. An update that completed with failures is a pipeline warning listing them.
 param(
     [Parameter(Mandatory)][string]$EnvUrl,
     [Parameter(Mandatory)][string]$AccessToken,

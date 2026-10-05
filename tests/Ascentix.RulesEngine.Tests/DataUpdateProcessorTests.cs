@@ -70,7 +70,7 @@ namespace Ascentix.RulesEngine.Tests
 
         private DataUpdateRow Row(int number) => DataUpdateRows.Load(_service)[number];
 
-        // Drives Apply as a caller does: re-call with the reported item after each item-failed error.
+        // Drives Apply as a caller does: re-call with the reported failed-item token after each item-failed error.
         private (DataUpdateResult Last, List<string> Reported) Drive(DataUpdateProcessor processor, int? retry = null)
         {
             var reported = new List<string>();
@@ -154,11 +154,11 @@ namespace Ascentix.RulesEngine.Tests
             var processor = Processor(update);
 
             var e = Assert.Throws<InvalidPluginExecutionException>(() => processor.Apply(null, null, null));
-            Assert.StartsWith(DataUpdateProcessor.ItemFailedPrefix + "i2:boom i2", e.Message);
+            Assert.StartsWith(DataUpdateProcessor.ItemFailedPrefix + "1/i2:boom i2", e.Message);
 
-            var report = processor.Apply(null, "i2", "boom i2");
+            var report = processor.Apply(null, "1/i2", "boom i2");
             Assert.False(report.Done);
-            processor.Apply(null, "i2", "boom i2");   // a repeated report counts once
+            processor.Apply(null, "1/i2", "boom i2");   // a repeated report counts once
             Assert.Equal(1, Row(1).Failed);
 
             var last = processor.Apply(null, null, null);
@@ -175,8 +175,9 @@ namespace Ascentix.RulesEngine.Tests
         public void A_long_failure_message_is_truncated()
         {
             var processor = Processor(new ItemsUpdate(1, 1));
-            processor.Apply(null, "i1", new string('x', 5000));
+            processor.Apply(null, "1/i1", new string('x', 5000));
             Assert.Equal(DataUpdateProcessor.MaxFailureMessageLength, Row(1).Failures[0].Message.Length);
+            Assert.Equal("i1", Row(1).Failures[0].Item);
         }
 
         [Fact]
@@ -186,7 +187,7 @@ namespace Ascentix.RulesEngine.Tests
             var processor = Processor(update);
             var (result, reported) = Drive(processor);
 
-            Assert.Equal(new[] { "i1", "i2", "i3" }, reported);
+            Assert.Equal(new[] { "1/i1", "1/i2", "1/i3" }, reported);
             Assert.True(result.Done);
             var row = Row(1);
             Assert.Equal(DataUpdateState.CompletedWithFailures, row.State);
@@ -223,7 +224,7 @@ namespace Ascentix.RulesEngine.Tests
             var processor = Processor(update);
             Drive(processor);
 
-            processor.Apply(1, "i3", "boom i3");
+            processor.Apply(1, "1/i3", "boom i3");
 
             var row = Row(1);
             Assert.Equal(DataUpdateState.Running, row.State);
@@ -290,24 +291,79 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
-        public void A_failed_item_with_nothing_pending_is_refused()
+        public void A_failed_item_for_a_finished_or_unknown_update_records_nothing()
         {
             var processor = Processor(new ItemsUpdate(1, 1));
             processor.Apply(null, null, null);
-            Assert.Throws<InvalidPluginExecutionException>(() => processor.Apply(null, "i1", "boom"));
+
+            Assert.True(processor.Apply(null, "1/i1", "boom").Done);
+            Assert.True(processor.Apply(null, "9/i1", "boom").Done);
+            Assert.Equal(0, Row(1).Failed);
+            Assert.Empty(Row(1).Failures);
+            Assert.False(DataUpdateRows.Load(_service).ContainsKey(9));
         }
 
         [Fact]
         public void A_failed_item_for_an_update_another_caller_finished_is_not_recorded()
         {
-            // Another caller finishes the update while this call waits at Lock.
-            // The pre-lock pending check finds nothing, so it throws the error before Lock.
+            // Another caller finished the update between the failed call and this re-call.
             DataUpdateRows.Create(_service, new DataUpdateRow(1, "t") { State = DataUpdateState.Running });
             DataUpdateRows.Save(_service, new DataUpdateRow(1, "t") { State = DataUpdateState.Completed });
 
+            var result = Processor(new ItemsUpdate(1, 1)).Apply(null, "1/i1", "boom");
+
+            Assert.True(result.Done);
+            Assert.Equal(DataUpdateState.Completed, Row(1).State);
+            Assert.Equal(0, Row(1).Failed);
+        }
+
+        [Fact]
+        public void A_failed_item_is_recorded_against_the_update_its_token_names_not_the_next_pending_one()
+        {
+            // Update 1 failed on i1; before the re-call, another caller finished update 1 and started
+            // update 2. The re-call's token names update 1, so update 2's row is left exactly as it was.
+            DataUpdateRows.Create(_service, new DataUpdateRow(1, "t") { State = DataUpdateState.Completed, Succeeded = 1, CompletedOn = T0 });
+            DataUpdateRows.Create(_service, new DataUpdateRow(2, "t") { State = DataUpdateState.Running, Cursor = "0|", StartedOn = T0, LastPageOn = T0 });
+            _now = T0.AddMinutes(5);
+
+            var result = Processor(new ItemsUpdate(1, 1), new ItemsUpdate(2, 1)).Apply(null, "1/i1", "boom");
+
+            Assert.Equal(new[] { 2 }, result.Pending.Select(p => p.Number));
+            Assert.Equal(0, Row(1).Failed);
+            var two = Row(2);
+            Assert.Equal(DataUpdateState.Running, two.State);
+            Assert.Equal("0|", two.Cursor);
+            Assert.Equal(0, two.Failed);
+            Assert.Empty(two.Failures);
+            Assert.Equal(T0, two.LastPageOn);
+        }
+
+        [Theory]
+        [InlineData("i1")]
+        [InlineData("x/i1")]
+        [InlineData("/i1")]
+        [InlineData("1/")]
+        public void A_failed_item_that_is_not_a_token_is_refused(string token)
+        {
             var processor = Processor(new ItemsUpdate(1, 1));
-            var e = Assert.Throws<InvalidPluginExecutionException>(() => processor.Apply(null, "i1", "boom"));
-            Assert.Contains("no data update is pending", e.Message);
+            var e = Assert.Throws<InvalidPluginExecutionException>(() => processor.Apply(null, token, "boom"));
+            Assert.Equal($"asx_ApplyDataUpdates: FailedItem '{token}' is not a failed-item token.", e.Message);
+            Assert.Empty(DataUpdateRows.Load(_service));
+        }
+
+        [Fact]
+        public void A_repeated_report_makes_the_update_skip_the_item_again()
+        {
+            // The failure is already recorded but the saved cursor no longer skips the item.
+            var row = new DataUpdateRow(1, "t") { State = DataUpdateState.Running, Cursor = "1|", Failed = 1 };
+            row.Failures.Add(new DataUpdateFailure("i2", "boom i2"));
+            DataUpdateRows.Create(_service, row);
+
+            Processor(new ItemsUpdate(1, 3)).Apply(null, "1/i2", "boom i2");
+
+            Assert.Equal("1|i2", Row(1).Cursor);
+            Assert.Equal(1, Row(1).Failed);
+            Assert.Single(Row(1).Failures);
         }
 
         [Fact]
