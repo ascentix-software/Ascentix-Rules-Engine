@@ -40,5 +40,36 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(3, b.Index); Assert.Equal(2, b.Page); Assert.Equal("<cookie page=\"1\"/>", b.Cookie); Assert.Equal(7, b.Offset); Assert.Equal(id, b.Skip.Single());
             Assert.Equal(1, RunState.ParseBookmark(null).Page);
         }
+
+        [Fact]
+        public void The_isolation_members_round_trip()
+        {
+            var a = Guid.NewGuid();
+            var json = RunState.WriteBookmark(new RunBookmark { Page = 2, Isolate = new List<Guid> { a }, BatchFailures = 2, SingleWrites = true });
+            var back = RunState.ParseBookmark(json);
+            Assert.Equal(new[] { a }, back.Isolate);
+            Assert.Equal(2, back.BatchFailures);
+            Assert.True(back.SingleWrites);
+            Assert.Equal(2, back.Page);
+        }
+
+        [Fact]
+        public void A_bookmark_without_the_new_members_reads_as_defaults()
+        {
+            var back = RunState.ParseBookmark("{\"index\":3,\"page\":1,\"cookie\":null,\"offset\":0,\"skip\":[]}");
+            Assert.Empty(back.Isolate);
+            Assert.Equal(0, back.BatchFailures);
+            Assert.False(back.SingleWrites);
+            Assert.Equal(3, back.Index);
+        }
+
+        [Fact]
+        public void A_bookmark_with_no_isolation_writes_no_new_members()
+        {
+            var json = RunState.WriteBookmark(new RunBookmark { Page = 1 });
+            Assert.DoesNotContain("isolate", json);
+            Assert.DoesNotContain("batchFailures", json);
+            Assert.DoesNotContain("singleWrites", json);
+        }
     }
 }
