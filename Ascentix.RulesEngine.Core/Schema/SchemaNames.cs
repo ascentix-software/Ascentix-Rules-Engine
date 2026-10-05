@@ -354,6 +354,49 @@ namespace Ascentix.RulesEngine.Schema
             public const string PropDiagnostics = "Diagnostics";
         }
 
+        /// <summary>
+        /// One row per release data update that has started (docs/Schema.md §2.18). Written only by
+        /// asx_ApplyDataUpdates; the row id is fixed per update number (DataUpdateRows.RowId).
+        /// </summary>
+        public static class DataUpdate
+        {
+            public const string Entity = "dataupdate";
+            public const string Name = "name";                // the update's title
+            public const string Number = "number";
+            public const string Status = "status";            // local choice: Running 1, Completed 2, Completed with failures 3, Failed 4
+            public const string Cursor = "cursor";
+            public const string Succeeded = "succeeded";
+            public const string Failed = "failed";
+            public const string Failures = "failures";
+            public const string StartedOn = "startedon";
+            public const string CompletedOn = "completedon";
+            public const string LastPageOn = "lastpageon";
+            public const string RunBy = "runby";              // lookup → systemuser
+        }
+
+        /// <summary>
+        /// asx_ApplyDataUpdates: unbound Action that reports (Mode = Status) or applies (Mode = Apply)
+        /// the data updates this release carries (docs/Schema.md §10).
+        /// </summary>
+        public static class ApplyDataUpdatesApi
+        {
+            /// <summary>Custom API message / unique name (registered in Dataverse).</summary>
+            public const string MessageName = "ApplyDataUpdates";   // full: asx_ApplyDataUpdates
+
+            // Input parameters: must equal InputParameters keys the handler reads.
+            public const string ParamMode = "Mode";
+            public const string ParamRetry = "Retry";
+            public const string ParamFailedItem = "FailedItem";
+            public const string ParamFailedMessage = "FailedMessage";
+
+            // Output parameters: must equal OutputParameters keys the handler writes.
+            public const string PropRequired = "Required";
+            public const string PropPending = "Pending";
+            public const string PropLatest = "Latest";
+            public const string PropCanApply = "CanApply";
+            public const string PropDone = "Done";
+        }
+
         /// <summary>Relationship (schema) name fragments.</summary>
         public static class Relationships
         {
