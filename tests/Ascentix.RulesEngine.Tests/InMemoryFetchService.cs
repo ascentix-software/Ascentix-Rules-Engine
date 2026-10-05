@@ -11,12 +11,17 @@ namespace Ascentix.RulesEngine.Tests
     /// Answers the executor's child and lookup FetchXML from in-memory rows: the first condition's
     /// attribute and its in-values select the rows (an EntityReference column, or the row's own id for a
     /// lookup's id attribute). Pushed filters are ignored (the executor's fetches are supersets anyway).
-    /// Every call returns fresh copies, one page, and is recorded.
+    /// Every call returns fresh copies, one page, and is recorded. <see cref="Paged"/> makes it honour the
+    /// fetch's count/page instead (MoreRecords and a cookie while rows remain).
     /// </summary>
     internal sealed class InMemoryFetchService : IOrganizationService
     {
         private readonly Dictionary<string, List<Entity>> _rows = new Dictionary<string, List<Entity>>(StringComparer.OrdinalIgnoreCase);
         public readonly List<string> Fetches = new List<string>();
+        public int RowsReturned { get; private set; }
+        private bool _paged;
+
+        public InMemoryFetchService Paged() { _paged = true; return this; }
 
         public InMemoryFetchService Add(params Entity[] rows)
         {
@@ -51,6 +56,17 @@ namespace Ascentix.RulesEngine.Tests
                 foreach (var a in row.Attributes) copy[a.Key] = a.Value;
                 result.Entities.Add(copy);
             }
+            if (_paged && Regex.Match(xml, @"<fetch count='(\d+)' page='(\d+)'") is Match paging && paging.Success)
+            {
+                var count = int.Parse(paging.Groups[1].Value);
+                var page = int.Parse(paging.Groups[2].Value);
+                var all = result.Entities.ToList();
+                result.Entities.Clear();
+                result.Entities.AddRange(all.Skip((page - 1) * count).Take(count));
+                result.MoreRecords = all.Count > page * count;
+                result.PagingCookie = result.MoreRecords ? "page" + page : null;
+            }
+            RowsReturned += result.Entities.Count;
             return result;
         }
 

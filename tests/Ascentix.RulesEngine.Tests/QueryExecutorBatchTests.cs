@@ -254,5 +254,22 @@ namespace Ascentix.RulesEngine.Tests
                 new QueryExecutor(data, new QueryResultCache(shape.Tree), shape.Tree).ExecuteMany(new[] { small, big }, shape.Plan(), null));
             Assert.Contains("needed more than 25,000 matching rows from 'sample_line'", ex.Message);
         }
+
+        [Fact]
+        public void A_root_over_the_cap_fails_the_group_as_soon_as_it_passes_the_cap()
+        {
+            // The cap is per root, counted as pages arrive: a group of 3 stops reading one page past
+            // the big root's 25,000 rows, not at 3 × 25,000 rows of the union.
+            var shape = BuildShape();
+            var c = Guid.NewGuid(); var small1 = Order(c); var small2 = Order(c); var big = Order(c);
+            var data = new InMemoryFetchService().Paged().Add(Customer(c), Line(small1, 1), Line(small2, 2));
+            for (var i = 0; i < QueryExecutor.MaxReturnedRowsPerVariant * 3 + 5000; i++) data.Add(Line(big, i));
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
+                new QueryExecutor(data, new QueryResultCache(shape.Tree), shape.Tree)
+                    .ExecuteMany(new[] { small1, small2, big }, shape.Plan(), null));
+            Assert.Contains("rule evaluation on 'sample_order' needed more than 25,000 matching rows from 'sample_line'", ex.Message);
+            // 1 customer + the 2 small lines + the big root's rows up to the first 5,000-row page past the cap.
+            Assert.InRange(data.RowsReturned, QueryExecutor.MaxReturnedRowsPerVariant + 1, QueryExecutor.MaxReturnedRowsPerVariant + 5000 + 3);
+        }
     }
 }

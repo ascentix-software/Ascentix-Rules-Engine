@@ -178,12 +178,12 @@ namespace Ascentix.RulesEngine.Core.Execution
             return union;
         }
 
-        // Rows for each member: a row belongs to every member whose scope holds its key. A group of
-        // one keeps the fetched rows as they are (a copy of the list, as before).
-        private static List<List<Entity>> Split(List<(RootState State, List<Guid> Scope)> members, List<Entity> rows,
-            Func<Entity, Guid?> keyOf)
+        // For each scope id, the members (by index) whose scope holds it. Built before the fetch so the
+        // cap can count each member's rows as pages arrive; null for a group of one, which owns every
+        // fetched row.
+        private static Dictionary<Guid, List<int>> Owners(List<(RootState State, List<Guid> Scope)> members)
         {
-            if (members.Count == 1) return new List<List<Entity>> { new List<Entity>(rows) };
+            if (members.Count == 1) return null;
             var owners = new Dictionary<Guid, List<int>>();
             for (var m = 0; m < members.Count; m++)
                 foreach (var id in members[m].Scope)
@@ -191,6 +191,18 @@ namespace Ascentix.RulesEngine.Core.Execution
                     if (!owners.TryGetValue(id, out var list)) owners[id] = list = new List<int>();
                     if (list.Count == 0 || list[list.Count - 1] != m) list.Add(m);
                 }
+            return owners;
+        }
+
+        // Rows for each member: a row belongs to every member whose scope holds its key. A group of
+        // one keeps the fetched rows as they are (a copy of the list, as before). That shortcut is the
+        // general path for one member: the fetch's IN condition is that member's scope, so every
+        // fetched row's key is in it, and keeping the rows as fetched (same order, same list) is
+        // exactly the old behaviour.
+        private static List<List<Entity>> Split(List<(RootState State, List<Guid> Scope)> members,
+            Dictionary<Guid, List<int>> owners, List<Entity> rows, Func<Entity, Guid?> keyOf)
+        {
+            if (members.Count == 1) return new List<List<Entity>> { new List<Entity>(rows) };
             var split = members.Select(_ => new List<Entity>()).ToList();
             foreach (var row in rows)
             {
@@ -199,6 +211,59 @@ namespace Ascentix.RulesEngine.Core.Execution
                 foreach (var m in list) split[m].Add(row);
             }
             return split;
+        }
+
+        // Counts a page's rows for every member that owns them and fails as soon as one member passes
+        // the cap: the first member, in root order, over it, with today's message naming its root
+        // table. A group of one counts every row, exactly as the single-root fetch always did.
+        private static void CountAndCap(TableConfig node, List<(RootState State, List<Guid> Scope)> members,
+            Dictionary<Guid, List<int>> owners, Func<Entity, Guid?> keyOf, IList<Entity> page, int[] counts)
+        {
+            if (owners == null)
+            {
+                counts[0] += page.Count;
+                EnforceCap(node, counts[0], members[0].State.Table);
+                return;
+            }
+            foreach (var row in page)
+            {
+                var key = keyOf(row);
+                if (key == null || !owners.TryGetValue(key.Value, out var list)) continue;
+                foreach (var m in list) counts[m]++;
+            }
+            for (var m = 0; m < members.Count; m++)
+                EnforceCap(node, counts[m], members[m].State.Table);
+        }
+
+        // One filter group: fetch once over the union of the members' scopes (through the run's
+        // store), capping each member as pages arrive, then split the rows back and, per member,
+        // cap, reconcile and store. fetchRows(union, filterXml, columns, onPage) reads the rows and
+        // calls onPage with each page or chunk as it arrives.
+        private void FetchGroup(ExecutionPlanEntry entry, NodeQueryVariant variant, string filterKey,
+            List<(RootState State, List<Guid> Scope)> members, FetchKind kind, HashSet<string> columns,
+            Func<Entity, Guid?> keyOf,
+            Func<List<Guid>, string, HashSet<string>, Action<IList<Entity>>, List<Entity>> fetchRows)
+        {
+            var union = Union(members);
+            var filterXml = filterKey.Length == 0 ? null : filterKey;
+            var owners = Owners(members);
+            var shared = Fetch(kind, entry.Node, union, filterXml, columns, cols =>
+            {
+                // Fresh counts per read: the store may re-read the same fetch wider.
+                var counts = new int[members.Count];
+                return fetchRows(union, filterXml, cols, page => CountAndCap(entry.Node, members, owners, keyOf, page, counts));
+            });
+            var split = Split(members, owners, shared, keyOf);
+            for (var m = 0; m < members.Count; m++)
+            {
+                // Again per member: rows served from the run's store skipped the counting above (for
+                // example a group of one whose scope matches a larger group's stored fetch).
+                EnforceCap(entry.Node, split[m].Count, members[m].State.Table);
+                // After every chunk/page, so the record is matched against the whole result and
+                // the parent scope is the full set the fetch covered, not one chunk of it.
+                InFlightReconciler.Apply(split[m], entry.Node, _inFlight, members[m].Scope);
+                StoreVariant(members[m].State.Cache, entry, variant, split[m]);
+            }
         }
 
         private void ExecuteLookupNode(List<RootState> states, ExecutionPlanEntry entry, NodeQueryVariant variant)
@@ -226,24 +291,11 @@ namespace Ascentix.RulesEngine.Core.Execution
             });
 
             foreach (var group in groups)
-            {
-                var members = group.Value;
-                var union = Union(members);
-                var filterXml = group.Key.Length == 0 ? null : group.Key;
-                var table = members[0].State.Table;
-                var shared = Fetch(FetchKind.Lookup, entry.Node, union, filterXml, null,
-                    _ => FetchLookupRows(entry.Node, idAttr, union, filterXml, MaxReturnedRowsPerVariant * members.Count, table));
-                var split = Split(members, shared, row => row.Id);
-                for (var m = 0; m < members.Count; m++)
-                {
-                    if (members.Count > 1) EnforceCap(entry.Node, split[m].Count, members[m].State.Table);
-                    InFlightReconciler.Apply(split[m], entry.Node, _inFlight, members[m].Scope);
-                    StoreVariant(members[m].State.Cache, entry, variant, split[m]);
-                }
-            }
+                FetchGroup(entry, variant, group.Key, group.Value, FetchKind.Lookup, null, row => row.Id,
+                    (union, filterXml, _, onPage) => FetchLookupRows(entry.Node, idAttr, union, filterXml, onPage));
         }
 
-        private List<Entity> FetchLookupRows(TableConfig node, string idAttr, List<Guid> targetIds, string filterXml, int cap, string table)
+        private List<Entity> FetchLookupRows(TableConfig node, string idAttr, List<Guid> targetIds, string filterXml, Action<IList<Entity>> onPage)
         {
             var resolved = new List<Entity>();
             foreach (var chunk in Chunk(targetIds, LookupChunkSize))
@@ -252,7 +304,7 @@ namespace Ascentix.RulesEngine.Core.Execution
                 var results = _service.RetrieveMultiple(new FetchExpression(fetchXml));
                 _diagnostics?.RecordRetrieveMultiple(node.Id, node.TableLogicalName, results.Entities.Count);
                 resolved.AddRange(results.Entities);
-                EnforceCap(node, resolved.Count, cap, table);
+                onPage(results.Entities);
             }
             return resolved;
         }
@@ -287,26 +339,12 @@ namespace Ascentix.RulesEngine.Core.Execution
             var columns = _store == null ? entry.Columns : _store.ColumnsFor(_service, entry.Node, entry.Columns);
 
             foreach (var group in groups)
-            {
-                var members = group.Value;
-                var union = Union(members);
-                var filterXml = group.Key.Length == 0 ? null : group.Key;
-                var table = members[0].State.Table;
-                var shared = Fetch(FetchKind.Child, entry.Node, union, filterXml, columns,
-                    cols => FetchChildRows(entry.Node, union, filterXml, cols, MaxReturnedRowsPerVariant * members.Count, table));
-                var split = Split(members, shared, row => row.GetAttributeValue<EntityReference>(entry.Node.ChildLinkField)?.Id);
-                for (var m = 0; m < members.Count; m++)
-                {
-                    if (members.Count > 1) EnforceCap(entry.Node, split[m].Count, members[m].State.Table);
-                    // After every chunk/page, so the record is matched against the whole result and
-                    // the parent scope is the full set the fetch covered, not one chunk of it.
-                    InFlightReconciler.Apply(split[m], entry.Node, _inFlight, members[m].Scope);
-                    StoreVariant(members[m].State.Cache, entry, variant, split[m]);
-                }
-            }
+                FetchGroup(entry, variant, group.Key, group.Value, FetchKind.Child, columns,
+                    row => row.GetAttributeValue<EntityReference>(entry.Node.ChildLinkField)?.Id,
+                    (union, filterXml, cols, onPage) => FetchChildRows(entry.Node, union, filterXml, cols, onPage));
         }
 
-        private List<Entity> FetchChildRows(TableConfig node, List<Guid> parentIds, string filterXml, HashSet<string> columns, int cap, string table)
+        private List<Entity> FetchChildRows(TableConfig node, List<Guid> parentIds, string filterXml, HashSet<string> columns, Action<IList<Entity>> onPage)
         {
             var all = new List<Entity>();
             foreach (var chunk in Chunk(parentIds, ChildChunkSize))
@@ -319,7 +357,7 @@ namespace Ascentix.RulesEngine.Core.Execution
                     var results = _service.RetrieveMultiple(new FetchExpression(fetchXml));
                     _diagnostics?.RecordRetrieveMultiple(node.Id, node.TableLogicalName, results.Entities.Count);
                     all.AddRange(results.Entities);
-                    EnforceCap(node, all.Count, cap, table);
+                    onPage(results.Entities);
                     if (!results.MoreRecords) break;
                     page++;
                     cookie = results.PagingCookie;
@@ -397,12 +435,9 @@ namespace Ascentix.RulesEngine.Core.Execution
             else cache.Store(entry.Node.Id, variant.Key, rows);
         }
 
-        private static void EnforceCap(TableConfig node, int returnedSoFar, string table) =>
-            EnforceCap(node, returnedSoFar, MaxReturnedRowsPerVariant, table);
-
-        private static void EnforceCap(TableConfig node, int returnedSoFar, int cap, string table)
+        private static void EnforceCap(TableConfig node, int returnedSoFar, string table)
         {
-            if (returnedSoFar <= cap) return;
+            if (returnedSoFar <= MaxReturnedRowsPerVariant) return;
             throw new InvalidPluginExecutionException(OperationStatus.Failed,
                 $"Rules Engine: rule evaluation on '{table}' needed more than " +
                 $"{MaxReturnedRowsPerVariant:N0} matching rows from '{node.TableLogicalName}' " +
