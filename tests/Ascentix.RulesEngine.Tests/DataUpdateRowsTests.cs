@@ -21,11 +21,10 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
-        public void Pending_means_no_row_running_or_failed()
+        public void Pending_means_no_row_or_running()
         {
             Assert.True(DataUpdateRows.IsPending(null));
             Assert.True(DataUpdateRows.IsPending(new DataUpdateRow(1, "t") { State = DataUpdateState.Running }));
-            Assert.True(DataUpdateRows.IsPending(new DataUpdateRow(1, "t") { State = DataUpdateState.Failed }));
             Assert.False(DataUpdateRows.IsPending(new DataUpdateRow(1, "t") { State = DataUpdateState.Completed }));
             Assert.False(DataUpdateRows.IsPending(new DataUpdateRow(1, "t") { State = DataUpdateState.CompletedWithFailures }));
         }

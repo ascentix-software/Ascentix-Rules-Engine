@@ -17,7 +17,6 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
         Running = 1,
         Completed = 2,
         CompletedWithFailures = 3,
-        Failed = 4,
     }
 
     public sealed class DataUpdateFailure
@@ -79,9 +78,9 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
         /// <summary>The fixed row id of update <paramref name="number"/>: one row per number, no alternate key needed.</summary>
         public static Guid RowId(int number) => new Guid($"a5d0a7e0-0000-4000-8000-{number:D12}");
 
-        /// <summary>An update is pending when it has no row, or its row is Running or Failed.</summary>
+        /// <summary>An update is pending when it has no row or its row is Running.</summary>
         public static bool IsPending(DataUpdateRow row) =>
-            row == null || row.State == DataUpdateState.Running || row.State == DataUpdateState.Failed;
+            row == null || row.State == DataUpdateState.Running;
 
         public static Dictionary<int, DataUpdateRow> Load(IOrganizationService system)
         {

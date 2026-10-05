@@ -180,51 +180,19 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
-        public void The_safety_stop_marks_the_update_failed_and_it_stays_pending()
-        {
-            var update = new ItemsUpdate(1, 5) { Fails = _ => true };
-            var processor = Processor(new DataUpdateLimits { SafetyStopAfter = 2 }, update);
-
-            processor.Apply(null, "i1", "boom");
-            processor.Apply(null, "i2", "boom");
-
-            Assert.Equal(DataUpdateState.Failed, Row(1).State);
-            Assert.Single(processor.Status(canApply: true).Pending);
-        }
-
-        [Fact]
-        public void Apply_after_a_safety_stop_starts_the_update_again()
+        public void An_update_whose_items_all_fail_completes_with_every_failure_listed()
         {
             var update = new ItemsUpdate(1, 3) { Fails = _ => true };
-            var processor = Processor(new DataUpdateLimits { SafetyStopAfter = 2 }, update);
-            processor.Apply(null, "i1", "boom");
-            processor.Apply(null, "i2", "boom");
+            var processor = Processor(update);
+            var (result, reported) = Drive(processor);
 
-            update.Fails = _ => false;
-            var result = processor.Apply(null, null, null);
-
+            Assert.Equal(new[] { "i1", "i2", "i3" }, reported);
             Assert.True(result.Done);
-            Assert.Equal(DataUpdateState.Completed, Row(1).State);
-            Assert.Equal(3, Row(1).Succeeded);
-            Assert.Equal(0, Row(1).Failed);
-        }
-
-        [Fact]
-        public void A_failed_item_reported_against_a_failed_update_resets_it_and_records_the_item()
-        {
-            // Review focus 1: the Apply that would have reset a Failed update threw item-failed and rolled
-            // back, so the re-call finds the row still Failed.
-            var update = new ItemsUpdate(1, 3) { Fails = _ => true };
-            var processor = Processor(new DataUpdateLimits { SafetyStopAfter = 2 }, update);
-            processor.Apply(null, "i1", "boom");
-            processor.Apply(null, "i2", "boom");
-
-            processor.Apply(null, "i3", "boom");
-
             var row = Row(1);
-            Assert.Equal(DataUpdateState.Running, row.State);
-            Assert.Equal(1, row.Failed);
-            Assert.Equal("i3", Assert.Single(row.Failures).Item);
+            Assert.Equal(DataUpdateState.CompletedWithFailures, row.State);
+            Assert.Equal(0, row.Succeeded);
+            Assert.Equal(3, row.Failed);
+            Assert.Equal(new[] { "i1", "i2", "i3" }, row.Failures.Select(f => f.Item));
         }
 
         [Fact]
@@ -294,11 +262,18 @@ namespace Ascentix.RulesEngine.Tests
         {
             var first = new ItemsUpdate(1, 1);
             var second = new ItemsUpdate(2, 1);
-            var result = Processor(second, first).Apply(null, null, null);
+            var processor = Processor(second, first);
 
-            Assert.True(result.Done);
-            Assert.Equal(2, result.Required);
-            Assert.True(Row(1).CompletedOn <= Row(2).CompletedOn);
+            var firstResult = processor.Apply(null, null, null);
+            Assert.False(firstResult.Done);
+            Assert.True(DataUpdateRows.Load(_service).ContainsKey(1));
+            Assert.False(DataUpdateRows.Load(_service).ContainsKey(2));
+            Assert.Equal(DataUpdateState.Completed, Row(1).State);
+
+            var secondResult = processor.Apply(null, null, null);
+            Assert.True(secondResult.Done);
+            Assert.Equal(2, secondResult.Required);
+
             Assert.Throws<ArgumentException>(() => Processor(new ItemsUpdate(1, 1), new ItemsUpdate(1, 1)));
         }
 
@@ -320,6 +295,19 @@ namespace Ascentix.RulesEngine.Tests
             var processor = Processor(new ItemsUpdate(1, 1));
             processor.Apply(null, null, null);
             Assert.Throws<InvalidPluginExecutionException>(() => processor.Apply(null, "i1", "boom"));
+        }
+
+        [Fact]
+        public void A_failed_item_for_an_update_another_caller_finished_is_not_recorded()
+        {
+            // Another caller finishes the update while this call waits at Lock.
+            // The pre-lock pending check finds nothing, so it throws the error before Lock.
+            DataUpdateRows.Create(_service, new DataUpdateRow(1, "t") { State = DataUpdateState.Running });
+            DataUpdateRows.Save(_service, new DataUpdateRow(1, "t") { State = DataUpdateState.Completed });
+
+            var processor = Processor(new ItemsUpdate(1, 1));
+            var e = Assert.Throws<InvalidPluginExecutionException>(() => processor.Apply(null, "i1", "boom"));
+            Assert.Contains("no data update is pending", e.Message);
         }
 
         [Fact]

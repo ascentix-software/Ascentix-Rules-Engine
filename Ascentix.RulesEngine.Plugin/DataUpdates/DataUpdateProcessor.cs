@@ -9,8 +9,6 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
     {
         /// <summary>Work stops after this long so the call saves well inside the platform's 2-minute limit.</summary>
         public TimeSpan Budget { get; set; } = TimeSpan.FromSeconds(60);
-        /// <summary>An update with this many failures and no success stops as Failed.</summary>
-        public int SafetyStopAfter { get; set; } = 100;
     }
 
     public sealed class DataUpdateResult
@@ -84,7 +82,6 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
                 if (!DataUpdateRows.IsPending(Find(rows, update.Number))) continue;
                 var row = Lock(update, Find(rows, update.Number));
                 if (!DataUpdateRows.IsPending(row)) continue;   // another caller finished it while we waited
-                if (row.State == DataUpdateState.Failed) Reset(row);
 
                 var context = new DataUpdateContext(_system, _trace, _callerId);
                 while (true)
@@ -108,7 +105,7 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
                         row.CompletedOn = _utcNow();
                         DataUpdateRows.Save(_system, row);
                         _trace?.Trace($"DataUpdateProcessor: update {update.Number} finished ({row.Succeeded} converted, {row.Failed} failed).");
-                        break;
+                        return Result(DataUpdateRows.Load(_system), canApply: true);
                     }
                     if (OverBudget(start))
                     {
@@ -116,7 +113,6 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
                         return Result(DataUpdateRows.Load(_system), canApply: true);
                     }
                 }
-                if (OverBudget(start)) return Result(DataUpdateRows.Load(_system), canApply: true);
             }
             return Result(DataUpdateRows.Load(_system), canApply: true);
         }
@@ -128,7 +124,7 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
             if (update == null || existing == null || existing.State == DataUpdateState.Completed)
                 throw new InvalidPluginExecutionException($"asx_ApplyDataUpdates: data update {number} has no failed items to retry.");
             var row = Lock(update, existing);
-            // Running or Failed: the retry already started (a re-sent request), or Apply resets it anyway.
+            // Running: the retry already started (a re-sent request).
             if (row.State != DataUpdateState.CompletedWithFailures) return;
             Reset(row);
             DataUpdateRows.Save(_system, row);
@@ -140,8 +136,8 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
             var update = _updates.FirstOrDefault(u => DataUpdateRows.IsPending(Find(rows, u.Number)))
                 ?? throw new InvalidPluginExecutionException("asx_ApplyDataUpdates: no data update is pending to record a failed item against.");
             var row = Lock(update, Find(rows, update.Number));
-            // The call that would have reset a Failed update rolled back with this item's error.
-            if (row.State == DataUpdateState.Failed) Reset(row);
+            // Another caller finished the update while this call waited; don't record.
+            if (!DataUpdateRows.IsPending(row)) return;
             if (row.Failures.Any(f => f.Item == item))
             {
                 DataUpdateRows.Save(_system, row);   // a repeated report counts once
@@ -150,7 +146,6 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
             row.Failed++;
             row.Failures.Add(new DataUpdateFailure(item, Truncate(message ?? "The item failed.")));
             row.Cursor = update.Skip(row.Cursor, item);
-            if (row.Failed >= _limits.SafetyStopAfter && row.Succeeded == 0) row.State = DataUpdateState.Failed;
             DataUpdateRows.Save(_system, row);
         }
 
