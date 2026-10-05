@@ -37,7 +37,8 @@ namespace Ascentix.RulesEngine.Core.Engine
     /// Gather, step two, in two halves: <see cref="Prepare"/> builds a bucket's plan without
     /// reading business data (conditionMap → actionLoad → references → tableConfigLoad →
     /// planBuild → self-node pass); <see cref="Gather"/> reads the bucket's rows (rootBuild →
-    /// in-flight batch → per-root queryExecute) through the run's <see cref="RunFetchStore"/>.
+    /// in-flight batch → queryExecute: one group <see cref="QueryExecutor.ExecuteMany"/> per bucket,
+    /// plus a per-root Execute for each previous-parent re-run) through the run's <see cref="RunFetchStore"/>.
     /// Owns those stage timers. Nothing here evaluates a rule; nothing after here reads a
     /// service. configurationService reads rule config and metadata;
     /// traversalService reads business data (root retrieval + QueryExecutor). On Update, a
@@ -214,7 +215,8 @@ namespace Ascentix.RulesEngine.Core.Engine
             var inFlight = BuildInFlightBatch(logicalName, trigger, inputs, roots);
 
             // One group fetch per plan node for all of the bucket's roots (QueryExecutor.ExecuteMany),
-            // split back per root; a single save is a group of one.
+            // split back per root; a single save is a group of one. The cache passed to the constructor
+            // is unused here: ExecuteMany returns a new cache per root.
             IReadOnlyList<QueryResultCache> caches = null;
             if (tree.Count > 0)
                 using (diag.Time("queryExecute"))
