@@ -258,11 +258,16 @@ namespace Ascentix.RulesEngine.Plugin
             {
                 var chunk = new List<Guid>();
                 var positions = new Dictionary<Guid, int>();   // each chunk id's position in the window
+                var passedIsolated = new List<Guid>();         // isolated group starts this walk skipped over
                 while (consumed < window.Count && chunk.Count < _limits.ChunkSize)
                 {
                     var position = consumed++;
                     var id = window[position];
-                    if (skip.Contains(id)) continue;
+                    if (skip.Contains(id))
+                    {
+                        if (row.Bookmark.Isolate.Contains(id)) passedIsolated.Add(id);
+                        continue;
+                    }
                     chunk.Add(id);
                     positions[id] = position;
                 }
@@ -297,10 +302,12 @@ namespace Ascentix.RulesEngine.Plugin
                 // isolated after a failed batch. TryExecuteGroup returns false (nothing sent) when nothing in
                 // the group can go bulk; the loop below then writes per record exactly as before. A group
                 // whose stand-in is in the skip list (once taken for a record) also writes per record:
-                // batching again could only re-report a stand-in its re-call would ignore.
+                // batching again could only re-report a stand-in its re-call would ignore. An isolated
+                // group whose first record failed and was skipped now starts with another id; the walk
+                // passed the skipped start, so the group is still isolated.
                 HashSet<Guid> groupWritten = null;
                 var groupStart = existingIds[0];
-                var isolated = row.Bookmark.Isolate.Contains(groupStart);
+                var isolated = row.Bookmark.Isolate.Contains(groupStart) || passedIsolated.Count > 0;
                 if (!row.Bookmark.SingleWrites && !isolated && !skip.Contains(StandIn(groupStart)))
                 {
                     var toWrite = outcome.Records.Where(rec => !rec.GatedRuleIds.Contains(rule.RuleId) && !rec.HasBlock).ToList();
@@ -375,7 +382,11 @@ namespace Ascentix.RulesEngine.Plugin
                 if (budgetCut) break;
 
                 // An isolated group wrote one record at a time without failing: it no longer needs marking.
-                if (isolated) row.Bookmark.Isolate.Remove(groupStart);
+                if (isolated)
+                {
+                    row.Bookmark.Isolate.Remove(groupStart);
+                    foreach (var passed in passedIsolated) row.Bookmark.Isolate.Remove(passed);
+                }
 
                 // An all-records page resumes by id: everything handled so far is skipped next time.
                 if (allRecords) row.Bookmark.Skip.AddRange(chunk);
