@@ -50,6 +50,17 @@ namespace Ascentix.RulesEngine.Plugin
         }
     }
 
+    /// <summary>The failed single-row write, carried in an exception's Data. Exception.Data only accepts
+    /// serializable values and <see cref="ChangeSetWrite"/> is not, so it rides in a non-serialized field
+    /// (lost if the exception crosses an app domain, which only costs the record's name).</summary>
+    [Serializable]
+    public sealed class FailedWrite
+    {
+        [NonSerialized] private readonly ChangeSetWrite _write;
+        public FailedWrite(ChangeSetWrite write) { _write = write; }
+        public ChangeSetWrite Write => _write;
+    }
+
     /// <summary>
     /// Sends a <see cref="ChangeSet"/>'s batches in order. Creates and updates: a batch of 2 or more
     /// rows on a table that supports the bulk message goes as CreateMultiple / UpdateMultiple in
@@ -61,6 +72,10 @@ namespace Ascentix.RulesEngine.Plugin
     public sealed class ChangeSetDispatcher
     {
         public const int BulkChunkSize = 100;
+
+        /// <summary>Key under which a failed single-row request's <see cref="FailedWrite"/> (its ChangeSetWrite) is stored in
+        /// the thrown exception's Data; absent when a bulk request (several rows) failed.</summary>
+        public const string FailedWriteKey = "asx:failedWrite";
 
         /// <summary>Proven on DEV 2026-09-29: UpdateMultiple accepts a statecode change.</summary>
         public const bool UpdateMultipleAcceptsStateChange = true;
@@ -152,7 +167,9 @@ namespace Ascentix.RulesEngine.Plugin
             try { Tagged(service, request); }
             catch (Exception ex)
             {
-                throw new InvalidPluginExecutionException($"{write.Operation} {write.Table} (action \"{write.ActionLabel}\"): {ex.Message}", ex);
+                var failure = new InvalidPluginExecutionException($"{write.Operation} {write.Table} (action \"{write.ActionLabel}\"): {ex.Message}", ex);
+                failure.Data[FailedWriteKey] = new FailedWrite(write);
+                throw failure;
             }
             if (_diagnostics != null) _diagnostics.SingleRequests++;
             _trace?.Trace($"ChangeSetDispatcher: {write.Operation} {write.Table} {write.Id}.");

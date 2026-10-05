@@ -333,5 +333,116 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(1, diag.WritesUnchanged);
             Assert.Equal(1, diag.WritesSent);
         }
+
+        private sealed class AlwaysBulk : IBulkWriteSupport { public bool Supports(string message, string table) => true; }
+
+        private sealed class Recorder : IWriteRequestSender
+        {
+            public readonly List<OrganizationRequest> Sent = new List<OrganizationRequest>();
+            public Func<OrganizationRequest, bool> FailWhen = _ => false;
+            public void Send(IOrganizationService service, OrganizationRequest request)
+            {
+                Sent.Add(request);
+                if (FailWhen(request)) throw new InvalidOperationException("boom");
+            }
+        }
+
+        private static WriteIntent UpdateOf(string table, Guid row, string column, object value) => new WriteIntent
+        {
+            Operation = WriteOperation.Update, TargetTable = table, TargetId = row, Context = RuleEvaluationContext.User,
+            SourceActionOrder = 1, SourceActionName = "update",
+            Values = new Dictionary<string, object> { [column] = value },
+        };
+
+        private static WriteIntent DeleteOf(string table, Guid row) => new WriteIntent
+        {
+            Operation = WriteOperation.Delete, TargetTable = table, TargetId = row, Context = RuleEvaluationContext.User,
+            SourceActionOrder = 2, SourceActionName = "delete",
+        };
+
+        private static RecordEvaluationResult RecordWith(params WriteIntent[] intents) => new RecordEvaluationResult
+        {
+            RecordId = Guid.NewGuid(),
+            FiredActions = intents.Select(i => new FiredActionResult { WriteIntent = i }).ToList(),
+        };
+
+        private static bool Group(Recorder recorder, IList<RecordEvaluationResult> records, out HashSet<Guid> written,
+            bool engineInitiated = false) =>
+            new WriteActionExecutor(_ => new AlwaysBulk(), recorder)
+                .TryExecuteGroup(records, null, null, engineInitiated, new NullTrace(), null, out written);
+
+        [Fact]
+        public void A_group_of_updates_goes_out_as_one_UpdateMultiple()
+        {
+            var records = Enumerable.Range(0, 3).Select(_ => RecordWith(UpdateOf("contact", Guid.NewGuid(), "jobtitle", "x"))).ToList();
+            var recorder = new Recorder();
+
+            Assert.True(Group(recorder, records, out var written));
+
+            var bulk = Assert.Single(recorder.Sent);
+            Assert.Equal(3, Assert.IsType<UpdateMultipleRequest>(bulk).Targets.Entities.Count);
+            Assert.Equal(new HashSet<Guid>(records.Select(r => r.RecordId)), written);
+        }
+
+        [Fact]
+        public void A_group_with_nothing_that_can_go_bulk_sends_nothing_and_returns_false()
+        {
+            var records = new[] { RecordWith(DeleteOf("contact", Guid.NewGuid())), RecordWith(DeleteOf("contact", Guid.NewGuid())) };
+            var recorder = new Recorder();
+
+            Assert.False(Group(recorder, records, out var written));
+
+            Assert.Empty(recorder.Sent);
+            Assert.Empty(written);
+        }
+
+        [Fact]
+        public void A_failed_single_row_request_names_its_record()
+        {
+            var a = RecordWith(UpdateOf("contact", Guid.NewGuid(), "jobtitle", "a"));
+            var b = RecordWith(UpdateOf("contact", Guid.NewGuid(), "jobtitle", "b"));
+            var c = RecordWith(DeleteOf("account", Guid.NewGuid()));
+            var recorder = new Recorder { FailWhen = r => r is DeleteRequest };
+
+            var ex = Assert.Throws<GroupWriteException>(() => Group(recorder, new[] { a, b, c }, out _));
+
+            Assert.Equal(c.RecordId, ex.RecordId);
+            Assert.StartsWith("Delete account (action \"delete\"): boom", ex.Message);
+        }
+
+        [Fact]
+        public void A_failed_bulk_request_names_no_record()
+        {
+            var records = new[] { RecordWith(UpdateOf("contact", Guid.NewGuid(), "jobtitle", "a")), RecordWith(UpdateOf("contact", Guid.NewGuid(), "jobtitle", "b")) };
+            var recorder = new Recorder { FailWhen = r => r is UpdateMultipleRequest };
+
+            var ex = Assert.Throws<GroupWriteException>(() => Group(recorder, records, out _));
+
+            Assert.Null(ex.RecordId);
+            Assert.Contains("UpdateMultiple", ex.Message);
+        }
+
+        [Fact]
+        public void A_failed_write_shared_by_two_records_names_no_record()
+        {
+            var shared = Guid.NewGuid();
+            var a = RecordWith(UpdateOf("contact", Guid.NewGuid(), "jobtitle", "a"), DeleteOf("account", shared));
+            var b = RecordWith(UpdateOf("contact", Guid.NewGuid(), "jobtitle", "b"), DeleteOf("account", shared));
+            var recorder = new Recorder { FailWhen = r => r is DeleteRequest };
+
+            var ex = Assert.Throws<GroupWriteException>(() => Group(recorder, new[] { a, b }, out _));
+
+            Assert.Null(ex.RecordId);
+        }
+
+        [Fact]
+        public void An_engine_initiated_group_is_left_to_the_per_record_path()
+        {
+            var records = new[] { RecordWith(UpdateOf("contact", Guid.NewGuid(), "jobtitle", "a")), RecordWith(UpdateOf("contact", Guid.NewGuid(), "jobtitle", "b")) };
+            var recorder = new Recorder();
+
+            Assert.False(Group(recorder, records, out _, engineInitiated: true));
+            Assert.Empty(recorder.Sent);
+        }
     }
 }
