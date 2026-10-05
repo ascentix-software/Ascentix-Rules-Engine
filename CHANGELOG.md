@@ -10,6 +10,12 @@ only, so the version an administrator sees in their org can never carry the word
 
 ### Added
 
+- **Data updates.** A release that needs existing rules converted now ships a numbered data
+  update. The Rule Builder shows a banner while one is pending; a System Administrator or System
+  Customizer applies it with **Apply now** (others see the Rule Builder read-only, and publishing
+  is refused until it has run). Progress and failed items are recorded in the new **Data Update**
+  table (`asx_dataupdate`) and reported by the new `asx_ApplyDataUpdates` Custom API. This release
+  carries no data updates. See *Administering → Data Updates*.
 - **On demand runs.** An On demand rule can now be run outside the editor: **Run now** (in the
   hub and the Rule Builder) evaluates and enforces it against the records you choose (up to
   250), or against every record that passes its execution conditions, depending on the rule's

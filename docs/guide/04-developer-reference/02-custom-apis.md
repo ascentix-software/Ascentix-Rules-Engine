@@ -329,6 +329,77 @@ A cloud flow that starts a Rule Run and drives it to completion:
       by running this flow (or **Resume** in the Runs dialog) again later.
    2. **Set variable** `Done` = the action's `Done` output.
 
+## `asx_ApplyDataUpdates`: report or apply data updates
+
+Reports the data updates a release carries, and applies the ones still pending. The Rule Builder
+calls it to show the pending-update banner and to run **Apply now**; a script or pipeline can call it
+the same way (the engine's own deploy pipeline does).
+
+**Request**
+
+| Parameter | Type | Optional | Notes |
+|---|---|---|---|
+| `Mode` | String | No | `Status` reports; `Apply` applies. Anything else is refused |
+| `Retry` | Integer | Yes | `Apply` only: the number of an update that completed with failures, to run again from the start |
+| `FailedItem` | String | Yes | `Apply` only: the item named by the previous call's item-failed error (see below) |
+| `FailedMessage` | String | Yes | The message from that error; default `"The item failed."` |
+
+**Response**
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `Required` | Integer | The highest update number this release carries (`0` for none) |
+| `Pending` | String | JSON array `[{"number":1,"title":"…"}]` of the updates still to apply |
+| `Latest` | String | JSON `{"number","title","status","succeeded","failed","failures":[{"item","message"}]}` for the most recently touched update, or `null`. `status`: Running (1), Completed (2), Completed with failures (3) |
+| `CanApply` | Boolean | `true` when the caller may apply |
+| `Done` | Boolean | `true` when nothing is pending |
+
+`Status` needs the **Rule Read** privilege (`prvReadasx_rule`), so anyone who can open the Rule Builder
+can call it. `Apply` also needs `prvWriteSdkMessageProcessingStep` (System Administrator or System
+Customizer); without it the call fails with "asx_ApplyDataUpdates: only a System Administrator or
+System Customizer can apply data updates." The shipped roles grant nothing on the Data Update table.
+
+An `Apply` call works for up to **60 seconds**, saves its progress, finishes at most one update, and
+returns. **Call again until `Done` is `true`.** Two callers take turns: each call locks the update's
+row while it works.
+
+**Retrying a failed item.** An item that throws fails the whole call with an error whose message
+contains the marker `asx_ApplyDataUpdates:item-failed:<item>:<message>` (Dataverse may wrap it, so
+search for the marker), and the platform rolls that call back. Call again with `FailedItem` and
+`FailedMessage` set from the marker: that call only records the failure and returns. The call after it,
+made without `FailedItem`, carries on and skips the item. Send `FailedItem` only on the call right
+after an item-failed error; any other error means stop and try again later, because the update resumes
+from its saved position. An update whose items all fail still finishes: it ends **Completed with
+failures**, with every failure listed in `Latest`. Call with `Retry` set to its number to run it
+again after fixing the cause.
+
+```json
+{ "Required": 1, "Pending": "[]", "Latest": "{\"number\":1,\"title\":\"…\",\"status\":2,\"succeeded\":120,\"failed\":0,\"failures\":[]}", "CanApply": true, "Done": true }
+```
+
+### Recipe: apply every pending data update
+
+```javascript
+async function applyDataUpdates() {
+  let failed = null;
+  for (;;) {
+    const params = { Mode: "Apply" };
+    if (failed) { params.FailedItem = failed.item; params.FailedMessage = failed.message; }
+    let response;
+    try {
+      response = await callAction("asx_ApplyDataUpdates", params); // your own POST to the Web API
+      failed = null;
+    } catch (error) {
+      const m = /asx_ApplyDataUpdates:item-failed:([^:\s]+):([\s\S]*)$/.exec(error.message);
+      if (!m) throw error;          // any other error: stop and try again later
+      failed = { item: m[1], message: m[2] };
+      continue;                     // the next call reports the item
+    }
+    if (response.Done) return JSON.parse(response.Latest);
+  }
+}
+```
+
 ## `asx_StartDueSchedules`: drive due Rule Schedules
 
 Finds every currently-due **Rule Schedule** (`asx_ruleschedule`, *Schema Reference*)

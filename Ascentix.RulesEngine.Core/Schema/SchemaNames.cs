@@ -363,7 +363,7 @@ namespace Ascentix.RulesEngine.Schema
             public const string Entity = "dataupdate";
             public const string Name = "name";                // the update's title
             public const string Number = "number";
-            public const string Status = "status";            // local choice: Running 1, Completed 2, Completed with failures 3, Failed 4
+            public const string Status = "status";            // local choice: Running 1, Completed 2, Completed with failures 3
             public const string Cursor = "cursor";
             public const string Succeeded = "succeeded";
             public const string Failed = "failed";
