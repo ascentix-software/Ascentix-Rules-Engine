@@ -395,6 +395,21 @@ export function devOrg(identity = "user", opts = {}) {
     };
   }
 
+  // Queries and applies data updates via asx_ApplyDataUpdates. Mode "Status" checks pending and
+  // required updates; Mode "Apply" applies the pending updates (admin only).
+  async function applyDataUpdates(mode) {
+    const r = await request("POST", "asx_ApplyDataUpdates", { Mode: mode });
+    if (!r.ok) throw shapeError("asx_ApplyDataUpdates", r.status, r.text);
+    const raw = r.json ?? {};
+    return {
+      required: raw.Required ?? 0,
+      pending: raw.Pending ? JSON.parse(raw.Pending) : [],
+      latest: raw.Latest ? JSON.parse(raw.Latest) : null,
+      canApply: !!raw.CanApply,
+      done: !!raw.Done,
+    };
+  }
+
   // Calls asx_StartDueSchedules (docs/Schema.md §9): starts or continues every due Rule Schedule
   // and records the scheduler heartbeat (asx_schedulerstatus). No request parameters. RunIds
   // comes back JSON-encoded (StartDueSchedulesApi.WriteIds, a DataContractJsonSerializer array of
@@ -411,6 +426,6 @@ export function devOrg(identity = "user", opts = {}) {
 
   return {
     identity, url, token, tokenSync, request, api, updateRecord, deleteRecord, runRules, applyRules,
-    processRunPage, startDueSchedules,
+    processRunPage, startDueSchedules, applyDataUpdates,
   };
 }
