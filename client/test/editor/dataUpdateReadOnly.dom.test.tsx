@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { HubApp } from "../../src/editor/ui/HubApp";
 import { TableConfigApp } from "../../src/editor/ui/TableConfigApp";
 import { RuleEditorApp } from "../../src/editor/ui/RuleEditorApp";
@@ -109,10 +109,9 @@ describe("read-only while a data update is pending", () => {
     expect(screen.queryByText("Add related")).toBeNull();
   });
 
-  it("hides the rule editor's edit actions but keeps Reload", async () => {
-    const a = api(PENDING);
+  function renderRuleEditor(a: EditorApi) {
     const graph = makeGraph();
-    render(
+    return render(
       <DataUpdateProvider api={a}>
         <AppProvider>
           <MetadataProvider service={metaStub}>
@@ -126,10 +125,34 @@ describe("read-only while a data update is pending", () => {
         </AppProvider>
       </DataUpdateProvider>,
     );
+  }
+
+  it("hides the rule editor's edit actions but keeps Reload", async () => {
+    renderRuleEditor(api(PENDING));
     expect(await screen.findByTestId("data-update-banner")).toBeInTheDocument();
     for (const name of ["Save", "Publish", "Unpublish", "Undo", "Redo", "Restore published to draft", "Edit rule"]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
     }
     expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
+  });
+
+  it("never offers Save & validate while locked, even with unsaved edits", async () => {
+    // The edit is made before Status arrives; once it reports a pending update, the view locks.
+    let resolveStatus: (s: DataUpdateStatus) => void = () => {};
+    const a = {
+      retrieveMultipleRecords: async () => ({ entities: [] }),
+      applyDataUpdates: vi.fn(() => new Promise<DataUpdateStatus>((resolve) => { resolveStatus = resolve; })),
+    } as unknown as EditorApi;
+    renderRuleEditor(a);
+    fireEvent.click(screen.getByRole("button", { name: "Rename rule" }));
+    const field = screen.getByLabelText("Rule name");
+    fireEvent.change(field, { target: { value: "Edited" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(screen.getByRole("button", { name: "Save & validate" })).toBeInTheDocument();
+
+    await act(async () => { resolveStatus(PENDING); });
+    expect(await screen.findByTestId("data-update-banner")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save & validate" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Validate" })).toBeNull();
   });
 });

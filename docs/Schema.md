@@ -1141,7 +1141,9 @@ checks it. No additional custom processing steps. In the `AscentixRulesEngine` s
   because the next pending update starts on the next call).
 - **Row lock:** each call writes `asx_lastpageon` first, which locks the row until the call's
   transaction ends. A second caller waits, then continues from what the first saved. An update
-  another caller has just finished is not run again.
+  another caller has just finished is not run again. An update's first Apply creates its row
+  instead, so two administrators starting it at the same moment can make one fail with a
+  duplicate-row error; applying again carries on from what the other saved.
 - **Failed items:** an item that throws fails the whole call, and the platform rolls it back. The
   error message contains `asx_ApplyDataUpdates:item-failed:<token>:<message>` (Dataverse may wrap it, so
   search for the marker). The token is `<number>/<item>`: the update's number and the item it failed

@@ -11,7 +11,7 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
         public static IDataUpdate FirstPending(IOrganizationService system, IReadOnlyList<IDataUpdate> updates)
         {
             if (updates.Count == 0) return null;
-            var rows = DataUpdateRows.Load(system);
+            var rows = DataUpdateRows.LoadStates(system);
             return updates.OrderBy(u => u.Number)
                 .FirstOrDefault(u => DataUpdateRows.IsPending(rows.TryGetValue(u.Number, out var row) ? row : null));
         }

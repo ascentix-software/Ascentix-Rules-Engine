@@ -14,8 +14,20 @@ export const NOT_ADMIN_NOTE =
 
 type Api = Pick<WebApiPort, "applyDataUpdates">;
 
-/** The pending-update banner (or, for administrators, the completed-with-failures notice). */
-export function DataUpdateBanner({ api }: { api: Api }) {
+function reloadWindow() {
+  try {
+    window.location.reload();
+  } catch {
+    // hosts without navigation: the status reload below the dialog still runs
+  }
+}
+
+/**
+ * The pending-update banner (or, for administrators, the completed-with-failures notice). After an
+ * apply that finished, closing its dialog reloads the page, so no view keeps a graph loaded before the
+ * update converted it; after an error it reloads only the status.
+ */
+export function DataUpdateBanner({ api, reloadPage = reloadWindow }: { api: Api; reloadPage?: () => void }) {
   const { status, reload } = useDataUpdates();
   const [confirming, setConfirming] = React.useState(false);
   const [applying, setApplying] = React.useState<{ retry?: number } | null>(null);
@@ -29,7 +41,12 @@ export function DataUpdateBanner({ api }: { api: Api }) {
         onConfirm={() => { setConfirming(false); setApplying({}); }} />
       {applying && (
         <ApplyDataUpdatesDialog api={api} retry={applying.retry}
-          onClose={() => { setApplying(null); setDismissed(false); reload(); }} />
+          onClose={(finished) => {
+            setApplying(null);
+            setDismissed(false);
+            if (finished) reloadPage();
+            else reload();
+          }} />
       )}
     </>
   );
@@ -90,7 +107,8 @@ function ConfirmApplyDialog({ open, update, onCancel, onConfirm }: {
   );
 }
 
-function ApplyDataUpdatesDialog({ api, retry, onClose }: { api: Api; retry?: number; onClose(): void }) {
+/** `onClose(finished)`: finished is true when the run ended without an error. */
+function ApplyDataUpdatesDialog({ api, retry, onClose }: { api: Api; retry?: number; onClose(finished: boolean): void }) {
   const [progress, setProgress] = React.useState<DataUpdateStatus | null>(null);
   const [error, setError] = React.useState<unknown>(null);
   const [running, setRunning] = React.useState(true);
@@ -105,7 +123,7 @@ function ApplyDataUpdatesDialog({ api, retry, onClose }: { api: Api; retry?: num
 
   const latest = progress?.latest;
   return (
-    <Dialog open onOpenChange={(_e, d) => { if (!d.open && !running) onClose(); }}>
+    <Dialog open onOpenChange={(_e, d) => { if (!d.open && !running) onClose(!error); }}>
       <DialogSurface>
         <DialogBody>
           <DialogTitle>Applying data updates</DialogTitle>
@@ -123,7 +141,7 @@ function ApplyDataUpdatesDialog({ api, retry, onClose }: { api: Api; retry?: num
             )}
           </DialogContent>
           <DialogActions>
-            <Button appearance="primary" disabled={running} onClick={onClose}>Close</Button>
+            <Button appearance="primary" disabled={running} onClick={() => onClose(!error)}>Close</Button>
           </DialogActions>
         </DialogBody>
       </DialogSurface>

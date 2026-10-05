@@ -389,7 +389,11 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Same(one, DataUpdateGate.FirstPending(_service, new IDataUpdate[] { one, two }));
 
             DataUpdateRows.Create(_service, new DataUpdateRow(1, "t") { State = DataUpdateState.CompletedWithFailures });
-            Assert.Same(two, DataUpdateGate.FirstPending(_service, new IDataUpdate[] { one, two }));
+            Assert.Same(two, DataUpdateGate.FirstPending(counting, new IDataUpdate[] { one, two }));
+            // The gate runs on every publish, so it reads only the number and status columns.
+            var query = Assert.Single(counting.Queries);
+            Assert.False(query.ColumnSet.AllColumns);
+            Assert.Equal(new[] { "asx_number", "asx_status" }, query.ColumnSet.Columns.OrderBy(c => c, StringComparer.Ordinal));
             Assert.Equal("An administrator must apply data update 2 before rules can be published.", DataUpdateGate.PublishRefusal(2));
         }
     }

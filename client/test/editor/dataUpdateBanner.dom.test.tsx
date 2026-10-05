@@ -18,10 +18,20 @@ function ReadOnlyProbe() {
   return <span data-testid="probe">{readOnly ? "read-only" : "editable"}</span>;
 }
 
-function renderBanner(api: { applyDataUpdates?: (...a: any[]) => Promise<DataUpdateStatus> }) {
+function renderBanner(api: { applyDataUpdates?: (...a: any[]) => Promise<DataUpdateStatus> }, reloadPage = vi.fn()) {
   return renderWithFluent(
-    <DataUpdateProvider api={api}><DataUpdateBanner api={api} /><ReadOnlyProbe /></DataUpdateProvider>,
+    <DataUpdateProvider api={api}><DataUpdateBanner api={api} reloadPage={reloadPage} /><ReadOnlyProbe /></DataUpdateProvider>,
   );
+}
+
+const completed: DataUpdateStatus = {
+  required: 1, pending: [], canApply: true, done: true,
+  latest: { number: 1, title: "Convert actions", status: 2, succeeded: 4, failed: 0, failures: [] },
+};
+
+async function applyNow() {
+  fireEvent.click(await screen.findByRole("button", { name: "Apply now" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Apply" }));
 }
 
 describe("data update banner", () => {
@@ -42,6 +52,31 @@ describe("data update banner", () => {
     renderBanner({ applyDataUpdates: vi.fn().mockResolvedValue(pending(true)) });
     fireEvent.click(await screen.findByRole("button", { name: "Apply now" }));
     expect(await screen.findByText("Apply update 1?")).toBeInTheDocument();
+  });
+
+  it("reloads the page when the apply dialog closes after a run that finished", async () => {
+    const api = { applyDataUpdates: vi.fn(async (mode: string) => (mode === "Status" ? pending(true) : completed)) };
+    const reloadPage = vi.fn();
+    renderBanner(api, reloadPage);
+    await applyNow();
+    expect(await screen.findByText("Update 1 · Convert actions: 4 converted, 0 failed.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(reloadPage).toHaveBeenCalledOnce();
+  });
+
+  it("reloads only the status when the apply dialog closes after an error", async () => {
+    const api = { applyDataUpdates: vi.fn(async (mode: string) => {
+      if (mode === "Status") return pending(true);
+      throw new Error("Access denied");
+    }) };
+    const reloadPage = vi.fn();
+    renderBanner(api, reloadPage);
+    await applyNow();
+    expect(await screen.findByText("Access denied", { exact: false })).toBeInTheDocument();
+    const statusCalls = api.applyDataUpdates.mock.calls.filter(([mode]) => mode === "Status").length;
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await vi.waitFor(() => expect(api.applyDataUpdates.mock.calls.filter(([mode]) => mode === "Status").length).toBe(statusCalls + 1));
+    expect(reloadPage).not.toHaveBeenCalled();
   });
 
   it("lists failed items with a retry for an administrator, and can be dismissed", async () => {

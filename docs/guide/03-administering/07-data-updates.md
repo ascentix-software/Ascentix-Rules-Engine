@@ -38,8 +38,8 @@ is applied:
 1. Choose **Apply now**, then confirm. The dialog says which update it will apply.
 2. **Keep the tab open.** The Rule Builder drives the update in steps of up to a minute each. The
    dialog shows how many items are converted and how many failed so far. It can take a few minutes.
-3. When it finishes, the dialog reports *N converted, N failed*. Choose **Close**. The banner goes
-   away and rules are editable again.
+3. When it finishes, the dialog reports *N converted, N failed*. Choose **Close**. The page
+   reloads, the banner is gone and rules are editable again.
 
 If you close the tab part way, nothing is lost: the update saves its position after every step.
 Open the Rule Builder and choose **Apply now** again to carry on from there.
@@ -55,8 +55,8 @@ skips it and carries on. When it ends with any failed item, an administrator see
 
 It lists each failed item with the reason. A failed item is left as it was, and rules are editable
 again. Fix the cause the reason names, then choose **Retry failed items**. The update runs again from
-the start. **Dismiss** hides the notice until the next time you open the Rule Builder. The list shows
-the first 50 failures.
+the start. **Dismiss** hides the notice; it comes back after an apply finishes or when you reopen the
+Rule Builder. The list shows the first 50 failures.
 
 An update whose items all fail still finishes this way, with every item listed. See
 *Troubleshooting*.

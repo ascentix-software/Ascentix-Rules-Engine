@@ -342,7 +342,7 @@ the same way (the engine's own deploy pipeline does).
 | `Mode` | String | No | `Status` reports; `Apply` applies. Anything else is refused |
 | `Retry` | Integer | Yes | `Apply` only: the number of an update that completed with failures, to run again from the start |
 | `FailedItem` | String | Yes | `Apply` only: the failed-item token from the previous call's item-failed error, sent back exactly as received (see below) |
-| `FailedMessage` | String | Yes | The message from that error; default `"The item failed."` |
+| `FailedMessage` | String | Yes | `Apply` only: the message from that error; default `"The item failed."` |
 
 **Response**
 
@@ -361,7 +361,9 @@ System Customizer can apply data updates." The shipped roles grant nothing on th
 
 An `Apply` call works for up to **60 seconds**, saves its progress, finishes at most one update, and
 returns. **Call again until `Done` is `true`.** Two callers take turns: each call locks the update's
-row while it works.
+row while it works. The one exception is an update's very first `Apply`, which creates its row: if two
+administrators start it at the same moment, one of them can fail with a duplicate-row error. Apply
+again; it carries on from what the other saved.
 
 **Retrying a failed item.** An item that throws fails the whole call with an error whose message
 contains the marker `asx_ApplyDataUpdates:item-failed:<token>:<message>` (Dataverse may wrap it, so

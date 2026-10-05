@@ -586,7 +586,10 @@ export function RuleEditorApp({
                   {!updateLocked && needsDraft && !publishedView && <Button appearance="primary" disabled={busy || !api.openRuleDraft} onClick={onEdit}>Edit rule</Button>}
                   {!updateLocked && <Button appearance={needsDraft ? "secondary" : "primary"} disabled={!canSave} title={scheduleSaveBlockReason ?? undefined} onClick={onSave}>Save</Button>}
                   <Button disabled={busy || !!publishedView} onClick={() => guardNavigate(onReload)}>Reload</Button>
-                  <Button disabled={busy || !!recovery.pending || !!publishedView || (dirty && !!scheduleError)} title={scheduleSaveBlockReason ?? undefined} onClick={onValidate}>{dirty ? "Save & validate" : "Validate"}</Button>
+                  {/* While a data update is pending nothing is saved, so Validate shows only when there is nothing to save. */}
+                  {(!updateLocked || !dirty) && (
+                    <Button disabled={busy || !!recovery.pending || !!publishedView || (dirty && !!scheduleError)} title={scheduleSaveBlockReason ?? undefined} onClick={onValidate}>{dirty ? "Save & validate" : "Validate"}</Button>
+                  )}
                   {/* scheduleError disables Save/Validate everywhere, not just in the rule panel where the
                       Schedule section lives, so the reason must be visible regardless of the current selection. */}
                   {scheduleSaveBlockReason && <span style={{ fontSize: 12.5, color: color.danger }}>{scheduleSaveBlockReason}</span>}

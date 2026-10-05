@@ -82,14 +82,19 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
         public static bool IsPending(DataUpdateRow row) =>
             row == null || row.State == DataUpdateState.Running;
 
-        public static Dictionary<int, DataUpdateRow> Load(IOrganizationService system)
+        /// <summary>Every row by number. <paramref name="columns"/> narrows the read (default: all columns).</summary>
+        public static Dictionary<int, DataUpdateRow> Load(IOrganizationService system, ColumnSet columns = null)
         {
-            var rows = system.RetrieveMultiple(new QueryExpression(Entity) { ColumnSet = new ColumnSet(true) }).Entities;
+            var rows = system.RetrieveMultiple(new QueryExpression(Entity) { ColumnSet = columns ?? new ColumnSet(true) }).Entities;
             var byNumber = new Dictionary<int, DataUpdateRow>();
             foreach (var row in rows.Select(FromEntity))
                 if (!byNumber.ContainsKey(row.Number)) byNumber[row.Number] = row;
             return byNumber;
         }
+
+        /// <summary>Every row by number with only its number and status read: enough for <see cref="IsPending"/>.</summary>
+        public static Dictionary<int, DataUpdateRow> LoadStates(IOrganizationService system) =>
+            Load(system, new ColumnSet(Q(SchemaNames.DataUpdate.Number), Q(SchemaNames.DataUpdate.Status)));
 
         public static DataUpdateRow LoadOne(IOrganizationService system, int number) =>
             FromEntity(system.Retrieve(Entity, RowId(number), new ColumnSet(true)));
