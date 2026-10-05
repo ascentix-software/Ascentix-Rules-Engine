@@ -50,6 +50,17 @@ namespace Ascentix.RulesEngine.Plugin
         }
     }
 
+    /// <summary>The failed single-row write, carried in an exception's Data. Exception.Data only accepts
+    /// serializable values and <see cref="ChangeSetWrite"/> is not, so it rides in a non-serialized field
+    /// (lost if the exception crosses an app domain, which only costs the record's name).</summary>
+    [Serializable]
+    internal sealed class FailedWrite
+    {
+        [NonSerialized] private readonly ChangeSetWrite _write;
+        public FailedWrite(ChangeSetWrite write) { _write = write; }
+        public ChangeSetWrite Write => _write;
+    }
+
     /// <summary>
     /// Sends a <see cref="ChangeSet"/>'s batches in order. Creates and updates: a batch of 2 or more
     /// rows on a table that supports the bulk message goes as CreateMultiple / UpdateMultiple in
@@ -62,6 +73,10 @@ namespace Ascentix.RulesEngine.Plugin
     {
         public const int BulkChunkSize = 100;
 
+        /// <summary>Key under which a failed single-row request's <see cref="FailedWrite"/> (its ChangeSetWrite) is stored in
+        /// the thrown exception's Data, only when the dispatcher was built with tagFailedWrites (the group path); absent otherwise and when a bulk request failed.</summary>
+        public const string FailedWriteKey = "asx:failedWrite";
+
         /// <summary>Proven on DEV 2026-09-29: UpdateMultiple accepts a statecode change.</summary>
         public const bool UpdateMultipleAcceptsStateChange = true;
 
@@ -70,17 +85,20 @@ namespace Ascentix.RulesEngine.Plugin
         private readonly ITracingService _trace;
         private readonly bool _bulkStateChanges;
         private readonly RunDiagnostics _diagnostics;
+        private readonly bool _tagFailedWrites;
 
         /// <param name="diagnostics">Receives a dispatch:&lt;operation&gt;:&lt;table&gt; stage per batch and
         /// the row/request counters; null means none.</param>
         public ChangeSetDispatcher(IBulkWriteSupport support, IWriteRequestSender sender, ITracingService trace,
-            bool bulkStateChanges = UpdateMultipleAcceptsStateChange, RunDiagnostics diagnostics = null)
+            bool bulkStateChanges = UpdateMultipleAcceptsStateChange, RunDiagnostics diagnostics = null,
+            bool tagFailedWrites = false)
         {
             _support = support;
             _sender = sender;
             _trace = trace;
             _bulkStateChanges = bulkStateChanges;
             _diagnostics = diagnostics;
+            _tagFailedWrites = tagFailedWrites;
         }
 
         /// <summary>Copies the root-in-place values onto the in-flight Target. True when the change set
@@ -152,7 +170,9 @@ namespace Ascentix.RulesEngine.Plugin
             try { Tagged(service, request); }
             catch (Exception ex)
             {
-                throw new InvalidPluginExecutionException($"{write.Operation} {write.Table} (action \"{write.ActionLabel}\"): {ex.Message}", ex);
+                var failure = new InvalidPluginExecutionException($"{write.Operation} {write.Table} (action \"{write.ActionLabel}\"): {ex.Message}", ex);
+                if (_tagFailedWrites) failure.Data[FailedWriteKey] = new FailedWrite(write);
+                throw failure;
             }
             if (_diagnostics != null) _diagnostics.SingleRequests++;
             _trace?.Trace($"ChangeSetDispatcher: {write.Operation} {write.Table} {write.Id}.");

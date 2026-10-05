@@ -47,6 +47,21 @@ namespace Ascentix.RulesEngine.Plugin
     {
         public const string RecordFailedPrefix = "asx_ProcessRunPage:record-failed:";
         public const int MaxFailureMessageLength = 1000;
+        public const string IsolatingMessage = "Batch write failed; isolating group: ";
+        public const int BatchFailuresBeforeSingleWrites = 3;
+
+        // Fixed: a stand-in is the group's first record id XOR this, so it decodes back to the record and
+        // can't be a record of the run (callers re-send it as FailedRecordId; see Process).
+        private static readonly byte[] StandInMask = new Guid("a5c3e1f0-6b2d-4e8a-9c17-3f5d7b9e1a2c").ToByteArray();
+
+        /// <summary>The id a failed group batch reports in its record-failed error: the group's first
+        /// record id XOR a fixed mask. Applying it twice gives the record id back.</summary>
+        public static Guid StandIn(Guid firstRecordId)
+        {
+            var bytes = firstRecordId.ToByteArray();
+            for (var i = 0; i < bytes.Length; i++) bytes[i] ^= StandInMask[i];
+            return new Guid(bytes);
+        }
 
         private const string NotPublishedMessage = "The rule is not published with the On demand trigger.";
         private const string ScopeMismatchMessage = "The run no longer matches its rule's Runs for setting.";
@@ -61,14 +76,17 @@ namespace Ascentix.RulesEngine.Plugin
         private readonly RunPageLimits _limits;
         private readonly Func<DateTime> _utcNow;
         private readonly RunDiagnostics _diagnostics;
+        private readonly WriteActionExecutor _executor;
         private int _startEvaluated, _startBlocked, _startFailed;
 
         /// <param name="diagnostics">Receives the page stages and counters, and absorbs each chunk's
         /// engine diagnostics and the write stages; null ⇒ none.</param>
+        /// <param name="executor">Writes each group's and record's changes; null ⇒ a default one.</param>
         public RunPageProcessor(IOrganizationService system, IOrganizationService user, int languageId,
             ITracingService trace, bool engineInitiated, RunPageLimits limits, Func<DateTime> utcNow,
-            RunDiagnostics diagnostics = null)
+            RunDiagnostics diagnostics = null, WriteActionExecutor executor = null)
         {
+            _executor = executor ?? new WriteActionExecutor();
             _system = system;
             _user = user;
             _languageId = languageId;
@@ -131,6 +149,26 @@ namespace Ascentix.RulesEngine.Plugin
             row.Failures = RunState.ParseFailures(run.GetAttributeValue<string>(Q(SchemaNames.RuleRun.Failures)));
             row.Versions = RunState.ParseVersions(run.GetAttributeValue<string>(Q(SchemaNames.RuleRun.RuleVersions)));
             var allRecords = run.GetAttributeValue<OptionSetValue>(Q(SchemaNames.RuleRun.Scope))?.Value == (int)OnDemandScope.AllRecords;
+
+            // A failed group batch reported its group's stand-in (StandIn): mark the group to write one
+            // record at a time and count nothing. After BatchFailuresBeforeSingleWrites of these the run
+            // writes one record at a time for good. Anything else is today's record-failed report. A
+            // repeated report for a group already marked is a duplicate (a marked group never batches),
+            // so it counts no second failed batch.
+            if (failedRecordId.HasValue && IsStandIn(run, allRecords, ids, failedRecordId.Value, out var isolatedStart))
+            {
+                if (!row.Bookmark.Isolate.Contains(isolatedStart))
+                {
+                    row.Bookmark.Isolate.Add(isolatedStart);
+                    row.Bookmark.BatchFailures++;
+                    if (row.Bookmark.BatchFailures >= BatchFailuresBeforeSingleWrites) row.Bookmark.SingleWrites = true;
+                }
+                if (row.Status == RuleRunStatus.Queued) row.Status = RuleRunStatus.Running;
+                row.LastPageOn = _utcNow();
+                _trace.Trace($"RunPageProcessor: batched write failed for the group starting at {isolatedStart}; " +
+                             $"writing it one record at a time ({row.Bookmark.BatchFailures} failed batch(es)).");
+                return Save(runId, row, done: false);
+            }
 
             // The previous call threw record-failed for this id and was rolled back: count it once,
             // add it to the skip list, and save without processing anything. Committing each report
@@ -213,7 +251,6 @@ namespace Ascentix.RulesEngine.Plugin
 
             // Walk the window (minus the skip list) in chunks, until the page size or time budget.
             var skip = new HashSet<Guid>(row.Bookmark.Skip);
-            var executor = new WriteActionExecutor();
             var consumed = 0;   // positions of the window walked, skipped ids included
             var processed = 0;
             var budgetCut = false;
@@ -255,6 +292,34 @@ namespace Ascentix.RulesEngine.Plugin
                 using (_diagnostics?.Time("pageEvaluate"))
                     outcome = evaluator.Evaluate(rule, existingIds);
                 _diagnostics?.Absorb(outcome.Diagnostics);
+
+                // Batch the group's writes unless the run has switched to single writes or this group was
+                // isolated after a failed batch. TryExecuteGroup returns false (nothing sent) when nothing in
+                // the group can go bulk; the loop below then writes per record exactly as before. A group
+                // whose stand-in is in the skip list (once taken for a record) also writes per record:
+                // batching again could only re-report a stand-in its re-call would ignore.
+                HashSet<Guid> groupWritten = null;
+                var groupStart = existingIds[0];
+                var isolated = row.Bookmark.Isolate.Contains(groupStart);
+                if (!row.Bookmark.SingleWrites && !isolated && !skip.Contains(StandIn(groupStart)))
+                {
+                    var toWrite = outcome.Records.Where(rec => !rec.GatedRuleIds.Contains(rule.RuleId) && !rec.HasBlock).ToList();
+                    try
+                    {
+                        using (_diagnostics?.Time("pageWrite"))
+                            if (_executor.TryExecuteGroup(toWrite, _user, _system, _engineInitiated, _trace, _diagnostics, out var sent))
+                                groupWritten = sent;
+                    }
+                    catch (GroupWriteException ex)
+                    {
+                        // Rolls the whole page back. A named record is today's report; otherwise the group's
+                        // stand-in, which the caller's re-call turns into isolation (see the report path above).
+                        var reported = ex.RecordId ?? StandIn(groupStart);
+                        var prefix = ex.RecordId.HasValue ? "" : IsolatingMessage;
+                        throw new InvalidPluginExecutionException($"{RecordFailedPrefix}{reported}:{prefix}{Truncate(ex.Message)}");
+                    }
+                }
+
                 for (var r = 0; r < outcome.Records.Count; r++)
                 {
                     var record = outcome.Records[r];
@@ -269,13 +334,18 @@ namespace Ascentix.RulesEngine.Plugin
                         row.Failures.Add(Failure(record.RecordId, "Blocked",
                             ActionDispatcher.FormatBlockMessage(record.BlockingMessages, _languageId)));
                     }
+                    else if (groupWritten != null)
+                    {
+                        // Already written with the group: only count it.
+                        if (groupWritten.Contains(record.RecordId)) row.Changed++;
+                    }
                     else
                     {
                         try
                         {
                             int written;
                             using (_diagnostics?.Time("pageWrite"))
-                                written = executor.ExecuteRecord(record, null, _user, _system, _engineInitiated, _trace, _diagnostics);
+                                written = _executor.ExecuteRecord(record, null, _user, _system, _engineInitiated, _trace, _diagnostics);
                             if (written > 0)
                                 row.Changed++;
                         }
@@ -290,8 +360,9 @@ namespace Ascentix.RulesEngine.Plugin
                     // Over budget mid-chunk: stop after this record, saving progress exactly as a
                     // budget cut between chunks would. The walk rewinds to the first record not yet
                     // evaluated; ids already counted past that point (a missing record) join the
-                    // skip list so the next page doesn't count them again.
-                    if (r < outcome.Records.Count - 1 && OverBudget(start))
+                    // skip list so the next page doesn't count them again. A batched group's writes are
+                    // already sent, so it is counted whole instead.
+                    if (groupWritten == null && r < outcome.Records.Count - 1 && OverBudget(start))
                     {
                         var unhandled = new HashSet<Guid>(existingIds.Skip(r + 1));
                         var handled = chunk.Where(id => !unhandled.Contains(id)).ToList();
@@ -302,6 +373,9 @@ namespace Ascentix.RulesEngine.Plugin
                     }
                 }
                 if (budgetCut) break;
+
+                // An isolated group wrote one record at a time without failing: it no longer needs marking.
+                if (isolated) row.Bookmark.Isolate.Remove(groupStart);
 
                 // An all-records page resumes by id: everything handled so far is skipped next time.
                 if (allRecords) row.Bookmark.Skip.AddRange(chunk);
@@ -329,6 +403,26 @@ namespace Ascentix.RulesEngine.Plugin
                 return Finish(runId, row, row.Blocked + row.Failed == 0 ? RuleRunStatus.Completed : RuleRunStatus.CompletedWithFailures);
 
             return Save(runId, row, done: false);
+        }
+
+        // True when id is a stand-in: its decoding is a record of the run and id itself is not. A given-records
+        // run decides from its own ids with no reads (a listed id is always a record's report). An all-records
+        // run checks the rule's table; any failure to resolve the run's rule there means "not a stand-in"
+        // (today's report path handles it).
+        private bool IsStandIn(Entity run, bool allRecords, List<Guid> ids, Guid id, out Guid groupStart)
+        {
+            groupStart = StandIn(id);
+            if (!allRecords) return ids.Contains(groupStart) && !ids.Contains(id);
+            try
+            {
+                var rule = OnDemandRules.Resolve(_system, run.GetAttributeValue<EntityReference>(Q(SchemaNames.RuleRun.Rule))?.Id ?? Guid.Empty, _trace);
+                var existing = new OnDemandEvaluator(_system, _user, _languageId, _trace).Existing(rule, new[] { id, groupStart });
+                return existing.Contains(groupStart) && !existing.Contains(id);
+            }
+            catch (InvalidPluginExecutionException)
+            {
+                return false;
+            }
         }
 
         private bool OverBudget(DateTime start) => _utcNow() - start >= _limits.Budget;

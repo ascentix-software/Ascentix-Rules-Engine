@@ -34,6 +34,7 @@ namespace Ascentix.RulesEngine.Core.Execution
         internal bool AlwaysWrite { get; set; }
         internal int FirstSeen { get; }
         internal void Add(WriteIntent intent) => _sources.Add(intent);
+        internal void AddSourcesFrom(ChangeSetWrite other) => _sources.AddRange(other._sources);
 
         /// <summary>The first contributing action's name, or its id when it has none: error messages.</summary>
         public string ActionLabel
@@ -77,6 +78,19 @@ namespace Ascentix.RulesEngine.Core.Execution
 
         private readonly Dictionary<WriteIntent, ChangeSetWrite> _writeOf = new Dictionary<WriteIntent, ChangeSetWrite>();
         private readonly HashSet<ChangeSetWrite> _unchanged = new HashSet<ChangeSetWrite>();
+
+        private readonly Dictionary<ChangeSetWrite, List<Guid>> _records = new Dictionary<ChangeSetWrite, List<Guid>>();
+
+        /// <summary>The records whose change sets fed this combined write (<see cref="Combine"/>), in
+        /// record order; empty for a write this set does not hold or a set built by ForRecord/Build.</summary>
+        public IReadOnlyList<Guid> RecordsOf(ChangeSetWrite write) =>
+            write != null && _records.TryGetValue(write, out var ids) ? (IReadOnlyList<Guid>)ids : new Guid[0];
+
+        private void Own(ChangeSetWrite write, Guid recordId)
+        {
+            if (!_records.TryGetValue(write, out var ids)) _records[write] = ids = new List<Guid>();
+            if (ids.Count == 0 || ids[ids.Count - 1] != recordId) ids.Add(recordId);
+        }
 
         private ChangeSet() { }
 
@@ -186,20 +200,83 @@ namespace Ascentix.RulesEngine.Core.Execution
                 if (write.Values.All(kv => write.Loaded.TryGetValue(kv.Key, out var loaded) && WriteValueComparer.AreEqual(kv.Value, loaded)))
                     cs._unchanged.Add(write);
 
-            var sendable = creates.Concat(byKey.Values.Where(w => !cs._unchanged.Contains(w))).ToList();
+            cs.SetBatches(creates.Concat(byKey.Values.Where(w => !cs._unchanged.Contains(w))).ToList());
+            cs.RootInPlaceValues = rootValues;
+            cs.Unchanged = cs._unchanged.Count;
+            cs.Merged = merged + Math.Max(0, rootIntents - 1);
+            return cs;
+        }
+
+        // Batches: creates, then updates, then deletes, each grouped per (table, context) in first-seen order.
+        private void SetBatches(List<ChangeSetWrite> sendable)
+        {
             var batches = new List<ChangeSetBatch>();
             foreach (var phase in Phases)
                 foreach (var group in sendable.Where(w => w.Operation == phase).OrderBy(w => w.FirstSeen)
                              .GroupBy(w => (Table: (w.Table ?? "").ToLowerInvariant(), w.Context)))
                     batches.Add(new ChangeSetBatch(phase, group.First().Table, group.Key.Context, group.ToList()));
+            Batches = batches;
+            Creates = sendable.Count(w => w.Operation == WriteOperation.Create);
+            Updates = sendable.Count(w => w.Operation == WriteOperation.Update);
+            Deletes = sendable.Count(w => w.Operation == WriteOperation.Delete);
+        }
 
-            cs.Batches = batches;
-            cs.RootInPlaceValues = rootValues;
-            cs.Creates = sendable.Count(w => w.Operation == WriteOperation.Create);
-            cs.Updates = sendable.Count(w => w.Operation == WriteOperation.Update);
-            cs.Deletes = sendable.Count(w => w.Operation == WriteOperation.Delete);
-            cs.Unchanged = cs._unchanged.Count;
-            cs.Merged = merged + Math.Max(0, rootIntents - 1);
+        /// <summary>
+        /// Several records' change sets as one, in record order (a Rule Run page writes a group of
+        /// records at once). Each set is already merged and has its unchanged writes dropped
+        /// (<see cref="ForRecord"/>); across records the same rules apply: update + update of a row
+        /// → one update, the later record winning per column; update + delete → delete; an update of a
+        /// deleted row is moot; creates never merge; repeated deletes of a row collapse to one.
+        /// <see cref="RecordsOf"/> names the records behind each combined write. Unchanged and Merged
+        /// add up the records' own counts plus the writes merged across records. Never has root-in-place
+        /// values (a run page has no in-flight Target).
+        /// </summary>
+        public static ChangeSet Combine(IReadOnlyList<(Guid RecordId, ChangeSet Set)> records)
+        {
+            var cs = new ChangeSet();
+            var creates = new List<ChangeSetWrite>();
+            var byKey = new Dictionary<string, ChangeSetWrite>(StringComparer.OrdinalIgnoreCase);
+            var seen = 0;
+            var merged = 0;
+            var unchanged = 0;
+
+            foreach (var (recordId, set) in records ?? new (Guid, ChangeSet)[0])
+            {
+                if (set == null) continue;
+                unchanged += set.Unchanged;
+                merged += set.Merged;
+                foreach (var batch in set.Batches)
+                    foreach (var source in batch.Writes)
+                    {
+                        seen++;
+                        if (source.Operation == WriteOperation.Create)
+                        {
+                            var create = new ChangeSetWrite(WriteOperation.Create, source.Table, source.Id, source.Context, seen);
+                            foreach (var kv in source.Values) create.Values[kv.Key] = kv.Value;
+                            create.AddSourcesFrom(source);
+                            creates.Add(create);
+                            cs.Own(create, recordId);
+                            continue;
+                        }
+
+                        var key = $"{(int)source.Context}|{source.Table}|{source.Id}";
+                        if (!byKey.TryGetValue(key, out var write))
+                            byKey[key] = write = new ChangeSetWrite(source.Operation, source.Table, source.Id, source.Context, seen);
+                        else
+                            merged++;
+                        write.AddSourcesFrom(source);
+                        cs.Own(write, recordId);
+
+                        if (source.Operation == WriteOperation.Delete) { write.Operation = WriteOperation.Delete; continue; }
+                        if (write.Operation == WriteOperation.Delete) continue; // an update of a deleted row is moot
+                        foreach (var kv in source.Values) write.Values[kv.Key] = kv.Value;
+                    }
+            }
+
+            cs.SetBatches(creates.Concat(byKey.Values).ToList());
+            cs.RootInPlaceValues = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            cs.Unchanged = unchanged;
+            cs.Merged = merged;
             return cs;
         }
 

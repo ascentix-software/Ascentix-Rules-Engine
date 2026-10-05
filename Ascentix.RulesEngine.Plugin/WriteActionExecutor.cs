@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Execution;
@@ -7,6 +8,15 @@ using Ascentix.RulesEngine.Core.Models;
 
 namespace Ascentix.RulesEngine.Plugin
 {
+    /// <summary>A group's combined write failed. <see cref="RecordId"/> is the one record behind the
+    /// failed row when it can be named; null when a bulk request (several rows) failed or the failed
+    /// row was merged from several records.</summary>
+    public sealed class GroupWriteException : Exception
+    {
+        public GroupWriteException(Guid? recordId, string message, Exception inner) : base(message, inner) { RecordId = recordId; }
+        public Guid? RecordId { get; }
+    }
+
     /// <summary>
     /// Fired actions → <see cref="ChangeSet"/> → <see cref="ChangeSetDispatcher"/>, one change set per
     /// evaluated record. An update of the record being saved is written onto the in-flight Target and
@@ -87,6 +97,50 @@ namespace Ascentix.RulesEngine.Plugin
 
             trace.Trace($"WriteActionExecutor: {changeSet.Creates} create(s), {changeSet.Updates} update(s), {changeSet.Deletes} delete(s), {changeSet.Unchanged} unchanged.");
             return applied + dispatcher.SendBatches(changeSet, userService, systemService);
+        }
+
+        /// <summary>Writes a group of evaluated records (a Rule Run page's chunk) as one combined change
+        /// set (<see cref="ChangeSet.Combine"/>). Returns false, sending nothing, when there is no gain
+        /// over writing per record — no create or update batch of the combined set can go as a bulk
+        /// request — or when this execution is engine-initiated; the caller then writes per record.
+        /// <paramref name="written"/> holds the records whose own change set had a write (they count as
+        /// changed). A failure throws <see cref="GroupWriteException"/>, naming the record when one record
+        /// alone fed the failed single-row request. No in-place writes: a run page has no Target.</summary>
+        public bool TryExecuteGroup(IList<RecordEvaluationResult> records, IOrganizationService userService,
+            IOrganizationService systemService, bool engineInitiated, ITracingService trace, RunDiagnostics diagnostics,
+            out HashSet<Guid> written)
+        {
+            written = new HashSet<Guid>();
+            if (engineInitiated || records == null || records.Count < 2) return false;
+
+            var sets = records.Select(r => (r.RecordId, ChangeSet.ForRecord(r, null))).ToList();
+            var combined = ChangeSet.Combine(sets);
+            var support = _support ?? (_support = _supportFactory(systemService));
+            var bulk = combined.Batches.Any(b => b.Operation != WriteOperation.Delete && b.Writes.Count >= 2
+                && support.Supports(b.Operation == WriteOperation.Create ? "CreateMultiple" : "UpdateMultiple", b.Table));
+            if (!bulk) return false;
+
+            if (diagnostics != null)
+            {
+                diagnostics.WritesUnchanged += combined.Unchanged;
+                diagnostics.WritesMerged += combined.Merged;
+            }
+            foreach (var (recordId, set) in sets)
+                if (set.WriteCount > 0) written.Add(recordId);
+
+            trace.Trace($"WriteActionExecutor: group of {records.Count} record(s): {combined.Creates} create(s), " +
+                        $"{combined.Updates} update(s), {combined.Deletes} delete(s), {combined.Unchanged} unchanged.");
+            try
+            {
+                new ChangeSetDispatcher(support, _sender, trace, diagnostics: diagnostics, tagFailedWrites: true).SendBatches(combined, userService, systemService);
+            }
+            catch (InvalidPluginExecutionException ex)
+            {
+                var owners = ex.Data[ChangeSetDispatcher.FailedWriteKey] is FailedWrite failed && failed.Write != null
+                    ? combined.RecordsOf(failed.Write) : new Guid[0];
+                throw new GroupWriteException(owners.Count == 1 ? owners[0] : (Guid?)null, ex.Message, ex);
+            }
+            return true;
         }
     }
 }

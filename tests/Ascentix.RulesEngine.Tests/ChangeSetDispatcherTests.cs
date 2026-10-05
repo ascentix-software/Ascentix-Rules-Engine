@@ -170,6 +170,16 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void A_failed_single_request_carries_no_failed_write_unless_asked()
+        {
+            var (d, s) = Make();
+            s.FailWith = (r, i) => new InvalidPluginExecutionException("Not allowed.");
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
+                d.SendBatches(ChangeSet.Build(new[] { Upd("contact", Guid.NewGuid()) }), User, SystemService));
+            Assert.False(ex.Data.Contains(ChangeSetDispatcher.FailedWriteKey));
+        }
+
+        [Fact]
         public void A_failed_bulk_request_names_the_message_and_table()
         {
             var (d, s) = Make("UpdateMultiple|contact");

@@ -297,7 +297,7 @@ User-owned. One row per **Run now** execution of an On demand rule, created by t
 | `asx_failed` | Integer (min 0) | Running total of records that errored |
 | `asx_skipped` | Integer (min 0) | Running total of records that did not pass the execution conditions |
 | `asx_failures` | Memo (100,000) | JSON array of the first 50 `{recordId, kind: "Blocked"\|"Failed", message}` |
-| `asx_bookmark` | Memo (100,000) | JSON: the page number, paging cookie and the ids already handled on that page (All records), or the next index (Given records); either scope also lists reported failed ids to skip. `offset` is kept for compatibility and always 0 |
+| `asx_bookmark` | Memo (100,000) | JSON: the page number, paging cookie and the ids already handled on that page (All records), or the next index (Given records); either scope also lists reported failed ids to skip. It also carries `isolate` (the first record ids of groups whose batched write failed, written one record at a time), `batchFailures` (failed batches so far) and `singleWrites` (true once the run writes one record at a time); a bookmark without them reads as none, 0 and false. `offset` is kept for compatibility and always 0 |
 | `asx_ruleversions` | Memo (4,000) | JSON array of the published revision ids used across pages |
 | `asx_startedon` | DateTime (UserLocal) | Set when the run is created |
 | `asx_lastpageon` | DateTime (UserLocal) | Set after each processed page |
@@ -892,7 +892,7 @@ so every page starts fresh at plug-in depth 1.
 | Parameter | Type | Optional | Notes |
 |---|---|---|---|
 | `RunId` | Guid | No | The Rule Run to process |
-| `FailedRecordId` | Guid | Yes | The record named by the previous call's `record-failed` error (see **Failed writes**): the call only counts it Failed once and adds it to the skip list |
+| `FailedRecordId` | Guid | Yes | The record named by the previous call's `record-failed` error (see **Failed writes**): the call only counts it Failed once and adds it to the skip list. The id may stand for a group whose batched write failed; send it back exactly as for a record |
 | `FailedMessage` | String | Yes | The message from that error, stored in `asx_failures`; default `"The write failed."` |
 | `IncludeDiagnostics` | Boolean | Yes | When true, the response also carries `Diagnostics` (default `false`) |
 
@@ -919,7 +919,8 @@ so every page starts fresh at plug-in depth 1.
   the page in progress instead of racing its save.
 - **Page budget:** stops after 500 records or 60 seconds of processing, whichever comes first.
   The time is checked before each chunk and after each record, so a page over budget stops after
-  the record in hand, well inside the platform's two-minute limit.
+  the record in hand, well inside the platform's two-minute limit. A group written in one batch is
+  checked before and after the group instead of after each record.
 - **Record selection:** an **All records** run reads the rule's table ordered by primary id, a page
   at a time, with the page number and paging cookie kept in the bookmark. A page cut short by the
   budget is resumed by re-reading the same page and skipping the ids already handled on it (kept
@@ -947,6 +948,10 @@ so every page starts fresh at plug-in depth 1.
   report is committed on its own, so a page with several failing writes still converges. A
   repeated report of a record already in the skip list is not counted again. Send
   `FailedRecordId` only on the call right after a `record-failed` error.
+  A group's writes normally go out as one batch; when that batch fails, the error carries a
+  stand-in id for the group instead of a record id. The re-call with it counts nothing and marks
+  the group; the next call writes that group one record at a time and reports the record that
+  fails as above. After 3 failed batches the run writes one record at a time for good.
 - **Other errors:** a caller should stop on any other error. The run stays Running (or Queued, if no
   page has been saved yet) and can be resumed later by calling again.
 - **Safety stop:** after 100 records, if every record so far failed, the run is set to Failed.

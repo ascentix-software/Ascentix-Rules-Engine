@@ -154,12 +154,35 @@ namespace Ascentix.RulesEngine.Tests
         private static RunPageLimits Limits() => new RunPageLimits { PageSize = 2, ChunkSize = 1 };
 
         private RunPageProcessor Processor(RunPageLimits limits = null, IOrganizationService service = null, Func<DateTime> clock = null,
-            IOrganizationService user = null)
+            IOrganizationService user = null, WriteActionExecutor executor = null)
         {
             var svc = service ?? _service;
             return new RunPageProcessor(svc, user ?? svc, 1033, new XrmFakedTracingService(), engineInitiated: false,
-                limits ?? Limits(), clock ?? (() => Now));
+                limits ?? Limits(), clock ?? (() => Now), executor: executor);
         }
+
+        private sealed class AlwaysBulk : IBulkWriteSupport { public bool Supports(string message, string table) => true; }
+
+        // Applies UpdateMultiple/Update targets through the fake service (FakeXrmEasy has no UpdateMultiple),
+        // failing on one account id when asked.
+        private sealed class BulkSender : IWriteRequestSender
+        {
+            public readonly List<OrganizationRequest> Sent = new List<OrganizationRequest>();
+            public Guid? FailOn;
+            public Action OnSend;
+            public void Send(IOrganizationService service, OrganizationRequest request)
+            {
+                Sent.Add(request);
+                OnSend?.Invoke();
+                var targets = request is UpdateMultipleRequest m ? m.Targets.Entities.ToList()
+                    : request is UpdateRequest u ? new List<Entity> { u.Target } : null;
+                if (targets == null) { service.Execute(request); return; }
+                if (FailOn.HasValue && targets.Any(t => t.Id == FailOn.Value)) throw new InvalidOperationException("boom");
+                foreach (var t in targets) service.Update(t);
+            }
+        }
+
+        private static WriteActionExecutor BulkExecutor(BulkSender sender) => new WriteActionExecutor(_ => new AlwaysBulk(), sender);
 
         private RunBookmark BookmarkOf(Guid runId) =>
             RunState.ParseBookmark(Run(runId).GetAttributeValue<string>(Q(SchemaNames.RuleRun.Bookmark)));
@@ -229,6 +252,207 @@ namespace Ascentix.RulesEngine.Tests
             foreach (var stage in new[] { "pageSelect", "pageEvaluate", "pageWrite", "bookmark",
                          "ruleLoad", "evaluate", "changeSetBuild", "dispatch:Update:account" })
                 Assert.Contains(diag.Stages, s => s.Name == stage);
+        }
+
+        [Fact]
+        public void A_group_is_written_with_one_UpdateMultiple()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz2, _zz3 });
+            var sender = new BulkSender();
+            var processor = Processor(new RunPageLimits { PageSize = 3, ChunkSize = 3 }, executor: BulkExecutor(sender));
+
+            var (last, _) = ProcessUntilDone(processor, runId);
+
+            var bulk = Assert.Single(sender.Sent.OfType<UpdateMultipleRequest>());
+            Assert.Equal(2, bulk.Targets.Entities.Count);
+            Assert.DoesNotContain(sender.Sent, r => r is UpdateRequest);
+            Assert.Equal(3, last.Evaluated);
+            Assert.Equal(2, last.Changed);
+            Assert.Equal(1, last.Blocked);
+            Assert.NotNull(Description(_zz1));
+            Assert.NotNull(Description(_zz3));
+        }
+
+        [Fact]
+        public void A_failed_batch_isolates_its_group_and_the_bad_record_is_counted_as_today()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz2, _zz3 });
+            var sender = new BulkSender { FailOn = _zz3 };
+            var processor = Processor(new RunPageLimits { PageSize = 3, ChunkSize = 3 }, executor: BulkExecutor(sender));
+
+            // 1. The batch fails: today's error, with the group's stand-in id.
+            var batch = Assert.Throws<InvalidPluginExecutionException>(() => processor.Process(runId, null, null));
+            var standIn = RunPageProcessor.StandIn(_zz1);
+            Assert.StartsWith(RunPageProcessor.RecordFailedPrefix + standIn + ":" + RunPageProcessor.IsolatingMessage, batch.Message);
+
+            // 2. The re-call with the stand-in counts nothing and marks the group.
+            var marked = processor.Process(runId, standIn, "ignored");
+            Assert.Equal(0, marked.Evaluated + marked.Failed);
+            Assert.Equal(new[] { _zz1 }, BookmarkOf(runId).Isolate);
+            Assert.Equal(1, BookmarkOf(runId).BatchFailures);
+
+            // 3. The group now writes per record and fails on the real record.
+            var real = Assert.Throws<InvalidPluginExecutionException>(() => processor.Process(runId, null, null));
+            Assert.StartsWith(RunPageProcessor.RecordFailedPrefix + _zz3 + ":", real.Message);
+
+            // 4. Today's re-call counts it; the run completes.
+            processor.Process(runId, _zz3, "boom");
+            var (last, _) = ProcessUntilDone(processor, runId);
+            Assert.Equal(3, last.Evaluated);
+            Assert.Equal(1, last.Changed);
+            Assert.Equal(1, last.Blocked);
+            Assert.Equal(1, last.Failed);
+            Assert.Contains(FailuresOf(Run(runId)), f => f.RecordId == _zz3 && f.Kind == "Failed");
+            Assert.DoesNotContain(FailuresOf(Run(runId)), f => f.RecordId == standIn);
+            Assert.Empty(BookmarkOf(runId).Isolate);
+        }
+
+        [Fact]
+        public void A_third_failed_batch_switches_the_run_to_single_writes()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz2, _zz3 });
+            var bookmark = new RunBookmark { BatchFailures = RunPageProcessor.BatchFailuresBeforeSingleWrites - 1 };
+            _service.Update(new Entity(Q(SchemaNames.RuleRun.Entity), runId) { [Q(SchemaNames.RuleRun.Bookmark)] = RunState.WriteBookmark(bookmark) });
+            var sender = new BulkSender();
+            var processor = Processor(new RunPageLimits { PageSize = 3, ChunkSize = 3 }, executor: BulkExecutor(sender));
+
+            processor.Process(runId, RunPageProcessor.StandIn(_zz1), "ignored");
+            Assert.True(BookmarkOf(runId).SingleWrites);
+
+            ProcessUntilDone(processor, runId);
+            Assert.Empty(sender.Sent.OfType<UpdateMultipleRequest>());
+            Assert.Equal(2, sender.Sent.OfType<UpdateRequest>().Count());
+        }
+
+        [Fact]
+        public void An_id_that_decodes_to_no_record_of_the_run_is_counted_failed_as_today()
+        {
+            // An id that decodes to no existing record is not a stand-in: it is counted Failed, as today.
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1 });
+            var notAStandIn = RunPageProcessor.StandIn(Guid.NewGuid());
+            var result = Processor(executor: BulkExecutor(new BulkSender())).Process(runId, notAStandIn, "boom");
+            Assert.Equal(1, result.Failed);
+            Assert.Empty(BookmarkOf(runId).Isolate);
+        }
+
+        [Fact]
+        public void A_repeated_stand_in_report_counts_one_failed_batch()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz2, _zz3 });
+            var processor = Processor(new RunPageLimits { PageSize = 3, ChunkSize = 3 }, executor: BulkExecutor(new BulkSender()));
+
+            processor.Process(runId, RunPageProcessor.StandIn(_zz1), "ignored");
+            processor.Process(runId, RunPageProcessor.StandIn(_zz1), "ignored");
+
+            var bookmark = BookmarkOf(runId);
+            Assert.Equal(new[] { _zz1 }, bookmark.Isolate);
+            Assert.Equal(1, bookmark.BatchFailures);
+            Assert.False(bookmark.SingleWrites);
+        }
+
+        [Fact]
+        public void Two_failed_batches_do_not_switch_the_run_to_single_writes()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz2, _zz3 });
+            var processor = Processor(new RunPageLimits { PageSize = 3, ChunkSize = 3 }, executor: BulkExecutor(new BulkSender()));
+
+            processor.Process(runId, RunPageProcessor.StandIn(_zz1), "ignored");
+            processor.Process(runId, RunPageProcessor.StandIn(_zz3), "ignored");
+
+            Assert.Equal(2, BookmarkOf(runId).BatchFailures);
+            Assert.False(BookmarkOf(runId).SingleWrites);
+        }
+
+        [Fact]
+        public void A_given_records_stand_in_is_recognised_from_the_run_s_ids_without_reading_the_rule_or_records()
+        {
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz2, _zz3 });
+            var counting = new CountingOrganizationService(_service);
+
+            var result = Processor(new RunPageLimits { PageSize = 3, ChunkSize = 3 }, counting, executor: BulkExecutor(new BulkSender()))
+                .Process(runId, RunPageProcessor.StandIn(_zz1), "ignored");
+
+            Assert.Equal(0, result.Evaluated + result.Failed);
+            Assert.Equal(new[] { _zz1 }, BookmarkOf(runId).Isolate);
+            Assert.Empty(counting.RetrieveMultipleByTable);
+        }
+
+        [Fact]
+        public void A_record_failed_report_for_a_listed_record_is_never_a_stand_in()
+        {
+            // The run lists a record whose id happens to be another listed record's stand-in, and that
+            // record no longer exists: its report is still a record's report, counted Failed.
+            var listed = RunPageProcessor.StandIn(_zz1);
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, listed });
+
+            var result = Processor(executor: BulkExecutor(new BulkSender())).Process(runId, listed, "boom");
+
+            Assert.Equal(1, result.Failed);
+            Assert.Empty(BookmarkOf(runId).Isolate);
+            Assert.Equal(0, BookmarkOf(runId).BatchFailures);
+            Assert.Contains(FailuresOf(Run(runId)), f => f.RecordId == listed && f.Kind == "Failed");
+        }
+
+        [Fact]
+        public void A_group_whose_stand_in_was_counted_as_a_record_writes_one_record_at_a_time()
+        {
+            // Defence in depth: a stand-in once taken for a record sits in the skip list. Batching the
+            // group again would only report the same stand-in; writing per record reports the real one.
+            var runId = SeedRun(OnDemandScope.GivenRecord, new[] { _zz1, _zz2, _zz3 });
+            var bookmark = new RunBookmark();
+            bookmark.Skip.Add(RunPageProcessor.StandIn(_zz1));
+            _service.Update(new Entity(Q(SchemaNames.RuleRun.Entity), runId) { [Q(SchemaNames.RuleRun.Bookmark)] = RunState.WriteBookmark(bookmark) });
+            var sender = new BulkSender { FailOn = _zz3 };
+            var processor = Processor(new RunPageLimits { PageSize = 3, ChunkSize = 3 }, executor: BulkExecutor(sender));
+
+            var real = Assert.Throws<InvalidPluginExecutionException>(() => processor.Process(runId, null, null));
+
+            Assert.StartsWith(RunPageProcessor.RecordFailedPrefix + _zz3 + ":", real.Message);
+            Assert.Empty(sender.Sent.OfType<UpdateMultipleRequest>());
+        }
+
+        [Fact]
+        public void An_all_records_run_batches_its_groups_and_resumes_a_budget_cut_page_through_the_skip_list()
+        {
+            // Four more ZZ accounts that sort first, so the first two groups of two are known and batch.
+            var first = Enumerable.Range(1, 4).Select(OrderedId).ToList();
+            foreach (var id in first)
+                _service.Create(new Entity("account", id) { ["name"] = "ZZ" + id, ["numberofemployees"] = 50 });
+            var runId = SeedRun(OnDemandScope.AllRecords);
+            var now = Now;
+            var sender = new BulkSender { OnSend = () => now = now.AddMinutes(5) };   // each send ends the page's budget
+            var processor = Processor(new RunPageLimits { PageSize = 10, ChunkSize = 2 }, clock: () => now, executor: BulkExecutor(sender));
+
+            processor.Process(runId, null, null);
+            Assert.Equal(first.Take(2), BookmarkOf(runId).Skip);
+
+            var (last, calls) = ProcessUntilDone(processor, runId);
+
+            Assert.True(calls >= 2);
+            Assert.Equal(RuleRunStatus.CompletedWithFailures, last.Status);
+            Assert.Equal(8, last.Evaluated);
+            Assert.Equal(6, last.Changed);
+            Assert.Equal(1, last.Blocked);
+            Assert.Equal(1, last.Skipped);
+            Assert.Equal(0, last.Failed);
+            var bulk = sender.Sent.OfType<UpdateMultipleRequest>().ToList();
+            Assert.Equal(first.Take(2), bulk[0].Targets.Entities.Select(e => e.Id));
+            Assert.Equal(first.Skip(2), bulk[1].Targets.Entities.Select(e => e.Id));
+            var targets = sender.Sent.SelectMany(r => r is UpdateMultipleRequest m ? m.Targets.Entities.ToList()
+                : r is UpdateRequest u ? new List<Entity> { u.Target } : new List<Entity>()).Select(e => e.Id).ToList();
+            foreach (var id in first.Concat(new[] { _zz1, _zz3 }))
+                Assert.Equal(1, targets.Count(t => t == id));
+            Assert.Empty(BookmarkOf(runId).Skip);
+            Assert.Empty(BookmarkOf(runId).Isolate);
+            Assert.Equal(0, BookmarkOf(runId).BatchFailures);
+        }
+
+        [Fact]
+        public void The_stand_in_round_trips_and_is_never_the_record_id()
+        {
+            var id = Guid.NewGuid();
+            Assert.NotEqual(id, RunPageProcessor.StandIn(id));
+            Assert.Equal(id, RunPageProcessor.StandIn(RunPageProcessor.StandIn(id)));
         }
 
         [Fact]

@@ -35,6 +35,13 @@ namespace Ascentix.RulesEngine.Core.Engine
         public string Cookie { get; set; }
         public int Offset { get; set; }
         public List<Guid> Skip { get; set; } = new List<Guid>();
+        /// <summary>First record ids of groups whose batched write failed: those groups write one record
+        /// at a time until they write cleanly (RunPageProcessor).</summary>
+        public List<Guid> Isolate { get; set; } = new List<Guid>();
+        /// <summary>Batched writes of this run that failed so far.</summary>
+        public int BatchFailures { get; set; }
+        /// <summary>True once the run has had enough failed batches to write one record at a time for good.</summary>
+        public bool SingleWrites { get; set; }
     }
 
     /// <summary>JSON helpers for the asx_rulerun state columns (asx_recordids, asx_failures,
@@ -63,6 +70,9 @@ namespace Ascentix.RulesEngine.Core.Engine
             [DataMember(Name = "cookie", Order = 3)] public string Cookie { get; set; }
             [DataMember(Name = "offset", Order = 4)] public int Offset { get; set; }
             [DataMember(Name = "skip", Order = 5)] public List<string> Skip { get; set; }
+            [DataMember(Name = "isolate", Order = 6, EmitDefaultValue = false)] public List<string> Isolate { get; set; }
+            [DataMember(Name = "batchFailures", Order = 7, EmitDefaultValue = false)] public int BatchFailures { get; set; }
+            [DataMember(Name = "singleWrites", Order = 8, EmitDefaultValue = false)] public bool SingleWrites { get; set; }
         }
 
         public static List<Guid> ParseRecordIds(string json)
@@ -121,7 +131,10 @@ namespace Ascentix.RulesEngine.Core.Engine
                         Page = dto.Page,
                         Cookie = dto.Cookie,
                         Offset = dto.Offset,
-                        Skip = (dto.Skip ?? new List<string>()).Select(Guid.Parse).ToList()
+                        Skip = (dto.Skip ?? new List<string>()).Select(Guid.Parse).ToList(),
+                        Isolate = (dto.Isolate ?? new List<string>()).Select(Guid.Parse).ToList(),
+                        BatchFailures = dto.BatchFailures,
+                        SingleWrites = dto.SingleWrites
                     };
                 }
             }
@@ -139,7 +152,10 @@ namespace Ascentix.RulesEngine.Core.Engine
                 Page = bookmark.Page,
                 Cookie = bookmark.Cookie,
                 Offset = bookmark.Offset,
-                Skip = (bookmark.Skip ?? new List<Guid>()).Select(g => g.ToString()).ToList()
+                Skip = (bookmark.Skip ?? new List<Guid>()).Select(g => g.ToString()).ToList(),
+                Isolate = bookmark.Isolate != null && bookmark.Isolate.Count > 0 ? bookmark.Isolate.Select(g => g.ToString()).ToList() : null,
+                BatchFailures = bookmark.BatchFailures,
+                SingleWrites = bookmark.SingleWrites
             };
             using (var ms = new MemoryStream())
             {
