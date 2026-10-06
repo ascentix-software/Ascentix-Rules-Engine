@@ -212,8 +212,12 @@ const SEVERITY_WORD: Record<number, string> = { 1: "notice", 2: "warning", 3: "e
 export function firesWhenSummary(tree: FiresWhenGroup | null, outcomes: ConditionGroupNode[]): string {
   if (!tree) return "Not set: this action never fires.";
   if (isAlways(tree)) return "Always, when the rule runs";
-  const nameOf = (id: string | null) => outcomes.find((o) => o.id === id)?.name || "(missing outcome)";
+  const nameOf = (id: string | null) => {
+    const o = outcomes.find((x) => x.id === id);
+    return !o ? "(missing outcome)" : o.name.trim() === "" ? "(unnamed outcome)" : o.name;
+  };
   const render = (g: FiresWhenGroup): string => {
+    if (g.tests.length === 0 && g.groups.length === 0) return "empty group";
     const parts = [
       ...g.tests.map((t) => `${t.expected ? "" : "NOT "}${nameOf(t.outcomeId)}`),
       ...g.groups.map((c) => `(${render(c)})`),
@@ -227,6 +231,7 @@ export function actionWhatHappens(
   a: ActionNode, _tcs: Record<string, TableConfigRef>, _resolveValueLabel: ValueLabelResolver | undefined,
   outcomes: ConditionGroupNode[],
 ): string {
+  if (!a.firesWhen) return firesWhenSummary(null, outcomes);
   const when = firesWhenSummary(a.firesWhen, outcomes);
   switch (a.actionType) {
     case "Block":

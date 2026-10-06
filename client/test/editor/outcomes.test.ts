@@ -97,4 +97,25 @@ describe("outcomes", () => {
   it("addGroup still adds plain groups", () => {
     expect(addGroup(graph(), "validation", null).validationGroups).toHaveLength(1);
   });
+
+  it("deleting the only outcome an ALL tree tests leaves the action not set (never fires)", () => {
+    const g = graph({ validationGroups: [grp("o1", "A")], actions: [act("a1", tree("o1"))] });
+    expect(deleteGroup(g, "o1").actions[0].firesWhen).toBeNull();
+  });
+
+  it("an ANY tree with two outcomes keeps the other test when one is deleted", () => {
+    const t: FiresWhenGroup = { ...tree("o1", "o2"), op: "any" };
+    const g = graph({ validationGroups: [grp("o1", "A"), grp("o2", "B")], actions: [act("a1", t)] });
+    const next = deleteGroup(g, "o1").actions[0].firesWhen!;
+    expect(next.op).toBe("any");
+    expect(next.tests.map((x) => x.outcomeId)).toEqual(["o2"]);
+  });
+
+  it("an already-Always tree stays Always when an outcome is deleted", () => {
+    const g = graph({ validationGroups: [grp("o1", "A")], actions: [act("a1", tree())] });
+    const f = deleteGroup(g, "o1").actions[0].firesWhen;
+    expect(f).not.toBeNull();
+    expect(f!.tests).toEqual([]);
+    expect(f!.groups).toEqual([]);
+  });
 });

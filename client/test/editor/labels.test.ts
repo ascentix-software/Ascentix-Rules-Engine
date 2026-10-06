@@ -47,7 +47,7 @@ describe("conditionSummary regression", () => {
 
 describe("actionEffect", () => {
   const act = (p: Partial<ActionNode>): ActionNode => ({
-    id: "a", name: "", order: 1, actionType: "ShowMessage", firesWhen: null, targetColumn: null,
+    id: "a", name: "", order: 1, actionType: "ShowMessage", firesWhen: { id: "r", op: "all", tests: [], groups: [] }, targetColumn: null,
     targetTable: null, targetNodeId: null, message: null, fieldMapping: null, value: null,
     applyInverseWhenNotFired: null, severity: null, isActive: true, localizedMessages: [], ...p,
   });
@@ -70,7 +70,7 @@ describe("actionEffect", () => {
 
 describe("actionWhatHappens", () => {
   const act = (p: Partial<ActionNode>): ActionNode => ({
-    id: "a", name: "", order: 1, actionType: "ShowMessage", firesWhen: null, targetColumn: null,
+    id: "a", name: "", order: 1, actionType: "ShowMessage", firesWhen: { id: "r", op: "all", tests: [], groups: [] }, targetColumn: null,
     targetTable: null, targetNodeId: null, message: null, fieldMapping: null, value: null,
     applyInverseWhenNotFired: null, severity: null, isActive: true, localizedMessages: [], ...p,
   });
@@ -198,5 +198,18 @@ describe("firesWhenSummary", () => {
   it("actionWhatHappens for an always action starts with Always", () => {
     const a = act({ firesWhen: { id: "r", op: "all", groups: [], tests: [] } });
     expect(actionWhatHappens(a, tcs, undefined, outcomes).startsWith("Always, when the rule runs")).toBe(true);
+  });
+  it("actionWhatHappens for a null tree is only the not-set sentence", () => {
+    expect(actionWhatHappens(act({ firesWhen: null }), tcs, undefined, outcomes)).toBe("Not set: this action never fires.");
+  });
+  it("shows a blank-named outcome as unnamed, distinct from a missing one", () => {
+    const tree: FiresWhenGroup = { id: "r", op: "all", groups: [], tests: [
+      { id: "1", outcomeId: "blank", expected: true }, { id: "2", outcomeId: "gone", expected: true }] };
+    expect(firesWhenSummary(tree, [og("blank", "")])).toBe("When (unnamed outcome) AND (missing outcome)");
+  });
+  it("renders an empty nested group as (empty group)", () => {
+    const tree: FiresWhenGroup = { id: "r", op: "all", tests: [{ id: "1", outcomeId: "hv", expected: true }],
+      groups: [{ id: "g", op: "any", tests: [], groups: [] }] };
+    expect(firesWhenSummary(tree, outcomes)).toBe("When High Value AND (empty group)");
   });
 });

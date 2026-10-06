@@ -164,7 +164,16 @@ export function deleteGroup(graph: RuleGraph, id: string): RuleGraph {
   // Deleting an outcome drops every test of it from every action's Fires when tree.
   return {
     ...next,
-    actions: next.actions.map((a) => (a.firesWhen ? { ...a, firesWhen: removeOutcomeTests(a.firesWhen, id) } : a)),
+    actions: next.actions.map((a) => {
+      const before = a.firesWhen;
+      if (!before) return a;
+      const after = removeOutcomeTests(before, id);
+      // A tree that tested only this outcome would otherwise become an empty root, i.e. "Always".
+      // Make it "not set" so the action never fires and publish refuses it, rather than firing on every run.
+      const hadContent = before.tests.length > 0 || before.groups.length > 0;
+      const nowEmpty = after.tests.length === 0 && after.groups.length === 0;
+      return { ...a, firesWhen: hadContent && nowEmpty ? null : after };
+    }),
   };
 }
 
