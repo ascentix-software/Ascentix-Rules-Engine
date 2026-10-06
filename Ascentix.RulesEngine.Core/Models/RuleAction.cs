@@ -6,15 +6,14 @@ namespace Ascentix.RulesEngine.Core.Models
     // ─── Rule Action ──────────────────────────────────────────────────────────
 
     /// <summary>
-    /// An outcome attached to a rule (asx_ruleaction). Fires per <see cref="FireOn"/>
-    /// against the rule's match result.
+    /// An action attached to a rule (asx_ruleaction). Fires when its <see cref="Condition"/> ("Fires when"
+    /// tree) holds over the rule's outcomes; an action without a tree never fires.
     /// </summary>
     public class RuleAction
     {
         public Guid Id { get; set; }
         public Guid RuleId { get; set; }
         public ActionType ActionType { get; set; }
-        public ActionFireOn FireOn { get; set; }
         public string TargetColumn { get; set; }
         public bool ValueBool { get; set; }
         public bool ApplyInverseWhenNotFired { get; set; }

@@ -53,12 +53,11 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.Block),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                 [Q(SchemaNames.RuleAction.Message)] = "blocked",
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
                 [Q(SchemaNames.RuleAction.Order)] = 1,
             };
-            return new List<Entity> { cfg, rule, grp, cond, act };
+            return new List<Entity> { cfg, rule, grp, cond, act, ActionTreeRows.AllTrue(ids.act, ids.grp) };
         }
 
         [Fact]

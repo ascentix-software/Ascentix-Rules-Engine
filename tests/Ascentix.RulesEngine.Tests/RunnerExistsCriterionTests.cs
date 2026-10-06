@@ -172,12 +172,12 @@ namespace Ascentix.RulesEngine.Tests
                 {
                     [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.Rule),
                     [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.CreateRecord),
-                    [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                     [Q(SchemaNames.RuleAction.TargetTable)] = "task",
                     [Q(SchemaNames.RuleAction.FieldMapping)] = "[{\"target\":\"subject\",\"source\":\"literal\",\"value\":\"Hello\"}]",
                     [Q(SchemaNames.RuleAction.IsActive)] = true,
                     [Q(SchemaNames.RuleAction.Order)] = 1,
                 },
+                ActionTreeRows.AllTrue(ids.Act, ids.Grp),
             };
 
             return (seed, ids);

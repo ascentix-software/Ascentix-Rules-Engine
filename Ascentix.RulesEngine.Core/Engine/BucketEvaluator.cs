@@ -86,10 +86,12 @@ namespace Ascentix.RulesEngine.Core.Engine
                         }
 
                         var ruleGroups = ruleRootGroups.Where(g => !g.IsExecutionCondition).ToList();
-                        var matched = ruleGroups.All(g => groups.EvaluateGroup(g, ruleRoot).Passed);
+                        // Every outcome is evaluated (no short-circuit): actions may test any of them.
+                        var outcomes = new Dictionary<Guid, bool>();
+                        foreach (var g in ruleGroups) outcomes[g.Id] = groups.EvaluateGroup(g, ruleRoot).Passed;
 
                         input.ActionsByRule.TryGetValue(ruleId, out var actions);
-                        foreach (var a in ActionDispatcher.ComputeFiredActions(matched, actions))
+                        foreach (var a in ActionDispatcher.ComputeFiredActions(outcomes, actions))
                         {
                             // A second run only brings the previous record up to date: ticked Update
                             // Record actions in that lookup's branch. Everything else ran in run 1.
@@ -174,7 +176,6 @@ namespace Ascentix.RulesEngine.Core.Engine
             {
                 RuleId = a.RuleId,
                 ActionType = a.ActionType,
-                FireOn = a.FireOn,
                 TargetColumn = a.TargetColumn,
                 Value = hasValue ? a.ValueBool : (bool?)null,
                 Message = message,

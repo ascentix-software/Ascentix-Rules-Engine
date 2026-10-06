@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Ascentix.RulesEngine.Core.Localization;
@@ -8,7 +9,7 @@ namespace Ascentix.RulesEngine.Core.Actions
     // ─── Action Dispatcher ────────────────────────────────────────────────────
 
     /// <summary>
-    /// Pure action-firing logic. Given a rule's match result and its actions,
+    /// Pure action-firing logic. Given a rule's outcomes and its actions,
     /// returns the active actions that fire (in execution order) and the blocking
     /// (Block) messages among them. No service calls, therefore unit-testable.
     /// </summary>
@@ -33,17 +34,15 @@ namespace Ascentix.RulesEngine.Core.Actions
         }
 
         /// <summary>
-        /// Returns the active actions that fire for the given match result, in execution order.
-        /// <paramref name="matched"/> is true when the rule's condition tree is satisfied
-        /// (i.e. the rule's group(s) evaluated Passed). Block/OnNoMatch therefore fires
-        /// when <paramref name="matched"/> is false.
+        /// The active actions whose "Fires when" tree holds for these outcomes (the rule's top-level validation
+        /// groups, by id), in Order. An action without a tree never fires.
         /// </summary>
-        public static List<RuleAction> ComputeFiredActions(bool matched, IEnumerable<RuleAction> actions)
+        public static List<RuleAction> ComputeFiredActions(IReadOnlyDictionary<Guid, bool> outcomes, IEnumerable<RuleAction> actions)
         {
             if (actions == null) return new List<RuleAction>();
             return actions
                 .Where(a => a.IsActive)
-                .Where(a => Fires(a.FireOn, matched))
+                .Where(a => ActionConditionEvaluator.Fires(a.Condition, outcomes))
                 .OrderBy(a => a.Order)
                 .ToList();
         }
@@ -70,9 +69,5 @@ namespace Ascentix.RulesEngine.Core.Actions
         /// <summary>Write actions that carry a field mapping.</summary>
         public static bool MapsFields(ActionType type) =>
             type == ActionType.CreateRecord || type == ActionType.UpdateRecord || type == ActionType.DeactivateRecord;
-
-        private static bool Fires(ActionFireOn fireOn, bool matched) =>
-            (fireOn == ActionFireOn.OnMatch && matched) ||
-            (fireOn == ActionFireOn.OnNoMatch && !matched);
     }
 }

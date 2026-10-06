@@ -57,12 +57,6 @@ namespace Ascentix.RulesEngine.Core.Models
         Delete = 3
     }
 
-    public enum ActionFireOn
-    {
-        OnMatch = 1,
-        OnNoMatch = 2
-    }
-
     public enum Severity
     {
         Information = 1,

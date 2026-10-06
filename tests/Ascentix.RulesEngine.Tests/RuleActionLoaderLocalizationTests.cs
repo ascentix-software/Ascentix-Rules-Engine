@@ -17,7 +17,6 @@ namespace Ascentix.RulesEngine.Tests
             e[SchemaNames.Qualify(SchemaNames.RuleAction.Rule)] =
                 new EntityReference(SchemaNames.Qualify(SchemaNames.Rule.Entity), ruleId);
             e[SchemaNames.Qualify(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.Block);
-            e[SchemaNames.Qualify(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch);
             e[SchemaNames.Qualify(SchemaNames.RuleAction.Message)] = "Invalid.";
             e[SchemaNames.Qualify(SchemaNames.RuleAction.Order)] = 1;
             e[SchemaNames.Qualify(SchemaNames.RuleAction.IsActive)] = true;

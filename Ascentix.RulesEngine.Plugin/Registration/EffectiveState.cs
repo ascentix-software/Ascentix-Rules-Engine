@@ -140,7 +140,6 @@ namespace Ascentix.RulesEngine.Plugin.Registration
             Id = a.Id,
             RuleId = a.RuleId,
             ActionType = a.ActionType,
-            FireOn = a.FireOn,
             TargetColumn = a.TargetColumn,
             ValueBool = a.ValueBool,
             ApplyInverseWhenNotFired = a.ApplyInverseWhenNotFired,

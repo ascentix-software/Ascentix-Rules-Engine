@@ -11,13 +11,13 @@ namespace Ascentix.RulesEngine.Tests
         private static FiredActionResult Block(Guid ruleId, string msg) => new FiredActionResult
         {
             RuleId = ruleId, ActionType = ActionType.Block,
-            FireOn = ActionFireOn.OnNoMatch, Message = msg, Severity = Severity.Error
+            Message = msg, Severity = Severity.Error
         };
 
         private static FiredActionResult Show(Guid ruleId, string col, bool val) => new FiredActionResult
         {
             RuleId = ruleId, ActionType = ActionType.SetVisible,
-            FireOn = ActionFireOn.OnMatch, TargetColumn = col, Value = val
+            TargetColumn = col, Value = val
         };
 
         [Fact]

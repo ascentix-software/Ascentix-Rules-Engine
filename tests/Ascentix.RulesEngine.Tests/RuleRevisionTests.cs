@@ -35,12 +35,13 @@ namespace Ascentix.RulesEngine.Tests
             condition["asx_conditiontype"] = new OptionSetValue(1); condition["asx_comparisoncolumn"] = "name";
             condition["asx_comparisonoperator"] = new OptionSetValue(1); condition["asx_comparisonvalue"] = "Valid";
             var action = RefRow("asx_ruleaction", Guid.NewGuid(), "asx_rule", "asx_rule", id);
-            action["asx_actiontype"] = new OptionSetValue(4); action["asx_fireon"] = new OptionSetValue(2);
+            action["asx_actiontype"] = new OptionSetValue(4);
             action["asx_message"] = name; action["asx_order"] = 1; action["asx_isactive"] = true;
             var header = new Entity("asx_rule", id) { ["asx_name"] = name, ["asx_tablelogicalname"] = "account",
                 ["statuscode"] = new OptionSetValue(753840000), ["asx_roottableconfig"] = new EntityReference("asx_tableconfig", Model),
                 ["asx_triggers"] = new OptionSetValueCollection(new List<OptionSetValue> { new OptionSetValue(2), new OptionSetValue(3), new OptionSetValue(4) }) };
-            return new List<Entity> { header, group, condition, action };
+            // Block when the rule's one outcome is false. The tree rows follow the first four.
+            return new List<Entity> { header, group, condition, action, ActionTreeRows.AnyFalse(action.Id, group.Id) };
         }
 
         internal static TransactionalPluginContext Context(params List<Entity>[] rules)
@@ -64,7 +65,7 @@ namespace Ascentix.RulesEngine.Tests
             return context;
         }
 
-        private static Entity Freeze(IOrganizationService service, Guid rule, int version = 1)
+        internal static Entity Freeze(IOrganizationService service, Guid rule, int version = 1)
         {
             var revision = PublicationCoordinator.Store(service, RuleSnapshot.Capture(service, rule), version, Guid.NewGuid());
             service.Update(new Entity("asx_rule", rule) { [PublicationSchema.Pointer] = revision.ToEntityReference(), [PublicationSchema.Number] = version });

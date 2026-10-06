@@ -115,7 +115,6 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.ShowMessage),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                 [Q(SchemaNames.RuleAction.Message)] = "matched",
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
                 [Q(SchemaNames.RuleAction.Order)] = 1,
@@ -124,7 +123,7 @@ namespace Ascentix.RulesEngine.Tests
             var contact = new Entity("contact", contactId) { ["lastname"] = "Smith", ["anchordate"] = new DateTime(2020, 6, 1) };
             rootWithLookup["primarycontactid"] = new EntityReference("contact", contactId);
 
-            var seed = new List<Entity> { rootTableConfig, lookupTableConfig, rule, group, condition, action, contact };
+            var seed = new List<Entity> { rootTableConfig, lookupTableConfig, rule, group, condition, action, contact, ActionTreeRows.AllTrue(ids.act, ids.grp) };
             return (seed, contactId, rootWithLookup);
         }
 

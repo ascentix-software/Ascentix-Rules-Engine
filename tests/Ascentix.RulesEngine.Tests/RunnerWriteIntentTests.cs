@@ -165,7 +165,6 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.UpdateRecord),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                 [Q(SchemaNames.RuleAction.TargetNode)] = new EntityReference(Q(SchemaNames.TableConfig.Entity), ids.lookupCfg),
                 [Q(SchemaNames.RuleAction.FieldMapping)] = "[{\"target\":\"lastname\",\"source\":\"literal\",\"value\":\"Updated\"}]",
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
@@ -176,7 +175,8 @@ namespace Ascentix.RulesEngine.Tests
             var contactEntity = new Entity("contact", contactId) { ["lastname"] = "Smith" };
 
             var ctx = new XrmFakedContext();
-            ctx.Initialize(new List<Entity> { rootTableConfig, lookupTableConfig, rule, group, condition, action, contactEntity });
+            ctx.Initialize(new List<Entity> { rootTableConfig, lookupTableConfig, rule, group, condition, action, contactEntity,
+                ActionTreeRows.AllTrue(ids.act, ids.grp) });
 
             // Account root: has primarycontactid pointing to the contact
             var overlay = new Entity("account", Guid.NewGuid())
@@ -275,12 +275,11 @@ namespace Ascentix.RulesEngine.Tests
                 [Q(SchemaNames.RuleCondition.ComparisonColumn)] = "name",
                 [Q(SchemaNames.RuleCondition.ComparisonOperator)] = new OptionSetValue((int)ComparisonOperator.IsNotNull),
             };
-            // CreateRecord action: sum(node:<childCfg>.lineamount) into task.amount (Money)
+            // CreateRecord action: sum(node:<childCfg>.lineamount) into task.amount (Money), when the outcome holds
             var action = new Entity(Q(SchemaNames.RuleAction.Entity), ids.act)
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.CreateRecord),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                 [Q(SchemaNames.RuleAction.TargetTable)] = "task",
                 [Q(SchemaNames.RuleAction.FieldMapping)] =
                     "[{\"target\":\"amount\",\"source\":\"mathexpr\",\"expression\":\"sum(node:" + ids.childCfg + ".lineamount)\"}]",
@@ -303,7 +302,8 @@ namespace Ascentix.RulesEngine.Tests
             var ctx = new XrmFakedContext();
             ctx.Initialize(new List<Entity>
             {
-                rootTableConfig, childTableConfig, rule, group, condition, action, orderline1, orderline2
+                rootTableConfig, childTableConfig, rule, group, condition, action, orderline1, orderline2,
+                ActionTreeRows.AllTrue(ids.act, ids.grp),
             });
 
             var overlay = new Entity("sample_order", rootId) { ["name"] = "Order A" };
@@ -393,13 +393,13 @@ namespace Ascentix.RulesEngine.Tests
                 [Q(SchemaNames.RuleCondition.ComparisonOperator)] = new OptionSetValue((int)ComparisonOperator.GreaterThan),
                 [Q(SchemaNames.RuleCondition.ComparisonValue)] = "100",
             };
-            // Plain literal-mapping CreateRecord action (OnMatch): does not itself reference
-            // the child node in any way, proving the condition alone seeded it.
+            // Plain literal-mapping CreateRecord action (Always; the rule's only group is the
+            // execution gate): does not itself reference the child node in any way, proving the
+            // condition alone seeded it.
             var action = new Entity(Q(SchemaNames.RuleAction.Entity), ids.act)
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.CreateRecord),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                 [Q(SchemaNames.RuleAction.TargetTable)] = "task",
                 [Q(SchemaNames.RuleAction.FieldMapping)] = "[{\"target\":\"subject\",\"source\":\"literal\",\"value\":\"Hello\"}]",
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
@@ -421,7 +421,8 @@ namespace Ascentix.RulesEngine.Tests
             var ctx = new XrmFakedContext();
             ctx.Initialize(new List<Entity>
             {
-                rootTableConfig, childTableConfig, rule, group, condition, action, orderline1, orderline2
+                rootTableConfig, childTableConfig, rule, group, condition, action, orderline1, orderline2,
+                ActionTreeRows.Always(ids.act),
             });
 
             var overlay = new Entity("sample_order", rootId) { ["name"] = "Order A" };
@@ -467,9 +468,9 @@ namespace Ascentix.RulesEngine.Tests
                 Conditions = new List<RuleCondition> { new RuleCondition { Id = Guid.NewGuid(), TableConfigNodeId = root,
                     ConditionType = ConditionType.FieldComparison, ComparisonColumn = "name", ComparisonOperator = ComparisonOperator.IsNotNull } },
             };
-            var set = new RuleAction { Id = Guid.NewGuid(), RuleId = ruleId, ActionType = ActionType.DeleteRecord, FireOn = ActionFireOn.OnMatch,
+            var set = new RuleAction { Id = Guid.NewGuid(), RuleId = ruleId, ActionType = ActionType.DeleteRecord, Condition = ActionTrees.AllTrue(group.Id),
                 TargetNodeId = contacts, IsActive = true, Order = 1 };
-            var single = new RuleAction { Id = Guid.NewGuid(), RuleId = ruleId, ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch,
+            var single = new RuleAction { Id = Guid.NewGuid(), RuleId = ruleId, ActionType = ActionType.UpdateRecord, Condition = ActionTrees.AllTrue(group.Id),
                 TargetNodeId = root, IsActive = true, Order = 2, FieldMapping = "[{\"target\":\"description\",\"source\":\"literal\",\"value\":\"x\"}]" };
             var metadata = new StringMetadata();
 

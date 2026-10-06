@@ -32,7 +32,6 @@ namespace Ascentix.RulesEngine.Schema
             public const string ComparisonOperator = "comparisonoperator";
             public const string Severity = "severity";
             public const string ActionType = "actiontype";
-            public const string ActionFireOn = "actionfireon";
             public const string Triggers = "triggers";
             public const string ComparisonValueSource = "comparisonvaluesource";
             public const string Channel = "channel";
@@ -237,7 +236,6 @@ namespace Ascentix.RulesEngine.Schema
             public const string Entity = "ruleaction";
             public const string Rule = "rule";                          // lookup → rule
             public const string ActionType = "actiontype";
-            public const string FireOn = "fireon";
             public const string TargetColumn = "targetcolumn";
             public const string ValueBool = "valuebool";
             public const string ApplyInverseWhenNotFired = "applyinversewhennotfired";

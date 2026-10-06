@@ -65,14 +65,19 @@ namespace Ascentix.RulesEngine.Tests
             public void Disassociate(string entityName, Guid entityId, Relationship relationship, EntityReferenceCollection relatedEntities) => _inner.Disassociate(entityName, entityId, relationship, relatedEntities);
         }
 
-        private static Entity Action(Guid id, Guid ruleId, Guid target, ActionFireOn fireOn, string mapping, bool tick, int order,
+        // "Fires when" trees as row builders for one action id.
+        private static Func<Guid, List<Entity>> AllTrue(params Guid[] outcomes) => id => ActionTreeRows.AllTrue(id, outcomes);
+        private static Func<Guid, List<Entity>> AnyFalse(params Guid[] outcomes) => id => ActionTreeRows.AnyFalse(id, outcomes);
+        private static Func<Guid, List<Entity>> Always() => ActionTreeRows.Always;
+
+        /// <summary>The action row followed by its "Fires when" tree rows.</summary>
+        private static List<Entity> Action(Guid id, Guid ruleId, Guid target, Func<Guid, List<Entity>> when, string mapping, bool tick, int order,
             ActionType type = ActionType.UpdateRecord)
         {
             var a = new Entity(Q(SchemaNames.RuleAction.Entity), id)
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)type),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)fireOn),
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
                 [Q(SchemaNames.RuleAction.Order)] = order,
                 [Q(SchemaNames.RuleAction.ApplyToPrevious)] = tick,
@@ -86,7 +91,9 @@ namespace Ascentix.RulesEngine.Tests
             {
                 a[Q(SchemaNames.RuleAction.Message)] = "blocked";
             }
-            return a;
+            var rows = new List<Entity> { a };
+            rows.AddRange(when(id));
+            return rows;
         }
 
         [Fact]
@@ -144,15 +151,15 @@ namespace Ascentix.RulesEngine.Tests
                     [Q(SchemaNames.RuleCondition.MinExpectedRows)] = 2,
                 },
                 // Ticked: the order's expedite flag follows the rule, for both orders.
-                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnMatch,
+                Action(Guid.NewGuid(), ruleId, orderCfg, AllTrue(grp),
                     "[{\"target\":\"sample_isexpedited\",\"source\":\"literal\",\"value\":true}]", tick: true, order: 1),
-                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnNoMatch,
+                Action(Guid.NewGuid(), ruleId, orderCfg, AnyFalse(grp),
                     "[{\"target\":\"sample_isexpedited\",\"source\":\"literal\",\"value\":false}]", tick: true, order: 2),
-                // Not ticked, fires on no match: without the run-2 filter it would be written to order A.
-                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnNoMatch,
+                // Not ticked, fires when the outcome is false: without the run-2 filter it would be written to order A.
+                Action(Guid.NewGuid(), ruleId, orderCfg, AnyFalse(grp),
                     "[{\"target\":\"sample_approvalnotes\",\"source\":\"literal\",\"value\":\"line changed\"}]", tick: false, order: 3),
-                // Not ticked Block on no match: must never fire for the previous order.
-                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnNoMatch, null, tick: false, order: 4, type: ActionType.Block),
+                // Not ticked Block when the outcome is false: must never fire for the previous order.
+                Action(Guid.NewGuid(), ruleId, orderCfg, AnyFalse(grp), null, tick: false, order: 4, type: ActionType.Block),
                 new Entity("sample_order", orderA),
                 new Entity("sample_order", orderB),
                 Line(line1, orderA),
@@ -259,9 +266,9 @@ namespace Ascentix.RulesEngine.Tests
                     [Q(SchemaNames.RuleCondition.ConditionType)] = new OptionSetValue((int)ConditionType.RowCount),
                     [Q(SchemaNames.RuleCondition.MinExpectedRows)] = 2,
                 },
-                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnMatch,
+                Action(Guid.NewGuid(), ruleId, orderCfg, AllTrue(grp),
                     "[{\"target\":\"sample_isexpedited\",\"source\":\"literal\",\"value\":true}]", tick: true, order: 1),
-                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnNoMatch,
+                Action(Guid.NewGuid(), ruleId, orderCfg, AnyFalse(grp),
                     "[{\"target\":\"sample_isexpedited\",\"source\":\"literal\",\"value\":false}]", tick: true, order: 2),
 
                 // Rule 2: same bucket, own condition group, only an UNTICKED Update Record action
@@ -289,7 +296,7 @@ namespace Ascentix.RulesEngine.Tests
                     [Q(SchemaNames.RuleCondition.ConditionType)] = new OptionSetValue((int)ConditionType.RowCount),
                     [Q(SchemaNames.RuleCondition.MinExpectedRows)] = 2,
                 },
-                Action(Guid.NewGuid(), ruleId2, orderCfg, ActionFireOn.OnNoMatch,
+                Action(Guid.NewGuid(), ruleId2, orderCfg, AnyFalse(grp2),
                     "[{\"target\":\"sample_approvalnotes\",\"source\":\"literal\",\"value\":\"should never apply\"}]",
                     tick: false, order: 1),
 
@@ -357,7 +364,7 @@ namespace Ascentix.RulesEngine.Tests
                     [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
                         new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnUpdate) }),
                 },
-                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnMatch,
+                Action(Guid.NewGuid(), ruleId, orderCfg, Always(),
                     "[{\"target\":\"sample_isexpedited\",\"source\":\"literal\",\"value\":true}]", tick: true, order: 1),
                 new Entity("sample_order", orderA),
                 new Entity("sample_orderline", line) { ["sample_orderid"] = new EntityReference("sample_order", orderA) },
@@ -418,7 +425,7 @@ namespace Ascentix.RulesEngine.Tests
                     [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
                         new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnUpdate) }),
                 },
-                Action(Guid.NewGuid(), ruleId, customerCfg, ActionFireOn.OnMatch,
+                Action(Guid.NewGuid(), ruleId, customerCfg, Always(),
                     "[{\"target\":\"sample_ispriority\",\"source\":\"literal\",\"value\":true}]", tick: true, order: 1),
                 new Entity("sample_customer", customer),
                 Order(orderA),
@@ -449,8 +456,8 @@ namespace Ascentix.RulesEngine.Tests
             // A FieldComparison condition anchored on the Order lookup: order.sample_orderdate
             // >= order.sample_duedate + 1 day (DateExpression anchor, same node, different
             // column). Order A's dates make this false; order B's make it true — so run 1
-            // (order B) fires the OnMatch action and run 2 (order A, the previous parent) fires
-            // OnNoMatch instead, proving run 2 resolves both the comparison column and the
+            // (order B) fires the "outcome true" action and run 2 (order A, the previous parent) fires
+            // the "outcome false" one instead, proving run 2 resolves both the comparison column and the
             // anchor against A, not B.
             Guid ruleId = Guid.NewGuid(), rootCfg = Guid.NewGuid(), orderCfg = Guid.NewGuid();
             Guid grp = Guid.NewGuid(), cond = Guid.NewGuid();
@@ -497,9 +504,9 @@ namespace Ascentix.RulesEngine.Tests
                     [Q(SchemaNames.RuleCondition.ComparisonValue)] =
                         "{\"anchor\":{\"kind\":\"field\",\"node\":\"" + orderCfg + "\",\"column\":\"sample_duedate\"},\"op\":\"add\",\"amount\":1,\"unit\":\"days\"}",
                 },
-                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnMatch,
+                Action(Guid.NewGuid(), ruleId, orderCfg, AllTrue(grp),
                     "[{\"target\":\"sample_approvalnotes\",\"source\":\"literal\",\"value\":\"matched\"}]", tick: true, order: 1),
-                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnNoMatch,
+                Action(Guid.NewGuid(), ruleId, orderCfg, AnyFalse(grp),
                     "[{\"target\":\"sample_approvalnotes\",\"source\":\"literal\",\"value\":\"no-match\"}]", tick: true, order: 2),
                 new Entity("sample_order", orderA)
                 {
@@ -585,9 +592,9 @@ namespace Ascentix.RulesEngine.Tests
                         new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnUpdate) }),
                 },
                 // Ticked: each action targets a different one of the two lookups.
-                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnMatch,
+                Action(Guid.NewGuid(), ruleId, orderCfg, Always(),
                     "[{\"target\":\"sample_approvalnotes\",\"source\":\"literal\",\"value\":\"order touched\"}]", tick: true, order: 1),
-                Action(Guid.NewGuid(), ruleId, customerCfg, ActionFireOn.OnMatch,
+                Action(Guid.NewGuid(), ruleId, customerCfg, Always(),
                     "[{\"target\":\"sample_ispriority\",\"source\":\"literal\",\"value\":true}]", tick: true, order: 2),
                 new Entity("sample_order", orderA),
                 new Entity("sample_order", orderB),
@@ -690,9 +697,9 @@ namespace Ascentix.RulesEngine.Tests
                     [Q(SchemaNames.RuleCondition.ConditionType)] = new OptionSetValue((int)ConditionType.RowCount),
                     [Q(SchemaNames.RuleCondition.MinExpectedRows)] = 2,
                 },
-                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnMatch,
+                Action(Guid.NewGuid(), ruleId, orderCfg, AllTrue(grp),
                     "[{\"target\":\"sample_isexpedited\",\"source\":\"literal\",\"value\":true}]", tick: true, order: 1),
-                Action(Guid.NewGuid(), ruleId, orderCfg, ActionFireOn.OnNoMatch,
+                Action(Guid.NewGuid(), ruleId, orderCfg, AnyFalse(grp),
                     "[{\"target\":\"sample_isexpedited\",\"source\":\"literal\",\"value\":false}]", tick: true, order: 2),
                 new Entity("sample_order", orderA),
                 new Entity("sample_order", orderB),

@@ -56,10 +56,10 @@ namespace Ascentix.RulesEngine.Tests
                 {
                     [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
                     [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)actionType),
-                    [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                     [Q(SchemaNames.RuleAction.Order)] = 1,
                     [Q(SchemaNames.RuleAction.IsActive)] = actionActive,
                 },
+                ActionTreeRows.AnyFalse(actId, grpId),
             };
         }
 
@@ -160,14 +160,16 @@ namespace Ascentix.RulesEngine.Tests
         {
             var seed = SeedAccountRule((int)RuleTrigger.OnUpdate, ActionType.ShowMessage);
             var ruleId = seed.Single(e => e.LogicalName == Q(SchemaNames.Rule.Entity)).Id;
-            seed.Add(new Entity(Q(SchemaNames.RuleAction.Entity), Guid.NewGuid())
+            var grpId = seed.Single(e => e.LogicalName == Q(SchemaNames.ConditionGroup.Entity)).Id;
+            var typeless = Guid.NewGuid();
+            seed.Add(new Entity(Q(SchemaNames.RuleAction.Entity), typeless)
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
                 // asx_actiontype deliberately omitted (null)
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                 [Q(SchemaNames.RuleAction.Order)] = 2,
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
             });
+            seed.AddRange(ActionTreeRows.AnyFalse(typeless, grpId));
             var ctx = new XrmFakedContext();
             ctx.Initialize(seed);
 
@@ -209,7 +211,9 @@ namespace Ascentix.RulesEngine.Tests
             var seed = SeedAccountRule((int)RuleTrigger.OnUpdate, ActionType.Block);
             var ruleId = seed.Single(e => e.LogicalName == Q(SchemaNames.Rule.Entity)).Id;
             var rootCfg = seed.Single(e => e.LogicalName == Q(SchemaNames.TableConfig.Entity)).Id;
+            var grpId = seed.Single(e => e.LogicalName == Q(SchemaNames.ConditionGroup.Entity)).Id;
             Guid contactsCfg = Guid.NewGuid(), action = Guid.NewGuid(), filter = Guid.NewGuid();
+            seed.AddRange(ActionTreeRows.AllTrue(action, grpId));
             seed.Add(new Entity(Q(SchemaNames.TableConfig.Entity), contactsCfg)
             {
                 [Q(SchemaNames.TableConfig.TableLogicalName)] = "contact",
@@ -221,7 +225,6 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.UpdateRecord),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                 [Q(SchemaNames.RuleAction.TargetNode)] = new EntityReference(Q(SchemaNames.TableConfig.Entity), contactsCfg),
                 [Q(SchemaNames.RuleAction.FieldMapping)] = "[{\"target\":\"donotbulkemail\",\"source\":\"literal\",\"value\":true}]",
                 [Q(SchemaNames.RuleAction.Order)] = 2,

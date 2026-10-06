@@ -50,6 +50,7 @@ namespace Ascentix.RulesEngine.Tests
             var ruleRef = new EntityReference(Q(SchemaNames.Rule.Entity), _ruleId);
             var cfgRef = new EntityReference(Q(SchemaNames.TableConfig.Entity), cfgId);
 
+            var blockActionId = Guid.NewGuid();
             _ctx.Initialize(new List<Entity>
             {
                 new Entity(Q(SchemaNames.TableConfig.Entity), cfgId)
@@ -74,21 +75,21 @@ namespace Ascentix.RulesEngine.Tests
                 {
                     [Q(SchemaNames.RuleAction.Rule)] = ruleRef,
                     [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.UpdateRecord),
-                    [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                     [Q(SchemaNames.RuleAction.TargetNode)] = cfgRef,
                     [Q(SchemaNames.RuleAction.FieldMapping)] = "[{\"target\":\"description\",\"source\":\"literal\",\"value\":\"big\"}]",
                     [Q(SchemaNames.RuleAction.Order)] = 1,
                     [Q(SchemaNames.RuleAction.IsActive)] = true,
                 },
-                new Entity(Q(SchemaNames.RuleAction.Entity), Guid.NewGuid())
+                ActionTreeRows.AllTrue(_updateActionId, matchGroup),
+                new Entity(Q(SchemaNames.RuleAction.Entity), blockActionId)
                 {
                     [Q(SchemaNames.RuleAction.Rule)] = ruleRef,
                     [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.Block),
-                    [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                     [Q(SchemaNames.RuleAction.Message)] = "too small",
                     [Q(SchemaNames.RuleAction.Order)] = 2,
                     [Q(SchemaNames.RuleAction.IsActive)] = true,
                 },
+                ActionTreeRows.AnyFalse(blockActionId, matchGroup),
                 new Entity("account", _zz1) { ["name"] = "ZZ1", ["numberofemployees"] = 50 },
                 new Entity("account", _zz2) { ["name"] = "ZZ2", ["numberofemployees"] = 5 },
                 new Entity("account", _zz3) { ["name"] = "ZZ3", ["numberofemployees"] = 70 },

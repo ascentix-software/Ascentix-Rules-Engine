@@ -21,7 +21,6 @@ namespace Ascentix.RulesEngine.Core.Loaders
         private static readonly string ActionEntity = SchemaNames.Qualify(SchemaNames.RuleAction.Entity);
         private static readonly string RuleLookup = SchemaNames.Qualify(SchemaNames.RuleAction.Rule);
         private static readonly string ActionTypeField = SchemaNames.Qualify(SchemaNames.RuleAction.ActionType);
-        private static readonly string FireOnField = SchemaNames.Qualify(SchemaNames.RuleAction.FireOn);
         private static readonly string TargetColumnField = SchemaNames.Qualify(SchemaNames.RuleAction.TargetColumn);
         private static readonly string ValueBoolField = SchemaNames.Qualify(SchemaNames.RuleAction.ValueBool);
         private static readonly string ApplyInverseField = SchemaNames.Qualify(SchemaNames.RuleAction.ApplyInverseWhenNotFired);
@@ -82,7 +81,6 @@ namespace Ascentix.RulesEngine.Core.Loaders
                 RuleId = ruleId,
                 Name = e.GetAttributeValue<string>(NameField),
                 ActionType = (ActionType)(e.GetAttributeValue<OptionSetValue>(ActionTypeField)?.Value ?? 0),
-                FireOn = (ActionFireOn)(e.GetAttributeValue<OptionSetValue>(FireOnField)?.Value ?? 0),
                 TargetColumn = e.GetAttributeValue<string>(TargetColumnField),
                 ValueBool = e.GetAttributeValue<bool>(ValueBoolField),
                 ApplyInverseWhenNotFired = e.GetAttributeValue<bool>(ApplyInverseField),

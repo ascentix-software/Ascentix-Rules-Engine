@@ -12,7 +12,6 @@ namespace Ascentix.RulesEngine.Core.Models
     {
         public Guid RuleId { get; set; }
         public ActionType ActionType { get; set; }
-        public ActionFireOn FireOn { get; set; }
         public string TargetColumn { get; set; }
         public bool? Value { get; set; }
         public string Message { get; set; }

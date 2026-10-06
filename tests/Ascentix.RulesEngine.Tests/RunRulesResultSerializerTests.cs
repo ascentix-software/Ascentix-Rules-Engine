@@ -41,11 +41,11 @@ namespace Ascentix.RulesEngine.Tests
             var json = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
             {
                 RuleId = Guid.NewGuid(), ActionType = ActionType.Block,
-                FireOn = ActionFireOn.OnNoMatch, Message = "Name must be Valid.", Severity = Severity.Error
+                Message = "Name must be Valid.", Severity = Severity.Error
             }));
 
             Assert.Contains("\"actionType\":\"Block\"", json);
-            Assert.Contains("\"fireOn\":\"OnNoMatch\"", json);
+            Assert.DoesNotContain("fireOn", json);
             Assert.Contains("\"severity\":\"Error\"", json);
             Assert.Contains("\"message\":\"Name must be Valid.\"", json);
             Assert.Contains("\"value\":null", json);
@@ -57,7 +57,7 @@ namespace Ascentix.RulesEngine.Tests
             var json = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
             {
                 RuleId = Guid.NewGuid(), ActionType = ActionType.SetVisible,
-                FireOn = ActionFireOn.OnMatch, TargetColumn = "telephone1", Value = true
+                TargetColumn = "telephone1", Value = true
             }));
 
             Assert.Contains("\"actionType\":\"SetVisible\"", json);
@@ -74,14 +74,14 @@ namespace Ascentix.RulesEngine.Tests
             var json = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
             {
                 RuleId = Guid.NewGuid(), ActionType = ActionType.UpdateRecord,
-                FireOn = ActionFireOn.OnMatch, PreviousOfNodeId = nodeId
+                PreviousOfNodeId = nodeId
             }));
             Assert.Contains($"\"previousOf\":\"{nodeId}\"", json);
 
             var jsonWithoutPrevious = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
             {
                 RuleId = Guid.NewGuid(), ActionType = ActionType.UpdateRecord,
-                FireOn = ActionFireOn.OnMatch, PreviousOfNodeId = null
+                PreviousOfNodeId = null
             }));
             Assert.DoesNotContain("previousOf", jsonWithoutPrevious);
         }
@@ -100,7 +100,7 @@ namespace Ascentix.RulesEngine.Tests
                         {
                             new FiredActionResult
                             {
-                                ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch,
+                                ActionType = ActionType.CreateRecord,
                                 WriteIntent = new WriteIntent
                                 {
                                     Operation = WriteOperation.Create, TargetTable = "task",
@@ -131,14 +131,14 @@ namespace Ascentix.RulesEngine.Tests
             // for both a single-record create and a set create.
             var singleJson = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
             {
-                ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch,
+                ActionType = ActionType.CreateRecord,
                 WriteIntent = new WriteIntent { Operation = WriteOperation.Create, TargetTable = "task", TargetId = Guid.NewGuid() },
             }));
             Assert.Contains("\"targetId\":null", singleJson);
 
             var setJson = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
             {
-                ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch,
+                ActionType = ActionType.CreateRecord,
                 WriteIntents = new List<WriteIntent>
                 {
                     new WriteIntent { Operation = WriteOperation.Create, TargetTable = "task", TargetId = Guid.NewGuid() },
@@ -152,7 +152,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var fired = new FiredActionResult
             {
-                RuleId = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch,
+                RuleId = Guid.NewGuid(), ActionType = ActionType.UpdateRecord,
                 WriteIntents = new List<WriteIntent> { SetRow(Guid.NewGuid(), true), SetRow(Guid.NewGuid(), false), SetRow(Guid.NewGuid(), false) },
             };
 

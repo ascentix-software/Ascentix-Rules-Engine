@@ -420,7 +420,7 @@ namespace Ascentix.RulesEngine.Core.Validation
         // At Create of the root record, Row Count evaluates the child rows existing at that
         // instant. A collection whose ancestor path
         // reaches the root through CHILD links only is structurally EMPTY then, so a
-        // minimum-row condition can never pass and a Block(OnNoMatch) always blocks the create.
+        // minimum-row condition can never pass and a Block that fires when its outcome is false always blocks the create.
         // Deliberate, literal semantics (a skip-on-create carve-out would be a path where a
         // condition silently doesn't evaluate, the IsNull bug class reborn); this authoring
         // hint makes the consequence visible at publish time. Collections reached through a
@@ -443,7 +443,7 @@ namespace Ascentix.RulesEngine.Core.Validation
                     "STRUCT_ROWCOUNT_ON_CREATE",
                     "This Row Count condition requires at least " + c.MinExpectedRows +
                     " related row(s), but at Create of the root record this collection is always " +
-                    "empty: the condition can never pass during Create, so a Block (On No Match) " +
+                    "empty: the condition can never pass during Create, so a Block that fires when this outcome is false " +
                     "will always block creates. Omit the On Create trigger if that is not intended.",
                     IssueTarget.Condition(c.Id)));
             }

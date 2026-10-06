@@ -45,7 +45,7 @@ namespace Ascentix.RulesEngine.Tests
                 Configs = TestTree.RawTree(TestTree.Node(RootNodeId, "account", TableConfigType.RootTable, null)),
                 Actions = new List<RuleAction>
                 {
-                    new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.Block, FireOn = ActionFireOn.OnNoMatch, Message = "no", IsActive = true }
+                    new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.Block, Condition = ActionTrees.AnyFalse(grp.Id), Message = "no", IsActive = true }
                 },
             };
             mutate?.Invoke(model);
@@ -364,7 +364,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var m = ValidModel(x => x.Actions = new List<RuleAction>
             {
-                new RuleAction { Id = Guid.NewGuid(), ActionType = (ActionType)0, FireOn = ActionFireOn.OnNoMatch, IsActive = true }
+                new RuleAction { Id = Guid.NewGuid(), ActionType = (ActionType)0, Condition = ActionTrees.AnyFalse(x.Groups[0].Id), IsActive = true }
             });
             Assert.Contains(Run(m), i => i.Code == "STRUCT_BAD_ACTIONTYPE");
         }
@@ -374,7 +374,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var m = ValidModel(x => x.Actions = new List<RuleAction>
             {
-                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetTable = null, FieldMapping = null, Order = 1 }
+                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, Condition = ActionTrees.AllTrue(x.Groups[0].Id), IsActive = true, TargetTable = null, FieldMapping = null, Order = 1 }
             });
             var issues = Run(m);
             Assert.Contains(issues, i => i.Code == "STRUCT_MISSING_FIELD" && i.Target.Field == "TargetTable");
@@ -386,7 +386,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var m = ValidModel(x => x.Actions = new List<RuleAction>
             {
-                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.ShowMessage, FireOn = ActionFireOn.OnMatch, IsActive = true, Message = null }
+                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.ShowMessage, Condition = ActionTrees.AllTrue(x.Groups[0].Id), IsActive = true, Message = null }
             });
             Assert.Contains(Run(m), i => i.Code == "STRUCT_MISSING_FIELD" && i.Target.Field == "Message");
         }
@@ -396,7 +396,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var m = ValidModel(x => x.Actions = new List<RuleAction>
             {
-                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = null, FieldMapping = null, Order = 1 }
+                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, Condition = ActionTrees.AllTrue(x.Groups[0].Id), IsActive = true, TargetNodeId = null, FieldMapping = null, Order = 1 }
             });
             var issues = Run(m);
             Assert.Contains(issues, i => i.Code == "STRUCT_MISSING_FIELD" && i.Target.Field == "TargetNodeId");
@@ -430,7 +430,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var m = ValidModel(x => x.Actions = new List<RuleAction>
             {
-                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.DeleteRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = null, Order = 1 }
+                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.DeleteRecord, Condition = ActionTrees.AllTrue(x.Groups[0].Id), IsActive = true, TargetNodeId = null, Order = 1 }
             });
             Assert.Contains(Run(m), i => i.Code == "STRUCT_MISSING_FIELD" && i.Target.Field == "TargetNodeId");
         }

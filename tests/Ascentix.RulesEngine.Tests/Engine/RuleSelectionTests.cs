@@ -72,15 +72,16 @@ namespace Ascentix.RulesEngine.Tests.Engine
             var entities = new List<Entity> { tableConfig, rule, group, condition };
             if (withBlockAction)
             {
-                entities.Add(new Entity(Q(SchemaNames.RuleAction.Entity), Guid.NewGuid())
+                var actionId = Guid.NewGuid();
+                entities.Add(new Entity(Q(SchemaNames.RuleAction.Entity), actionId)
                 {
                     [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
                     [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.Block),
-                    [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                     [Q(SchemaNames.RuleAction.Message)] = name,
                     [Q(SchemaNames.RuleAction.Order)] = 1,
                     [Q(SchemaNames.RuleAction.IsActive)] = true,
                 });
+                entities.AddRange(ActionTreeRows.AnyFalse(actionId, grpId));
             }
             return entities;
         }

@@ -142,7 +142,7 @@ namespace Ascentix.RulesEngine.Tests
             var ruleId = Guid.NewGuid();
             var original = new RuleAction
             {
-                Id = Guid.NewGuid(), RuleId = ruleId, ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnNoMatch,
+                Id = Guid.NewGuid(), RuleId = ruleId, ActionType = ActionType.UpdateRecord,
                 TargetColumn = "name", ValueBool = true, ApplyInverseWhenNotFired = true, Message = "m", Severity = Severity.Warning,
                 TargetTable = "task", TargetNodeId = Guid.NewGuid(), FieldMapping = "[]", Order = 3, IsActive = true,
                 ApplyToPrevious = true, LocalizedMessages = new Dictionary<int, string> { [1036] = "fr" }, Name = "Stamp",

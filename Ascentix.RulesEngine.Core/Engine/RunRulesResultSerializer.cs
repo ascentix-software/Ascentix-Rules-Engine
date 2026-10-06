@@ -28,7 +28,6 @@ namespace Ascentix.RulesEngine.Core.Engine
         {
             [DataMember(Name = "ruleId", Order = 1)] public string RuleId { get; set; }
             [DataMember(Name = "actionType", Order = 2)] public string ActionType { get; set; }
-            [DataMember(Name = "fireOn", Order = 3)] public string FireOn { get; set; }
             [DataMember(Name = "targetColumn", Order = 4)] public string TargetColumn { get; set; }
             [DataMember(Name = "value", Order = 5)] public bool? Value { get; set; }
             [DataMember(Name = "message", Order = 6)] public string Message { get; set; }
@@ -116,7 +115,6 @@ namespace Ascentix.RulesEngine.Core.Engine
                     {
                         RuleId = a.RuleId.ToString(),
                         ActionType = a.ActionType.ToString(),
-                        FireOn = a.FireOn.ToString(),
                         TargetColumn = a.TargetColumn,
                         Value = a.Value,
                         Message = a.Message,

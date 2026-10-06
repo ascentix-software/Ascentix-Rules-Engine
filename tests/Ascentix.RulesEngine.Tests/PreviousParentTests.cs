@@ -30,7 +30,7 @@ namespace Ascentix.RulesEngine.Tests
         internal static RuleAction Update(Guid target, bool tick = true, bool active = true) => new RuleAction
         {
             Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, TargetNodeId = target,
-            ApplyToPrevious = tick, IsActive = active, FireOn = ActionFireOn.OnMatch,
+            ApplyToPrevious = tick, IsActive = active, Condition = ActionTrees.Always(),
         };
 
         [Fact]

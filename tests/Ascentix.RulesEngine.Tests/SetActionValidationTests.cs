@@ -49,13 +49,14 @@ namespace Ascentix.RulesEngine.Tests
                     TestTree.Node(Tasks, "task", TableConfigType.ChildTable, Contacts, "regardingobjectid"),
                     TestTree.Node(Opps, "opportunity", TableConfigType.ChildTable, Root, "parentaccountid"),
                     TestTree.Node(Notes, "sample_note", TableConfigType.ChildTable, Root, "sample_accountid")),
-                Actions = actions.ToList(),
+                // Each action without a tree fires when the rule's one outcome holds.
+                Actions = actions.Select(a => { a.Condition = a.Condition ?? ActionTrees.AllTrue(group.Id); return a; }).ToList(),
             };
         }
 
         private static RuleAction Act(ActionType type, Guid? target, string mapping = null, NodeFilterGroup filter = null, string table = null) => new RuleAction
         {
-            Id = Guid.NewGuid(), ActionType = type, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = target,
+            Id = Guid.NewGuid(), ActionType = type, IsActive = true, TargetNodeId = target,
             TargetTable = table, FieldMapping = mapping, RowFilter = filter,
         };
 
@@ -165,7 +166,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var action = new RuleAction
             {
-                Id = Guid.NewGuid(), ActionType = ActionType.ShowMessage, FireOn = ActionFireOn.OnMatch, IsActive = true,
+                Id = Guid.NewGuid(), ActionType = ActionType.ShowMessage, IsActive = true,
                 Message = "Hello {row.fullname}",
             };
             Assert.Contains("STRUCT_ROW_SOURCE_NOT_SET", Codes(Model(action)));
@@ -179,7 +180,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var action = new RuleAction
             {
-                Id = Guid.NewGuid(), ActionType = ActionType.Block, FireOn = ActionFireOn.OnMatch, IsActive = true,
+                Id = Guid.NewGuid(), ActionType = ActionType.Block, IsActive = true,
                 Message = "Blocked",
                 LocalizedMessages = new Dictionary<int, string> { { 1036, "Bloqué {row.fullname}" } },
             };

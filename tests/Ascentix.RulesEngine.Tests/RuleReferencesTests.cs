@@ -35,7 +35,7 @@ namespace Ascentix.RulesEngine.Tests
         private static List<ConditionGroup> Groups(params ConditionGroup[] groups) => groups.ToList();
 
         private static RuleAction Active(ActionType type) => new RuleAction
-        { Id = Guid.NewGuid(), ActionType = type, FireOn = ActionFireOn.OnMatch, IsActive = true };
+        { Id = Guid.NewGuid(), ActionType = type, Condition = ActionTrees.Always(), IsActive = true };
 
         private static RuleReferences Refs(ConditionGroup group, params RuleAction[] actions) =>
             RuleReferences.Compute(Groups(group), actions);

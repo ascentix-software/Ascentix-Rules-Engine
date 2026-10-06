@@ -419,10 +419,11 @@ namespace Ascentix.RulesEngine.Tests
 
         private static Entity Of(IEnumerable<Entity> rows, string table) => rows.Single(e => e.LogicalName == table);
 
-        // Rule(id) plus, on its action, a root ALL group (test: the rule's condition group is false) and a nested
-        // ANY group under it (test: the same condition group is true).
+        // Rule(id) with its action's tree replaced by a root ALL group (test: the rule's condition group is false)
+        // and a nested ANY group under it (test: the same condition group is true).
         private static List<Entity> WithTree(List<Entity> rule)
         {
+            rule.RemoveAll(e => e.LogicalName == "asx_actionconditiongroup" || e.LogicalName == "asx_actionconditiontest");
             var action = Of(rule, "asx_ruleaction").ToEntityReference(); var outcome = Of(rule, "asx_conditiongroup").ToEntityReference();
             var root = new Entity("asx_actionconditiongroup", Guid.NewGuid()) { ["asx_ruleaction"] = action,
                 ["asx_logicaloperator"] = new OptionSetValue(1), ["asx_order"] = 1 };

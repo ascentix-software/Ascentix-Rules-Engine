@@ -20,6 +20,7 @@ namespace Ascentix.RulesEngine.Tests
                 Conditions = conditions ?? new List<RuleCondition>(),
                 ChildGroups = new List<ConditionGroup>(),
             };
+            foreach (var a in actions ?? new List<RuleAction>()) a.Condition = a.Condition ?? ActionTrees.AllTrue(grp.Id);
             return new RuleForValidation
             {
                 RuleId = Guid.NewGuid(),
@@ -55,7 +56,7 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [nodeId] = new TableConfig { Id = nodeId, ConfigType = TableConfigType.ChildTable, ParentTableId = null }
             };
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = nodeId };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = nodeId };
             var m = Model(configs, actions: new List<RuleAction> { action });
             Assert.Contains(Run(m), i => i.Code == "TRAV_NOT_SINGLE_CARDINALITY");
         }
@@ -77,7 +78,7 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [nodeId] = new TableConfig { Id = nodeId, ConfigType = TableConfigType.LookupTable, ParentTableId = null }
             };
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = nodeId };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = nodeId };
             var m = Model(configs, actions: new List<RuleAction> { action });
             Assert.Contains(Run(m), i => i.Code == "TRAV_NOT_SINGLE_CARDINALITY");
         }
@@ -125,7 +126,7 @@ namespace Ascentix.RulesEngine.Tests
                 [rootId] = new TableConfig { Id = rootId, ConfigType = TableConfigType.RootTable },
                 [nodeId] = new TableConfig { Id = nodeId, ConfigType = TableConfigType.LookupTable, ParentTableId = rootId }
             };
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = nodeId };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = nodeId };
             var m = Model(configs, actions: new List<RuleAction> { action });
             Assert.DoesNotContain(Run(m), i => i.Code == "TRAV_NOT_SINGLE_CARDINALITY" || i.Code == "TRAV_NODE_NOT_FOUND");
         }
@@ -189,7 +190,7 @@ namespace Ascentix.RulesEngine.Tests
                 [childId] = new TableConfig { Id = childId, ConfigType = TableConfigType.ChildTable, TableLogicalName = "contact", ParentTableId = rootId, ChildLinkField = "parentcustomerid" },
                 [lkUnderChildId] = new TableConfig { Id = lkUnderChildId, ConfigType = TableConfigType.LookupTable, TableLogicalName = "account", ParentTableId = childId, LookupColumnLogicalName = "parentaccountid", LookupTargetIdAttribute = "accountid" },
             };
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = lkUnderChildId, FieldMapping = "[]" };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, Condition = ActionTrees.Always(), IsActive = true, TargetNodeId = lkUnderChildId, FieldMapping = "[]" };
             var model = new RuleForValidation { RuleId = Guid.NewGuid(), PrimaryTable = "account", Groups = new List<ConditionGroup>(), Configs = TestTree.RawTree(configs), Actions = new List<RuleAction> { action } };
             var issues = new TraversalChecks().Check(model).ToList();
             Assert.DoesNotContain(issues, i => i.Code == "TRAV_NOT_SINGLE_CARDINALITY");
@@ -205,7 +206,7 @@ namespace Ascentix.RulesEngine.Tests
                 [childId] = new TableConfig { Id = childId, ConfigType = TableConfigType.ChildTable, TableLogicalName = "contact", ParentTableId = rootId, ChildLinkField = "parentcustomerid" },
             };
             var mapping = "[{\"target\":\"name\",\"source\":\"node\",\"column\":\"lastname\",\"node\":\"" + childId + "\"}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetTable = "task", FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, Condition = ActionTrees.Always(), IsActive = true, TargetTable = "task", FieldMapping = mapping };
             var model = new RuleForValidation { RuleId = Guid.NewGuid(), PrimaryTable = "account", Groups = new List<ConditionGroup>(), Configs = TestTree.RawTree(configs), Actions = new List<RuleAction> { action } };
             var issues = new TraversalChecks().Check(model).ToList();
             Assert.Contains(issues, i => i.Code == "TRAV_NOT_SINGLE_CARDINALITY");
@@ -221,7 +222,7 @@ namespace Ascentix.RulesEngine.Tests
                 [childId] = new TableConfig { Id = childId, ConfigType = TableConfigType.ChildTable, TableLogicalName = "contact", ParentTableId = rootId, ChildLinkField = "parentcustomerid" },
             };
             var mapping = "[{\"target\":\"scheduledend\",\"source\":\"dateexpr\",\"anchor\":{\"kind\":\"field\",\"column\":\"createdon\",\"node\":\"" + childId + "\"},\"op\":\"add\",\"amount\":1,\"unit\":\"days\"}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetTable = "task", FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, Condition = ActionTrees.Always(), IsActive = true, TargetTable = "task", FieldMapping = mapping };
             var model = new RuleForValidation { RuleId = Guid.NewGuid(), PrimaryTable = "account", Groups = new List<ConditionGroup>(), Configs = TestTree.RawTree(configs), Actions = new List<RuleAction> { action } };
             var issues = new TraversalChecks().Check(model).ToList();
             Assert.Contains(issues, i => i.Code == "TRAV_NOT_SINGLE_CARDINALITY");
@@ -237,7 +238,7 @@ namespace Ascentix.RulesEngine.Tests
                 [lkId] = new TableConfig { Id = lkId, ConfigType = TableConfigType.LookupTable, TableLogicalName = "contact", ParentTableId = rootId, LookupColumnLogicalName = "primarycontactid" },
             };
             var mapping = "[{\"target\":\"name\",\"source\":\"node\",\"column\":\"lastname\",\"node\":\"" + lkId + "\"}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetTable = "task", FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, Condition = ActionTrees.Always(), IsActive = true, TargetTable = "task", FieldMapping = mapping };
             var model = new RuleForValidation { RuleId = Guid.NewGuid(), PrimaryTable = "account", Groups = new List<ConditionGroup>(), Configs = TestTree.RawTree(configs), Actions = new List<RuleAction> { action } };
             var issues = new TraversalChecks().Check(model).ToList();
             Assert.DoesNotContain(issues, i => i.Code == "TRAV_NOT_SINGLE_CARDINALITY");
@@ -254,7 +255,7 @@ namespace Ascentix.RulesEngine.Tests
             };
             // An aggregate over the child collection is exactly what aggregates are for, so it must NOT be flagged.
             var mapping = "[{\"target\":\"sample_total\",\"source\":\"mathexpr\",\"expression\":\"sum(node:" + childId + ".sample_lineamount)\"}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, Condition = ActionTrees.Always(), IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = new RuleForValidation { RuleId = Guid.NewGuid(), PrimaryTable = "sample_order", Groups = new List<ConditionGroup>(), Configs = TestTree.RawTree(configs), Actions = new List<RuleAction> { action } };
             var issues = new TraversalChecks().Check(model).ToList();
             Assert.DoesNotContain(issues, i => i.Code == "TRAV_NOT_SINGLE_CARDINALITY");
@@ -272,7 +273,7 @@ namespace Ascentix.RulesEngine.Tests
             };
             // A SCALAR {node:...} operand over a child is still an error (a many-node scalar read is ambiguous).
             var mapping = "[{\"target\":\"sample_total\",\"source\":\"mathexpr\",\"expression\":\"{node:" + childId + ".sample_lineamount} * 2\"}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, Condition = ActionTrees.Always(), IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = new RuleForValidation { RuleId = Guid.NewGuid(), PrimaryTable = "sample_order", Groups = new List<ConditionGroup>(), Configs = TestTree.RawTree(configs), Actions = new List<RuleAction> { action } };
             var issues = new TraversalChecks().Check(model).ToList();
             Assert.Contains(issues, i => i.Code == "TRAV_NOT_SINGLE_CARDINALITY");
@@ -289,7 +290,7 @@ namespace Ascentix.RulesEngine.Tests
             };
             // Aggregating a single-cardinality (lookup) node is an author error.
             var mapping = "[{\"target\":\"sample_total\",\"source\":\"mathexpr\",\"expression\":\"sum(node:" + lookupId + ".sample_amount)\"}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, Condition = ActionTrees.Always(), IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = new RuleForValidation { RuleId = Guid.NewGuid(), PrimaryTable = "sample_order", Groups = new List<ConditionGroup>(), Configs = TestTree.RawTree(configs), Actions = new List<RuleAction> { action } };
             var issues = new TraversalChecks().Check(model).ToList();
             Assert.Contains(issues, i => i.Code == "TRAV_AGGREGATE_NOT_COLLECTION");
@@ -304,7 +305,7 @@ namespace Ascentix.RulesEngine.Tests
                 [rootId] = new TableConfig { Id = rootId, ConfigType = TableConfigType.RootTable, TableLogicalName = "account" },
             };
             var mapping = "[{\"target\":\"name\",\"source\":\"node\",\"column\":\"lastname\",\"node\":\"" + Guid.NewGuid() + "\"}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetTable = "task", FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, Condition = ActionTrees.Always(), IsActive = true, TargetTable = "task", FieldMapping = mapping };
             var model = new RuleForValidation { RuleId = Guid.NewGuid(), PrimaryTable = "account", Groups = new List<ConditionGroup>(), Configs = TestTree.RawTree(configs), Actions = new List<RuleAction> { action } };
             var issues = new TraversalChecks().Check(model).ToList();
             Assert.Contains(issues, i => i.Code == "TRAV_NODE_NOT_FOUND");

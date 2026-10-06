@@ -81,7 +81,6 @@ namespace Ascentix.RulesEngine.Core.Engine
         private class ActionDto
         {
             [DataMember(Name = "actionType", Order = 1)] public string ActionType { get; set; }
-            [DataMember(Name = "fireOn", Order = 2)] public string FireOn { get; set; }
             [DataMember(Name = "targetColumn", Order = 3)] public string TargetColumn { get; set; }
             [DataMember(Name = "value", Order = 4)] public bool? Value { get; set; }
             [DataMember(Name = "applyInverseWhenNotFired", Order = 5)] public bool ApplyInverseWhenNotFired { get; set; }
@@ -199,7 +198,6 @@ namespace Ascentix.RulesEngine.Core.Engine
             return new ActionDto
             {
                 ActionType = a.ActionType.ToString(),
-                FireOn = a.FireOn.ToString(),
                 TargetColumn = a.TargetColumn,
                 Value = hasValue ? a.ValueBool : (bool?)null,
                 ApplyInverseWhenNotFired = a.ApplyInverseWhenNotFired,
