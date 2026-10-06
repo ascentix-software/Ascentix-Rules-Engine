@@ -1,4 +1,5 @@
-import type { ConditionNode, ActionNode, TableConfigRef, ConditionTypeLabel, ConditionGroupNode } from "../model/types";
+import type { ConditionNode, ActionNode, TableConfigRef, ConditionTypeLabel, ConditionGroupNode, FiresWhenGroup } from "../model/types";
+import { isAlways } from "../model/firesWhen";
 import { comparisonOperatorLabel } from "../model/enums";
 import type { OptionMeta } from "../metadata";
 
@@ -207,8 +208,26 @@ export function actionDetail(a: ActionNode, tcs: Record<string, TableConfigRef>)
 }
 
 const SEVERITY_WORD: Record<number, string> = { 1: "notice", 2: "warning", 3: "error" };
-export function actionWhatHappens(a: ActionNode): string {
-  const when = "When its Fires when holds";
+/** The Fires when tree as one sentence: "When High Value AND (At Risk OR NOT Critical Case)". */
+export function firesWhenSummary(tree: FiresWhenGroup | null, outcomes: ConditionGroupNode[]): string {
+  if (!tree) return "Not set: this action never fires.";
+  if (isAlways(tree)) return "Always, when the rule runs";
+  const nameOf = (id: string | null) => outcomes.find((o) => o.id === id)?.name || "(missing outcome)";
+  const render = (g: FiresWhenGroup): string => {
+    const parts = [
+      ...g.tests.map((t) => `${t.expected ? "" : "NOT "}${nameOf(t.outcomeId)}`),
+      ...g.groups.map((c) => `(${render(c)})`),
+    ];
+    return parts.join(g.op === "any" ? " OR " : " AND ");
+  };
+  return `When ${render(tree)}`;
+}
+
+export function actionWhatHappens(
+  a: ActionNode, _tcs: Record<string, TableConfigRef>, _resolveValueLabel: ValueLabelResolver | undefined,
+  outcomes: ConditionGroupNode[],
+): string {
+  const when = firesWhenSummary(a.firesWhen, outcomes);
   switch (a.actionType) {
     case "Block":
       return `${when} → shows the message and prevents the save (server-enforced).`;

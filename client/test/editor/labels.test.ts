@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { conditionSummary, conditionParts, actionEffect, actionWhatHappens, actionSummary, actionVerb, actionDetail } from "../../src/editor/ui/labels";
-import type { ConditionNode, ActionNode, TableConfigRef } from "../../src/editor/model/types";
+import { conditionSummary, conditionParts, actionEffect, actionWhatHappens, firesWhenSummary, actionSummary, actionVerb, actionDetail } from "../../src/editor/ui/labels";
+import type { ConditionNode, ConditionGroupNode, FiresWhenGroup, ActionNode, TableConfigRef } from "../../src/editor/model/types";
 
 const tcs: Record<string, TableConfigRef> = {
   n1: { id: "n1", name: "Account (root)", tableLogicalName: "account", tableConfigType: "RootTable", parentTableConfigId: null, lookupColumnLogicalName: null, childLinkField: null, lookupTargetIdAttribute: null },
@@ -63,8 +63,8 @@ describe("actionEffect", () => {
   });
   it.each([1, 2, 3])("marks a field message as form-blocking at severity %i", (severity) => {
     expect(actionEffect(act({ targetColumn: "name", severity }))).toEqual({ kind: "block", label: "Blocks form save" });
-    expect(actionWhatHappens(act({ targetColumn: "name", severity }))).toContain("regardless of severity");
-    expect(actionWhatHappens(act({ severity }))).toContain("save still allowed");
+    expect(actionWhatHappens(act({ targetColumn: "name", severity }), tcs, undefined, [])).toContain("regardless of severity");
+    expect(actionWhatHappens(act({ severity }), tcs, undefined, [])).toContain("save still allowed");
   });
 });
 
@@ -75,16 +75,16 @@ describe("actionWhatHappens", () => {
     applyInverseWhenNotFired: null, severity: null, isActive: true, localizedMessages: [], ...p,
   });
   it("describes a field-targeted warning that blocks this form", () => {
-    const s = actionWhatHappens(act({ actionType: "ShowMessage", severity: 2, targetColumn: "region" }));
+    const s = actionWhatHappens(act({ actionType: "ShowMessage", severity: 2, targetColumn: "region" }), tcs, undefined, []);
     expect(s).toContain("region");
     expect(s).toContain("blocks this form's save");
     expect(s).not.toContain("save still allowed");
   });
   it("describes a block", () => {
-    expect(actionWhatHappens(act({ actionType: "Block" }))).toContain("prevents the save");
+    expect(actionWhatHappens(act({ actionType: "Block" }), tcs, undefined, [])).toContain("prevents the save");
   });
   it("describes Deactivate Record", () => {
-    expect(actionWhatHappens(act({ actionType: "DeactivateRecord" }))).toContain("deactivates the target record(s)");
+    expect(actionWhatHappens(act({ actionType: "DeactivateRecord" }), tcs, undefined, [])).toContain("deactivates the target record(s)");
   });
 });
 
@@ -153,5 +153,50 @@ describe("actionDetail", () => {
   });
   it("describes a SetRequired by its target column", () => {
     expect(actionDetail({ ...baseAction, actionType: "SetRequired", firesWhen: null, targetColumn: "budgetamount" } as any, {})).toBe("— budgetamount");
+  });
+});
+
+describe("firesWhenSummary", () => {
+  const og = (id: string, name: string): ConditionGroupNode => ({
+    id, name, parentGroupId: null, logicalOperator: "And", isExecutionCondition: false, conditions: [], groups: [],
+  });
+  const outcomes = [og("hv", "High Value"), og("ar", "At Risk"), og("cc", "Critical Case")];
+  const act = (p: Partial<ActionNode>): ActionNode => ({
+    id: "a", name: "", order: 1, actionType: "Block", firesWhen: null, targetColumn: null,
+    targetTable: null, targetNodeId: null, message: null, fieldMapping: null, value: null,
+    applyInverseWhenNotFired: null, severity: null, isActive: true, localizedMessages: [], ...p,
+  });
+  it("null never fires", () => {
+    expect(firesWhenSummary(null, outcomes)).toBe("Not set: this action never fires.");
+  });
+  it("an empty ALL is Always", () => {
+    expect(firesWhenSummary({ id: "r", op: "all", tests: [], groups: [] }, outcomes)).toBe("Always, when the rule runs");
+  });
+  it("renders nested trees with NOT for expected false", () => {
+    const tree: FiresWhenGroup = {
+      id: "r", op: "all", tests: [{ id: "1", outcomeId: "hv", expected: true }],
+      groups: [{ id: "g", op: "any", groups: [], tests: [
+        { id: "2", outcomeId: "ar", expected: true }, { id: "3", outcomeId: "cc", expected: false }] }],
+    };
+    expect(firesWhenSummary(tree, outcomes)).toBe("When High Value AND (At Risk OR NOT Critical Case)");
+  });
+  it("shows a renamed outcome by its new name", () => {
+    const tree: FiresWhenGroup = { id: "r", op: "all", groups: [], tests: [{ id: "1", outcomeId: "hv", expected: true }] };
+    expect(firesWhenSummary(tree, [og("hv", "Big Spender")])).toBe("When Big Spender");
+  });
+  it("names a missing outcome", () => {
+    const tree: FiresWhenGroup = { id: "r", op: "all", groups: [], tests: [
+      { id: "1", outcomeId: "gone", expected: true }, { id: "2", outcomeId: null, expected: false }] };
+    expect(firesWhenSummary(tree, outcomes)).toBe("When (missing outcome) AND NOT (missing outcome)");
+  });
+  it("actionWhatHappens starts with the summary and never says conditions match", () => {
+    const a = act({ firesWhen: { id: "r", op: "all", groups: [], tests: [{ id: "1", outcomeId: "hv", expected: true }] } });
+    const s = actionWhatHappens(a, tcs, undefined, outcomes);
+    expect(s.startsWith("When High Value")).toBe(true);
+    expect(s).not.toContain("conditions match");
+  });
+  it("actionWhatHappens for an always action starts with Always", () => {
+    const a = act({ firesWhen: { id: "r", op: "all", groups: [], tests: [] } });
+    expect(actionWhatHappens(a, tcs, undefined, outcomes).startsWith("Always, when the rule runs")).toBe(true);
   });
 });

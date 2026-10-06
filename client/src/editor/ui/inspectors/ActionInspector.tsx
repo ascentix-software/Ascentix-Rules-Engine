@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Dropdown, Option, Field, Input, Switch, Textarea, Button } from "@fluentui/react-components";
-import type { ActionNode, ActionTypeLabel, TableConfigRef } from "../../model/types";
+import type { ActionNode, ActionTypeLabel, ConditionGroupNode, TableConfigRef } from "../../model/types";
 import { isSingleCardinality, previousParentLookup } from "../../model/tableConfigOps";
 import { isCollectionNode, isSetAction, targetsNode } from "../../model/setActions";
 import { TablePicker, ColumnPicker } from "../pickers/MetadataPickers";
@@ -90,9 +90,10 @@ function TranslationRow({ message, languageLabel, ruleTable, tableConfigs, onCha
 }
 
 export function ActionInspector({
-  action, ruleTable, tableConfigs, onPatch, onAddTranslation, onUpdateTranslation, onRemoveTranslation,
+  action, ruleTable, tableConfigs, outcomes, onPatch, onAddTranslation, onUpdateTranslation, onRemoveTranslation,
 }: {
-  action: ActionNode; ruleTable: string; tableConfigs: Record<string, TableConfigRef>; onPatch(patch: Partial<ActionNode>): void;
+  action: ActionNode; ruleTable: string; tableConfigs: Record<string, TableConfigRef>; outcomes: ConditionGroupNode[];
+  onPatch(patch: Partial<ActionNode>): void;
   onAddTranslation(languageCode: number): void;
   onUpdateTranslation(translationId: string, message: string): void;
   onRemoveTranslation(translationId: string): void;
@@ -322,7 +323,7 @@ export function ActionInspector({
           <div style={{ borderLeft: `3px solid ${accent.bar}`, borderRadius: "0 6px 6px 0",
             background: accent.bg, padding: "10px 12px", marginTop: 4 }}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: accent.bar }}>What happens</div>
-            <div style={{ fontSize: 12.5, color: color.ink, marginTop: 2 }}>{actionWhatHappens(action)}</div>
+            <div style={{ fontSize: 12.5, color: color.ink, marginTop: 2 }}>{actionWhatHappens(action, tableConfigs, undefined, outcomes)}</div>
           </div>
         );
       })()}

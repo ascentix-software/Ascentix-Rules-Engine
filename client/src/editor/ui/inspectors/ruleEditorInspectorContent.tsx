@@ -8,6 +8,7 @@ import { flattenGroups, flattenConditions } from "../../model/tree";
 import { ConditionGroupInspector } from "./ConditionGroupInspector";
 import { ConditionInspector } from "./ConditionInspector";
 import { ActionInspector } from "./ActionInspector";
+import { outcomesOf } from "../../model/outcomes";
 import { RuleInspector } from "./RuleInspector";
 import { ActionIcon, Callout } from "../primitives";
 import type { InspectorHeader } from "../InspectorShell";
@@ -85,7 +86,7 @@ export function ruleEditorInspectorContent(
     return {
       header: { eyebrow: idx ? `Editing action ${idx}` : "Editing action", title: a?.actionType ?? "(action)", icon: <ActionIcon actionType={a?.actionType ?? null} /> },
       body: a ? (
-        <ActionInspector action={a} ruleTable={graph.rule.tableLogicalName} tableConfigs={graph.tableConfigs}
+        <ActionInspector action={a} ruleTable={graph.rule.tableLogicalName} tableConfigs={graph.tableConfigs} outcomes={outcomesOf(graph)}
           onPatch={(p) => h.onPatchAction(a.id, p)}
           onAddTranslation={(lc) => h.onAddTranslation(a.id, lc)}
           onUpdateTranslation={(tid, msg) => h.onUpdateTranslation(a.id, tid, msg)}
