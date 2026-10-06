@@ -74,14 +74,26 @@ async function makeCondition(label: string): Promise<string> {
   return id;
 }
 
+// An action needs a Fires-when tree to be publishable: an empty root ALL group is "Always". The
+// bind-nav shape under test is unaffected by the tree; the group is pushed after the action so the
+// shared afterEach (reverse order) removes it first. (It also cascades with its action.)
+async function makeAlwaysTree(actionId: string): Promise<void> {
+  const id = await api.createRecord(ENTITY_SET.actionConditionGroup, {
+    asx_logicaloperator: 1, // ALL
+    asx_order: 1,
+    [`${BIND_NAV.actionConditionGroupAction}@odata.bind`]: `/${ENTITY_SET.action}(${actionId})`,
+  });
+  created.push({ set: ENTITY_SET.actionConditionGroup, id });
+}
+
 async function makeAction(label: string): Promise<string> {
   const id = await api.createRecord(ENTITY_SET.action, {
     asx_name: `${runPrefix}${label}`,
     "asx_rule@odata.bind": `/${ENTITY_SET.rule}(${ruleId})`,
     asx_actiontype: 4,
-    asx_fireon: 1,
   });
   created.push({ set: ENTITY_SET.action, id });
+  await makeAlwaysTree(id);
   return id;
 }
 
@@ -203,26 +215,67 @@ describe("BIND_NAV @odata.bind round-trips against DEV", () => {
       },
     }));
 
-  it("actionRule binds a rule action to its rule", () =>
-    roundTrip({
+  it("actionRule binds a rule action to its rule", async () => {
+    const id = await roundTrip({
       label: "actionRule",
       set: ENTITY_SET.action, navProp: BIND_NAV.actionRule,
       parentSet: ENTITY_SET.rule, parentId: ruleId,
       lookupValueField: LOOKUP.ruleOfAction, // "_asx_rule_value"
-      extra: { asx_actiontype: 4, asx_fireon: 1 },
-    }));
+      extra: { asx_actiontype: 4 },
+    });
+    await makeAlwaysTree(id);
+  });
 
-  it("actionTargetNode binds a rule action's Update/Delete target node", () =>
-    roundTrip({
+  it("actionTargetNode binds a rule action's Update/Delete target node", async () => {
+    const id = await roundTrip({
       label: "actionTargetNode",
       set: ENTITY_SET.action, navProp: BIND_NAV.actionTargetNode, // PascalCase: asx_TargetNode
       parentSet: ENTITY_SET.tableConfig, parentId: rootCfg,
       lookupValueField: LOOKUP.actionTargetNode, // "_asx_targetnode_value"
       extra: {
         "asx_rule@odata.bind": `/${ENTITY_SET.rule}(${ruleId})`,
-        asx_actiontype: 4, asx_fireon: 1,
+        asx_actiontype: 4,
       },
-    }));
+    });
+    await makeAlwaysTree(id);
+  });
+
+  it("actionConditionGroupParent binds a Fires-when group to its parent group (and its action)", async () => {
+    const actionId = await makeAction("actionConditionGroupParent_action");
+    const parent = await api.retrieveMultipleRecords(ENTITY_SET.actionConditionGroup,
+      `?$filter=_asx_ruleaction_value eq ${actionId}&$select=asx_actionconditiongroupid`);
+    const parentId = parent.entities[0].asx_actionconditiongroupid as string;
+    await roundTrip({
+      label: "actionConditionGroupParent",
+      set: ENTITY_SET.actionConditionGroup, navProp: BIND_NAV.actionConditionGroupParent, // PascalCase: asx_ParentGroup
+      parentSet: ENTITY_SET.actionConditionGroup, parentId,
+      lookupValueField: "_asx_parentgroup_value",
+      extra: {
+        [`${BIND_NAV.actionConditionGroupAction}@odata.bind`]: `/${ENTITY_SET.action}(${actionId})`, // PascalCase: asx_RuleAction
+        asx_logicaloperator: 1, asx_order: 1,
+      },
+    });
+  });
+
+  it("actionConditionTestGroup and actionConditionTestOutcome bind a Fires-when test to its group and outcome", async () => {
+    const actionId = await makeAction("actionConditionTest_action");
+    const root = await api.retrieveMultipleRecords(ENTITY_SET.actionConditionGroup,
+      `?$filter=_asx_ruleaction_value eq ${actionId}&$select=asx_actionconditiongroupid`);
+    const groupOfAction = root.entities[0].asx_actionconditiongroupid as string;
+    await roundTrip({
+      label: "actionConditionTestGroup",
+      set: ENTITY_SET.actionConditionTest, navProp: BIND_NAV.actionConditionTestGroup, // PascalCase: asx_ActionConditionGroup
+      parentSet: ENTITY_SET.actionConditionGroup, parentId: groupOfAction,
+      lookupValueField: "_asx_actionconditiongroup_value",
+      extra: {
+        [`${BIND_NAV.actionConditionTestOutcome}@odata.bind`]: `/${ENTITY_SET.group}(${groupId})`, // PascalCase: asx_Outcome
+        asx_expected: true, asx_order: 1,
+      },
+    });
+    const testRows = await api.retrieveMultipleRecords(ENTITY_SET.actionConditionTest,
+      `?$filter=_asx_actionconditiongroup_value eq ${groupOfAction}&$select=_asx_outcome_value`);
+    expect(String(testRows.entities[0]._asx_outcome_value).toLowerCase()).toBe(groupId.toLowerCase());
+  });
 
   it("localizedMessageAction binds a localized message to its parent action", async () => {
     const actionId = await makeAction("localizedMessageAction_action");

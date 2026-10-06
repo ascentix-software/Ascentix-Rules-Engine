@@ -101,6 +101,8 @@ export const ENTITY_SET = {
   ruleRun: "asx_ruleruns",
   ruleSchedule: "asx_ruleschedules",
   schedulerStatus: "asx_schedulerstatuses",
+  actionConditionGroup: "asx_actionconditiongroups",
+  actionConditionTest: "asx_actionconditiontests",
 } as const;
 
 // @odata.bind navigation-property names. The referencing-side navigation
@@ -143,4 +145,10 @@ export const BIND_NAV = {
   runRule: "asx_Rule",
   // asx_ruleschedule.asx_rule: same EnsureLookup shape (SchemaName "asx_Rule") as runRule above.
   scheduleRule: "asx_Rule",
+  // An action's "Fires when" tree (docs/Schema.md 2.18-2.19): EnsureLookup with PascalCase SchemaNames
+  // (pipelines/Configure-RuleAuthoring.ps1), so these nav properties are PascalCased too.
+  actionConditionGroupAction: "asx_RuleAction",
+  actionConditionGroupParent: "asx_ParentGroup",
+  actionConditionTestGroup: "asx_ActionConditionGroup",
+  actionConditionTestOutcome: "asx_Outcome",
 } as const;
