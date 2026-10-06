@@ -26,7 +26,7 @@
   than plugin immutability restrictions. Cleanup stays transactional.
 
 ## Solution roles
-The two shipped roles, the privileges each grants, the 10 config tables they cover, and why both
+The two shipped roles, the privileges each grants, the 12 config tables they cover, and why both
 are additive at **Organization** depth: see *Security Roles* in the guide. That page is the single
 authoritative statement of the grants; do not restate them here.
 

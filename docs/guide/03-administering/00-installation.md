@@ -86,6 +86,30 @@ If the release carries a *data update*, the Rule Builder shows a banner after th
 import; a System Administrator or System Customizer applies it from there (see
 *Data Updates*).
 
+### Upgrading to outcomes and "Fires when"
+
+This release replaces each action's **On match / On no match** setting with **outcomes** (the
+named top-level validation groups of a rule) and a **Fires when** condition on each action. The
+upgraded engine no longer reads On match / On no match, so a one-time script converts your
+existing rules. Until it has run, actions on rules published before the upgrade do not fire:
+nothing is blocked wrongly, but nothing fires either. The script is
+[`migrations/2026-10-multi-outcome/README.md`](../../../migrations/2026-10-multi-outcome/README.md).
+
+Before you import the new version:
+
+1. Publish or discard every pending working-draft edit. The script republishes each enforcing
+   rule from its working draft, so unpublished edits in it would go live with the conversion.
+2. Optionally run the script with `-WhatIf` (it writes nothing) to see what it would change.
+
+After you import it, sign in as a System Administrator or System Customizer and run
+`Convert-RulesToOutcomes.ps1` straight away. It names each outcome, builds each action's Fires
+when condition, and republishes the rules that are currently enforcing. It is safe to run again if
+a run is interrupted. The retired `asx_fireon` column stays in the solution for this release and
+is removed in the next one.
+
+The `asx_RunRules` and `asx_ReadRules` results no longer include `fireOn` on each action. This is
+a breaking change for any caller that reads it.
+
 ## Uninstalling
 
 The engine's generated enforcement steps live outside the

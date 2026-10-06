@@ -70,6 +70,18 @@ only, so the version an administrator sees in their org can never carry the word
 
 ### Changed
 
+- **Outcomes and "Fires when" replace On match / On no match.** Each top-level validation group
+  of a rule is now an **outcome** with a required, unique name. Each action fires according to
+  its own **Fires when** condition: ALL or ANY of "outcome is true / is false" tests, nested if
+  needed (new tables `asx_actionconditiongroup` and `asx_actionconditiontest`, with new
+  publish checks for outcome names and Fires when conditions). An action with no condition never fires;
+  "always" is an empty ALL group. **Breaking:** `asx_RunRules` and `asx_ReadRules` no longer
+  return `fireOn` on each action. The column `asx_fireon` is retired: the engine no longer reads
+  it, and it is removed in the next release. Run the one-time script
+  `migrations/2026-10-multi-outcome/Convert-RulesToOutcomes.ps1` after upgrading (see
+  *Administering → Installation → Upgrading*); until it has run, actions on rules published
+  before the upgrade do not fire. The Rule Builder's own screens for outcomes and Fires when
+  follow in a later change.
 - The **Manual** trigger is now labelled **On demand**. The stored choice value (3) is unchanged,
   and the API trigger name `Manual` is still accepted alongside the new `OnDemand`.
 - Every rule evaluated by one save uses the same "now".

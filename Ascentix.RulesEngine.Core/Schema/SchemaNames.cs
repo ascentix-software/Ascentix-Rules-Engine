@@ -353,7 +353,7 @@ namespace Ascentix.RulesEngine.Schema
         }
 
         /// <summary>
-        /// One row per release data update that has started (docs/Schema.md §2.18). Written only by
+        /// One row per release data update that has started (docs/Schema.md §2.20). Written only by
         /// asx_ApplyDataUpdates; the row id is fixed per update number (DataUpdateRows.RowId).
         /// </summary>
         public static class DataUpdate

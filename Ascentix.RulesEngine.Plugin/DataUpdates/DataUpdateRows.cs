@@ -66,7 +66,7 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
         public Guid? RunBy { get; set; }
     }
 
-    /// <summary>Reads and writes asx_dataupdate rows (docs/Schema.md §2.18) and their JSON.</summary>
+    /// <summary>Reads and writes asx_dataupdate rows (docs/Schema.md §2.20) and their JSON.</summary>
     public static class DataUpdateRows
     {
         public const int MaxFailures = 50;

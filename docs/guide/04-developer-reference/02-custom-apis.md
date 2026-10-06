@@ -98,7 +98,6 @@ an ISO-8601 string; and `null` clears/omits the attribute.
   {
     "ruleId": "00000000-0000-0000-0000-000000000000",
     "actionType": "Block",
-    "fireOn": "OnNoMatch",
     "targetColumn": null,
     "value": null,
     "message": "Localized message text",
@@ -125,7 +124,7 @@ differs from `asx_ApplyRules`' top-level `WriteCount` below, which counts only r
 written.
 
 ```json
-{ "ruleId": "…", "actionType": "UpdateRecord", "fireOn": "OnMatch", "targetTable": "contact",
+{ "ruleId": "…", "actionType": "UpdateRecord", "targetTable": "contact",
   "writes": [ { "operation": "Update", "targetTable": "contact", "targetId": "…", "values": { "donotbulkemail": true } } ],
   "writeCount": 12, "unchangedCount": 3 }
 ```
@@ -502,7 +501,7 @@ a well-formed envelope with an empty `rules` array, not an error.
            (illustrative, not exhaustive; see Schema Reference for the authoritative list) */
       ],
       "tableConfig": [ /* the Table Config nodes this rule references */ ],
-      "actions": [ /* actionType, fireOn, targetColumn, value, message, severity, order, ... */ ]
+      "actions": [ /* actionType, targetColumn, value, message, severity, order, ... */ ]
     }
   ]
 }
