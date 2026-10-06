@@ -62,12 +62,28 @@ def build_tableconfig():
     return {"order": order, "customer": customer, "parent": parent, "line": line, "product": product}
 
 
+RULES = []  # every rule authored this run; published at the end, once its tree rows exist
+
+
 def rule(name, severity=None):
-    payload = {"asx_tablelogicalname": "sample_order", "statuscode": PUBLISHED,
-               "asx_triggers": TRIG_ONFORM_CREATE_UPDATE}
+    # Created as a Draft (the revision guard refuses a rule created Published); main() publishes it last.
+    payload = {"asx_tablelogicalname": "sample_order", "asx_triggers": TRIG_ONFORM_CREATE_UPDATE}
     if severity:
         payload["asx_severity"] = severity
-    return ensure("asx_rules", name, payload)
+    rule_id = ensure("asx_rules", name, payload)
+    RULES.append((name, rule_id))
+    return rule_id
+
+
+def publish_rules():
+    """PATCH statuscode to Published for each rule that is not already Published (a Draft left by an
+    earlier partial run is published now that its tree is complete)."""
+    for name, rule_id in RULES:
+        if get(f"asx_rules({rule_id})?$select=statuscode").get("statuscode") == PUBLISHED:
+            print(f"[skip] publish '{name}' (already Published)")
+            continue
+        _dv.patch(f"asx_rules({rule_id})", {"statuscode": PUBLISHED}, solution=False)
+        print(f"[publish] '{name}'")
 
 
 def group(name, rule_id, op=1, is_exec=False):
@@ -92,16 +108,25 @@ def action(name, rule_id, outcome_id, fire_on, **extra):
         f"{NAV_ACTION_RULE}@odata.bind": f"/asx_rules({rule_id})", "asx_order": 1,
         "asx_isactive": True, **extra})
     flt = _dv.urllib.parse.quote(f"_asx_ruleaction_value eq {action_id} and _asx_parentgroup_value eq null")
-    if not get(f"asx_actionconditiongroups?$filter={flt}&$select=asx_actionconditiongroupid&$top=1")["value"]:
-        on_match = fire_on == FIRE_ON_MATCH
+    roots = get(f"asx_actionconditiongroups?$filter={flt}&$select=asx_actionconditiongroupid&$top=1")["value"]
+    on_match = fire_on == FIRE_ON_MATCH
+    if roots:
+        root_id = roots[0]["asx_actionconditiongroupid"]
+    else:
         root_id = post("asx_actionconditiongroups", {
             "asx_logicaloperator": 1 if on_match else 2, "asx_order": 1,
             f"{NAV_AG_ACTION}@odata.bind": f"/asx_ruleactions({action_id})"})
+        print(f"[create] Fires when root for '{name}'")
+    # A root left without its test (a failure between the two posts) is completed, not skipped.
+    tflt = _dv.urllib.parse.quote(f"_asx_actionconditiongroup_value eq {root_id}")
+    have = {t["_asx_outcome_value"].lower() for t in
+            get(f"asx_actionconditiontests?$filter={tflt}&$select=_asx_outcome_value")["value"] if t.get("_asx_outcome_value")}
+    if outcome_id.lower() not in have:
         post("asx_actionconditiontests", {
             "asx_expected": on_match, "asx_order": 1,
             f"{NAV_AT_GROUP}@odata.bind": f"/asx_actionconditiongroups({root_id})",
             f"{NAV_AT_OUTCOME}@odata.bind": f"/asx_conditiongroups({outcome_id})"})
-        print(f"[create] Fires when tree for '{name}'")
+        print(f"[create] Fires when test for '{name}'")
     return action_id
 
 
@@ -168,6 +193,8 @@ def main():
               asx_comparisonvalue="3", asx_comparisonvaluesource=1)
     action("SAMPLE R6 action", r6, g6, FIRE_ON_MATCH, asx_actiontype=3,  # ShowMessage OnMatch
            asx_message="VIP customer — apply white-glove handling.", asx_severity=1)
+
+    publish_rules()
 
     print("\nDONE. six rules + tableconfig graph authored.")
 

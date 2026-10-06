@@ -75,20 +75,26 @@ async function main() {
     "asx_rule@odata.bind": `/asx_rules(${ruleId})`,
   });
   // The action's "Fires when" tree (an action with no tree never fires): ALL of the rule's one outcome
-  // (the group above) is true. Created once; a re-run finds the root and leaves it alone.
+  // (the group above) is true. A re-run completes a root left without its test.
   const roots = await get(
     `asx_actionconditiongroups?$filter=${encodeURIComponent(`_asx_ruleaction_value eq ${actionId} and _asx_parentgroup_value eq null`)}&$select=asx_actionconditiongroupid&$top=1`);
-  if (!roots.value?.length) {
-    const rootId = await post("asx_actionconditiongroups", {
+  let rootId = roots.value?.[0]?.asx_actionconditiongroupid;
+  if (!rootId) {
+    rootId = await post("asx_actionconditiongroups", {
       asx_logicaloperator: 1, asx_order: 1,
       "asx_RuleAction@odata.bind": `/asx_ruleactions(${actionId})`,
     });
+    console.log(`[create] Fires when root for action ${actionId}`);
+  }
+  const tests = await get(
+    `asx_actionconditiontests?$filter=${encodeURIComponent(`_asx_actionconditiongroup_value eq ${rootId}`)}&$select=_asx_outcome_value`);
+  if (!tests.value?.some((t) => t._asx_outcome_value?.toLowerCase() === groupId.toLowerCase())) {
     await post("asx_actionconditiontests", {
       asx_expected: true, asx_order: 1,
       "asx_ActionConditionGroup@odata.bind": `/asx_actionconditiongroups(${rootId})`,
       "asx_Outcome@odata.bind": `/asx_conditiongroups(${groupId})`,
     });
-    console.log(`[create] Fires when tree for action ${actionId}`);
+    console.log(`[create] Fires when test for action ${actionId}`);
   }
 
   console.log(`Seed ready. Rule ${ruleId} under prefix ${SEED}.`);
