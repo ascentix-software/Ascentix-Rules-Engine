@@ -126,7 +126,8 @@ describe("multi-outcome rules (docs/Schema.md 2.18-2.19)", () => {
         outcomes: [{ name: HIGH, conditions: [{ nodeId: tc.order, conditionType: 1, column: "sample_ordertotal", operator: 3, valueSource: 1, literal: "1000" }] }],
         actions: [{ actionType: 3 /* ShowMessage */, message: "ZZ_RB author tree", severity: 1, when: { all: [{ outcome: HIGH, is: true }] } }],
       });
-      ruleCleanups.push(r.cleanup);
+      // Fallback only: the Author deletes the rule below; this removes whatever that did not.
+      ruleCleanups.push(() => r.cleanup().catch(() => {}));
       ruleId = r.ruleId;
     } catch (e: any) {
       const text = String(e?.message ?? e).toLowerCase();
@@ -146,5 +147,18 @@ describe("multi-outcome rules (docs/Schema.md 2.18-2.19)", () => {
     const tests = await authorApi.retrieveMultipleRecords(ENTITY_SET.actionConditionTest,
       `?$filter=_asx_actionconditiongroup_value eq ${groups.entities[0].asx_actionconditiongroupid}&$select=asx_actionconditiontestid`);
     expect(tests.entities.length, hint).toBe(1);
+
+    // And delete it, as the Author: tests, then groups (children before the root), then the rule.
+    try {
+      for (const t of tests.entities) await deleteDevRecord(ENTITY_SET.actionConditionTest, t.asx_actionconditiontestid as string, authorToken);
+      const all = await authorApi.retrieveMultipleRecords(ENTITY_SET.actionConditionGroup,
+        `?$filter=_asx_ruleaction_value eq ${actionId}&$select=asx_actionconditiongroupid,_asx_parentgroup_value`);
+      const nested = all.entities.filter((g: any) => g._asx_parentgroup_value);
+      const roots = all.entities.filter((g: any) => !g._asx_parentgroup_value);
+      for (const g of [...nested, ...roots]) await deleteDevRecord(ENTITY_SET.actionConditionGroup, g.asx_actionconditiongroupid as string, authorToken);
+      await deleteDevRecord(ENTITY_SET.rule, ruleId!, authorToken);
+    } catch (e: any) {
+      throw new Error(`${hint}: ${e?.message}`);
+    }
   }, 120000);
 });

@@ -517,6 +517,8 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
       if (!outcomes.length)
         throw new Error(`authorRule: action ${actionIndex + 1} has fireOn 2 (On no match) but the rule has no outcomes, so its tree would never fire. Give it outcomes or an explicit \`when\`.`);
       root = { any: outcomes.map(o => ({ outcome: o.name, is: false })) };
+    } else if (a.fireOn !== undefined) {
+      throw new Error(`authorRule: action ${actionIndex + 1} has fireOn ${a.fireOn}; only 1 (On match) or 2 (On no match) are translated. Omit fireOn for Always, or give a when tree.`);
     } else {
       root = { all: [] }; // Always
     }
