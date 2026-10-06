@@ -18,7 +18,7 @@ namespace Ascentix.RulesEngine.Tests
 {
     /// <summary>
     /// A published On demand account rule: execution condition name contains "ZZ"; match
-    /// numberofemployees > 10; OnMatch updates description = "big", OnNoMatch blocks "too small".
+    /// numberofemployees > 10; when the outcome is true an update sets description = "big"; when it is false a Block says "too small".
     /// Accounts ZZ1 (50), ZZ2 (5), ZZ3 (70) and Other (99). Pages of 2, chunks of 1, fixed clock.
     /// </summary>
     public class RunPageProcessorTests

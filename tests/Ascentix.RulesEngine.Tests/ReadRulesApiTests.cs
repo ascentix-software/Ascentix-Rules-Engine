@@ -13,7 +13,7 @@ namespace Ascentix.RulesEngine.Tests
     {
         private static string Q(string f) => SchemaNames.Qualify(f);
 
-        // account rule tagged with `trigger`; one root FieldComparison (name == "Valid"); Block OnNoMatch.
+        // account rule tagged with `trigger`; one root FieldComparison (name == "Valid"); Block that fires when the outcome is false.
         private static List<Entity> Seed(RuleTrigger trigger)
         {
             var ids = (rule: Guid.NewGuid(), cfg: Guid.NewGuid(), grp: Guid.NewGuid(),

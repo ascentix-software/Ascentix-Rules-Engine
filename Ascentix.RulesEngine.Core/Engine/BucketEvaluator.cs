@@ -16,7 +16,8 @@ namespace Ascentix.RulesEngine.Core.Engine
     /// Evaluate: rules × records over an <see cref="EvaluationInput"/>. Pure by type: it holds
     /// no IOrganizationService; every row it reads is already in a record's cache, and metadata
     /// arrives as the two provider interfaces. Per record, per rule (loader order): execution
-    /// groups gate first, then the main groups decide the match, then
+    /// groups gate first, then every outcome (top-level validation group) is evaluated and each
+    /// action's Fires when tree decides, then
     /// <see cref="ActionDispatcher.ComputeFiredActions"/> orders what fires; a write action gets
     /// its write intents resolved (one, or one per filtered row for a set action) and a message
     /// action its template rendered. Owns the <c>evaluate</c> stage timer, which wraps exactly

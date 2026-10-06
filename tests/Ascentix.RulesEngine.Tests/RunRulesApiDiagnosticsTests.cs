@@ -13,7 +13,7 @@ namespace Ascentix.RulesEngine.Tests
     {
         private static string Q(string f) => SchemaNames.Qualify(f);
 
-        // Published account rule: name IsNotNull → Block OnMatch (always fires when name present).
+        // Published account rule: name IsNotNull → Block that fires when the outcome is true (so whenever name is present).
         private static List<Entity> Seed()
         {
             var ids = (rule: Guid.NewGuid(), cfg: Guid.NewGuid(), grp: Guid.NewGuid(),

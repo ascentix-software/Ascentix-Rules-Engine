@@ -27,7 +27,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
         private static readonly Guid RuleC = Guid.NewGuid();
         private static readonly Guid RuleD = Guid.NewGuid();
 
-        // account.name equals "never" (never true for the seeded "Acme" record); Block OnNoMatch
+        // account.name equals "never" (never true for the seeded "Acme" record); Block that fires when the outcome is false
         // whose message is the rule's own name, unless suppressed (rule D fires nothing: its group
         // is an execution condition, so the rule never reaches a match decision).
         private static List<Entity> SeedRule(Guid ruleId, string name, bool isExecutionCondition,

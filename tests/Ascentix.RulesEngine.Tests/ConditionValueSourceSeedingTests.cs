@@ -110,7 +110,7 @@ namespace Ascentix.RulesEngine.Tests
             if (condition.Contains(payloadField))
                 condition[payloadField] = ((string)condition[payloadField]).Replace("LOOKUPCFG", ids.lookupCfg.ToString());
 
-            // ShowMessage action (OnMatch): fires iff the condition matches, our observable.
+            // ShowMessage action that fires when the outcome is true (the one condition holds): our observable.
             var action = new Entity(Q(SchemaNames.RuleAction.Entity), ids.act)
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
@@ -173,7 +173,7 @@ namespace Ascentix.RulesEngine.Tests
             var outcome = Run(seed, root);
 
             // Without the seeding this throws "…not in the rule's config tree". With it: contact
-            // resolves, "Smith" Equals "Smith" → the OnMatch ShowMessage fires.
+            // resolves, "Smith" Equals "Smith" → the ShowMessage (fires when the outcome is true) fires.
             Assert.Contains(outcome.Records[0].FiredActions, a => a.ActionType == ActionType.ShowMessage);
         }
 

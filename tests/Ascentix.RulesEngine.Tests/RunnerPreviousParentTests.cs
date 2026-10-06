@@ -187,7 +187,7 @@ namespace Ascentix.RulesEngine.Tests
             var forB = fired.Where(a => a.PreviousOfNodeId == null).ToList();
             var forA = fired.Where(a => a.PreviousOfNodeId == orderCfg).ToList();
 
-            // Run 1, order B: two lines → match → expedite true. No-match actions do not fire.
+            // Run 1, order B: two lines → outcome true → expedite true. Actions that fire when the outcome is false do not fire.
             var bWrite = Assert.Single(forB);
             Assert.Equal(orderB, bWrite.WriteIntent.TargetId);
             Assert.Equal(true, bWrite.WriteIntent.Values["sample_isexpedited"]);
@@ -540,7 +540,7 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(orderB, bWrite.WriteIntent.TargetId);
             Assert.Equal("matched", bWrite.WriteIntent.Values["sample_approvalnotes"]);
 
-            // Run 2, order A: orderdate (Jan) >= duedate + 1 day (June 2) → no match → "no-match".
+            // Run 2, order A: orderdate (Jan) >= duedate + 1 day (June 2) → outcome false → the action that fires when it is false writes "no-match".
             // If the anchor or the comparison column leaked order B's dates into run 2, this
             // would fire "matched" instead.
             var aWrite = Assert.Single(forA);
@@ -730,7 +730,7 @@ namespace Ascentix.RulesEngine.Tests
                 buildMode: RootBuildMode.RetrieveAndOverlay,
                 trace: new XrmFakedTracingService());
 
-            // Record 0 (the move): run-2 fires only for order A, and only the ticked no-match action.
+            // Record 0 (the move): run-2 fires only for order A, and only the ticked action that fires when the outcome is false.
             var record0 = outcome.Records[0].FiredActions;
             var record0PreviousRuns = record0.Where(a => a.PreviousOfNodeId != null).ToList();
             var aWrite = Assert.Single(record0PreviousRuns);

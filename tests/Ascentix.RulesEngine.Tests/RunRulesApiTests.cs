@@ -13,7 +13,7 @@ namespace Ascentix.RulesEngine.Tests
     {
         private static string Q(string f) => SchemaNames.Qualify(f);
 
-        // account.name must equal "Valid"; Block OnNoMatch; tagged OnDemand.
+        // account.name must equal "Valid"; Block that fires when the outcome is false; tagged OnDemand.
         private static List<Entity> Seed()
         {
             var ids = (rule: Guid.NewGuid(), cfg: Guid.NewGuid(), grp: Guid.NewGuid(),

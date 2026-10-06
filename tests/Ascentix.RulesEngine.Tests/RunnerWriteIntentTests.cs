@@ -339,7 +339,7 @@ namespace Ascentix.RulesEngine.Tests
         /// condition references the child node. It is seeded into the query plan/cache solely
         /// because the condition's own expression references it (the query planner's actionNodeIds loop).
         /// The seeded orderlines sum to 120, so the execution condition passes and the plain
-        /// literal-mapping CreateRecord action fires OnMatch.
+        /// literal-mapping CreateRecord action (fires when the outcome is true) fires.
         /// </summary>
         [Fact]
         public void Expression_execution_condition_seeds_child_node_and_gates_action_firing()

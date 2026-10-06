@@ -31,7 +31,7 @@ namespace Ascentix.RulesEngine.Tests
 
         /// <summary>
         /// Rule on account (OnCreate), always-true condition (name IsNotNull),
-        /// one CreateRecord action (OnMatch): writes subject="Hi" to task table.
+        /// one CreateRecord action (fires when the outcome is true): writes subject="Hi" to task table.
         /// </summary>
         private static List<Entity> Seed()
         {

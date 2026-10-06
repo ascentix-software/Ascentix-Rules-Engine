@@ -15,7 +15,7 @@ namespace Ascentix.RulesEngine.Tests
     public class RulesEnginePluginTests
     {
         // Builds a minimal rule: account.name must equal "Valid" (root FieldComparison),
-        // with a Block OnNoMatch action. Returns the seed entities.
+        // with a Block action that fires when the outcome is false. Returns the seed entities.
         private static List<Entity> SeedRule(Guid ruleId, Guid tableConfigId, Guid groupId,
             Guid conditionId, Guid actionId)
         {
@@ -100,7 +100,7 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         // A rule on "account": name must equal "Valid" (root FieldComparison),
-        // Block OnNoMatch, tagged for the given trigger. Returns the seed entities.
+        // Block that fires when the outcome is false, tagged for the given trigger. Returns the seed entities.
         private static List<Entity> SeedRuleFor(RuleTrigger trigger, string blockMessage)
         {
             string Q(string f) => SchemaNames.Qualify(f);

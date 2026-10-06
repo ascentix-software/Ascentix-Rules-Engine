@@ -372,6 +372,18 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void An_action_testing_only_the_second_outcome_fires_when_the_first_outcome_is_false()
+        {
+            // No short-circuit across outcomes: HighValue is false, AtRisk is still evaluated.
+            var ctx = OutcomeContext(OutcomeSeed(withLater: true));
+            var overlay = new Entity("account", Guid.NewGuid()) { ["name"] = "Other", ["accountnumber"] = "RISK" };
+
+            var record = Run(ctx, overlay).Records.Single();
+
+            Assert.Equal(new[] { "always", "later" }, Fired(record));
+        }
+
+        [Fact]
         public void Two_fired_writes_to_one_column_merge_with_the_later_action_winning()
         {
             var ctx = OutcomeContext(OutcomeSeed(withLater: true));

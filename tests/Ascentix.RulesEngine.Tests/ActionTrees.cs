@@ -7,8 +7,8 @@ using Microsoft.Xrm.Sdk;
 
 namespace Ascentix.RulesEngine.Tests
 {
-    /// <summary>"Fires when" trees for model-level tests. The old "on match" is AllTrue(every outcome);
-    /// "on no match" is AnyFalse(every outcome).</summary>
+    /// <summary>"Fires when" trees for model-level tests: Always (an empty ALL root), AllTrue (an ALL root
+    /// with "is true" tests on the given outcomes) and AnyFalse (an ANY root with "is false" tests).</summary>
     internal static class ActionTrees
     {
         public static ActionConditionGroup Always() => ActionConditionGroup.Always();

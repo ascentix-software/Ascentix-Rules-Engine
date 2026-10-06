@@ -14,7 +14,7 @@ namespace Ascentix.RulesEngine.Tests
     {
         private static string Q(string f) => SchemaNames.Qualify(f);
 
-        // Root-only rule on "account": name == "Valid", Block OnNoMatch, tagged with `trigger`.
+        // Root-only rule on "account": name == "Valid", Block that fires when the outcome is false, tagged with `trigger`.
         private static List<Entity> SeedAccountRule(int trigger, ActionType actionType, bool actionActive = true)
         {
             var ruleId = Guid.NewGuid();

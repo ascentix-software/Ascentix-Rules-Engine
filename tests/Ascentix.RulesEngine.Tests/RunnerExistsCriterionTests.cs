@@ -78,7 +78,7 @@ namespace Ascentix.RulesEngine.Tests
         /// <summary>
         /// Rule on sample_order (OnCreate): RowCount(line, min 1) filtered by an EXISTS
         /// criterion on the shipment collection (min 1, sub-filter statuscode eq expedited).
-        /// CreateRecord (OnMatch) writes subject="Hello" to task.
+        /// CreateRecord (fires when the outcome is true) writes subject="Hello" to task.
         /// </summary>
         private static (List<Entity> seed, Ids ids) Seed()
         {
