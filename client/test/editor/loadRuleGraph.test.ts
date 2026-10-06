@@ -14,7 +14,11 @@ function childrenFor(options: string | undefined): any[] {
   return parentIds.includes(ROOT_ID) ? [unrefNode] : [];
 }
 
-function fakePort(): WebApiPort {
+// One Fires when tree on rawAction: root ALL with a single "is false" test on outcome o1.
+const fwRoot = { asx_actionconditiongroupid: "fw-root", _asx_ruleaction_value: rawAction.asx_ruleactionid, asx_logicaloperator: 1, asx_order: 1, _asx_parentgroup_value: null };
+const fwTest = { asx_actionconditiontestid: "fw-test", _asx_actionconditiongroup_value: "fw-root", _asx_outcome_value: "o1", asx_expected: false, asx_order: 1 };
+
+function fakePort(withTree = true): WebApiPort {
   return {
     retrieveRecord: async (entity, id) => {
       if (entity === ENTITY.rule) return { ...rawRule, asx_ruleid: id };
@@ -26,6 +30,8 @@ function fakePort(): WebApiPort {
       if (entity === ENTITY.action) return { entities: [rawAction] };
       if (entity === ENTITY.tableConfig) return { entities: childrenFor(options) };
       if (entity === ENTITY.nodeFilterGroup) return { entities: [] };
+      if (entity === ENTITY.actionConditionGroup) return { entities: withTree ? [fwRoot] : [] };
+      if (entity === ENTITY.actionConditionTest) return { entities: [fwTest] };
       throw new Error("unexpected retrieveMultipleRecords " + entity);
     },
     createRecord: async () => { throw new Error("unused"); },
@@ -47,6 +53,18 @@ describe("loadRuleGraph", () => {
     expect(g.actions[0].actionType).toBe("SetRequired");
   });
 
+  it("loads each action's Fires when tree", async () => {
+    const g = await loadRuleGraph(fakePort(), rawRule.asx_ruleid);
+    expect(g.actions[0].firesWhen).toMatchObject({ id: "fw-root", op: "all", groups: [] });
+    expect(g.actions[0].firesWhen!.tests).toEqual([expect.objectContaining({ id: "fw-test", outcomeId: "o1", expected: false })]);
+    expect(g.actions[0].firesWhenWarning).toBeNull();
+  });
+
+  it("loads an action with no Fires when rows as firesWhen null", async () => {
+    const g = await loadRuleGraph(fakePort(false), rawRule.asx_ruleid);
+    expect(g.actions[0].firesWhen).toBeNull();
+  });
+
   it("loads the rule's whole tree, including unreferenced nodes", async () => {
     const g = await loadRuleGraph(fakePort(), rawRule.asx_ruleid);
     expect(g.tableConfigs[ROOT_ID].tableConfigType).toBe("RootTable");
@@ -65,6 +83,7 @@ describe("loadRuleGraph", () => {
         retrieveMultipleRecords: async (entity) => {
           if (entity === ENTITY.group) return { entities: rawGroups };
           if (entity === ENTITY.action) return { entities: [rawAction] };
+          if (entity === ENTITY.actionConditionGroup) return { entities: [] };
           if (entity === ENTITY.tableConfig) return { entities: [] };
           if (entity === ENTITY.nodeFilterGroup) return { entities: [] };
           throw new Error("unexpected retrieveMultipleRecords " + entity);

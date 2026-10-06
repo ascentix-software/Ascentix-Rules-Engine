@@ -86,7 +86,6 @@ function actionAttrs(a: ActionNode, tableConfigs: Record<string, TableConfigRef>
     asx_name: a.name,
     asx_order: a.order,
     asx_actiontype: a.actionType ? actionTypeValue(a.actionType) : null,
-    asx_fireon: a.fireOn,
     asx_targetcolumn: a.targetColumn,
     asx_targettable: a.targetTable,
     asx_message: a.message,

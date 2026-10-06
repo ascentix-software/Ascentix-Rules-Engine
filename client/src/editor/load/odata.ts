@@ -9,6 +9,8 @@ export const ENTITY = {
   localizedMessage: "asx_localizedmessage",
   nodeFilterGroup: "asx_nodefiltergroup",
   nodeFilterCriterion: "asx_nodefiltercriterion",
+  actionConditionGroup: "asx_actionconditiongroup",
+  actionConditionTest: "asx_actionconditiontest",
   // asx_rulerun (docs/Schema.md §2.13): Xrm.WebApi's retrieveRecord / retrieveMultipleRecords /
   // createRecord all take the table's LOGICAL name, unlike ENTITY_SET below (the plural
   // collection name used for @odata.bind targets and raw Web API PATCH URLs).
@@ -20,6 +22,10 @@ export const ENTITY = {
 } as const;
 
 export const LOOKUP = {
+  acgAction: "_asx_ruleaction_value",
+  acgParent: "_asx_parentgroup_value",
+  actGroup: "_asx_actionconditiongroup_value",
+  actOutcome: "_asx_outcome_value",
   ruleOfGroup: "_asx_rule_value",
   parentGroup: "_asx_parentconditiongroup_value",
   ruleOfAction: "_asx_rule_value",
@@ -69,10 +75,14 @@ export const CONDITION_SELECT =
   "asx_comparisonvaluecolumn,asx_minexpectedrows,asx_maxexpectedrows,asx_conditionexpression,asx_expressionfilters," +
   LOOKUP.conditionTableConfig + "," + LOOKUP.comparisonValueNode;
 export const ACTION_SELECT =
-  "asx_ruleactionid,asx_name,asx_order,asx_actiontype,asx_fireon," +
+  "asx_ruleactionid,asx_name,asx_order,asx_actiontype," +
   "asx_targetcolumn,asx_targettable,asx_message,asx_fieldmapping," +
   "asx_valuebool,asx_applyinversewhennotfired,asx_severity,asx_isactive,asx_applytoprevious," +
   LOOKUP.actionTargetNode;
+export const ACG_SELECT =
+  "asx_actionconditiongroupid,asx_logicaloperator,asx_order," + LOOKUP.acgAction + "," + LOOKUP.acgParent;
+export const ACT_SELECT =
+  "asx_actionconditiontestid,asx_expected,asx_order," + LOOKUP.actGroup + "," + LOOKUP.actOutcome;
 export const TABLECONFIG_SELECT =
   "asx_tableconfigid,asx_name,asx_tablelogicalname,asx_tableconfigtype," +
   LOOKUP.parentTableOfConfig + ",asx_lookupcolumnlogicalname,asx_childlinkfield,asx_lookuptargetidattribute";

@@ -23,7 +23,7 @@ const groupNode = (id: string, over: Partial<ConditionGroupNode> = {}): Conditio
   conditions: [], groups: [], ...over,
 });
 const action = (id: string, over: Partial<ActionNode> = {}): ActionNode => ({
-  id, name: "A", order: 1, actionType: "Block", fireOn: 1, targetColumn: null, targetTable: null,
+  id, name: "A", order: 1, actionType: "Block", firesWhen: null, targetColumn: null, targetTable: null,
   targetNodeId: null, message: "m", fieldMapping: null, value: null, applyInverseWhenNotFired: null,
   severity: null, isActive: true, localizedMessages: [], ...over,
 });

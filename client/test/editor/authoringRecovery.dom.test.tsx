@@ -164,7 +164,7 @@ describe("authoring lifecycle and recovery", () => {
     fireEvent.click(screen.getByRole("button", { name: "+ Action" }));
     await waitFor(() => {
       const recovered = JSON.parse(sessionStorage.getItem(key)!);
-      expect(recovered.working.actions.map((a: { id: string }) => a.id)).toEqual(["new-1", "new-2"]);
+      expect(recovered.working.actions.map((a: { id: string }) => a.id)).toEqual(["new-1", "new-3"]); // each action also takes a temp id for its Fires when tree
     });
   });
 

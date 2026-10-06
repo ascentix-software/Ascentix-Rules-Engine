@@ -110,7 +110,11 @@ export interface ActionNode {
 
   order: number;
   actionType: ActionTypeLabel | null;
-  fireOn: number | null;
+  /** The "Fires when" tree (asx_actionconditiongroup/test). null = no tree: the action never fires
+   * and publish refuses it. */
+  firesWhen: FiresWhenGroup | null;
+  /** Load-time warning about the tree (more than one root in Dataverse); never saved. */
+  firesWhenWarning?: string | null;
   targetColumn: string | null;
   targetTable: string | null;
   targetNodeId: string | null;
@@ -129,6 +133,9 @@ export interface ActionNode {
   rowFilter?: import("./nodeFilter").NodeFilterBlock | null;
   localizedMessages: LocalizedMessage[];
 }
+
+export interface FiresWhenTest { id: string; etag?: string | null; outcomeId: string | null; expected: boolean; }
+export interface FiresWhenGroup { id: string; etag?: string | null; op: "all" | "any"; tests: FiresWhenTest[]; groups: FiresWhenGroup[]; }
 
 export interface TableConfigRef {
   id: string;

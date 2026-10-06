@@ -32,7 +32,7 @@ describe("reducer — header & actions", () => {
 
   it("appends an action with a temp id and next order", () => {
     const g = addAction(addAction(emptyGraph()));
-    expect(g.actions.map((a) => a.id)).toEqual(["new-1", "new-2"]);
+    expect(g.actions.map((a) => a.id)).toEqual(["new-1", "new-3"]);
     expect(g.actions.map((a) => a.order)).toEqual([1, 2]);
     expect(g.actions[0].actionType).toBe("ShowMessage");
   });
@@ -49,9 +49,9 @@ describe("reducer — header & actions", () => {
   });
 
   it("moves an action and renumbers order", () => {
-    let g = addAction(addAction(emptyGraph())); // new-1 (order1), new-2 (order2)
-    g = moveAction(g, "new-2", -1);
-    expect(g.actions.map((a) => a.id)).toEqual(["new-2", "new-1"]);
+    let g = addAction(addAction(emptyGraph())); // new-1 (order1), new-3 (order2); each action also takes a temp id for its tree
+    g = moveAction(g, "new-3", -1);
+    expect(g.actions.map((a) => a.id)).toEqual(["new-3", "new-1"]);
     expect(g.actions.map((a) => a.order)).toEqual([1, 2]);
   });
 });
@@ -150,7 +150,7 @@ describe("translation reducer ops", () => {
       triggers: [], channels: [], effectiveFrom: null, effectiveTo: null, evaluationContext: null,
       rootTableConfigId: null, triggerColumns: [] },
     executionGroups: [], validationGroups: [],
-    actions: [{ id: "a1", name: "", order: 1, actionType: "ShowMessage" as const, fireOn: 1,
+    actions: [{ id: "a1", name: "", order: 1, actionType: "ShowMessage" as const, firesWhen: null,
       targetColumn: null, targetTable: null, targetNodeId: null, message: "Hi", fieldMapping: null,
       value: null, applyInverseWhenNotFired: null, severity: 2, isActive: true, localizedMessages: [] }],
     tableConfigs: {},

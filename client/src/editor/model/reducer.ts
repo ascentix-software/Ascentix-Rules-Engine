@@ -3,6 +3,7 @@ import type {
   LocalizedMessage, TableConfigRef,
 } from "./types";
 import { newTempId } from "./ids";
+import { always } from "./firesWhen";
 import {
   updateGroup as treeUpdateGroup, removeGroup as treeRemoveGroup, insertGroup,
   updateCondition as treeUpdateCondition, removeCondition as treeRemoveCondition, insertCondition,
@@ -42,7 +43,7 @@ function withValueBoolForType(a: ActionNode): ActionNode {
 export function addAction(graph: RuleGraph): RuleGraph {
   const next: ActionNode = withValueBoolForType({
     id: newTempId(), name: "", order: graph.actions.length + 1,
-    actionType: DEFAULT_ACTION_TYPE, fireOn: 1,
+    actionType: DEFAULT_ACTION_TYPE, firesWhen: always(),
     targetColumn: null, targetTable: null, targetNodeId: null,
     message: null, fieldMapping: null,
     value: null, applyInverseWhenNotFired: null, severity: null, isActive: true,

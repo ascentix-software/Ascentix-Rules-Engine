@@ -2,14 +2,14 @@ import type { RuleGraph, ConditionGroupNode } from "../model/types";
 import type { WebApiPort } from "../webapi";
 import {
   mapRuleHeader, mapActionRecord, mapTableConfig, mapNodeFilterTrees, mapActionRowFilters,
-  collectExistsCriterionIds,
+  collectExistsCriterionIds, mapFiresWhenTrees,
 } from "./mappers";
 import { buildGroupTrees } from "./groupTree";
 import { loadTableConfigTree } from "./tableConfigTree";
 import {
   ENTITY, LOOKUP, NAV,
   RULE_SELECT, GROUP_SELECT, CONDITION_SELECT, ACTION_SELECT, TABLECONFIG_SELECT, LOCALIZEDMSG_SELECT,
-  NODEFILTERGROUP_SELECT, NODEFILTERCRITERION_SELECT,
+  NODEFILTERGROUP_SELECT, NODEFILTERCRITERION_SELECT, ACG_SELECT, ACT_SELECT,
 } from "./odata";
 
 const MAX_SUBFILTER_DEPTH = 25;
@@ -123,6 +123,25 @@ export async function loadRuleGraph(api: WebApiPort, ruleId: string): Promise<Ru
     if (actionFilterResp.entities.length) {
       const byAction = mapActionRowFilters(actionFilterResp.entities, await loadExistsSubFilterRows(api, actionFilterResp.entities));
       for (const a of actions) if (byAction[a.id]) a.rowFilter = byAction[a.id];
+    }
+  }
+
+  // Each action's Fires when tree (asx_actionconditiongroup + asx_actionconditiontest). An action
+  // with no rows loads with firesWhen null: it never fires and publish refuses it.
+  if (actions.length) {
+    const byActionIds = actions.map((a) => `${LOOKUP.acgAction} eq ${a.id}`).join(" or ");
+    const groupRows = (await api.retrieveMultipleRecords(ENTITY.actionConditionGroup,
+      `?$select=${ACG_SELECT}&$filter=${byActionIds}`)).entities;
+    const testRows = groupRows.length
+      ? (await api.retrieveMultipleRecords(ENTITY.actionConditionTest,
+          `?$select=${ACT_SELECT}&$filter=${groupRows.map((g: any) => `${LOOKUP.actGroup} eq ${g.asx_actionconditiongroupid}`).join(" or ")}`)).entities
+      : [];
+    const trees = mapFiresWhenTrees(groupRows, testRows);
+    for (const a of actions) {
+      a.firesWhen = trees[a.id]?.root ?? null;
+      a.firesWhenWarning = trees[a.id]?.extraRoots
+        ? "This action has more than one Fires when tree in Dataverse; only the first is shown. Remove the others before publishing."
+        : null;
     }
   }
 

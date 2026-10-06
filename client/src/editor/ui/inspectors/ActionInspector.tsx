@@ -127,17 +127,6 @@ export function ActionInspector({
         <Switch checked={action.isActive ?? true} onChange={(_e, d) => onPatch({ isActive: d.checked })} />
       </Field>
 
-      <Field label="Fire on">
-        <Dropdown
-          value={labelFor(SYSTEM_CHOICE.actionFireOn, action.fireOn ?? 1, action.fireOn === 2 ? "OnNoMatch" : "OnMatch")}
-          selectedOptions={[String(action.fireOn ?? 1)]}
-          onOptionSelect={(_e, d) => d.optionValue && onPatch({ fireOn: Number(d.optionValue) })}
-        >
-          <Option value="1">{labelFor(SYSTEM_CHOICE.actionFireOn, 1, "OnMatch")}</Option>
-          <Option value="2">{labelFor(SYSTEM_CHOICE.actionFireOn, 2, "OnNoMatch")}</Option>
-        </Dropdown>
-      </Field>
-
       {(t === "SetVisible" || t === "SetRequired") && (
         <>
           <Field label="Target column">

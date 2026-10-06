@@ -36,7 +36,7 @@ function group(conditions: ConditionNode[], p: Partial<ConditionGroupNode> = {})
 function action(p: Partial<ActionNode>): ActionNode {
   return {
     id: "a1", name: "", order: 1, actionType: "ShowMessage",
-    fireOn: 1, targetColumn: null, targetTable: null, targetNodeId: null,
+    firesWhen: null, targetColumn: null, targetTable: null, targetNodeId: null,
     message: "Required message", fieldMapping: null, value: null,
     applyInverseWhenNotFired: null, severity: null, isActive: true,
     localizedMessages: [],

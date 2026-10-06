@@ -142,7 +142,7 @@ describe("diffRuleGraph", () => {
     const snap: RuleGraph = {
       ...baseGraph(),
       actions: [{
-        id: "a1", name: "", order: 1, actionType: "Block", fireOn: 2,
+        id: "a1", name: "", order: 1, actionType: "Block", firesWhen: null,
         targetColumn: null, targetTable: null, targetNodeId: null, message: "x",
         fieldMapping: null, value: null, applyInverseWhenNotFired: null,
         severity: 3, isActive: true, localizedMessages: [],
@@ -205,7 +205,7 @@ describe("diffRuleGraph — applyToPrevious", () => {
 
   it("an unchanged loaded action with the column absent/false emits no update", () => {
     const action = {
-      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, fireOn: 1,
+      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, firesWhen: null,
       targetColumn: null, targetTable: null, targetNodeId: "tc1", message: null,
       fieldMapping: null, value: null, applyInverseWhenNotFired: null,
       severity: null, isActive: true, localizedMessages: [],
@@ -219,7 +219,7 @@ describe("diffRuleGraph — applyToPrevious", () => {
 
   it("a loaded row stored true but now ineligible is PATCHed to false", () => {
     const action = {
-      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, fireOn: 1,
+      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, firesWhen: null,
       targetColumn: null, targetTable: null, targetNodeId: "root", message: null,
       fieldMapping: null, value: null, applyInverseWhenNotFired: null,
       severity: null, isActive: true, localizedMessages: [], applyToPrevious: true,
@@ -232,7 +232,7 @@ describe("diffRuleGraph — applyToPrevious", () => {
 
   it("a loaded eligible ticked row, unchanged, emits no update", () => {
     const action = {
-      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, fireOn: 1,
+      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, firesWhen: null,
       targetColumn: null, targetTable: null, targetNodeId: "contact", message: null,
       fieldMapping: null, value: null, applyInverseWhenNotFired: null,
       severity: null, isActive: true, localizedMessages: [], applyToPrevious: true,
@@ -257,7 +257,7 @@ describe("diffRuleGraph — clearing an action's target node (unbind)", () => {
     // "owner" is a LookupTable (single-record), a stale target for Create as if the node tree
     // changed since this action was saved. A rename must not silently clear it or unbind it.
     const action = {
-      id: "a1", name: "Old name", order: 1, actionType: "CreateRecord" as const, fireOn: 1,
+      id: "a1", name: "Old name", order: 1, actionType: "CreateRecord" as const, firesWhen: null,
       targetColumn: null, targetTable: "systemuser", targetNodeId: "owner", message: null,
       fieldMapping: null, value: null, applyInverseWhenNotFired: null,
       severity: null, isActive: true, localizedMessages: [],
@@ -272,7 +272,7 @@ describe("diffRuleGraph — clearing an action's target node (unbind)", () => {
 
   it("a Create-per-row action switched to a one-record Create unbinds asx_TargetNode", () => {
     const action = {
-      id: "a1", name: "", order: 1, actionType: "CreateRecord" as const, fireOn: 1,
+      id: "a1", name: "", order: 1, actionType: "CreateRecord" as const, firesWhen: null,
       targetColumn: null, targetTable: "contact", targetNodeId: "contacts", message: null,
       fieldMapping: null, value: null, applyInverseWhenNotFired: null,
       severity: null, isActive: true, localizedMessages: [],
@@ -294,7 +294,7 @@ describe("diffRuleGraph — clearing an action's target node (unbind)", () => {
 
   it("an unchanged loaded action (target still set) emits no unbind", () => {
     const action = {
-      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, fireOn: 1,
+      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, firesWhen: null,
       targetColumn: null, targetTable: null, targetNodeId: "contacts", message: null,
       fieldMapping: null, value: null, applyInverseWhenNotFired: null,
       severity: null, isActive: true, localizedMessages: [],
@@ -377,7 +377,7 @@ describe("diffRuleGraph — localized messages", () => {
     // snapshot has a saved action; working adds a translation
     const saved: RuleGraph = {
       ...baseGraph(),
-      actions: [{ id: "act1", name: "", order: 1, actionType: "ShowMessage", fireOn: 1,
+      actions: [{ id: "act1", name: "", order: 1, actionType: "ShowMessage", firesWhen: null,
         targetColumn: null, targetTable: null, targetNodeId: null, message: "Hi", fieldMapping: null,
         value: null, applyInverseWhenNotFired: null, severity: 2, isActive: true, localizedMessages: [] }],
     };
@@ -394,7 +394,7 @@ describe("diffRuleGraph — localized messages", () => {
   it("updates and deletes translation rows", () => {
     const saved: RuleGraph = {
       ...baseGraph(),
-      actions: [{ id: "act1", name: "", order: 1, actionType: "ShowMessage", fireOn: 1,
+      actions: [{ id: "act1", name: "", order: 1, actionType: "ShowMessage", firesWhen: null,
         targetColumn: null, targetTable: null, targetNodeId: null, message: "Hi", fieldMapping: null,
         value: null, applyInverseWhenNotFired: null, severity: 2, isActive: true,
         localizedMessages: [{ id: "lm1", languageCode: 1036, message: "Bonjour" }] }],

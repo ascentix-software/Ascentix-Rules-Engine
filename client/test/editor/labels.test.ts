@@ -47,7 +47,7 @@ describe("conditionSummary regression", () => {
 
 describe("actionEffect", () => {
   const act = (p: Partial<ActionNode>): ActionNode => ({
-    id: "a", name: "", order: 1, actionType: "ShowMessage", fireOn: 1, targetColumn: null,
+    id: "a", name: "", order: 1, actionType: "ShowMessage", firesWhen: null, targetColumn: null,
     targetTable: null, targetNodeId: null, message: null, fieldMapping: null, value: null,
     applyInverseWhenNotFired: null, severity: null, isActive: true, localizedMessages: [], ...p,
   });
@@ -70,7 +70,7 @@ describe("actionEffect", () => {
 
 describe("actionWhatHappens", () => {
   const act = (p: Partial<ActionNode>): ActionNode => ({
-    id: "a", name: "", order: 1, actionType: "ShowMessage", fireOn: 1, targetColumn: null,
+    id: "a", name: "", order: 1, actionType: "ShowMessage", firesWhen: null, targetColumn: null,
     targetTable: null, targetNodeId: null, message: null, fieldMapping: null, value: null,
     applyInverseWhenNotFired: null, severity: null, isActive: true, localizedMessages: [], ...p,
   });
@@ -90,7 +90,7 @@ describe("actionWhatHappens", () => {
 
 describe("actionSummary localization hook", () => {
   const act = (p: Partial<ActionNode>): ActionNode => ({
-    id: "a", name: "", order: 1, actionType: "ShowMessage", fireOn: 1, targetColumn: null,
+    id: "a", name: "", order: 1, actionType: "ShowMessage", firesWhen: null, targetColumn: null,
     targetTable: null, targetNodeId: null, message: "hi", fieldMapping: null, value: null,
     applyInverseWhenNotFired: null, severity: null, isActive: true, localizedMessages: [], ...p,
   });
@@ -122,7 +122,7 @@ describe("resolvePicklistLabel", () => {
 });
 
 const baseAction = {
-  id: "a", name: "", order: 1, fireOn: 1, targetColumn: null, targetTable: null,
+  id: "a", name: "", order: 1, firesWhen: null, targetColumn: null, targetTable: null,
   targetNodeId: null, message: null, fieldMapping: null, value: null,
   applyInverseWhenNotFired: null, severity: null, isActive: true, localizedMessages: [],
 };
@@ -141,7 +141,7 @@ describe("actionVerb", () => {
 
 describe("actionDetail", () => {
   it("describes a ShowMessage by its target column", () => {
-    const d = actionDetail({ ...baseAction, actionType: "ShowMessage", targetColumn: "closeprobability" } as any, {});
+    const d = actionDetail({ ...baseAction, actionType: "ShowMessage", firesWhen: null, targetColumn: "closeprobability" } as any, {});
     expect(d).toBe("— on closeprobability");
   });
   it("describes a Block message", () => {
@@ -152,6 +152,6 @@ describe("actionDetail", () => {
     expect(actionDetail({ ...baseAction, actionType: "Block" } as any, {})).toBe("");
   });
   it("describes a SetRequired by its target column", () => {
-    expect(actionDetail({ ...baseAction, actionType: "SetRequired", targetColumn: "budgetamount" } as any, {})).toBe("— budgetamount");
+    expect(actionDetail({ ...baseAction, actionType: "SetRequired", firesWhen: null, targetColumn: "budgetamount" } as any, {})).toBe("— budgetamount");
   });
 });

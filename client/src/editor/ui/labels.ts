@@ -208,7 +208,7 @@ export function actionDetail(a: ActionNode, tcs: Record<string, TableConfigRef>)
 
 const SEVERITY_WORD: Record<number, string> = { 1: "notice", 2: "warning", 3: "error" };
 export function actionWhatHappens(a: ActionNode): string {
-  const when = a.fireOn === 2 ? "When conditions do NOT match" : "When conditions match";
+  const when = "When its Fires when holds";
   switch (a.actionType) {
     case "Block":
       return `${when} → shows the message and prevents the save (server-enforced).`;
