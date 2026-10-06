@@ -5,6 +5,7 @@ import { fakeMetadata } from "./metaFixtures";
 import { AppProvider } from "../../src/editor/ui/AppProvider";
 import { MetadataProvider } from "../../src/editor/ui/useMetadata";
 import { RecordSearchProvider } from "../../src/editor/ui/useRecordSearch";
+import type { DryRunOutcome } from "../../src/editor/runs/dryRunFormat";
 import { TestRunResults, TestRunDialog } from "../../src/editor/runs/TestRunDialog";
 
 describe("TestRunResults", () => {
@@ -12,11 +13,11 @@ describe("TestRunResults", () => {
     isValid: true,
     changeSet: { creates: 0, updates: 9, deletes: 0, unchanged: 3 },
     actions: [
-      { ruleId: "R1", actionType: "UpdateRecord", fireOn: "OnMatch", message: null, targetTable: "contact",
+      { ruleId: "R1", actionType: "UpdateRecord", message: null, targetTable: "contact",
         writes: [{ operation: "Update", targetTable: "contact", targetId: "c-1" }], writeCount: 12, unchangedCount: 3 },
-      { ruleId: "OTHER", actionType: "Block", fireOn: "OnNoMatch", message: "Other rule", targetTable: null },
+      { ruleId: "OTHER", actionType: "Block", message: "Other rule", targetTable: null },
     ],
-    outcomes: [] as { ruleId: string; name: string; value: boolean }[],
+    outcomes: [] as DryRunOutcome[],
   };
 
   it("lists this rule's outcome values with an icon and the word true or false", () => {
@@ -33,6 +34,13 @@ describe("TestRunResults", () => {
     expect(items[0].querySelector("svg")).not.toBeNull();
     expect(items[1].querySelector("svg")).not.toBeNull();
     expect(screen.queryByText(/Other outcome/)).toBeNull();
+  });
+
+  it("shows (unnamed outcome) for an outcome the server sent with no name", () => {
+    const unnamed = { ...result, outcomes: [{ ruleId: "r1", name: null, value: true }] };
+    renderWithFluent(<TestRunResults result={unnamed} ruleId="r1" />);
+    const items = within(screen.getByRole("list", { name: "Outcomes" })).getAllByRole("listitem");
+    expect(items.map((li) => li.textContent)).toEqual(["(unnamed outcome): true"]);
   });
 
   it("hides the Outcomes list when this rule reported none", () => {
@@ -59,7 +67,7 @@ describe("TestRunResults", () => {
   it("names each action's Show rows button after its own action", () => {
     const two = { ...result, actions: [
       result.actions[0],
-      { ruleId: "r1", actionType: "CreateRecord", fireOn: "OnMatch", message: null, targetTable: "task",
+      { ruleId: "r1", actionType: "CreateRecord", message: null, targetTable: "task",
         writes: [{ operation: "Create", targetTable: "task", targetId: null }], writeCount: 1, unchangedCount: 0 },
     ] };
     renderWithFluent(<TestRunResults result={two} ruleId="r1" />);
@@ -85,7 +93,7 @@ describe("TestRunResults", () => {
 
   it("lists a set Create's rows without an id (the dry run never reports one)", () => {
     const creates = { ...result, actions: [
-      { ruleId: "r1", actionType: "CreateRecord", fireOn: "OnMatch", message: null, targetTable: "task",
+      { ruleId: "r1", actionType: "CreateRecord", message: null, targetTable: "task",
         writes: [{ operation: "Create", targetTable: "task", targetId: null }], writeCount: 1, unchangedCount: 0 },
     ] };
     renderWithFluent(<TestRunResults result={creates} ruleId="r1" />);
@@ -109,7 +117,7 @@ describe("TestRunDialog", () => {
     const records: any = { queryByFetchXml: vi.fn(async () => [{ id: "g1", name: "Acme", entity: { accountid: "g1", name: "Acme" } }]),
       search: vi.fn(), resolveName: vi.fn() };
     const dryRun = vi.fn(async () => ({ isValid: true, changeSet: { creates: 0, updates: 1, deletes: 0, unchanged: 0 }, outcomes: [], actions: [
-      { ruleId: "R1", actionType: "UpdateRecord", fireOn: "OnMatch", message: null, targetTable: "contact",
+      { ruleId: "R1", actionType: "UpdateRecord", message: null, targetTable: "contact",
         writes: [{ operation: "Update", targetTable: "contact", targetId: "c-1" }], writeCount: 1, unchangedCount: 0 },
     ] }));
     render(

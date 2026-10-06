@@ -3,18 +3,18 @@ import { describeFiredAction, summarizeChangeSet, parseDryRun, triggerName } fro
 
 describe("dry-run formatting", () => {
   it("describes a set action with its count and unchanged rows", () => {
-    expect(describeFiredAction({ ruleId: "r", actionType: "UpdateRecord", fireOn: "OnMatch", message: null, targetTable: "contact",
+    expect(describeFiredAction({ ruleId: "r", actionType: "UpdateRecord", message: null, targetTable: "contact",
       writes: [{ operation: "Update", targetTable: "contact", targetId: "1" }], writeCount: 12, unchangedCount: 3 }))
       .toBe("Update contact × 12 (3 unchanged)");
-    expect(describeFiredAction({ ruleId: "r", actionType: "DeactivateRecord", fireOn: "OnNoMatch", message: null, targetTable: "task",
+    expect(describeFiredAction({ ruleId: "r", actionType: "DeactivateRecord", message: null, targetTable: "task",
       writes: [], writeCount: 0, unchangedCount: 0 })).toBe("Deactivate task × 0");
   });
 
   it("describes single writes and messages", () => {
     // A create's id is never reported (the engine doesn't send its internal id): targetId is null.
-    expect(describeFiredAction({ ruleId: "r", actionType: "CreateRecord", fireOn: "OnMatch", message: null, targetTable: "task",
+    expect(describeFiredAction({ ruleId: "r", actionType: "CreateRecord", message: null, targetTable: "task",
       write: { operation: "Create", targetTable: "task", targetId: null } })).toBe("Create task");
-    expect(describeFiredAction({ ruleId: "r", actionType: "Block", fireOn: "OnNoMatch", message: "No", targetTable: null })).toBe("Block: No");
+    expect(describeFiredAction({ ruleId: "r", actionType: "Block", message: "No", targetTable: null })).toBe("Block: No");
   });
 
   it("summarizes the change set", () => {

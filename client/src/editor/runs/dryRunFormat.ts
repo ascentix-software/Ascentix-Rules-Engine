@@ -2,12 +2,12 @@
 // A create's targetId is always null: the engine never reports the id it assigns internally.
 export interface DryRunWrite { operation: string; targetTable: string | null; targetId: string | null; values?: Record<string, unknown>; }
 export interface DryRunAction {
-  ruleId: string; actionType: string; fireOn: string; message: string | null; targetTable: string | null;
+  ruleId: string; actionType: string; message: string | null; targetTable: string | null;
   write?: DryRunWrite; writes?: DryRunWrite[]; writeCount?: number; unchangedCount?: number; previousOf?: string;
 }
 export interface ChangeSetSummary { creates: number; updates: number; deletes: number; unchanged: number; }
 /** One outcome's value for the tested record (the server also sends recordId and outcomeId). */
-export interface DryRunOutcome { ruleId: string; name: string; value: boolean; }
+export interface DryRunOutcome { ruleId: string; name: string | null; value: boolean; }
 export interface DryRunResult { isValid: boolean; actions: DryRunAction[]; changeSet: ChangeSetSummary | null; outcomes: DryRunOutcome[]; }
 
 const TRIGGER_NAMES: Record<number, string> = { 1: "OnCreate", 2: "OnForm", 3: "OnDemand", 4: "OnUpdate", 5: "OnDelete" };

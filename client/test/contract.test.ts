@@ -28,7 +28,7 @@ describe("contract types", () => {
           "parentRelationshipName": null, "childLinkField": null
         }],
         "actions": [{
-          "actionType": "Block", "fireOn": "OnNoMatch", "targetColumn": null,
+          "actionType": "Block", "targetColumn": null,
           "value": null, "applyInverseWhenNotFired": false, "message": "Required.",
           "severity": "Error", "order": 1
         }]
@@ -44,7 +44,7 @@ describe("contract types", () => {
   it("parses RunRules fired actions", () => {
     const json = `[{
       "ruleId": "11111111-1111-1111-1111-111111111111", "actionType": "SetVisible",
-      "fireOn": "OnMatch", "targetColumn": "telephone1", "value": true,
+      "targetColumn": "telephone1", "value": true,
       "message": null, "severity": null, "targetTable": null
     }]`;
     const fired = JSON.parse(json) as FiredAction[];
