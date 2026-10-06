@@ -26,7 +26,7 @@ establish that these additions are already installed in an environment.
 | `asx_comparisonoperator` | Comparison Operator | Equals = 1, Not Equals = 2, Greater Than = 3, Greater Than Or Equal = 4, Less Than = 5, Less Than Or Equal = 6, Contains = 7, Does Not Contain = 8, Is Null = 9, Is Not Null = 10 |
 | `asx_severity` | Severity | Information = 1, Warning = 2, Error = 3 |
 | `asx_actiontype` | Action Type | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7, Deactivate Record = 8 |
-| `asx_actionfireon` | Action Fire On | On Match = 1, On No Match = 2 |
+| `asx_actionfireon` | Action Fire On | On Match = 1, On No Match = 2 (**retired**: no column uses it except the retired `asx_fireon`, §2.9) |
 | `asx_triggers` | Triggers | On Create = 1, On Form = 2, On demand = 3, On Update = 4, On Delete = 5 (**multi-select**). Value 3 was labelled "Manual"; the stored value is unchanged and API trigger strings accept both `OnDemand` and the old `Manual` alias |
 | `asx_channel` | Channel | Standard = 1, Portal = 2 (**multi-select**). 3 "Application" was retired 2026-08-23; the engine reads a stored 3 as Standard |
 | `asx_comparisonvaluesource` | Comparison Value Source | Literal = 1, Field Reference = 2, Template = 3, Date Expression = 4 |
@@ -98,6 +98,9 @@ AND/OR group tree. Self-referential. Belongs to a rule.
 | Parent Condition Group | `asx_parentconditiongroup` | Lookup → `asx_conditiongroup` | | Self-ref |
 | Logical Operator | `asx_logicaloperator` | Choice → `asx_logicaloperator` | ✔ | Combine children |
 | Is Execution Condition | `asx_isexecutioncondition` | Yes/No | ✔ | Rule gate (evaluated before validation groups) |
+| Name | `asx_name` | Text (100, primary) | | Outcome name for a top-level validation group: required, unique in the rule |
+
+A **top-level validation group** (no parent, not an execution condition) is an **outcome**: it is evaluated on its own and reported by name, and an action's "Fires when" tree (§2.18) tests it as true or false. The name is checked when the rule is published (§5).
 
 ### 2.4 Rule Condition (`asx_rulecondition`)
 A single check within a group.
@@ -177,8 +180,9 @@ AND/OR filters scoped to a condition group, targeting any node in the tree. Self
 | Comparison Value Column | `asx_comparisonvaluecolumn` | Text (100) | | FieldReference RHS column |
 
 ### 2.9 Rule Action (`asx_ruleaction`)
-The outcome layer. Child of `asx_rule`. The rule's conditions evaluate to **match /
-no-match**; each action fires per `asx_fireon`. Columns not relevant to a given
+The action layer. Child of `asx_rule`. The rule's top-level validation groups are its **outcomes**;
+each action fires only when its **Fires when** tree (§2.18, §2.19) holds. An action with no tree never
+fires; "always, when the rule runs" is a root ALL group with no children. Columns not relevant to a given
 `asx_actiontype` are left blank (the action dispatcher / editor enforces per-type
 requirements at the application level).
 
@@ -186,7 +190,7 @@ requirements at the application level).
 |---|---|---|---|---|
 | Rule | `asx_rule` | Lookup → `asx_rule` | ✔ | Parent rule |
 | Action Type | `asx_actiontype` | Choice → `asx_actiontype` | ✔ | What to do |
-| Fire On | `asx_fireon` | Choice → `asx_actionfireon` | ✔ | Match / No-Match |
+| Fire On | `asx_fireon` | Choice → `asx_actionfireon` | | Retired: not read by the engine; read once by the multi-outcome migration script; removed in the next release |
 | Target Column | `asx_targetcolumn` | Text (100) | | Form-action target (blank = form-level) |
 | Value | `asx_valuebool` | Yes/No | | Value to apply (Visible: yes=show; Required: yes=required) |
 | Apply Inverse When Not Fired | `asx_applyinversewhennotfired` | Yes/No | | Reserved: not consumed by the current runtime and not shown in the visual editor |
@@ -395,7 +399,40 @@ on or off, so a change takes up to a minute to apply and a save normally pays no
 read is one query on `environmentvariabledefinition`, a system table that always exists, so with the
 switch off (the default) a save never touches `asx_rulediagnostic`.
 
-### 2.18 Data Update (`asx_dataupdate`)
+### 2.18 Action Condition Group (`asx_actionconditiongroup`)
+
+A node of an action's **Fires when** tree: the logical combination of outcome tests. Self-referential.
+User-owned. Every node, not only the root, carries its action, so one query loads a whole tree.
+
+| Column | Schema name | Type | Req | Notes |
+|---|---|---|---|---|
+| Name | `asx_name` | Text (200, primary) | | |
+| Rule Action | `asx_ruleaction` | Lookup → `asx_ruleaction`, Cascade | ✔ | The action this node belongs to (deleting the action deletes its tree) |
+| Parent Group | `asx_parentgroup` | Lookup → `asx_actionconditiongroup`, RemoveLink | | Self-ref. Blank = the root. An action has at most one root; more than one makes the action fail to load |
+| Logical Operator | `asx_logicaloperator` | Choice (local) | ✔ | ALL = 1 (every child must hold), ANY = 2 (at least one must hold). Same values as `asx_logicaloperator` And / Or |
+| Order | `asx_order` | Whole Number (min 0) | | Position among siblings |
+
+A group holds when its children do, per its operator. A root **ALL** group with no children always
+holds ("Always, when the rule runs"). Any other group with no tests or groups is a publish error
+(`ACTION_EMPTY_GROUP`, §5).
+
+### 2.19 Action Condition Test (`asx_actionconditiontest`)
+
+A leaf of a Fires when tree: "this outcome is true" or "this outcome is false". User-owned.
+
+| Column | Schema name | Type | Req | Notes |
+|---|---|---|---|---|
+| Name | `asx_name` | Text (200, primary) | | |
+| Group | `asx_actionconditiongroup` | Lookup → `asx_actionconditiongroup`, Cascade | ✔ | The group this test is in |
+| Outcome | `asx_outcome` | Lookup → `asx_conditiongroup`, RemoveLink | ✔ | A top-level validation group of the same rule (§2.3). Deleting the outcome removes the link; publishing then reports `ACTION_TEST_UNKNOWN_OUTCOME` |
+| Expected | `asx_expected` | Yes/No | ✔ | Yes = "is true" (default), No = "is false" |
+| Order | `asx_order` | Whole Number (min 0) | | Position among siblings |
+
+Both tables are part of a rule's published snapshot, so a published revision keeps its own copy of
+every action's tree. The shipped Rules Engine Author role has full access to both tables and the Reader
+role has read access (see the guide's *Security Roles*).
+
+### 2.20 Data Update (`asx_dataupdate`)
 
 Organization-owned. One row per release data update that has started, written only by
 `asx_ApplyDataUpdates` (§10). The row id is fixed per update number, so a number has at most one row.
@@ -432,6 +469,7 @@ non-enforcing**: a fired `Block` action is reported, never thrown.
 | `RecordJson` | String | Yes | Unsaved field values as a flat JSON object `{ "<logicalname>": <value> }` |
 | `Triggers` | String | Yes | Single trigger name; default `Manual` |
 | `IncludeDiagnostics` | Boolean | Yes | Opt in to the `Diagnostics` response property (default `false`). Ships in the product solution |
+| `IncludeOutcomes` | Boolean | Yes | Opt in to the `Outcomes` values (default `false`; omitted reads as `false`). Created by `pipelines/Configure-RuleAuthoring.ps1` in the Register phase |
 
 At least one of `RecordId` / `RecordJson` must be supplied (validated by the handler). Providing
 both retrieves the persisted record and overlays the JSON fields on top.
@@ -443,6 +481,7 @@ both retrieves the persisted record and overlays the JSON fields on top.
 | `IsValid` | Boolean | True when no `Block` action fired |
 | `FailedRuleCount` | Integer | Count of distinct rules with a fired `Block` action |
 | `Results` | String | JSON array of every fired action (see shape below) |
+| `Outcomes` | String | Only when `IncludeOutcomes = true`: JSON array, one element per outcome per evaluated record: `[{ "recordId": "…", "ruleId": "…", "outcomeId": "…", "name": "High value", "value": true }]`. `value` is the outcome's value in the normal run (not the previous-value run). A rule held back by its execution conditions reports none. Otherwise always present as `[]`. `Results` is unchanged. Created by `pipelines/Configure-RuleAuthoring.ps1` in the Register phase |
 | `ChangeSet` | String | JSON object `{ "creates": n, "updates": n, "deletes": n, "unchanged": n }`: what enforcement would write for the evaluated record after merging (a record with a fired Block counts zero) |
 | `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (`Ascentix.RulesEngine.Core/Diagnostics/RunDiagnosticsSerializer.cs`) containing `totalMs`, `rulesLoaded`, `rulesEvaluated`, `rulesFired`, `retrieveCount`, `retrieveMultipleCount`, `rowsFetched`, `stages[{name,ms}]`, `nodes[{nodeId,table,retrieveCount,retrieveMultipleCount,rows}]`. The write, page and scheduler figures below appear only when non-zero, so asx_RunRules (which writes nothing) never carries them. |
 
@@ -487,7 +526,6 @@ Attribute kinds decode as:
   {
     "ruleId": "00000000-0000-0000-0000-000000000000",
     "actionType": "Block",
-    "fireOn": "OnNoMatch",
     "targetColumn": null,
     "value": null,
     "message": "Localized message text",
@@ -497,7 +535,7 @@ Attribute kinds decode as:
 ]
 ```
 
-Enums are serialized as string names (`"Block"`, `"OnMatch"`, `"Error"`). Fields irrelevant to
+Enums are serialized as string names (`"Block"`, `"Error"`). An action no longer reports when it fires: only an action whose Fires when tree held is returned. Fields irrelevant to
 an action type are `null` (e.g. `targetColumn`/`value` for `Block`; `message`/`severity` for
 `SetVisible`). `message` is already localized using the resolved language at evaluation time.
 
@@ -515,7 +553,6 @@ reported only (`asx_RunRules` never executes them; the plugin does). A **single-
 ```json
 {
   "actionType": "CreateRecord",
-  "fireOn": "OnMatch",
   "write": {
     "operation": "Create",
     "targetTable": "task",
@@ -538,7 +575,6 @@ carries `writes`, `writeCount` and `unchangedCount` in place of `write`:
 ```json
 {
   "actionType": "UpdateRecord",
-  "fireOn": "OnMatch",
   "writes": [
     { "operation": "Update", "targetTable": "contact", "targetId": "…", "values": { "donotbulkemail": true } }
   ],
@@ -649,7 +685,6 @@ When no rules match, the response is a well-formed envelope with `"rules": []`, 
       "actions": [
         {
           "actionType": "SetRequired",
-          "fireOn": "OnMatch",
           "targetColumn": "creditlimitapprovedby",
           "value": true,
           "applyInverseWhenNotFired": true,
@@ -669,7 +704,6 @@ Write actions add `targetTable`, `targetNode`, and `fieldMapping` (each omitted 
 ```jsonc
 {
   "actionType": "CreateRecord",
-  "fireOn": "OnMatch",
   "targetTable": "task",
   "fieldMapping": "[{\"target\":\"subject\",\"source\":\"literal\",\"value\":\"Hi\"}]",
   "order": 1
@@ -759,8 +793,8 @@ status badge and before allowing Publish.
 Field notes:
 
 - `severity` is a string enum name, either `"Error"` or `"Warning"`. Only `Error` blocks publishing
-  (`ValidationReport.IsValid` ignores warnings). Warnings include `STRUCT_ROWCOUNT_ON_CREATE`
-  and `TRAV_PUSHDOWN`.
+  (`ValidationReport.IsValid` ignores warnings). Warnings include `STRUCT_ROWCOUNT_ON_CREATE`,
+  `TRAV_PUSHDOWN` and `OUTCOME_UNUSED`.
 - `code` is a stable machine token the editor maps to inline UI. Vocabulary: `STRUCT_NO_CONDITIONS`,
   `STRUCT_NO_ACTIONS`, `STRUCT_EMPTY_GROUP`, `STRUCT_MISSING_FIELD`, `STRUCT_INVALID_REGEX`,
   `STRUCT_ROWCOUNT_RANGE`, `STRUCT_NODE_NOT_IN_TREE` (Error: a condition's `asx_tableconfig`
@@ -778,7 +812,13 @@ Field notes:
   Create Record targeting one — can have a Rows filter at all), `STRUCT_ROW_SOURCE_NOT_SET` (Error: the current
   row — a `row` field-mapping source, or a `{row.…}` token in a Show Message/Block message text, one of its
   per-language `asx_localizedmessage` overrides, or a Template condition's comparison value — can only be used by
-  an action that writes a set of rows), `STRUCT_DEACTIVATE_MAPPING` (Error: Deactivate Record's field mapping may
+  an action that writes a set of rows), `OUTCOME_UNNAMED` (Error: a top-level validation group has no name),
+  `OUTCOME_DUPLICATE_NAME` (Error: two outcomes share a name, ignoring case),
+  `ACTION_NO_TREE` (Error: an active action has no Fires when tree, so it could never fire),
+  `ACTION_TEST_UNKNOWN_OUTCOME` (Error: a test names an outcome the rule doesn't have),
+  `ACTION_EMPTY_GROUP` (Error: a Fires when group other than an empty root ALL has no tests or groups),
+  `OUTCOME_UNUSED` (Warning: no active action's tree tests this outcome; it is still evaluated and reported),
+  `STRUCT_DEACTIVATE_MAPPING` (Error: Deactivate Record's field mapping may
   only set Status Reason, `statuscode`; any other mapped column is refused), `META_TABLE_NOT_DEACTIVATABLE` (Error:
   Deactivate Record's target table has no `statecode`, or changes state only through its own dedicated message —
   `opportunity`, `incident`, `quote`, `salesorder` and `invoice` are refused outright, alongside any table without
@@ -1103,7 +1143,7 @@ solution.
 An **unbound (global) Dataverse Custom API Action** (`IsFunction = false`) that reports the data
 updates a release carries and applies the ones still pending. A data update converts existing rules
 for a release; the assembly lists its updates by number, and each started one has a row in
-`asx_dataupdate` (§2.18). The Rule Builder drives it; a script can too.
+`asx_dataupdate` (§2.20). The Rule Builder drives it; a script can too.
 
 **Registration:** bound to plugin type `Ascentix.RulesEngine.Plugin.ApplyDataUpdatesApi`;
 `ExecutePrivilegeName = prvReadasx_rule`. `Mode = Apply` additionally requires
@@ -1191,6 +1231,10 @@ checks it. No additional custom processing steps. In the `AscentixRulesEngine` s
 | `asx_rule_ruleaction` | `asx_rule` | `asx_ruleaction` |
 | `asx_ruleaction_localizedmessage` | `asx_ruleaction` | `asx_localizedmessage` |
 | `asx_ruleaction_nodefiltergroup` | `asx_ruleaction` | `asx_nodefiltergroup` (Cascade) |
+| `asx_ruleaction_actionconditiongroup` | `asx_ruleaction` | `asx_actionconditiongroup` (`asx_ruleaction`, Cascade) |
+| `asx_actionconditiongroup_actionconditiongroup` | `asx_actionconditiongroup` | `asx_actionconditiongroup` (self, `asx_parentgroup`, RemoveLink) |
+| `asx_actionconditiongroup_actionconditiontest` | `asx_actionconditiongroup` | `asx_actionconditiontest` (Cascade) |
+| `asx_conditiongroup_actionconditiontest` | `asx_conditiongroup` | `asx_actionconditiontest` (`asx_outcome`, RemoveLink) |
 | `asx_dataupdate_asx_runby_revision` | `systemuser` | `asx_dataupdate` (`asx_runby`, RemoveLink) |
 
 ---

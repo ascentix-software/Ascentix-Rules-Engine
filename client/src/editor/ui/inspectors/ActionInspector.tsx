@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Dropdown, Option, Field, Input, Switch, Textarea, Button } from "@fluentui/react-components";
-import type { ActionNode, ActionTypeLabel, TableConfigRef } from "../../model/types";
+import type { ActionNode, ActionTypeLabel, ConditionGroupNode, TableConfigRef } from "../../model/types";
 import { isSingleCardinality, previousParentLookup } from "../../model/tableConfigOps";
 import { isCollectionNode, isSetAction, targetsNode } from "../../model/setActions";
 import { TablePicker, ColumnPicker } from "../pickers/MetadataPickers";
@@ -15,6 +15,7 @@ import { insertAt, friendlyTemplate } from "../../model/templateTokens";
 import { color } from "../tokens";
 import { OutsideField } from "../fieldScope";
 import { Callout } from "../primitives";
+import { FiresWhenEditor } from "./FiresWhenEditor";
 
 const ACTION_TYPES: ActionTypeLabel[] = [
   "SetVisible", "SetRequired", "ShowMessage", "Block", "CreateRecord", "UpdateRecord", "DeleteRecord", "DeactivateRecord",
@@ -90,9 +91,10 @@ function TranslationRow({ message, languageLabel, ruleTable, tableConfigs, onCha
 }
 
 export function ActionInspector({
-  action, ruleTable, tableConfigs, onPatch, onAddTranslation, onUpdateTranslation, onRemoveTranslation,
+  action, ruleTable, tableConfigs, outcomes, onPatch, onAddTranslation, onUpdateTranslation, onRemoveTranslation,
 }: {
-  action: ActionNode; ruleTable: string; tableConfigs: Record<string, TableConfigRef>; onPatch(patch: Partial<ActionNode>): void;
+  action: ActionNode; ruleTable: string; tableConfigs: Record<string, TableConfigRef>; outcomes: ConditionGroupNode[];
+  onPatch(patch: Partial<ActionNode>): void;
   onAddTranslation(languageCode: number): void;
   onUpdateTranslation(translationId: string, message: string): void;
   onRemoveTranslation(translationId: string): void;
@@ -127,16 +129,10 @@ export function ActionInspector({
         <Switch checked={action.isActive ?? true} onChange={(_e, d) => onPatch({ isActive: d.checked })} />
       </Field>
 
-      <Field label="Fire on">
-        <Dropdown
-          value={labelFor(SYSTEM_CHOICE.actionFireOn, action.fireOn ?? 1, action.fireOn === 2 ? "OnNoMatch" : "OnMatch")}
-          selectedOptions={[String(action.fireOn ?? 1)]}
-          onOptionSelect={(_e, d) => d.optionValue && onPatch({ fireOn: Number(d.optionValue) })}
-        >
-          <Option value="1">{labelFor(SYSTEM_CHOICE.actionFireOn, 1, "OnMatch")}</Option>
-          <Option value="2">{labelFor(SYSTEM_CHOICE.actionFireOn, 2, "OnNoMatch")}</Option>
-        </Dropdown>
+      <Field label="Fires when">
+        <FiresWhenEditor value={action.firesWhen} outcomes={outcomes} onChange={(firesWhen) => onPatch({ firesWhen })} />
       </Field>
+      {action.firesWhenWarning && <Callout intent="warning">{action.firesWhenWarning}</Callout>}
 
       {(t === "SetVisible" || t === "SetRequired") && (
         <>
@@ -333,7 +329,7 @@ export function ActionInspector({
           <div style={{ borderLeft: `3px solid ${accent.bar}`, borderRadius: "0 6px 6px 0",
             background: accent.bg, padding: "10px 12px", marginTop: 4 }}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: accent.bar }}>What happens</div>
-            <div style={{ fontSize: 12.5, color: color.ink, marginTop: 2 }}>{actionWhatHappens(action)}</div>
+            <div style={{ fontSize: 12.5, color: color.ink, marginTop: 2 }}>{actionWhatHappens(action, outcomes)}</div>
           </div>
         );
       })()}

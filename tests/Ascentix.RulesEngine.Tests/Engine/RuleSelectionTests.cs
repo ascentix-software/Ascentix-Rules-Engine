@@ -27,7 +27,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
         private static readonly Guid RuleC = Guid.NewGuid();
         private static readonly Guid RuleD = Guid.NewGuid();
 
-        // account.name equals "never" (never true for the seeded "Acme" record); Block OnNoMatch
+        // account.name equals "never" (never true for the seeded "Acme" record); Block that fires when the outcome is false
         // whose message is the rule's own name, unless suppressed (rule D fires nothing: its group
         // is an execution condition, so the rule never reaches a match decision).
         private static List<Entity> SeedRule(Guid ruleId, string name, bool isExecutionCondition,
@@ -72,15 +72,16 @@ namespace Ascentix.RulesEngine.Tests.Engine
             var entities = new List<Entity> { tableConfig, rule, group, condition };
             if (withBlockAction)
             {
-                entities.Add(new Entity(Q(SchemaNames.RuleAction.Entity), Guid.NewGuid())
+                var actionId = Guid.NewGuid();
+                entities.Add(new Entity(Q(SchemaNames.RuleAction.Entity), actionId)
                 {
                     [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
                     [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.Block),
-                    [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                     [Q(SchemaNames.RuleAction.Message)] = name,
                     [Q(SchemaNames.RuleAction.Order)] = 1,
                     [Q(SchemaNames.RuleAction.IsActive)] = true,
                 });
+                entities.AddRange(ActionTreeRows.AnyFalse(actionId, grpId));
             }
             return entities;
         }

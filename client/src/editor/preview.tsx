@@ -7,6 +7,7 @@ import type { MetadataService, ColumnMeta } from "./metadata";
 import type { RecordSearchService } from "./records";
 import type { EditorApi } from "./webapi";
 import type { RuleGraph } from "./model/types";
+import { always } from "./model/firesWhen";
 
 // --- stub services: every call resolves to an empty/identity result -------
 // A few typed opportunity columns so kind-dependent UI (value editors, the
@@ -86,19 +87,19 @@ const SAMPLE: RuleGraph = {
     }],
   }],
   actions: [
-    { id: "a1", name: "", order: 1, actionType: "Block", fireOn: 1, targetColumn: null,
+    { id: "a1", name: "", order: 1, actionType: "Block", firesWhen: always(), targetColumn: null,
       targetTable: null, targetNodeId: null, message: "Needs an assigned approver",
       fieldMapping: null, value: null, applyInverseWhenNotFired: null, severity: 3,
       isActive: true, localizedMessages: [] },
-    { id: "a2", name: "", order: 2, actionType: "ShowMessage", fireOn: 1,
+    { id: "a2", name: "", order: 2, actionType: "ShowMessage", firesWhen: always(),
       targetColumn: "closeprobability", targetTable: null, targetNodeId: null,
       message: "Low probability for this stage", fieldMapping: null, value: null,
       applyInverseWhenNotFired: null, severity: 2, isActive: true, localizedMessages: [] },
-    { id: "a3", name: "", order: 3, actionType: "SetRequired", fireOn: 1,
+    { id: "a3", name: "", order: 3, actionType: "SetRequired", firesWhen: always(),
       targetColumn: "budgetamount", targetTable: null, targetNodeId: null, message: null,
       fieldMapping: null, value: true, applyInverseWhenNotFired: null, severity: null,
       isActive: true, localizedMessages: [] },
-    { id: "a4", name: "", order: 4, actionType: "UpdateRecord", fireOn: 1, targetColumn: null,
+    { id: "a4", name: "", order: 4, actionType: "UpdateRecord", firesWhen: always(), targetColumn: null,
       targetTable: null, targetNodeId: "root", message: null,
       fieldMapping: '{"asx_needsreview": true}', value: null, applyInverseWhenNotFired: null,
       severity: null, isActive: true, localizedMessages: [] },

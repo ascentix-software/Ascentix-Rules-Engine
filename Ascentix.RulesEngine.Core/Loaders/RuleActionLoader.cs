@@ -21,7 +21,6 @@ namespace Ascentix.RulesEngine.Core.Loaders
         private static readonly string ActionEntity = SchemaNames.Qualify(SchemaNames.RuleAction.Entity);
         private static readonly string RuleLookup = SchemaNames.Qualify(SchemaNames.RuleAction.Rule);
         private static readonly string ActionTypeField = SchemaNames.Qualify(SchemaNames.RuleAction.ActionType);
-        private static readonly string FireOnField = SchemaNames.Qualify(SchemaNames.RuleAction.FireOn);
         private static readonly string TargetColumnField = SchemaNames.Qualify(SchemaNames.RuleAction.TargetColumn);
         private static readonly string ValueBoolField = SchemaNames.Qualify(SchemaNames.RuleAction.ValueBool);
         private static readonly string ApplyInverseField = SchemaNames.Qualify(SchemaNames.RuleAction.ApplyInverseWhenNotFired);
@@ -70,6 +69,7 @@ namespace Ascentix.RulesEngine.Core.Loaders
 
             LoadLocalizedMessages(result.Values.SelectMany(v => v).ToList());
             LoadRowFilters(result.Values.SelectMany(v => v).ToList());
+            LoadConditions(result.Values.SelectMany(v => v).ToList());
             return result;
         }
 
@@ -81,7 +81,6 @@ namespace Ascentix.RulesEngine.Core.Loaders
                 RuleId = ruleId,
                 Name = e.GetAttributeValue<string>(NameField),
                 ActionType = (ActionType)(e.GetAttributeValue<OptionSetValue>(ActionTypeField)?.Value ?? 0),
-                FireOn = (ActionFireOn)(e.GetAttributeValue<OptionSetValue>(FireOnField)?.Value ?? 0),
                 TargetColumn = e.GetAttributeValue<string>(TargetColumnField),
                 ValueBool = e.GetAttributeValue<bool>(ValueBoolField),
                 ApplyInverseWhenNotFired = e.GetAttributeValue<bool>(ApplyInverseField),
@@ -119,6 +118,60 @@ namespace Ascentix.RulesEngine.Core.Loaders
                     throw new InvalidPluginExecutionException(
                         $"Action {actionId} owns more than one Rows filter group; an action may own only one.");
                 action.RowFilter = mapper.MapRowFilter(root, actionId);
+            }
+        }
+
+        // Every node of an action's "Fires when" tree carries asx_ruleaction, so two In queries load every tree.
+        // Runs against SnapshotService for published rules (Equal/In only, no links).
+        private void LoadConditions(List<RuleAction> actions)
+        {
+            if (actions.Count == 0) return;
+            var groupQuery = new QueryExpression(SchemaNames.Qualify(SchemaNames.ActionConditionGroup.Entity)) { ColumnSet = new ColumnSet(true) };
+            groupQuery.Criteria.AddCondition(SchemaNames.Qualify(SchemaNames.ActionConditionGroup.RuleAction), ConditionOperator.In,
+                actions.Select(a => (object)a.Id).ToArray());
+            var groupRows = _service.RetrieveMultiple(groupQuery).Entities.ToList();
+            if (groupRows.Count == 0) return;
+
+            var testQuery = new QueryExpression(SchemaNames.Qualify(SchemaNames.ActionConditionTest.Entity)) { ColumnSet = new ColumnSet(true) };
+            testQuery.Criteria.AddCondition(SchemaNames.Qualify(SchemaNames.ActionConditionTest.Group), ConditionOperator.In,
+                groupRows.Select(g => (object)g.Id).ToArray());
+            var testRows = _service.RetrieveMultiple(testQuery).Entities;
+
+            var groups = groupRows.ToDictionary(g => g.Id, g => new ActionConditionGroup
+            {
+                Id = g.Id,
+                LogicalOperator = (Ascentix.RulesEngine.Core.Models.LogicalOperator)(g.GetAttributeValue<OptionSetValue>(SchemaNames.Qualify(SchemaNames.ActionConditionGroup.LogicalOperator))?.Value ?? (int)Ascentix.RulesEngine.Core.Models.LogicalOperator.And),
+                Order = g.GetAttributeValue<int>(SchemaNames.Qualify(SchemaNames.ActionConditionGroup.Order)),
+            });
+            foreach (var t in testRows.OrderBy(t => t.GetAttributeValue<int>(SchemaNames.Qualify(SchemaNames.ActionConditionTest.Order))))
+            {
+                var groupId = t.GetAttributeValue<EntityReference>(SchemaNames.Qualify(SchemaNames.ActionConditionTest.Group))?.Id;
+                if (groupId.HasValue && groups.TryGetValue(groupId.Value, out var owner))
+                    owner.Tests.Add(new ActionConditionTest
+                    {
+                        Id = t.Id,
+                        OutcomeId = t.GetAttributeValue<EntityReference>(SchemaNames.Qualify(SchemaNames.ActionConditionTest.Outcome))?.Id,
+                        Expected = t.GetAttributeValue<bool>(SchemaNames.Qualify(SchemaNames.ActionConditionTest.Expected)),
+                        Order = t.GetAttributeValue<int>(SchemaNames.Qualify(SchemaNames.ActionConditionTest.Order)),
+                    });
+            }
+
+            var byAction = actions.ToDictionary(a => a.Id);
+            foreach (var g in groupRows.OrderBy(g => g.GetAttributeValue<int>(SchemaNames.Qualify(SchemaNames.ActionConditionGroup.Order))))
+            {
+                var node = groups[g.Id];
+                var parent = g.GetAttributeValue<EntityReference>(SchemaNames.Qualify(SchemaNames.ActionConditionGroup.ParentGroup))?.Id;
+                if (parent.HasValue)
+                {
+                    if (groups.TryGetValue(parent.Value, out var p)) p.Groups.Add(node);
+                    continue;
+                }
+                var actionId = g.GetAttributeValue<EntityReference>(SchemaNames.Qualify(SchemaNames.ActionConditionGroup.RuleAction)).Id;
+                if (!byAction.TryGetValue(actionId, out var action)) continue;
+                if (action.Condition != null)
+                    throw new InvalidPluginExecutionException(
+                        $"Action {actionId} has more than one \"Fires when\" root group; an action may have only one.");
+                action.Condition = node;
             }
         }
 

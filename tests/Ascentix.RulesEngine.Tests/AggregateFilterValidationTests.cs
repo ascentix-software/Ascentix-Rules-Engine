@@ -40,6 +40,7 @@ namespace Ascentix.RulesEngine.Tests
                 ComparisonValue = "x",
             };
             var grp = new ConditionGroup { Id = Guid.NewGuid(), Conditions = new List<RuleCondition> { cond }, ChildGroups = new List<ConditionGroup>() };
+            action.Condition = ActionTrees.AllTrue(grp.Id);
             return new RuleForValidation
             {
                 RuleId = Guid.NewGuid(),
@@ -68,7 +69,7 @@ namespace Ascentix.RulesEngine.Tests
                           "\"expression\":\"sum(node:" + childId + ".sample_amount filter:f1)\"," +
                           "\"filters\":{\"f2\":{\"op\":\"and\",\"rules\":[" +
                           "{\"kind\":\"rule\",\"column\":\"name\",\"operator\":1,\"valueSource\":1,\"value\":\"x\"}]}}}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = Model(configs, action, rootId);
             var flags = new FakeFlags { Tables = { "sample_order", "sample_orderline" } };
 
@@ -92,7 +93,7 @@ namespace Ascentix.RulesEngine.Tests
                           "\"expression\":\"sum(node:" + childId + ".sample_amount)\"," +
                           "\"filters\":{\"f1\":{\"op\":\"and\",\"rules\":[" +
                           "{\"kind\":\"rule\",\"column\":\"name\",\"operator\":1,\"valueSource\":1,\"value\":\"x\"}]}}}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = Model(configs, action, rootId);
             var flags = new FakeFlags { Tables = { "sample_order", "sample_orderline" } };
 
@@ -117,7 +118,7 @@ namespace Ascentix.RulesEngine.Tests
                           "\"expression\":\"sum(node:" + childId + ".sample_amount filter:f1)\"," +
                           "\"filters\":{\"f1\":{\"op\":\"and\",\"rules\":[" +
                           "{\"kind\":\"rule\",\"column\":\"ghost\",\"operator\":1,\"valueSource\":1,\"value\":\"x\"}]}}}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = Model(configs, action, rootId);
             var flags = new FakeFlags { Tables = { "sample_order", "sample_orderline" } };
             flags.Cols["sample_orderline.sample_amount"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.Money };
@@ -144,7 +145,7 @@ namespace Ascentix.RulesEngine.Tests
                           "\"expression\":\"sum(node:" + childId + ".sample_amount filter:f1)\"," +
                           "\"filters\":{\"f1\":{\"op\":\"and\",\"rules\":[" +
                           "{\"kind\":\"rule\",\"column\":\"name\",\"operator\":3,\"valueSource\":1,\"value\":\"x\"}]}}}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = Model(configs, action, rootId);
             var flags = new FakeFlags { Tables = { "sample_order", "sample_orderline" } };
             flags.Cols["sample_orderline.sample_amount"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.Money };
@@ -175,7 +176,7 @@ namespace Ascentix.RulesEngine.Tests
                           "\"filters\":{\"f1\":{\"op\":\"and\",\"rules\":[" +
                           "{\"kind\":\"rule\",\"column\":\"sample_amount\",\"operator\":1,\"valueSource\":2," +
                           "\"valueNodeId\":\"" + otherChildId + "\",\"valueColumn\":\"sample_amount\"}]}}}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = Model(configs, action, rootId);
             var flags = new FakeFlags { Tables = { "sample_order", "sample_orderline", "sample_orderline_other" } };
             flags.Cols["sample_orderline.sample_amount"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.Money };
@@ -203,7 +204,7 @@ namespace Ascentix.RulesEngine.Tests
                           "\"filters\":{\"f1\":{\"op\":\"and\",\"rules\":[" +
                           "{\"kind\":\"rule\",\"column\":\"sample_amount\",\"operator\":1,\"valueSource\":2," +
                           "\"valueNodeId\":\"" + lookupId + "\",\"valueColumn\":\"sample_threshold\"}]}}}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = Model(configs, action, rootId);
             var flags = new FakeFlags { Tables = { "sample_order", "sample_orderline", "sample_customer" } };
             flags.Cols["sample_orderline.sample_amount"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.Money };
@@ -236,7 +237,7 @@ namespace Ascentix.RulesEngine.Tests
                           "\"expression\":\"sum(node:" + childAId + ".sample_amount filter:f1) + sum(node:" + childBId + ".sample_amount filter:f1)\"," +
                           "\"filters\":{\"f1\":{\"op\":\"and\",\"rules\":[" +
                           "{\"kind\":\"rule\",\"column\":\"extra\",\"operator\":1,\"valueSource\":1,\"value\":\"x\"}]}}}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = Model(configs, action, rootId);
             var flags = new FakeFlags { Tables = { "sample_order", "sample_orderline", "sample_orderline_other" } };
             flags.Cols["sample_orderline.sample_amount"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.Money };
@@ -274,7 +275,7 @@ namespace Ascentix.RulesEngine.Tests
                           "\"filters\":{\"f1\":{\"op\":\"and\",\"rules\":[" +
                           "{\"kind\":\"rule\",\"column\":\"sample_amount\",\"operator\":1,\"valueSource\":2," +
                           "\"valueNodeId\":\"" + valueNodeId + "\",\"valueColumn\":\"sample_amount\"}]}}}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = Model(configs, action, rootId);
             var flags = new FakeFlags { Tables = { "sample_order", "sample_orderline", "sample_orderline_other", "sample_orderline_value" } };
             flags.Cols["sample_orderline.sample_amount"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.Money };
@@ -302,7 +303,7 @@ namespace Ascentix.RulesEngine.Tests
                           "\"expression\":\"sum(node:" + childId + ".sample_amount filter:f1)\"," +
                           "\"filters\":{\"f1\":{\"op\":\"and\",\"rules\":[" +
                           "{\"kind\":\"rule\",\"column\":\"name\",\"operator\":1,\"valueSource\":1,\"value\":\"x\"}]}}}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = Model(configs, action, rootId);
             var flags = new FakeFlags { Tables = { "sample_order", "sample_orderline" } };
             flags.Cols["sample_orderline.sample_amount"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.Money };

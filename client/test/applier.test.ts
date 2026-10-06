@@ -4,7 +4,7 @@ import { createMockXrm, MockState } from "./mockXrm";
 import type { FiredAction } from "../src/contract";
 
 function fired(p: Partial<FiredAction>): FiredAction {
-  return { ruleId: "r1", actionType: "SetVisible", fireOn: "OnMatch", targetColumn: null,
+  return { ruleId: "r1", actionType: "SetVisible", targetColumn: null,
     value: null, message: null, severity: null, targetTable: null, ...p };
 }
 
@@ -42,36 +42,33 @@ describe("Applier", () => {
   it("field-level Block shows an inline notification only (no banner; platform rolls it up on save)", () => {
     const { xrm, applier } = setup(
       { creditlimit: { type: "money", value: 1, control: true } }, []);
-    applier.apply([fired({ actionType: "Block", fireOn: "OnNoMatch", targetColumn: "creditlimit",
-      message: "Too low", severity: "Error" })]);
+    applier.apply([fired({ actionType: "Block", targetColumn: "creditlimit", message: "Too low", severity: "Error" })]);
     expect(xrm.controlNotifications()).toEqual([{ name: "creditlimit", message: "Too low", uid: "r1:creditlimit:0" }]);
     expect(xrm.formNotifications()).toEqual([]);
   });
 
   it("form-level Block uses a form notification", () => {
     const { xrm, applier } = setup({}, []);
-    applier.apply([fired({ actionType: "Block", fireOn: "OnNoMatch", targetColumn: null,
-      message: "Invalid", severity: "Error" })]);
+    applier.apply([fired({ actionType: "Block", targetColumn: null, message: "Invalid", severity: "Error" })]);
     expect(xrm.formNotifications()).toEqual([{ message: "Invalid", level: "ERROR", uid: "r1:form:0" }]);
   });
 
   it("Block with a targetColumn not on the form falls back to a form notification", () => {
     const { xrm, applier } = setup({}, []); // no control for "offform"
-    applier.apply([fired({ actionType: "Block", fireOn: "OnNoMatch", targetColumn: "offform",
-      message: "Nope", severity: "Error" })]);
+    applier.apply([fired({ actionType: "Block", targetColumn: "offform", message: "Nope", severity: "Error" })]);
     expect(xrm.formNotifications()[0].message).toBe("Nope");
   });
 
   it("ShowMessage uses a form notification at the mapped level", () => {
     const { xrm, applier } = setup({}, []);
-    applier.apply([fired({ actionType: "ShowMessage", fireOn: "OnMatch", message: "Heads up", severity: "Warning" })]);
+    applier.apply([fired({ actionType: "ShowMessage", message: "Heads up", severity: "Warning" })]);
     expect(xrm.formNotifications()).toEqual([{ message: "Heads up", level: "WARNING", uid: "r1:form:0" }]);
   });
 
   it("ShowMessage with an on-form target renders inline (non-blocking), not a banner", () => {
     const { xrm, applier } = setup(
       { region: { type: "string", value: null, control: true } }, []);
-    applier.apply([fired({ actionType: "ShowMessage", fireOn: "OnMatch", targetColumn: "region",
+    applier.apply([fired({ actionType: "ShowMessage", targetColumn: "region",
       message: "Check EU code", severity: "Warning" })]);
     expect(xrm.controlNotifications()).toEqual([{ name: "region", message: "Check EU code", uid: "r1:region:0" }]);
     expect(xrm.formNotifications()).toEqual([]);
@@ -79,27 +76,26 @@ describe("Applier", () => {
 
   it("ShowMessage with a target not on the form falls back to a form banner", () => {
     const { xrm, applier } = setup({}, []); // no control for "offform"
-    applier.apply([fired({ actionType: "ShowMessage", fireOn: "OnMatch", targetColumn: "offform",
-      message: "FYI", severity: "Warning" })]);
+    applier.apply([fired({ actionType: "ShowMessage", targetColumn: "offform", message: "FYI", severity: "Warning" })]);
     expect(xrm.controlNotifications()).toEqual([]);
     expect(xrm.formNotifications()[0]).toMatchObject({ message: "FYI", level: "WARNING" });
   });
 
   it("ShowMessage with null severity defaults to INFO", () => {
     const { xrm, applier } = setup({}, []);
-    applier.apply([fired({ actionType: "ShowMessage", fireOn: "OnMatch", message: "FYI", severity: null })]);
+    applier.apply([fired({ actionType: "ShowMessage", message: "FYI", severity: null })]);
     expect(xrm.formNotifications()[0].level).toBe("INFO");
   });
 
   it("ignores CreateRecord", () => {
     const { xrm, applier } = setup({}, []);
-    applier.apply([fired({ actionType: "CreateRecord", fireOn: "OnNoMatch" })]);
+    applier.apply([fired({ actionType: "CreateRecord" })]);
     expect(xrm.formNotifications()).toEqual([]);
   });
 
   it("clears prior notifications on the next cycle", () => {
     const { xrm, applier } = setup({}, []);
-    applier.apply([fired({ actionType: "Block", fireOn: "OnNoMatch", targetColumn: null, message: "X", severity: "Error" })]);
+    applier.apply([fired({ actionType: "Block", targetColumn: null, message: "X", severity: "Error" })]);
     expect(xrm.formNotifications()).toHaveLength(1);
     applier.apply([]); // reset
     expect(xrm.formNotifications()).toEqual([]);
@@ -109,9 +105,9 @@ describe("Applier", () => {
     const { xrm, applier } = setup(
       { creditlimit: { type: "money", value: 1, control: true } }, []);
     applier.apply([
-      fired({ ruleId: "r1", actionType: "Block", fireOn: "OnNoMatch", targetColumn: "creditlimit", message: "Field bad", severity: "Error" }),
-      fired({ ruleId: "r2", actionType: "Block", fireOn: "OnNoMatch", targetColumn: null, message: "No lines", severity: "Error" }),
-      fired({ ruleId: "r3", actionType: "ShowMessage", fireOn: "OnMatch", message: "VIP", severity: "Information" }),
+      fired({ ruleId: "r1", actionType: "Block", targetColumn: "creditlimit", message: "Field bad", severity: "Error" }),
+      fired({ ruleId: "r2", actionType: "Block", targetColumn: null, message: "No lines", severity: "Error" }),
+      fired({ ruleId: "r3", actionType: "ShowMessage", message: "VIP", severity: "Information" }),
     ]);
     // field Block -> inline only; no-field Block + ShowMessage -> banners (uid carries the fired-action index)
     expect(xrm.controlNotifications().map((n) => n.uid)).toEqual(["r1:creditlimit:0"]);
@@ -121,8 +117,8 @@ describe("Applier", () => {
   it("two form-targeted actions on the SAME rule get distinct uids (no overwrite)", () => {
     const { xrm, applier } = setup({}, []);
     applier.apply([
-      fired({ ruleId: "r1", actionType: "Block", fireOn: "OnMatch", targetColumn: null, message: "Blocked", severity: "Error" }),
-      fired({ ruleId: "r1", actionType: "ShowMessage", fireOn: "OnMatch", message: "Note", severity: "Warning" }),
+      fired({ ruleId: "r1", actionType: "Block", targetColumn: null, message: "Blocked", severity: "Error" }),
+      fired({ ruleId: "r1", actionType: "ShowMessage", message: "Note", severity: "Warning" }),
     ]);
     const notes = xrm.formNotifications();
     expect(notes.map((n) => n.message)).toEqual(["Blocked", "Note"]);
@@ -145,8 +141,7 @@ describe("Applier", () => {
 // -------------------------------------------------------------------------------------------
 describe("Applier atomicity", () => {
   const banner = (msg: string) =>
-    fired({ ruleId: "r1", actionType: "ShowMessage", fireOn: "OnMatch", targetColumn: null,
-      message: msg, severity: "Error" });
+    fired({ ruleId: "r1", actionType: "ShowMessage", targetColumn: null, message: msg, severity: "Error" });
   const hide = fired({ ruleId: "r1", actionType: "SetVisible", targetColumn: "telephone1", value: false });
 
   function established() {
@@ -173,7 +168,7 @@ describe("Applier atomicity", () => {
 
   it("a throw while re-issuing an inline note leaves the previous cycle's inline note intact", () => {
     const { xrm, applier } = setup({ creditlimit: { type: "money", value: 1, control: true } }, []);
-    const inline = fired({ ruleId: "r1", actionType: "Block", fireOn: "OnNoMatch",
+    const inline = fired({ ruleId: "r1", actionType: "Block",
       targetColumn: "creditlimit", message: "Too low", severity: "Error" });
     applier.apply([inline]);
     expect(xrm.controlNotifications()).toHaveLength(1);
@@ -187,7 +182,7 @@ describe("Applier atomicity", () => {
     // controlExists is read while deciding inline-vs-banner, i.e. before any mutation.
     xrm.__failOn("controlExists");
     expect(() =>
-      applier.apply([fired({ ruleId: "r2", actionType: "ShowMessage", fireOn: "OnMatch",
+      applier.apply([fired({ ruleId: "r2", actionType: "ShowMessage",
         targetColumn: "telephone1", message: "x", severity: "Error" })]),
     ).toThrow();
     expect(xrm.formNotifications().map((n) => n.message)).toEqual(["Needs approval"]);
@@ -210,9 +205,9 @@ describe("Applier atomicity", () => {
 
   it("a notification set before the throw is still retracted when the rule stops matching (no orphan)", () => {
     const { xrm, applier } = setup({ creditlimit: { type: "money", value: 1, control: true } }, []);
-    const inline = fired({ ruleId: "r1", actionType: "Block", fireOn: "OnNoMatch",
+    const inline = fired({ ruleId: "r1", actionType: "Block",
       targetColumn: "creditlimit", message: "Too low", severity: "Error" });
-    const late = fired({ ruleId: "r2", actionType: "ShowMessage", fireOn: "OnMatch",
+    const late = fired({ ruleId: "r2", actionType: "ShowMessage",
       targetColumn: null, message: "Also", severity: "Error" });
     xrm.__failOn("setFormNotification");
     // The inline note commits, then the banner throws. The applier must have RECORDED the note

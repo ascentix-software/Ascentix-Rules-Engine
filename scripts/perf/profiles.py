@@ -34,7 +34,9 @@ SRC_LITERAL, SRC_FIELDREF, SRC_DATEEXPR = 1, 2, 4  # asx_comparisonvaluesource
 
 LOG_AND, LOG_OR = 1, 2                             # asx_logicaloperator
 
-FIREON_MATCH, FIREON_NOMATCH = 1, 2                # asx_fireon
+# The profiles keep the readable "fireOn" shorthand; it is never sent (the engine no longer reads
+# asx_fireon). fires_when_tree translates it into a Fires when tree, as the migration script does.
+FIREON_MATCH, FIREON_NOMATCH = 1, 2
 
 ACT_SHOWMSG = 3                                    # asx_actiontype
 ACT_BLOCK = 4
@@ -283,7 +285,7 @@ def condition_filter_group_payload(cond, group_id, condition_id, tc_ids, nav):
 
 def action_payload(action, index, spec_name, rule_id, tc_ids, nav):
     p = {"asx_name": f"{spec_name}-a{index + 1}", "asx_actiontype": action["type"],
-         "asx_fireon": action.get("fireOn", FIREON_MATCH), "asx_order": action.get("order", index + 1), "asx_isactive": True,
+         "asx_order": action.get("order", index + 1), "asx_isactive": True,
          **_bind(nav, "asx_ruleaction", "asx_rule", "asx_rule", "asx_rules", rule_id)}
     if "message" in action:
         p["asx_message"] = action["message"]
@@ -297,6 +299,31 @@ def action_payload(action, index, spec_name, rule_id, tc_ids, nav):
     if "targetNode" in action:
         p.update(_bind(nav, "asx_ruleaction", "asx_tableconfig", "asx_targetnode", "asx_tableconfigs", tc_ids[action["targetNode"]]))
     return p
+
+
+def fires_when_tree(fire_on, outcome_ids):
+    """The Fires when tree equivalent to an old On match / On no match: On match -> ALL of every outcome
+    true (no outcomes: an empty ALL, i.e. always); On no match -> ANY of every outcome false (no outcomes:
+    it could never fire, so that is an error the profile author must fix)."""
+    if fire_on == FIREON_MATCH:
+        return {"operator": LOG_AND, "tests": [{"outcome": o, "expected": True} for o in outcome_ids]}
+    if fire_on == FIREON_NOMATCH:
+        if not outcome_ids:
+            raise ValueError("An On no match action needs at least one outcome (its tree would never fire)")
+        return {"operator": LOG_OR, "tests": [{"outcome": o, "expected": False} for o in outcome_ids]}
+    raise ValueError(f"Unknown fireOn value: {fire_on!r}")
+
+
+def fires_when_root_payload(tree, action_id, nav):
+    return {"asx_logicaloperator": tree["operator"], "asx_order": 1,
+            **_bind(nav, "asx_actionconditiongroup", "asx_ruleaction", "asx_ruleaction", "asx_ruleactions", action_id)}
+
+
+def fires_when_test_payload(test, order, root_id, nav):
+    return {"asx_expected": test["expected"], "asx_order": order,
+            **_bind(nav, "asx_actionconditiontest", "asx_actionconditiongroup", "asx_actionconditiongroup",
+                    "asx_actionconditiongroups", root_id),
+            **_bind(nav, "asx_actionconditiontest", "asx_conditiongroup", "asx_outcome", "asx_conditiongroups", test["outcome"])}
 
 
 def row_filter_group_payload(action, action_id, tc_ids, nav):

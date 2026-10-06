@@ -3,13 +3,13 @@
 // Why this file exists: every choice dropdown in the editor renders `useChoiceLabel()`, the
 // label from the ORG's global option set (docs/Schema.md §1), and only falls back to the
 // TypeScript token when the choice is missing. The tokens and the shipped labels DIVERGE
-// ("OnNoMatch" vs "On No Match", "Expression" vs "Calculation", "Text template" vs "Template",
+// ("Expression" vs "Calculation", "Text template" vs "Template",
 // "Date calculation" vs "Date Expression"). A spec that types the token silently never matches
 // an option, and the symptom is a 3-minute timeout on an expanded dropdown rather than an
 // assertion failure, so a token typed by mistake reads as a hung test, not as a wrong string.
 //
 // Source of truth = the org, read from DEV:
-//   node -e "GlobalOptionSetDefinitions(Name='asx_actionfireon')"  (see scripts/devOrg.mjs)
+//   node -e "GlobalOptionSetDefinitions(Name='asx_actiontype')"  (see scripts/devOrg.mjs)
 // If a label changes in the org, change it HERE, not in each spec.
 export const CHOICE = {
   conditionType: {
@@ -51,7 +51,6 @@ export const CHOICE = {
     deleteRecord: "Delete Record",
     deactivateRecord: "Deactivate Record",
   },
-  fireOn: { onMatch: "On Match", onNoMatch: "On No Match" },
   severity: { information: "Information", warning: "Warning", error: "Error" },
   channel: { standard: "Standard", portal: "Portal" },
   trigger: {

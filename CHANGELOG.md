@@ -70,6 +70,29 @@ only, so the version an administrator sees in their org can never carry the word
 
 ### Changed
 
+- **Outcomes and "Fires when" replace On match / On no match.** Each top-level validation group
+  of a rule is now an **outcome** with a required, unique name. Each action fires according to
+  its own **Fires when** condition: ALL or ANY of "outcome is true / is false" tests, nested if
+  needed (new tables `asx_actionconditiongroup` and `asx_actionconditiontest`, with new
+  publish checks for outcome names and Fires when conditions). An action with no condition never fires;
+  "always" is an empty ALL group. **Breaking:** `asx_RunRules` and `asx_ReadRules` no longer
+  return `fireOn` on each action. The column `asx_fireon` is retired: the engine no longer reads
+  it, and it is removed in the next release. Run the one-time script
+  `migrations/2026-10-multi-outcome/Convert-RulesToOutcomes.ps1` after upgrading (see
+  *Administering → Installation → Upgrading*); until it has run, actions on rules published
+  before the upgrade do not fire. The Rule Builder edits outcomes and each action's Fires when:
+  the validation band is titled **WHEN · Outcomes** with a **+ Add outcome** button, names are
+  required, unique (ignoring case) and at most 100 characters, and deleting an outcome that
+  actions test removes those tests. New publish errors: `OUTCOME_UNNAMED`,
+  `OUTCOME_DUPLICATE_NAME`, `ACTION_NO_TREE`, `ACTION_TEST_UNKNOWN_OUTCOME`,
+  `ACTION_EMPTY_GROUP`; new warning: `OUTCOME_UNUSED`.
+- **Test run shows outcomes; `asx_RunRules` returns `Outcomes`.** The Rule Builder's **Test**
+  lists the rule's outcomes as true or false. `asx_RunRules` has a new `Outcomes` output
+  (string JSON per record: `recordId`, `ruleId`, `outcomeId`, `name`, `value`), filled only when
+  the call sets the new optional `IncludeOutcomes` parameter to `true` and `[]` otherwise;
+  `Results` is unchanged. The output and the parameter are created when the deploy's Register
+  step (`pipelines/Configure-RuleAuthoring.ps1`) runs, right after the plug-in update. Calls in
+  the few seconds between can fail; run them again.
 - The **Manual** trigger is now labelled **On demand**. The stored choice value (3) is unchanged,
   and the API trigger name `Manual` is still accepted alongside the new `OnDemand`.
 - Every rule evaluated by one save uses the same "now".

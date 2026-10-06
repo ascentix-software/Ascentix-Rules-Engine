@@ -32,7 +32,6 @@ namespace Ascentix.RulesEngine.Schema
             public const string ComparisonOperator = "comparisonoperator";
             public const string Severity = "severity";
             public const string ActionType = "actiontype";
-            public const string ActionFireOn = "actionfireon";
             public const string Triggers = "triggers";
             public const string ComparisonValueSource = "comparisonvaluesource";
             public const string Channel = "channel";
@@ -237,7 +236,6 @@ namespace Ascentix.RulesEngine.Schema
             public const string Entity = "ruleaction";
             public const string Rule = "rule";                          // lookup → rule
             public const string ActionType = "actiontype";
-            public const string FireOn = "fireon";
             public const string TargetColumn = "targetcolumn";
             public const string ValueBool = "valuebool";
             public const string ApplyInverseWhenNotFired = "applyinversewhennotfired";
@@ -355,7 +353,7 @@ namespace Ascentix.RulesEngine.Schema
         }
 
         /// <summary>
-        /// One row per release data update that has started (docs/Schema.md §2.18). Written only by
+        /// One row per release data update that has started (docs/Schema.md §2.20). Written only by
         /// asx_ApplyDataUpdates; the row id is fixed per update number (DataUpdateRows.RowId).
         /// </summary>
         public static class DataUpdate
@@ -397,6 +395,26 @@ namespace Ascentix.RulesEngine.Schema
             public const string PropDone = "Done";
         }
 
+        /// <summary>A node of an action's "Fires when" tree (docs/Schema.md §2.18). Every node carries asx_ruleaction.</summary>
+        public static class ActionConditionGroup
+        {
+            public const string Entity = "actionconditiongroup";
+            public const string RuleAction = "ruleaction";        // lookup → ruleaction (owning action, every node)
+            public const string ParentGroup = "parentgroup";      // lookup → actionconditiongroup (null = root)
+            public const string LogicalOperator = "logicaloperator"; // ALL 1 / ANY 2
+            public const string Order = "order";
+        }
+
+        /// <summary>A leaf of an action's "Fires when" tree (docs/Schema.md §2.19).</summary>
+        public static class ActionConditionTest
+        {
+            public const string Entity = "actionconditiontest";
+            public const string Group = "actionconditiongroup";   // lookup → actionconditiongroup
+            public const string Outcome = "outcome";              // lookup → conditiongroup (a top-level validation group)
+            public const string Expected = "expected";            // true = "is true"
+            public const string Order = "order";
+        }
+
         /// <summary>Relationship (schema) name fragments.</summary>
         public static class Relationships
         {
@@ -421,6 +439,10 @@ namespace Ascentix.RulesEngine.Schema
             public const string NodeFilterCriterionCollectionNode = "nodefiltercriterion_collectionnode";
             public const string NodeFilterGroupOwningCriterion = "nodefiltergroup_owningcriterion";
             public const string RuleActionNodeFilterGroup = "ruleaction_nodefiltergroup";
+            public const string RuleActionActionConditionGroup = "ruleaction_actionconditiongroup";
+            public const string ActionConditionGroupActionConditionGroup = "actionconditiongroup_actionconditiongroup";
+            public const string ActionConditionGroupActionConditionTest = "actionconditiongroup_actionconditiontest";
+            public const string ConditionGroupActionConditionTest = "conditiongroup_actionconditiontest";
         }
     }
 }

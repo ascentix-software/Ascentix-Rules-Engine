@@ -14,8 +14,8 @@ configuration in Dataverse.
 
 | Role | Tables | Privileges |
 |---|---|---|
-| **Rules Engine Author** | the 10 config tables (`asx_rule`, `asx_conditiongroup`, `asx_rulecondition`, `asx_tableconfig`, `asx_searchcriteriagroup`, `asx_searchcriterion`, `asx_nodefiltergroup`, `asx_nodefiltercriterion`, `asx_ruleaction`, `asx_localizedmessage`) | Create, Read, Write, Delete, Append, AppendTo |
-| **Rules Engine Reader** | the same 10 config tables | Read |
+| **Rules Engine Author** | the 12 config tables (`asx_rule`, `asx_conditiongroup`, `asx_rulecondition`, `asx_tableconfig`, `asx_searchcriteriagroup`, `asx_searchcriterion`, `asx_nodefiltergroup`, `asx_nodefiltercriterion`, `asx_ruleaction`, `asx_localizedmessage`, `asx_actionconditiongroup`, `asx_actionconditiontest`) | Create, Read, Write, Delete, Append, AppendTo |
+| **Rules Engine Reader** | the same 12 config tables | Read |
 
 Both roles are **additive**: Dataverse unions privileges across a user's
 roles, so assign either one on top of whatever roles a user already has. All

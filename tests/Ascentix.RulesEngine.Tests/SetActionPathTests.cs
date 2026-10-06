@@ -66,12 +66,12 @@ namespace Ascentix.RulesEngine.Tests
                     [Q(SchemaNames.RuleAction.Rule)] = Ref(SchemaNames.Rule.Entity, _rule),
                     [Q(SchemaNames.PrimaryName)] = "Stop bulk email",
                     [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.UpdateRecord),
-                    [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                     [Q(SchemaNames.RuleAction.TargetNode)] = Ref(SchemaNames.TableConfig.Entity, _contactsCfg),
                     [Q(SchemaNames.RuleAction.FieldMapping)] = "[{\"target\":\"donotbulkemail\",\"source\":\"literal\",\"value\":true}]",
                     [Q(SchemaNames.RuleAction.Order)] = 1,
                     [Q(SchemaNames.RuleAction.IsActive)] = true,
                 },
+                ActionTreeRows.AllTrue(update, group),
                 new Entity(Q(SchemaNames.NodeFilterGroup.Entity), filter)
                 {
                     [Q(SchemaNames.NodeFilterGroup.RuleAction)] = Ref(SchemaNames.RuleAction.Entity, update),
@@ -91,12 +91,13 @@ namespace Ascentix.RulesEngine.Tests
                 Contact(_inactive, "Cy", 1, false),
             };
             if (withCreatePerRow)
-                rows.Add(new Entity(Q(SchemaNames.RuleAction.Entity), Guid.NewGuid())
+            {
+                var create = Guid.NewGuid();
+                rows.Add(new Entity(Q(SchemaNames.RuleAction.Entity), create)
                 {
                     [Q(SchemaNames.RuleAction.Rule)] = Ref(SchemaNames.Rule.Entity, _rule),
                     [Q(SchemaNames.PrimaryName)] = "Follow up",
                     [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.CreateRecord),
-                    [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                     [Q(SchemaNames.RuleAction.TargetTable)] = "task",
                     [Q(SchemaNames.RuleAction.TargetNode)] = Ref(SchemaNames.TableConfig.Entity, _contactsCfg),
                     [Q(SchemaNames.RuleAction.FieldMapping)] =
@@ -105,6 +106,8 @@ namespace Ascentix.RulesEngine.Tests
                     [Q(SchemaNames.RuleAction.Order)] = 2,
                     [Q(SchemaNames.RuleAction.IsActive)] = true,
                 });
+                rows.AddRange(ActionTreeRows.AllTrue(create, group));
+            }
             return rows;
         }
 

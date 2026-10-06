@@ -130,6 +130,7 @@ namespace Ascentix.RulesEngine.Core.Loaders
             {
                 Id = e.Id,
                 RuleId = ruleId,
+                Name = e.GetAttributeValue<string>(SchemaNames.Qualify(SchemaNames.PrimaryName)),
                 ParentConditionGroupId = e.GetAttributeValue<EntityReference>(ConditionGroupParentField)?.Id,
                 LogicalOperator = (Ascentix.RulesEngine.Core.Models.LogicalOperator)e.GetAttributeValue<OptionSetValue>(ConditionGroupLogicalOpField).Value,
                 IsExecutionCondition = e.GetAttributeValue<bool>(ConditionGroupIsExecutionField),

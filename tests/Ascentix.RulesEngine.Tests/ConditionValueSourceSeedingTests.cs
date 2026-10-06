@@ -110,12 +110,11 @@ namespace Ascentix.RulesEngine.Tests
             if (condition.Contains(payloadField))
                 condition[payloadField] = ((string)condition[payloadField]).Replace("LOOKUPCFG", ids.lookupCfg.ToString());
 
-            // ShowMessage action (OnMatch): fires iff the condition matches, our observable.
+            // ShowMessage action that fires when the outcome is true (the one condition holds): our observable.
             var action = new Entity(Q(SchemaNames.RuleAction.Entity), ids.act)
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.ShowMessage),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                 [Q(SchemaNames.RuleAction.Message)] = "matched",
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
                 [Q(SchemaNames.RuleAction.Order)] = 1,
@@ -124,7 +123,7 @@ namespace Ascentix.RulesEngine.Tests
             var contact = new Entity("contact", contactId) { ["lastname"] = "Smith", ["anchordate"] = new DateTime(2020, 6, 1) };
             rootWithLookup["primarycontactid"] = new EntityReference("contact", contactId);
 
-            var seed = new List<Entity> { rootTableConfig, lookupTableConfig, rule, group, condition, action, contact };
+            var seed = new List<Entity> { rootTableConfig, lookupTableConfig, rule, group, condition, action, contact, ActionTreeRows.AllTrue(ids.act, ids.grp) };
             return (seed, contactId, rootWithLookup);
         }
 
@@ -174,7 +173,7 @@ namespace Ascentix.RulesEngine.Tests
             var outcome = Run(seed, root);
 
             // Without the seeding this throws "…not in the rule's config tree". With it: contact
-            // resolves, "Smith" Equals "Smith" → the OnMatch ShowMessage fires.
+            // resolves, "Smith" Equals "Smith" → the ShowMessage (fires when the outcome is true) fires.
             Assert.Contains(outcome.Records[0].FiredActions, a => a.ActionType == ActionType.ShowMessage);
         }
 

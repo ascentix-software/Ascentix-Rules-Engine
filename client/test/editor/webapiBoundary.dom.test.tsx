@@ -42,6 +42,15 @@ describe("createWebApiPort / resolveXrm boundary", () => {
       expect.objectContaining({ method: "POST", credentials: "same-origin", body: JSON.stringify({ RuleId: "rule-id" }) }));
     await expect(api.deleteRule!("rule-id")).rejects.toThrow("Delete denied");
   });
+  it("asks asx_RunRules for the outcome values in the Test run", async () => {
+    (window as any).Xrm = fakeXrm();
+    const request = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ IsValid: true, Results: "[]", Outcomes: "[]" }) }));
+    vi.stubGlobal("fetch", request);
+    const api = createWebApiPort();
+    await api.dryRun!("account", "record-id", "OnDemand");
+    expect(request).toHaveBeenCalledWith("https://dev.example/api/data/v9.2/asx_RunRules", expect.objectContaining({ method: "POST",
+      body: JSON.stringify({ TableName: "account", RecordId: "record-id", Triggers: "OnDemand", IncludeOutcomes: true }) }));
+  });
   it("resolves Xrm from window when present", () => {
     (window as any).Xrm = fakeXrm();
     const api = createWebApiPort();

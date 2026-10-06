@@ -1,4 +1,6 @@
-import type { ConditionNode, ActionNode, TableConfigRef, ConditionTypeLabel, ConditionGroupNode } from "../model/types";
+import type { ConditionNode, ActionNode, TableConfigRef, ConditionTypeLabel, ConditionGroupNode, FiresWhenGroup } from "../model/types";
+import { isAlways } from "../model/firesWhen";
+import { outcomeDisplayName } from "../model/outcomes";
 import { comparisonOperatorLabel } from "../model/enums";
 import type { OptionMeta } from "../metadata";
 
@@ -207,8 +209,28 @@ export function actionDetail(a: ActionNode, tcs: Record<string, TableConfigRef>)
 }
 
 const SEVERITY_WORD: Record<number, string> = { 1: "notice", 2: "warning", 3: "error" };
-export function actionWhatHappens(a: ActionNode): string {
-  const when = a.fireOn === 2 ? "When conditions do NOT match" : "When conditions match";
+/** The Fires when tree as one sentence: "When High Value AND (At Risk OR NOT Critical Case)". */
+export function firesWhenSummary(tree: FiresWhenGroup | null, outcomes: ConditionGroupNode[]): string {
+  if (!tree) return "Not set: this action never fires.";
+  if (isAlways(tree)) return "Always, when the rule runs";
+  const nameOf = (id: string | null) => {
+    const o = outcomes.find((x) => x.id === id);
+    return !o ? "(missing outcome)" : outcomeDisplayName(o.name);
+  };
+  const render = (g: FiresWhenGroup): string => {
+    if (g.tests.length === 0 && g.groups.length === 0) return "empty group";
+    const parts = [
+      ...g.tests.map((t) => `${t.expected ? "" : "NOT "}${nameOf(t.outcomeId)}`),
+      ...g.groups.map((c) => `(${render(c)})`),
+    ];
+    return parts.join(g.op === "any" ? " OR " : " AND ");
+  };
+  return `When ${render(tree)}`;
+}
+
+export function actionWhatHappens(a: ActionNode, outcomes: ConditionGroupNode[]): string {
+  if (!a.firesWhen) return firesWhenSummary(null, outcomes);
+  const when = firesWhenSummary(a.firesWhen, outcomes);
   switch (a.actionType) {
     case "Block":
       return `${when} → shows the message and prevents the save (server-enforced).`;

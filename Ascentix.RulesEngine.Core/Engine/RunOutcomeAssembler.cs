@@ -19,13 +19,14 @@ namespace Ascentix.RulesEngine.Core.Engine
             IList<RootInput> inputs,
             List<FiredActionResult>[] fired,
             List<Guid>[] gated,
+            List<OutcomeResult>[] outcomes,
             RunDiagnostics diag,
             long totalMs,
             ITracingService trace)
         {
             var records = new List<RecordEvaluationResult>();
             for (var i = 0; i < inputs.Count; i++)
-                records.Add(new RecordEvaluationResult { RecordId = inputs[i].Id, FiredActions = fired[i], GatedRuleIds = gated[i] });
+                records.Add(new RecordEvaluationResult { RecordId = inputs[i].Id, FiredActions = fired[i], GatedRuleIds = gated[i], Outcomes = outcomes[i] });
 
             diag.RulesFired = records.SelectMany(r => r.FiredActions).Select(a => a.RuleId).Distinct().Count();
             diag.TotalMs = totalMs;

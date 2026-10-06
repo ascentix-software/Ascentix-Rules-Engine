@@ -70,6 +70,19 @@ describe("IssueCallout", () => {
     expect(screen.getByText("Validation issues")).toBeInTheDocument();
   });
 
+  it("uses the danger intent when any issue is an error, and the warning intent for warnings only", () => {
+    const warning = { ...issue, code: "W1", message: "Just a warning", severity: "Warning" } as ApiIssue;
+    const titleColor = () => screen.getByText("Validation issues").style.color;
+
+    const mixed = renderWithFluent(<IssueCallout issues={[warning, issue]} />);
+    expect(titleColor()).toBe("rgb(200, 55, 45)"); // color.danger
+    mixed.unmount();
+
+    renderWithFluent(<IssueCallout issues={[warning]} />);
+    expect(titleColor()).toBe("rgb(138, 90, 0)"); // color.warnInk
+    expect(screen.getByRole("alert")).toHaveTextContent("Just a warning");
+  });
+
   it("renders nothing for an empty list", () => {
     const { container } = renderWithFluent(<IssueCallout issues={[]} />);
     expect(container.firstChild?.firstChild ?? null).toBeNull();

@@ -21,7 +21,7 @@ namespace Ascentix.RulesEngine.Tests
             var action = new Entity(Q(SchemaNames.RuleAction.Entity), Guid.NewGuid())
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
-                // asx_actiontype and asx_actionfireon deliberately omitted (null)
+                // asx_actiontype deliberately omitted (null), and no "Fires when" tree
                 [Q(SchemaNames.RuleAction.Order)] = 1,
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
             };
@@ -33,7 +33,7 @@ namespace Ascentix.RulesEngine.Tests
 
             var mapped = byRule[ruleId].Single();
             Assert.Equal(0, (int)mapped.ActionType);
-            Assert.Equal(0, (int)mapped.FireOn);
+            Assert.Null(mapped.Condition);
         }
     }
 }

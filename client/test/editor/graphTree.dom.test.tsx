@@ -13,7 +13,7 @@ function handlers(over: Partial<GraphTreeHandlers> = {}): GraphTreeHandlers {
   return {
     onSelect: vi.fn(), onAddGroup: vi.fn(), onDeleteGroup: vi.fn(),
     onAddCondition: vi.fn(), onDeleteCondition: vi.fn(), onAddAction: vi.fn(),
-    onDeleteAction: vi.fn(), onMoveAction: vi.fn(), ...over,
+    onDeleteAction: vi.fn(), onMoveAction: vi.fn(), onAddOutcome: vi.fn(), ...over,
   };
 }
 
@@ -88,5 +88,67 @@ describe("GraphTree action effect badge", () => {
     const badge = screen.getByText("Blocks save");
     expect(badge.style.backgroundColor).toBe("rgb(253, 238, 239)"); // color.dangerTint
     expect(badge.style.color).toBe("rgb(200, 55, 45)"); // color.danger
+  });
+});
+
+describe("GraphTree outcomes zone", () => {
+  const outcome = (over = {}) => makeGroup({ id: "o1", name: "High value", isExecutionCondition: false, ...over });
+
+  it("titles the validation band WHEN · Outcomes", () => {
+    renderWithFluent(<GraphTree graph={makeGraph()} selection={null} handlers={handlers()} />);
+    expect(screen.getByText("WHEN · Outcomes")).toBeInTheDocument();
+    expect(screen.queryByText("WHEN · Validation conditions")).toBeNull();
+  });
+
+  it("labels a top-level validation group as an outcome", () => {
+    const h = handlers();
+    renderWithFluent(<GraphTree graph={makeGraph({ validationGroups: [outcome()] })} selection={null} handlers={h} />);
+    expect(screen.getByText("Outcome · High value")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit outcome High value" }));
+    expect(h.onSelect).toHaveBeenCalledWith({ kind: "group", id: "o1" });
+  });
+
+  it("labels an unnamed outcome Outcome · (unnamed)", () => {
+    renderWithFluent(<GraphTree graph={makeGraph({ validationGroups: [outcome({ name: "" })] })} selection={null} handlers={handlers()} />);
+    expect(screen.getByText("Outcome · (unnamed)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit outcome (unnamed)" })).toBeInTheDocument();
+  });
+
+  it("keeps a nested group inside an outcome labelled as a group", () => {
+    const nested = makeGroup({ id: "n1", name: "Nested", parentGroupId: "o1", isExecutionCondition: false });
+    renderWithFluent(<GraphTree graph={makeGraph({ validationGroups: [outcome({ groups: [nested] })] })} selection={null} handlers={handlers()} />);
+    expect(screen.getByRole("button", { name: "Edit group Nested" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit outcome Nested" })).toBeNull();
+  });
+
+  it("+ Add outcome calls the add-outcome handler, from the band header and the empty state", () => {
+    const h = handlers();
+    renderWithFluent(<GraphTree graph={makeGraph()} selection={null} handlers={h} />);
+    const buttons = screen.getAllByRole("button", { name: "+ Add outcome" });
+    expect(buttons).toHaveLength(2);
+    buttons.forEach((b) => fireEvent.click(b));
+    expect(h.onAddOutcome).toHaveBeenCalledTimes(2);
+    expect(h.onAddGroup).not.toHaveBeenCalledWith("validation", null);
+  });
+
+  it("shows each action's Fires when summary under its verb", () => {
+    const graph = makeGraph({
+      validationGroups: [outcome(), outcome({ id: "o2", name: "At risk" }), outcome({ id: "o3", name: "Critical case" })],
+      actions: [makeAction({ id: "a1", firesWhen: {
+        id: "root", op: "all", tests: [{ id: "t1", outcomeId: "o1", expected: true }],
+        groups: [{ id: "g", op: "any", tests: [
+          { id: "t2", outcomeId: "o2", expected: true }, { id: "t3", outcomeId: "o3", expected: true },
+        ], groups: [] }],
+      } })],
+    });
+    renderWithFluent(<GraphTree graph={graph} selection={null} handlers={handlers()} />);
+    expect(screen.getByText("When High value AND (At risk OR Critical case)")).toBeInTheDocument();
+  });
+
+  it("shows Always and Not set summaries on action rows", () => {
+    const graph = makeGraph({ actions: [makeAction({ id: "a1" }), makeAction({ id: "a2", firesWhen: null })] });
+    renderWithFluent(<GraphTree graph={graph} selection={null} handlers={handlers()} />);
+    expect(screen.getByText("Always, when the rule runs")).toBeInTheDocument();
+    expect(screen.getByText("Not set: this action never fires.")).toBeInTheDocument();
   });
 });

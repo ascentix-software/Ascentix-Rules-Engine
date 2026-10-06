@@ -23,7 +23,7 @@ function handlers(over: Partial<GraphTreeHandlers> = {}): GraphTreeHandlers {
   return {
     onSelect: vi.fn(), onAddGroup: vi.fn(), onDeleteGroup: vi.fn(),
     onAddCondition: vi.fn(), onDeleteCondition: vi.fn(), onAddAction: vi.fn(),
-    onDeleteAction: vi.fn(), onMoveAction: vi.fn(), ...over,
+    onDeleteAction: vi.fn(), onMoveAction: vi.fn(), onAddOutcome: vi.fn(), ...over,
   };
 }
 

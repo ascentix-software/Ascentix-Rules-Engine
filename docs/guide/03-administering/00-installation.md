@@ -58,7 +58,7 @@ on each target table (*Evaluation Context*).
    configurations tabs, both empty, without errors.
 4. **Author a test rule:** in the hub, create a rule on any test table with
    a new configuration; add one condition that a test record will violate
-   and a **Block** action (fire on **On No Match**) with a recognizable
+   and a **Block** action that fires when the outcome is false, with a recognizable
    message; triggers **On Create**.
 5. **Validate & publish:** Validate shows no errors; Publish succeeds.
 6. **Enforcement is live:** create a violating record → the save is blocked
@@ -85,6 +85,43 @@ without testing in a sandbox first.
 If the release carries a *data update*, the Rule Builder shows a banner after the
 import; a System Administrator or System Customizer applies it from there (see
 *Data Updates*).
+
+### Upgrading to outcomes and "Fires when"
+
+This release replaces each action's **On match / On no match** setting with **outcomes** (the
+named top-level validation groups of a rule) and a **Fires when** condition on each action. The
+upgraded engine no longer reads On match / On no match, so a one-time script converts your
+existing rules. Until it has run, actions on rules published before the upgrade do not fire:
+nothing is blocked wrongly, but nothing fires either. The script is
+[`migrations/2026-10-multi-outcome/README.md`](../../../migrations/2026-10-multi-outcome/README.md).
+
+Before you import the new version:
+
+1. Run the script with `-WhatIf` (it writes nothing) to see what it would change.
+2. Every rule that has ever been published from the Rule Builder keeps a working draft. The script
+   republishes enforcing rules from their drafts, so it first checks each draft and lists, under
+   **Drafts with edits since the last publish** (the first list of its summary), only the drafts
+   changed since their last publish. Open each listed rule and **Publish** or **Discard** its
+   changes.
+
+After you import it, sign in as a System Administrator or System Customizer and run
+`Convert-RulesToOutcomes.ps1` straight away. It names each outcome, builds each action's Fires
+when condition, and republishes the rules that are currently enforcing. It skips any enforcing
+rule whose draft has edits since the last publish, writes nothing to it, and lists it under
+**Drafts with edits since the last publish (skipped: publish or discard them, then re-run)**. The
+actions of a skipped rule do not fire until its draft is published or discarded and the script is
+run again (or run with `-PublishDraftEdits`), so deal with this list straight away. For
+each listed rule, open it and Discard the draft changes, or Publish them (the upgraded Rule
+Builder first asks you to choose when each of its actions fires), then run the script again. Or,
+once you have checked them, run it again with `-PublishDraftEdits` to convert and publish those
+rules with their changes. A rule published before published versions were kept has nothing to
+compare its draft with: it is converted and published as it is, and listed under **Drafts not
+checked (no published version to compare): review them by hand**. It is safe to run again if a
+run is interrupted. The retired
+`asx_fireon` column stays in the solution for this release and is removed in the next one.
+
+The `asx_RunRules` and `asx_ReadRules` results no longer include `fireOn` on each action. This is
+a breaking change for any caller that reads it.
 
 ## Uninstalling
 

@@ -1,8 +1,9 @@
 import * as React from "react";
 import { Button, Dialog, DialogSurface, DialogBody, DialogTitle, DialogContent, DialogActions, Textarea } from "@fluentui/react-components";
-import type { RuleGraph } from "../model/types";
+import type { FiresWhenGroup, RuleGraph } from "../model/types";
 import { diffRuleGraph } from "../save/diff";
 import { ENTITY } from "../load/odata";
+import { outcomeDisplayName } from "../model/outcomes";
 
 export function describeChanges(snapshot: RuleGraph, working: RuleGraph): string {
   const names: Record<string, string> = { [working.rule.id]: working.rule.name };
@@ -12,9 +13,22 @@ export function describeChanges(snapshot: RuleGraph, working: RuleGraph): string
     Object.values(value).forEach(collect);
   };
   collect(snapshot); collect(working);
+  // Fires when rows have no name: a test is titled by the outcome it tests, when that outcome is known.
+  const nameTests = (graph: RuleGraph) => {
+    const walk = (g: FiresWhenGroup) => {
+      for (const t of g.tests) {
+        const o = graph.validationGroups.find((v) => v.id === t.outcomeId);
+        if (o) names[t.id] = outcomeDisplayName(o.name);
+      }
+      g.groups.forEach(walk);
+    };
+    graph.actions.forEach((a) => { if (a.firesWhen) walk(a.firesWhen); });
+  };
+  nameTests(snapshot); nameTests(working);
   const labels: Record<string, string> = {
     [ENTITY.rule]: "Rule", [ENTITY.group]: "Group", [ENTITY.condition]: "Condition",
     [ENTITY.action]: "Action", [ENTITY.localizedMessage]: "Translation",
+    [ENTITY.actionConditionGroup]: "Fires when group", [ENTITY.actionConditionTest]: "Fires when test",
   };
   return diffRuleGraph(snapshot, working).map((op) => {
     const id = op.kind === "create" ? op.tempId : op.id;

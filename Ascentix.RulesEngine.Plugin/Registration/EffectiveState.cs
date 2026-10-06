@@ -140,7 +140,6 @@ namespace Ascentix.RulesEngine.Plugin.Registration
             Id = a.Id,
             RuleId = a.RuleId,
             ActionType = a.ActionType,
-            FireOn = a.FireOn,
             TargetColumn = a.TargetColumn,
             ValueBool = a.ValueBool,
             ApplyInverseWhenNotFired = a.ApplyInverseWhenNotFired,
@@ -156,6 +155,7 @@ namespace Ascentix.RulesEngine.Plugin.Registration
             Name = a.Name,
             // Read-only here: shared, not deep-copied (nothing on this path mutates a filter).
             RowFilter = a.RowFilter,
+            Condition = a.Condition,
         };
     }
 }

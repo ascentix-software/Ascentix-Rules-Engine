@@ -16,8 +16,8 @@ namespace Ascentix.RulesEngine.Tests
     {
         private static string Q(string f) => SchemaNames.Qualify(f);
 
-        // account.name is not null → Update Record (root) sets description = "applied" (OnMatch);
-        // Block "Needs a name" (OnNoMatch); published, tagged OnDemand.
+        // account.name is not null → Update Record (root) sets description = "applied" (fires when the outcome is true);
+        // Block "Needs a name" (fires when the outcome is false); published, tagged OnDemand.
         private static (List<Entity> Seed, Guid RuleId) Seed(OptionSetValue onDemandScope = null,
             RuleEvaluationContext? evaluationContext = null, RuleStatus status = RuleStatus.Published)
         {
@@ -58,7 +58,6 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.UpdateRecord),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                 [Q(SchemaNames.RuleAction.TargetNode)] = new EntityReference(Q(SchemaNames.TableConfig.Entity), ids.cfg),
                 [Q(SchemaNames.RuleAction.FieldMapping)] = "[{\"target\":\"description\",\"source\":\"literal\",\"value\":\"applied\"}]",
                 [Q(SchemaNames.RuleAction.Order)] = 1,
@@ -68,12 +67,12 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.Block),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                 [Q(SchemaNames.RuleAction.Message)] = "Needs a name",
                 [Q(SchemaNames.RuleAction.Order)] = 2,
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
             };
-            return (new List<Entity> { tableConfig, rule, group, condition, updateAction, blockAction }, ids.rule);
+            return (new List<Entity> { tableConfig, rule, group, condition, updateAction, blockAction,
+                ActionTreeRows.AllTrue(ids.updateAct, ids.grp), ActionTreeRows.AnyFalse(ids.blockAct, ids.grp) }, ids.rule);
         }
 
         private static XrmFakedPluginExecutionContext ApiContext(ParameterCollection input)

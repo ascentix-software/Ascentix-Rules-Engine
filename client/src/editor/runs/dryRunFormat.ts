@@ -2,11 +2,13 @@
 // A create's targetId is always null: the engine never reports the id it assigns internally.
 export interface DryRunWrite { operation: string; targetTable: string | null; targetId: string | null; values?: Record<string, unknown>; }
 export interface DryRunAction {
-  ruleId: string; actionType: string; fireOn: string; message: string | null; targetTable: string | null;
+  ruleId: string; actionType: string; message: string | null; targetTable: string | null;
   write?: DryRunWrite; writes?: DryRunWrite[]; writeCount?: number; unchangedCount?: number; previousOf?: string;
 }
 export interface ChangeSetSummary { creates: number; updates: number; deletes: number; unchanged: number; }
-export interface DryRunResult { isValid: boolean; actions: DryRunAction[]; changeSet: ChangeSetSummary | null; }
+/** One outcome's value for the tested record (the server also sends recordId and outcomeId). */
+export interface DryRunOutcome { ruleId: string; name: string | null; value: boolean; }
+export interface DryRunResult { isValid: boolean; actions: DryRunAction[]; changeSet: ChangeSetSummary | null; outcomes: DryRunOutcome[]; }
 
 const TRIGGER_NAMES: Record<number, string> = { 1: "OnCreate", 2: "OnForm", 3: "OnDemand", 4: "OnUpdate", 5: "OnDelete" };
 /** asx_rule trigger value → the name asx_RunRules' Triggers parameter takes. */
@@ -39,11 +41,12 @@ export function summarizeChangeSet(cs: ChangeSetSummary): string {
   return `Change set: ${n(cs.creates, "create")}, ${n(cs.updates, "update")}, ${n(cs.deletes, "delete")} · ${cs.unchanged} unchanged`;
 }
 
-export function parseDryRun(raw: { IsValid?: boolean; Results?: string; ChangeSet?: string } | null | undefined): DryRunResult {
+export function parseDryRun(raw: { IsValid?: boolean; Results?: string; ChangeSet?: string; Outcomes?: string } | null | undefined): DryRunResult {
   if (raw == null || raw.Results == null) throw new Error("asx_RunRules returned no Results payload");
   return {
     isValid: raw.IsValid ?? true,
     actions: JSON.parse(raw.Results) as DryRunAction[],
     changeSet: raw.ChangeSet ? (JSON.parse(raw.ChangeSet) as ChangeSetSummary) : null,
+    outcomes: raw.Outcomes ? (JSON.parse(raw.Outcomes) as DryRunOutcome[]) : [],
   };
 }

@@ -2,16 +2,17 @@ import { test, expect } from "@playwright/test";
 import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
-import { resolveAppId, createRuleFixture, deleteRuleCascade } from "./devHelpers";
+import { resolveAppId, createRuleFixture, deleteRuleCascade, readFiresWhen, outcomesOf } from "./devHelpers";
 import { openRuleFromHub, toolbar } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The THEN band's own row controls, driven in a real browser: Move up / Move down (which rewrite
-// asx_order for the whole list), Delete action, the Active switch, Fire on, and Severity. Those
+// asx_order for the whole list), Delete action, the Active switch, Fires when, and Severity. Those
 // are exactly the fields that decide whether a published rule fires and how hard, so a silent
 // regression there is a shipped enforcement bug. The second test authors an action translation
-// through the Translations dropdown. Oracle: the persisted asx_order / asx_fireon / asx_severity
-// / asx_isactive, and the asx_localizedmessage child row, on the records the UI wrote.
+// through the Translations dropdown. Oracle: the persisted asx_order / asx_severity
+// / asx_isactive, the action's Fires when tree (asx_actionconditiongroup / asx_actionconditiontest),
+// and the asx_localizedmessage child row, on the records the UI wrote.
 
 test.beforeAll(async () => {
   test.setTimeout(180_000); // the sweep runs long after a red run leaves orphans behind
@@ -24,20 +25,24 @@ const actionsOf = async (ruleId: string) => {
   const r = await api.retrieveMultipleRecords(
     ENTITY_SET.action,
     `?$filter=${LOOKUP.ruleOfAction} eq ${ruleId}` +
-    `&$select=asx_name,asx_order,asx_actiontype,asx_fireon,asx_severity,asx_isactive,asx_message` +
+    `&$select=asx_name,asx_order,asx_ruleactionid,asx_actiontype,asx_severity,asx_isactive,asx_message` +
     `&$orderby=asx_order asc`,
   );
   return r.entities as Record<string, unknown>[];
 };
 
-test("action row controls: severity, fire-on, Active off, reorder and delete all persist", async ({ page }) => {
+test("action row controls: severity, Fires when, Active off, reorder and delete all persist", async ({ page }) => {
   const appId = await resolveAppId();
   // Bare rule (no action): the UI authors both actions from scratch.
   const fixture = await createRuleFixture({ namePrefix: "ZZ_RB_actui", withAction: false, validate: false });
   try {
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
 
-    // --- Action 1: ShowMessage (the reducer default), Warning, OnNoMatch --------------------
+    // The fixture is bare, so the rule has no outcome yet: add one for the action to test. The
+    // band's header button and its empty-state call to action share the name, hence first().
+    await frame.getByRole("button", { name: "+ Add outcome" }).first().click();
+
+    // --- Action 1: ShowMessage (the reducer default), Warning, fires when the outcome is false
     await frame.getByRole("button", { name: "+ Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     await frame.getByRole("textbox", { name: "Show-message message" }).fill("ZZ_RB first action");
@@ -46,9 +51,10 @@ test("action row controls: severity, fire-on, Active off, reorder and delete all
     await severity.click();
     await frame.getByRole("option", { name: CHOICE.severity.warning, exact: true }).click();
 
-    const fireOn = frame.getByRole("combobox", { name: "Fire on" });
-    await fireOn.click();
-    await frame.getByRole("option", { name: CHOICE.fireOn.onNoMatch, exact: true }).click();
+    // A new action fires Always; narrow it to "Outcome 1 is false" (the old On No Match).
+    await frame.getByRole("button", { name: "+ Add test" }).click();
+    await frame.getByRole("combobox", { name: "Result" }).click();
+    await frame.getByRole("option", { name: "is false", exact: true }).click();
 
     // --- Action 2: Block, and deactivated ---------------------------------------------------
     await frame.getByRole("button", { name: "+ Action" }).click();
@@ -67,9 +73,24 @@ test("action row controls: severity, fire-on, Active off, reorder and delete all
     expect(rows.length).toBe(2);
     expect(rows[0].asx_actiontype).toBe(3); // ShowMessage
     expect(rows[0].asx_severity).toBe(2);   // Warning
-    expect(rows[0].asx_fireon).toBe(2);     // OnNoMatch
     expect(rows[1].asx_actiontype).toBe(4); // Block
     expect(rows[1].asx_isactive).toBe(false);
+
+    // Fires when: action 1 is a root ALL holding one test, "the outcome is false"; action 2 was
+    // never narrowed, so it is an empty root ALL (Always).
+    const [outcome] = await outcomesOf(fixture.ruleId);
+    expect(outcome, "the editor persisted no outcome").toBeTruthy();
+    const tree1 = await readFiresWhen(String(rows[0].asx_ruleactionid));
+    expect(tree1.groups.length).toBe(1);
+    expect(tree1.groups[0].op).toBe(1);            // ALL
+    expect(tree1.groups[0].parentId).toBeNull();
+    expect(tree1.tests.length).toBe(1);
+    expect(tree1.tests[0].outcomeId).toBe(outcome.id);
+    expect(tree1.tests[0].expected).toBe(false);   // is false
+    const tree2 = await readFiresWhen(String(rows[1].asx_ruleactionid));
+    expect(tree2.groups.length).toBe(1);
+    expect(tree2.groups[0].op).toBe(1);            // ALL
+    expect(tree2.tests).toEqual([]);               // Always
     const [firstName, secondName] = rows.map((r) => String(r.asx_name));
 
     // --- Reorder: promote action 2 ----------------------------------------------------------

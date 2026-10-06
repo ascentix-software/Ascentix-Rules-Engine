@@ -26,7 +26,7 @@ describe("createApi", () => {
   it("runRules issues an Action request and parses results", async () => {
     const exec = executeReturning({
       IsValid: false, FailedRuleCount: 1,
-      Results: JSON.stringify([{ ruleId: "r1", actionType: "Block", fireOn: "OnNoMatch",
+      Results: JSON.stringify([{ ruleId: "r1", actionType: "Block",
         targetColumn: null, value: null, message: "No", severity: "Error", targetTable: null }]),
     });
     const api = createApi(exec);

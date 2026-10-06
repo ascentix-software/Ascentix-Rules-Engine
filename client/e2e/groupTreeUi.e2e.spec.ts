@@ -46,13 +46,14 @@ test("validation band, Or operator, and a nested subgroup all persist", async ({
   try {
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
 
-    // Both bands render an "+ Add group" button; execution is band 1, validation band 2.
-    // nth(1) targets the VALIDATION band: its rows must persist asx_isexecutioncondition false.
-    await frame.getByRole("button", { name: "+ Add group" }).nth(1).click();
+    // The validation band is the Outcomes band ("+ Add outcome"): a top-level group in it is an
+    // outcome, and its rows must persist asx_isexecutioncondition false.
+    await frame.getByRole("button", { name: "+ Add outcome" }).first().click();
 
-    // The new group is auto-selected? Not necessarily. Open it explicitly.
-    await frame.getByRole("button", { name: /^Edit group/ }).click();
-    await frame.getByRole("textbox", { name: "Group name" }).fill("ZZ_RB_grpui_outer");
+    // The new outcome is auto-selected? Not necessarily. Open it explicitly: a top-level validation
+    // group reads "Edit outcome <name>" and its name field is "Outcome name".
+    await frame.getByRole("button", { name: /^Edit outcome/ }).click();
+    await frame.getByRole("textbox", { name: "Outcome name" }).fill("ZZ_RB_grpui_outer");
 
     const op = frame.getByRole("combobox", { name: "Logical operator" });
     await op.click();

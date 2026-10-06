@@ -28,6 +28,7 @@ namespace Ascentix.RulesEngine.Tests
         private List<Entity> Rule(string table, string nameColumn, Guid targetCfg, string mapping)
         {
             var group = Guid.NewGuid();
+            var action = Guid.NewGuid();
             return new List<Entity>
             {
                 new Entity(Q(SchemaNames.TableConfig.Entity), _rootCfg)
@@ -55,17 +56,17 @@ namespace Ascentix.RulesEngine.Tests
                     [Q(SchemaNames.RuleCondition.ComparisonColumn)] = nameColumn,
                     [Q(SchemaNames.RuleCondition.ComparisonOperator)] = new OptionSetValue((int)ComparisonOperator.IsNotNull),
                 },
-                new Entity(Q(SchemaNames.RuleAction.Entity), Guid.NewGuid())
+                new Entity(Q(SchemaNames.RuleAction.Entity), action)
                 {
                     [Q(SchemaNames.RuleAction.Rule)] = Ref(SchemaNames.Rule.Entity, _rule),
                     [Q(SchemaNames.PrimaryName)] = "Stamp",
                     [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.UpdateRecord),
-                    [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                     [Q(SchemaNames.RuleAction.TargetNode)] = Ref(SchemaNames.TableConfig.Entity, targetCfg),
                     [Q(SchemaNames.RuleAction.FieldMapping)] = mapping,
                     [Q(SchemaNames.RuleAction.Order)] = 1,
                     [Q(SchemaNames.RuleAction.IsActive)] = true,
                 },
+                ActionTreeRows.AllTrue(action, group),
             };
         }
 

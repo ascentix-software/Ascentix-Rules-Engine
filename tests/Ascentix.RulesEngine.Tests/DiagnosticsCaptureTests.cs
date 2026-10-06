@@ -54,7 +54,7 @@ namespace Ascentix.RulesEngine.Tests
         // account.name must equal "Valid", else Block (OnCreate).
         private static List<Entity> BlockRule()
         {
-            var ids = (rule: Guid.NewGuid(), cfg: Guid.NewGuid(), grp: Guid.NewGuid());
+            var ids = (rule: Guid.NewGuid(), cfg: Guid.NewGuid(), grp: Guid.NewGuid(), act: Guid.NewGuid());
             return new List<Entity>
             {
                 new Entity(Q(SchemaNames.TableConfig.Entity), ids.cfg)
@@ -84,15 +84,15 @@ namespace Ascentix.RulesEngine.Tests
                     [Q(SchemaNames.RuleCondition.ComparisonOperator)] = new OptionSetValue((int)ComparisonOperator.Equals),
                     [Q(SchemaNames.RuleCondition.ComparisonValue)] = "Valid",
                 },
-                new Entity(Q(SchemaNames.RuleAction.Entity), Guid.NewGuid())
+                new Entity(Q(SchemaNames.RuleAction.Entity), ids.act)
                 {
                     [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                     [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.Block),
-                    [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                     [Q(SchemaNames.RuleAction.Message)] = "Name must be Valid.",
                     [Q(SchemaNames.RuleAction.Order)] = 1,
                     [Q(SchemaNames.RuleAction.IsActive)] = true,
                 },
+                ActionTreeRows.AnyFalse(ids.act, ids.grp),
             };
         }
 

@@ -13,7 +13,7 @@ namespace Ascentix.RulesEngine.Tests
     {
         private static string Q(string f) => SchemaNames.Qualify(f);
 
-        // account rule tagged with `trigger`; one root FieldComparison (name == "Valid"); Block OnNoMatch.
+        // account rule tagged with `trigger`; one root FieldComparison (name == "Valid"); Block that fires when the outcome is false.
         private static List<Entity> Seed(RuleTrigger trigger)
         {
             var ids = (rule: Guid.NewGuid(), cfg: Guid.NewGuid(), grp: Guid.NewGuid(),
@@ -50,12 +50,11 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.Block),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                 [Q(SchemaNames.RuleAction.Message)] = "Name must be Valid.",
                 [Q(SchemaNames.RuleAction.Order)] = 1,
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
             };
-            return new List<Entity> { tableConfig, rule, group, condition, action };
+            return new List<Entity> { tableConfig, rule, group, condition, action, ActionTreeRows.AnyFalse(ids.act, ids.grp) };
         }
 
         private static XrmFakedPluginExecutionContext ApiContext(ParameterCollection input)

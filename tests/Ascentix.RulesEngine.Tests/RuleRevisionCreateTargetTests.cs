@@ -18,15 +18,21 @@ namespace Ascentix.RulesEngine.Tests
     // registered exactly as before.
     public partial class RuleRevisionTests
     {
-        private static Entity CreateAction(Guid rule, Guid? targetNode, string mapping) =>
-            new Entity("asx_ruleaction", Guid.NewGuid())
+        // A Create that fires when the rule's one outcome (Rule's group, rows[1]) is false; its tree rows follow it.
+        private static List<Entity> CreateAction(List<Entity> rule, Guid? targetNode, string mapping)
+        {
+            var action = new Entity("asx_ruleaction", Guid.NewGuid())
             {
-                ["asx_rule"] = new EntityReference("asx_rule", rule),
-                ["asx_actiontype"] = new OptionSetValue((int)ActionType.CreateRecord), ["asx_fireon"] = new OptionSetValue(2),
+                ["asx_rule"] = new EntityReference("asx_rule", rule[0].Id),
+                ["asx_actiontype"] = new OptionSetValue((int)ActionType.CreateRecord),
                 ["asx_order"] = 2, ["asx_isactive"] = true, ["asx_targettable"] = "task",
                 ["asx_targetnode"] = targetNode.HasValue ? new EntityReference("asx_tableconfig", targetNode.Value) : null,
                 ["asx_fieldmapping"] = mapping,
             };
+            var rows = new List<Entity> { action };
+            rows.AddRange(ActionTreeRows.AnyFalse(action.Id, rule[1].Id));
+            return rows;
+        }
 
         // The write resolver coerces mapped values by the created table's column types.
         private static void TaskMetadata(TransactionalPluginContext context)
@@ -46,7 +52,7 @@ namespace Ascentix.RulesEngine.Tests
             rows.Add(new Entity("asx_tableconfig", owner) { ["asx_tablelogicalname"] = "systemuser", ["asx_tableconfigtype"] = new OptionSetValue(2),
                 ["asx_parenttable"] = new EntityReference("asx_tableconfig", Model), ["asx_lookupcolumnlogicalname"] = "ownerid",
                 ["asx_lookuptargetidattribute"] = "systemuserid" });
-            rows.Add(CreateAction(id, owner, "[{\"target\":\"subject\",\"source\":\"literal\",\"value\":\"Follow up\"}]"));
+            rows.AddRange(CreateAction(rows, owner, "[{\"target\":\"subject\",\"source\":\"literal\",\"value\":\"Follow up\"}]"));
             var context = Context(rows); var service = context.GetOrganizationService();
             Freeze(service, id);
             TaskMetadata(context);
@@ -68,7 +74,7 @@ namespace Ascentix.RulesEngine.Tests
             var id = Guid.NewGuid(); var rows = Rule(id); var contacts = Guid.NewGuid(); var account = Guid.NewGuid();
             rows.Add(new Entity("asx_tableconfig", contacts) { ["asx_tablelogicalname"] = "contact", ["asx_tableconfigtype"] = new OptionSetValue(3),
                 ["asx_parenttable"] = new EntityReference("asx_tableconfig", Model), ["asx_childlinkfield"] = "parentcustomerid" });
-            rows.Add(CreateAction(id, contacts, "[{\"target\":\"subject\",\"source\":\"literal\",\"value\":\"Follow up\"}]"));
+            rows.AddRange(CreateAction(rows, contacts, "[{\"target\":\"subject\",\"source\":\"literal\",\"value\":\"Follow up\"}]"));
             foreach (var name in new[] { "Ann", "Bob" })
                 rows.Add(new Entity("contact", Guid.NewGuid()) { ["fullname"] = name, ["parentcustomerid"] = new EntityReference("account", account) });
             var context = Context(rows); var service = context.GetOrganizationService();

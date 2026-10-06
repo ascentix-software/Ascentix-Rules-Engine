@@ -42,7 +42,6 @@ namespace Ascentix.RulesEngine.Tests
             var action = new Entity(Q(SchemaNames.RuleAction.Entity), Guid.NewGuid());
             action[Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId);
             action[Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue(7); // DeleteRecord
-            action[Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue(1);
             action[Q(SchemaNames.RuleAction.TargetNode)] =
                 new EntityReference(Q(SchemaNames.TableConfig.Entity), nodeId);
 

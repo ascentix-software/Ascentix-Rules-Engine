@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Plugin;
 using Ascentix.RulesEngine.Schema;
@@ -13,7 +14,7 @@ namespace Ascentix.RulesEngine.Tests
     {
         private static string Q(string f) => SchemaNames.Qualify(f);
 
-        // account.name must equal "Valid"; Block OnNoMatch; tagged OnDemand.
+        // account.name must equal "Valid"; Block that fires when the outcome is false; tagged OnDemand.
         private static List<Entity> Seed()
         {
             var ids = (rule: Guid.NewGuid(), cfg: Guid.NewGuid(), grp: Guid.NewGuid(),
@@ -32,6 +33,7 @@ namespace Ascentix.RulesEngine.Tests
             };
             var group = new Entity(Q(SchemaNames.ConditionGroup.Entity), ids.grp)
             {
+                [Q(SchemaNames.PrimaryName)] = "Name is Valid",
                 [Q(SchemaNames.ConditionGroup.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.ConditionGroup.LogicalOperator)] = new OptionSetValue((int)LogicalOperator.And),
                 [Q(SchemaNames.ConditionGroup.IsExecutionCondition)] = false,
@@ -49,12 +51,11 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.Block),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                 [Q(SchemaNames.RuleAction.Message)] = "Name must be Valid.",
                 [Q(SchemaNames.RuleAction.Order)] = 1,
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
             };
-            return new List<Entity> { tableConfig, rule, group, condition, action };
+            return new List<Entity> { tableConfig, rule, group, condition, action, ActionTreeRows.AnyFalse(ids.act, ids.grp) };
         }
 
         private static XrmFakedPluginExecutionContext ApiContext(ParameterCollection input)
@@ -87,6 +88,62 @@ namespace Ascentix.RulesEngine.Tests
             Assert.False((bool)pctx.OutputParameters["IsValid"]);
             Assert.Equal(1, (int)pctx.OutputParameters["FailedRuleCount"]);
             Assert.Contains("Name must be Valid.", (string)pctx.OutputParameters["Results"]);
+        }
+
+        [Fact]
+        public void Reports_each_outcome_in_its_own_output_and_leaves_Results_unchanged()
+        {
+            var seed = Seed();
+            var ruleId = seed.Single(e => e.LogicalName == Q(SchemaNames.Rule.Entity)).Id;
+            var groupId = seed.Single(e => e.LogicalName == Q(SchemaNames.ConditionGroup.Entity)).Id;
+            var recordId = Guid.NewGuid();
+            seed.Add(new Entity("account", recordId) { ["name"] = "Invalid" });
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(seed);
+            var input = new ParameterCollection
+            {
+                { "TableName", "account" },
+                { "RecordId", recordId.ToString() },
+                { "IncludeOutcomes", true },
+            };
+
+            var pctx = ApiContext(input);
+            ctx.ExecutePluginWith<RunRulesApi>(pctx);
+
+            // Results keeps its exact shape: one fired Block, nothing about outcomes.
+            Assert.Equal(
+                $"[{{\"ruleId\":\"{ruleId}\",\"actionType\":\"Block\",\"targetColumn\":null,\"value\":null,\"message\":\"Name must be Valid.\",\"severity\":null,\"targetTable\":null}}]",
+                (string)pctx.OutputParameters["Results"]);
+            Assert.Equal(
+                $"[{{\"recordId\":\"{recordId}\",\"ruleId\":\"{ruleId}\",\"outcomeId\":\"{groupId}\",\"name\":\"Name is Valid\",\"value\":false}}]",
+                (string)pctx.OutputParameters["Outcomes"]);
+        }
+
+        // Dataverse passes an omitted optional Boolean as false; both leave Outcomes defined but empty.
+        [Theory]
+        [InlineData(null)]
+        [InlineData(false)]
+        public void Without_IncludeOutcomes_the_Outcomes_output_is_an_empty_array(bool? includeOutcomes)
+        {
+            var seed = Seed();
+            var ruleId = seed.Single(e => e.LogicalName == Q(SchemaNames.Rule.Entity)).Id;
+            var recordId = Guid.NewGuid();
+            seed.Add(new Entity("account", recordId) { ["name"] = "Invalid" });
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(seed);
+            var input = new ParameterCollection
+            {
+                { "TableName", "account" },
+                { "RecordId", recordId.ToString() },
+            };
+            if (includeOutcomes.HasValue) input["IncludeOutcomes"] = includeOutcomes.Value;
+
+            var pctx = ApiContext(input);
+            ctx.ExecutePluginWith<RunRulesApi>(pctx);
+
+            Assert.Equal("[]", (string)pctx.OutputParameters["Outcomes"]);
+            // The rule still ran on its outcome: the Block fired.
+            Assert.Contains($"\"ruleId\":\"{ruleId}\"", (string)pctx.OutputParameters["Results"]);
         }
 
         [Fact]

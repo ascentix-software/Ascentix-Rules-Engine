@@ -3,6 +3,8 @@ import type {
   LocalizedMessage, TableConfigRef,
 } from "./types";
 import { newTempId } from "./ids";
+import { always, firesWhenAfterOutcomeDelete } from "./firesWhen";
+import { isOutcome, nextOutcomeName } from "./outcomes";
 import {
   updateGroup as treeUpdateGroup, removeGroup as treeRemoveGroup, insertGroup,
   updateCondition as treeUpdateCondition, removeCondition as treeRemoveCondition, insertCondition,
@@ -42,7 +44,7 @@ function withValueBoolForType(a: ActionNode): ActionNode {
 export function addAction(graph: RuleGraph): RuleGraph {
   const next: ActionNode = withValueBoolForType({
     id: newTempId(), name: "", order: graph.actions.length + 1,
-    actionType: DEFAULT_ACTION_TYPE, fireOn: 1,
+    actionType: DEFAULT_ACTION_TYPE, firesWhen: always(),
     targetColumn: null, targetTable: null, targetNodeId: null,
     message: null, fieldMapping: null,
     value: null, applyInverseWhenNotFired: null, severity: null, isActive: true,
@@ -143,6 +145,12 @@ export function addGroup(graph: RuleGraph, bucket: Bucket, parentGroupId: string
   return editForests(graph, (f) => insertGroup(f, parentGroupId, g));
 }
 
+/** A new top-level validation group, named so it is a usable outcome straight away. */
+export function addOutcome(graph: RuleGraph): RuleGraph {
+  const g = { ...newGroup(null, false), name: nextOutcomeName(graph) };
+  return { ...graph, validationGroups: [...graph.validationGroups, g] };
+}
+
 export function updateGroup(
   graph: RuleGraph, id: string, patch: Partial<ConditionGroupNode>,
 ): RuleGraph {
@@ -150,7 +158,15 @@ export function updateGroup(
 }
 
 export function deleteGroup(graph: RuleGraph, id: string): RuleGraph {
-  return editForests(graph, (f) => treeRemoveGroup(f, id));
+  const wasOutcome = isOutcome(graph, id);
+  const next = editForests(graph, (f) => treeRemoveGroup(f, id));
+  if (!wasOutcome) return next;
+  // Deleting an outcome drops every test of it from every action's Fires when tree; a tree that
+  // tested only this outcome becomes not set rather than an empty root ("Always").
+  return {
+    ...next,
+    actions: next.actions.map((a) => (a.firesWhen ? { ...a, firesWhen: firesWhenAfterOutcomeDelete(a.firesWhen, id) } : a)),
+  };
 }
 
 export function addCondition(graph: RuleGraph, groupId: string): RuleGraph {

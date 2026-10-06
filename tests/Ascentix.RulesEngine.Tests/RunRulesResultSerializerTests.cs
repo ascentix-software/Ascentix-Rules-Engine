@@ -41,11 +41,11 @@ namespace Ascentix.RulesEngine.Tests
             var json = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
             {
                 RuleId = Guid.NewGuid(), ActionType = ActionType.Block,
-                FireOn = ActionFireOn.OnNoMatch, Message = "Name must be Valid.", Severity = Severity.Error
+                Message = "Name must be Valid.", Severity = Severity.Error
             }));
 
             Assert.Contains("\"actionType\":\"Block\"", json);
-            Assert.Contains("\"fireOn\":\"OnNoMatch\"", json);
+            Assert.DoesNotContain("fireOn", json);
             Assert.Contains("\"severity\":\"Error\"", json);
             Assert.Contains("\"message\":\"Name must be Valid.\"", json);
             Assert.Contains("\"value\":null", json);
@@ -57,7 +57,7 @@ namespace Ascentix.RulesEngine.Tests
             var json = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
             {
                 RuleId = Guid.NewGuid(), ActionType = ActionType.SetVisible,
-                FireOn = ActionFireOn.OnMatch, TargetColumn = "telephone1", Value = true
+                TargetColumn = "telephone1", Value = true
             }));
 
             Assert.Contains("\"actionType\":\"SetVisible\"", json);
@@ -74,14 +74,14 @@ namespace Ascentix.RulesEngine.Tests
             var json = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
             {
                 RuleId = Guid.NewGuid(), ActionType = ActionType.UpdateRecord,
-                FireOn = ActionFireOn.OnMatch, PreviousOfNodeId = nodeId
+                PreviousOfNodeId = nodeId
             }));
             Assert.Contains($"\"previousOf\":\"{nodeId}\"", json);
 
             var jsonWithoutPrevious = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
             {
                 RuleId = Guid.NewGuid(), ActionType = ActionType.UpdateRecord,
-                FireOn = ActionFireOn.OnMatch, PreviousOfNodeId = null
+                PreviousOfNodeId = null
             }));
             Assert.DoesNotContain("previousOf", jsonWithoutPrevious);
         }
@@ -100,7 +100,7 @@ namespace Ascentix.RulesEngine.Tests
                         {
                             new FiredActionResult
                             {
-                                ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch,
+                                ActionType = ActionType.CreateRecord,
                                 WriteIntent = new WriteIntent
                                 {
                                     Operation = WriteOperation.Create, TargetTable = "task",
@@ -131,14 +131,14 @@ namespace Ascentix.RulesEngine.Tests
             // for both a single-record create and a set create.
             var singleJson = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
             {
-                ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch,
+                ActionType = ActionType.CreateRecord,
                 WriteIntent = new WriteIntent { Operation = WriteOperation.Create, TargetTable = "task", TargetId = Guid.NewGuid() },
             }));
             Assert.Contains("\"targetId\":null", singleJson);
 
             var setJson = RunRulesResultSerializer.Serialize(OutcomeWith(new FiredActionResult
             {
-                ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch,
+                ActionType = ActionType.CreateRecord,
                 WriteIntents = new List<WriteIntent>
                 {
                     new WriteIntent { Operation = WriteOperation.Create, TargetTable = "task", TargetId = Guid.NewGuid() },
@@ -152,7 +152,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var fired = new FiredActionResult
             {
-                RuleId = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch,
+                RuleId = Guid.NewGuid(), ActionType = ActionType.UpdateRecord,
                 WriteIntents = new List<WriteIntent> { SetRow(Guid.NewGuid(), true), SetRow(Guid.NewGuid(), false), SetRow(Guid.NewGuid(), false) },
             };
 
@@ -210,6 +210,62 @@ namespace Ascentix.RulesEngine.Tests
                 new FiredActionResult { ActionType = ActionType.UpdateRecord, WriteIntents = new List<WriteIntent> { SetRow(Guid.NewGuid(), false) } });
             Assert.Equal("{\"creates\":0,\"updates\":0,\"deletes\":0,\"unchanged\":0}", RunRulesResultSerializer.SerializeChangeSet(outcome));
             Assert.Contains("\"writeCount\":1", RunRulesResultSerializer.Serialize(outcome));
+        }
+
+        // ── Outcomes ───────────────────────────────────────────────────────────
+
+        [Fact]
+        public void SerializeOutcomes_lists_records_then_rules_then_outcomes_in_camel_case()
+        {
+            Guid rec1 = Guid.NewGuid(), rec2 = Guid.NewGuid(), ruleA = Guid.NewGuid(), ruleB = Guid.NewGuid();
+            Guid high = Guid.NewGuid(), risk = Guid.NewGuid(), other = Guid.NewGuid();
+            var outcome = new RuleEvaluationOutcome
+            {
+                Records = new List<RecordEvaluationResult>
+                {
+                    new RecordEvaluationResult
+                    {
+                        RecordId = rec1,
+                        Outcomes = new List<OutcomeResult>
+                        {
+                            new OutcomeResult { RuleId = ruleA, OutcomeId = high, Name = "High value", Value = true },
+                            new OutcomeResult { RuleId = ruleA, OutcomeId = risk, Name = "At risk", Value = false },
+                            new OutcomeResult { RuleId = ruleB, OutcomeId = other, Name = "Other", Value = true },
+                        },
+                    },
+                    new RecordEvaluationResult
+                    {
+                        RecordId = rec2,
+                        Outcomes = new List<OutcomeResult>
+                        {
+                            new OutcomeResult { RuleId = ruleA, OutcomeId = high, Name = "High value", Value = false },
+                        },
+                    },
+                },
+            };
+
+            var json = RunRulesResultSerializer.SerializeOutcomes(outcome);
+
+            string Item(Guid rec, Guid rule, Guid id, string name, bool value) =>
+                $"{{\"recordId\":\"{rec}\",\"ruleId\":\"{rule}\",\"outcomeId\":\"{id}\",\"name\":\"{name}\",\"value\":{(value ? "true" : "false")}}}";
+            Assert.Equal("[" + string.Join(",",
+                Item(rec1, ruleA, high, "High value", true),
+                Item(rec1, ruleA, risk, "At risk", false),
+                Item(rec1, ruleB, other, "Other", true),
+                Item(rec2, ruleA, high, "High value", false)) + "]", json);
+        }
+
+        [Fact]
+        public void SerializeOutcomes_is_an_empty_array_when_no_outcome_was_evaluated()
+        {
+            Assert.Equal("[]", RunRulesResultSerializer.SerializeOutcomes(OutcomeWith()));
+            Assert.Equal("[]", RunRulesResultSerializer.SerializeOutcomes(new RuleEvaluationOutcome()));
+        }
+
+        [Fact]
+        public void A_record_reports_no_outcomes_until_one_is_added()
+        {
+            Assert.Empty(new RecordEvaluationResult().Outcomes);
         }
     }
 }

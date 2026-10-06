@@ -15,7 +15,7 @@ namespace Ascentix.RulesEngine.Tests
     public class RulesEnginePluginTests
     {
         // Builds a minimal rule: account.name must equal "Valid" (root FieldComparison),
-        // with a Block OnNoMatch action. Returns the seed entities.
+        // with a Block action that fires when the outcome is false. Returns the seed entities.
         private static List<Entity> SeedRule(Guid ruleId, Guid tableConfigId, Guid groupId,
             Guid conditionId, Guid actionId)
         {
@@ -56,13 +56,12 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.Block),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                 [Q(SchemaNames.RuleAction.Message)] = "Name must be Valid.",
                 [Q(SchemaNames.RuleAction.Order)] = 1,
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
             };
 
-            return new List<Entity> { tableConfig, rule, group, condition, action };
+            return new List<Entity> { tableConfig, rule, group, condition, action, ActionTreeRows.AnyFalse(actionId, groupId) };
         }
 
         private static XrmFakedPluginExecutionContext PipelineContext(Entity target)
@@ -101,7 +100,7 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         // A rule on "account": name must equal "Valid" (root FieldComparison),
-        // Block OnNoMatch, tagged for the given trigger. Returns the seed entities.
+        // Block that fires when the outcome is false, tagged for the given trigger. Returns the seed entities.
         private static List<Entity> SeedRuleFor(RuleTrigger trigger, string blockMessage)
         {
             string Q(string f) => SchemaNames.Qualify(f);
@@ -360,7 +359,6 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.Block),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                 [Q(SchemaNames.RuleAction.Message)] = message,
                 [Q(SchemaNames.RuleAction.Order)] = 1,
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
@@ -390,6 +388,7 @@ namespace Ascentix.RulesEngine.Tests
             context.Initialize(new List<Entity>
             {
                 lineRoot, orderLookup, siblings, rule, group, condition, action,
+                ActionTreeRows.AnyFalse(ids.act, ids.grp),
                 order, doomedLine, keepLine
             });
 

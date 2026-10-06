@@ -69,7 +69,7 @@ namespace Ascentix.RulesEngine.Tests
                     new RuleAction
                     {
                         Id = Guid.NewGuid(), ActionType = ActionType.Block,
-                        FireOn = ActionFireOn.OnNoMatch, Message = "no", IsActive = true,
+                        Condition = ActionTrees.AnyFalse(group.Id), Message = "no", IsActive = true,
                     },
                 },
             };

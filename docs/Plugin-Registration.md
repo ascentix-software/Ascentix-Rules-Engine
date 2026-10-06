@@ -25,7 +25,7 @@ Plus one publish-gate step: `RulePublishPlugin` on `asx_rule` Update, `PreImage`
 
 Add the assembly and these seven steps (with the pre-images) to the unmanaged solution.
 The revision deployment also adds synchronous pre-operation guards on Create/Update/Delete
-for all ten configuration tables, plus `asx_rule` SetState. Revision-table access uses platform permissions.
+for all twelve configuration tables, plus `asx_rule` SetState. Revision-table access uses platform permissions.
 The `asx_rule` Delete handler captures ownership in PreValidation, removes owned
 children in PreOperation, and reclaims revisions/private models in PostOperation.
 Native grid deletion and the Rule Builder's `asx_DeleteRule` API are both supported.

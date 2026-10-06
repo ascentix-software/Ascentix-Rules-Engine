@@ -31,7 +31,7 @@ namespace Ascentix.RulesEngine.Tests
 
         /// <summary>
         /// Rule on account (OnCreate), always-true condition (name IsNotNull),
-        /// one CreateRecord action (OnMatch): writes subject="Hi" to task table.
+        /// one CreateRecord action (fires when the outcome is true): writes subject="Hi" to task table.
         /// </summary>
         private static List<Entity> Seed()
         {
@@ -74,14 +74,13 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.CreateRecord),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                 [Q(SchemaNames.RuleAction.TargetTable)] = "task",
                 [Q(SchemaNames.RuleAction.FieldMapping)] = "[{\"target\":\"subject\",\"source\":\"literal\",\"value\":\"Hi\"}]",
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
                 [Q(SchemaNames.RuleAction.Order)] = 1,
             };
 
-            return new List<Entity> { tableConfig, rule, group, condition, action };
+            return new List<Entity> { tableConfig, rule, group, condition, action, ActionTreeRows.AllTrue(ids.act, ids.grp) };
         }
 
         private static XrmFakedPluginExecutionContext PluginCtx(Entity target, int depth = 1, string tag = null)

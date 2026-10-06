@@ -52,7 +52,7 @@ namespace Ascentix.RulesEngine.Tests
         [Fact]
         public void Create_record_to_unknown_table_flagged()
         {
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetTable = "ghosttable", FieldMapping = "[]" };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, Condition = ActionTrees.Always(), IsActive = true, TargetTable = "ghosttable", FieldMapping = "[]" };
             var model = new RuleForValidation { RuleId = Guid.NewGuid(), PrimaryTable = "account", Groups = new List<ConditionGroup>(), Configs = TableConfigTree.Empty, Actions = new List<RuleAction> { action } };
             var flags = new FakeFlags { Tables = { "account" } };
             var issues = new MetadataChecks().Check(model, flags).ToList();
@@ -62,7 +62,7 @@ namespace Ascentix.RulesEngine.Tests
         [Fact]
         public void Create_mapping_to_non_creatable_column_flagged()
         {
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetTable = "task", FieldMapping = "[{\"target\":\"createdon\",\"source\":\"literal\",\"value\":\"x\"}]" };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, Condition = ActionTrees.Always(), IsActive = true, TargetTable = "task", FieldMapping = "[{\"target\":\"createdon\",\"source\":\"literal\",\"value\":\"x\"}]" };
             var model = new RuleForValidation { RuleId = Guid.NewGuid(), PrimaryTable = "account", Groups = new List<ConditionGroup>(), Configs = TableConfigTree.Empty, Actions = new List<RuleAction> { action } };
             var flags = new FakeFlags { Tables = { "task" } };
             flags.Cols["task.createdon"] = new AttributeFlags { IsValidForCreate = false, Type = AttributeTypeCode.DateTime };
@@ -486,7 +486,7 @@ namespace Ascentix.RulesEngine.Tests
             var grp = new ConditionGroup { Id = Guid.NewGuid(), Conditions = new List<RuleCondition> { NameNotNull(rootId) }, ChildGroups = new List<ConditionGroup>() };
             var action = new RuleAction
             {
-                Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId,
+                Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, Condition = ActionTrees.AllTrue(grp.Id), IsActive = true, TargetNodeId = rootId,
                 FieldMapping = "[{\"target\":\"revenue\",\"source\":\"mathexpr\",\"expression\":\"sum(node:" + childId + ".estimatedvalue filter:f1)\","
                     + "\"filters\":" + GhostFilterMap + "}]",
             };

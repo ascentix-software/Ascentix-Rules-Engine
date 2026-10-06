@@ -26,7 +26,7 @@ stable integers. Do not assume label text; match on the value.
 | Comparison Operator | `asx_comparisonoperator` | Equals = 1, Not Equals = 2, Greater Than = 3, Greater Than Or Equal = 4, Less Than = 5, Less Than Or Equal = 6, Contains = 7, Does Not Contain = 8, Is Null = 9, Is Not Null = 10 |
 | Severity | `asx_severity` | Information = 1, Warning = 2, Error = 3 |
 | Action Type | `asx_actiontype` | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7, Deactivate Record = 8 |
-| Action Fire On | `asx_actionfireon` | On Match = 1, On No Match = 2 |
+| Action Fire On | `asx_actionfireon` | On Match = 1, On No Match = 2 (retired; see *Rule Action*) |
 | Triggers *(multi-select)* | `asx_triggers` | On Create = 1, On Form = 2, On demand = 3 (formerly Manual), On Update = 4, On Delete = 5 |
 | Runs for | `asx_ondemandscope` | A record it's given = 1 (default), All records that pass its execution conditions = 2 |
 | Channel *(multi-select)* | `asx_channel` | Standard = 1, Portal = 2 |
@@ -77,6 +77,9 @@ An AND/OR node in a rule's condition tree (self-referential).
 | Parent Condition Group | `asx_parentconditiongroup` | Lookup → `asx_conditiongroup` | No | Self-referential |
 | Logical Operator | `asx_logicaloperator` | Choice → `asx_logicaloperator` | Yes | And / Or |
 | Is Execution Condition | `asx_isexecutioncondition` | Yes/No | Yes | Marks a group as a rule gate, evaluated before the validation groups |
+| Name | `asx_name` | Text | No | Outcome name for a top-level validation group: required, unique in the rule |
+
+A top-level validation group is an **outcome**. Actions choose when to fire by testing outcomes (see *Action Condition Group* below).
 
 ### Rule Condition (`asx_rulecondition`)
 
@@ -98,13 +101,13 @@ A single leaf check inside a Condition Group.
 
 ### Rule Action (`asx_ruleaction`)
 
-The outcome layer. Columns not relevant to a given Action Type are left blank.
+What the rule does. An action fires only when its *Fires when* tree holds (see the two tables below); an action with no tree never fires. Columns not relevant to a given Action Type are left blank.
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
 | Rule | `asx_rule` | Lookup → `asx_rule` | Yes | Parent rule |
 | Action Type | `asx_actiontype` | Choice → `asx_actiontype` | Yes | What to do |
-| Fire On | `asx_fireon` | Choice → `asx_actionfireon` | Yes | On Match / On No Match |
+| Fire On | `asx_fireon` | Choice → `asx_actionfireon` | No | Retired: not read by the engine; read once by the multi-outcome migration script; removed in the next release |
 | Target Column | `asx_targetcolumn` | Text | No | Set Visible / Set Required target; blank on a form-level Block |
 | Value | `asx_valuebool` | Yes/No | No | Set Visible: show; Set Required: required |
 | Apply Inverse When Not Fired | `asx_applyinversewhennotfired` | Yes/No | No | Reserved: not consumed by the current runtime and not shown in the visual editor |
@@ -116,6 +119,30 @@ The outcome layer. Columns not relevant to a given Action Type are left blank.
 | Order | `asx_order` | Whole Number | No | Execution order |
 | Is Active | `asx_isactive` | Yes/No | No | Default Yes |
 | Also Apply To Previous | `asx_applytoprevious` | Yes/No | No | Update Record only: when the save changes the lookup above the target node, also apply the action to the record the lookup pointed to before the save. Default No |
+
+### Action Condition Group (`asx_actionconditiongroup`)
+
+A node of an action's *Fires when* tree: a group of outcome tests combined with ALL or ANY.
+
+| Column | Schema name | Type | Required | Notes |
+|---|---|---|---|---|
+| Rule Action | `asx_ruleaction` | Lookup → `asx_ruleaction` | Yes | The action the node belongs to. Every node carries it, not just the root. Deleting the action deletes its tree |
+| Parent Group | `asx_parentgroup` | Lookup → `asx_actionconditiongroup` | No | Blank = the root. An action has at most one root |
+| Logical Operator | `asx_logicaloperator` | Choice | Yes | ALL = 1 (every child must hold), ANY = 2 (at least one must hold) |
+| Order | `asx_order` | Whole Number | No | Position among siblings |
+
+A root ALL group with no children always holds: "Always, when the rule runs".
+
+### Action Condition Test (`asx_actionconditiontest`)
+
+A leaf of a *Fires when* tree: "this outcome is true" or "this outcome is false".
+
+| Column | Schema name | Type | Required | Notes |
+|---|---|---|---|---|
+| Group | `asx_actionconditiongroup` | Lookup → `asx_actionconditiongroup` | Yes | The group the test is in. Deleting the group deletes its tests |
+| Outcome | `asx_outcome` | Lookup → `asx_conditiongroup` | Yes | A top-level validation group of the same rule. Deleting the outcome removes the link, and publishing then reports an error |
+| Expected | `asx_expected` | Yes/No | Yes | Yes = "is true" (default), No = "is false" |
+| Order | `asx_order` | Whole Number | No | Position among siblings |
 
 ## Value nodes
 

@@ -70,6 +70,7 @@ namespace Ascentix.RulesEngine.Tests
                 ComparisonValue = "x",
             };
             var grp = new ConditionGroup { Id = Guid.NewGuid(), Conditions = new List<RuleCondition> { cond }, ChildGroups = new List<ConditionGroup>() };
+            action.Condition = ActionTrees.AllTrue(grp.Id);
             return new RuleForValidation
             {
                 RuleId = Guid.NewGuid(),
@@ -133,7 +134,7 @@ namespace Ascentix.RulesEngine.Tests
                           "\"filters\":{\"f1\":{\"op\":\"and\",\"rules\":[" +
                           "{\"kind\":\"exists\",\"collectionNodeId\":\"" + Guid.NewGuid() + "\"," +
                           "\"sub\":{\"op\":\"and\",\"rules\":[]}}]}}}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = AggregateModel(configs, action, rootId);
             var flags = new FakeFlags { Tables = { "sample_order", "sample_orderline" } };
             flags.Cols["sample_orderline.sample_amount"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.Money };
@@ -194,7 +195,7 @@ namespace Ascentix.RulesEngine.Tests
                           "{\"kind\":\"exists\",\"collectionNodeId\":\"" + collId + "\"," +
                           "\"sub\":{\"op\":\"and\",\"rules\":[" +
                           "{\"kind\":\"rule\",\"column\":\"ghost\",\"operator\":1,\"valueSource\":1,\"value\":\"x\"}]}}]}}}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = AggregateModel(configs, action, rootId);
             var flags = new FakeFlags { Tables = { "sample_order", "sample_orderline", "sample_contact" } };
             flags.Cols["sample_orderline.sample_amount"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.Money };
@@ -407,7 +408,7 @@ namespace Ascentix.RulesEngine.Tests
                           "\"filters\":{\"f1\":{\"op\":\"and\",\"rules\":[" +
                           "{\"kind\":\"exists\",\"collectionNodeId\":\"" + collId + "\",\"minCount\":5,\"maxCount\":2," +
                           "\"sub\":{\"op\":\"and\",\"rules\":[]}}]}}}]";
-            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
+            var action = new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, IsActive = true, TargetNodeId = rootId, FieldMapping = mapping };
             var model = AggregateModel(configs, action, rootId);
             var flags = new FakeFlags { Tables = { "sample_order", "sample_orderline", "sample_orderline_other", "sample_contact" } };
             flags.Cols["sample_orderline.sample_amount"] = new AttributeFlags { IsValidForRead = true, Type = AttributeTypeCode.Money };
