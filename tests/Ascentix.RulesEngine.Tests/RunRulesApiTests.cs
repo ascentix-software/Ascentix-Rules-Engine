@@ -104,6 +104,7 @@ namespace Ascentix.RulesEngine.Tests
             {
                 { "TableName", "account" },
                 { "RecordId", recordId.ToString() },
+                { "IncludeOutcomes", true },
             };
 
             var pctx = ApiContext(input);
@@ -116,6 +117,33 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(
                 $"[{{\"recordId\":\"{recordId}\",\"ruleId\":\"{ruleId}\",\"outcomeId\":\"{groupId}\",\"name\":\"Name is Valid\",\"value\":false}}]",
                 (string)pctx.OutputParameters["Outcomes"]);
+        }
+
+        // Dataverse passes an omitted optional Boolean as false; both leave Outcomes defined but empty.
+        [Theory]
+        [InlineData(null)]
+        [InlineData(false)]
+        public void Without_IncludeOutcomes_the_Outcomes_output_is_an_empty_array(bool? includeOutcomes)
+        {
+            var seed = Seed();
+            var ruleId = seed.Single(e => e.LogicalName == Q(SchemaNames.Rule.Entity)).Id;
+            var recordId = Guid.NewGuid();
+            seed.Add(new Entity("account", recordId) { ["name"] = "Invalid" });
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(seed);
+            var input = new ParameterCollection
+            {
+                { "TableName", "account" },
+                { "RecordId", recordId.ToString() },
+            };
+            if (includeOutcomes.HasValue) input["IncludeOutcomes"] = includeOutcomes.Value;
+
+            var pctx = ApiContext(input);
+            ctx.ExecutePluginWith<RunRulesApi>(pctx);
+
+            Assert.Equal("[]", (string)pctx.OutputParameters["Outcomes"]);
+            // The rule still ran on its outcome: the Block fired.
+            Assert.Contains($"\"ruleId\":\"{ruleId}\"", (string)pctx.OutputParameters["Results"]);
         }
 
         [Fact]

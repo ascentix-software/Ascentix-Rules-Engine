@@ -64,7 +64,7 @@ export interface WebApiPort {
   restoreRuleDraft?(ruleId: string): Promise<void>;
   /** PATCH the rule's statuscode back to Draft (1), the inverse of publishRule. */
   unpublishRule(ruleId: string): Promise<void>;
-  /** Call asx_RunRules (report-only) for one record and return its fired actions and change set. */
+  /** Call asx_RunRules (report-only) for one record and return its fired actions, change set and outcome values. */
   dryRun?(table: string, recordId: string, triggers: string): Promise<DryRunResult>;
   /** asx_ApplyDataUpdates: "Status" for anyone with rule read; "Apply" for administrators (docs/Schema.md §10). */
   applyDataUpdates?(mode: "Status" | "Apply", options?: { retry?: number; failed?: { item: string; message: string } }): Promise<DataUpdateStatus>;
@@ -151,7 +151,8 @@ export function createWebApiPort(): EditorApi {
       return parseDataUpdateStatus(raw);
     },
     async dryRun(table, recordId, triggers) {
-      return parseDryRun(await revisionRequest(base, "asx_RunRules", { TableName: table, RecordId: recordId, Triggers: triggers }));
+      // IncludeOutcomes: the Test run lists each outcome's value; other callers leave it off and get "[]".
+      return parseDryRun(await revisionRequest(base, "asx_RunRules", { TableName: table, RecordId: recordId, Triggers: triggers, IncludeOutcomes: true }));
     },
     getClientUrl: () => base,
     async fetchJson(path) {
@@ -222,7 +223,7 @@ async function patchStatus(base: string, op: string, ruleId: string, statuscode:
   if (!res.ok) { const raw = await res.json().catch(() => null); throw new Error(`${op} PATCH failed (${res.status}): ${raw?.error?.message ?? "Request failed"}`); }
 }
 
-async function revisionRequest(base: string, name: string, body: Record<string, string | number>): Promise<any> {
+async function revisionRequest(base: string, name: string, body: Record<string, string | number | boolean>): Promise<any> {
   const response = await fetch(`${base}/api/data/${API_VERSION}/${name}`, {
     method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body),

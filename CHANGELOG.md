@@ -88,10 +88,11 @@ only, so the version an administrator sees in their org can never carry the word
   `ACTION_EMPTY_GROUP`; new warning: `OUTCOME_UNUSED`.
 - **Test run shows outcomes; `asx_RunRules` returns `Outcomes`.** The Rule Builder's **Test**
   lists the rule's outcomes as true or false. `asx_RunRules` has a new `Outcomes` output
-  (string JSON per record: `recordId`, `ruleId`, `outcomeId`, `name`, `value`); `Results` is
-  unchanged. The output is created when the deploy's Register step
-  (`pipelines/Configure-RuleAuthoring.ps1`) runs, right after the plug-in update. Calls in the
-  few seconds between can fail; run them again.
+  (string JSON per record: `recordId`, `ruleId`, `outcomeId`, `name`, `value`), filled only when
+  the call sets the new optional `IncludeOutcomes` parameter to `true` and `[]` otherwise;
+  `Results` is unchanged. The output and the parameter are created when the deploy's Register
+  step (`pipelines/Configure-RuleAuthoring.ps1`) runs, right after the plug-in update. Calls in
+  the few seconds between can fail; run them again.
 - The **Manual** trigger is now labelled **On demand**. The stored choice value (3) is unchanged,
   and the API trigger name `Manual` is still accepted alongside the new `OnDemand`.
 - Every rule evaluated by one save uses the same "now".

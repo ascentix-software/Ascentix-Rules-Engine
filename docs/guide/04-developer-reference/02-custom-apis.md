@@ -73,6 +73,7 @@ on-demand path, see `asx_ApplyRules` below.
 | `RecordJson` | String | Yes | Unsaved field values as a flat JSON object `{ "<logicalname>": <value> }` |
 | `Triggers` | String | Yes | Single trigger name; defaults to `Manual`. Both `OnDemand` and the older `Manual` name are accepted for trigger value 3 (*Triggers & Channels*) |
 | `IncludeDiagnostics` | Boolean | Yes | When `true`, the response also carries `Diagnostics` (timings and fetch counts for this evaluation). Default `false` |
+| `IncludeOutcomes` | Boolean | Yes | When `true`, `Outcomes` carries each rule outcome's value. Default `false`: `Outcomes` is then `[]` |
 
 At least one of `RecordId` / `RecordJson` is required. Supplying both retrieves the
 persisted record and overlays the JSON fields on top of it.
@@ -90,7 +91,7 @@ an ISO-8601 string; and `null` clears/omits the attribute.
 | `IsValid` | Boolean | `true` when no `Block` action fired |
 | `FailedRuleCount` | Integer | Count of distinct rules with a fired `Block` action |
 | `Results` | String | JSON array of every fired action |
-| `Outcomes` | String | JSON array of each rule outcome's value per record (see below) |
+| `Outcomes` | String | Only when `IncludeOutcomes` was `true`: JSON array of each rule outcome's value per record (see below). Otherwise `[]` |
 | `ChangeSet` | String | JSON object summarizing the writes this evaluation would make (see below) |
 | `Diagnostics` | String | Only when `IncludeDiagnostics` was `true`: a JSON object describing the evaluation (see below) |
 
@@ -136,8 +137,8 @@ otherwise. It appears only when the dry run evaluates an Update — `Triggers` i
 both `RecordId` and `RecordJson` are supplied. `previousOf` doesn't apply to a set target: "Also
 apply to the previous" is available only on a single-record target.
 
-**`Outcomes`** reports the value of every outcome (top-level validation group) of every rule
-evaluated, per record:
+**`Outcomes`**, when the call sets `IncludeOutcomes: true`, reports the value of every outcome
+(top-level validation group) of every rule evaluated, per record:
 
 ```json
 [{ "recordId": "…", "ruleId": "…", "outcomeId": "…", "name": "High value", "value": true }]
@@ -145,9 +146,11 @@ evaluated, per record:
 
 `name` is the outcome's name and `value` is `true` or `false`. The values are those of the normal
 run only. A rule held back by its execution conditions reports no outcomes. `Results` keeps its
-shape. The Rule Builder's **Test** dialog lists the tested rule's outcomes from this output. The
-`Outcomes` output is created by `pipelines/Configure-RuleAuthoring.ps1` when the deploy's Register
-phase runs.
+shape. Without `IncludeOutcomes` (or with `false`), `Outcomes` is always `[]`: the client form
+library doesn't ask for it, so a form's calls don't carry outcome names and values. The Rule
+Builder's **Test** dialog sets `IncludeOutcomes` and lists the tested rule's outcomes from this
+output. The `Outcomes` output and the `IncludeOutcomes` parameter are created by
+`pipelines/Configure-RuleAuthoring.ps1` when the deploy's Register phase runs.
 
 **`ChangeSet`** summarizes every write this evaluation would make, across every rule and action
 that fired, after writes to the same record are merged (see *Building Actions* → *Writing a set of

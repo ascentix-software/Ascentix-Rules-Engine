@@ -469,6 +469,7 @@ non-enforcing**: a fired `Block` action is reported, never thrown.
 | `RecordJson` | String | Yes | Unsaved field values as a flat JSON object `{ "<logicalname>": <value> }` |
 | `Triggers` | String | Yes | Single trigger name; default `Manual` |
 | `IncludeDiagnostics` | Boolean | Yes | Opt in to the `Diagnostics` response property (default `false`). Ships in the product solution |
+| `IncludeOutcomes` | Boolean | Yes | Opt in to the `Outcomes` values (default `false`; omitted reads as `false`). Created by `pipelines/Configure-RuleAuthoring.ps1` in the Register phase |
 
 At least one of `RecordId` / `RecordJson` must be supplied (validated by the handler). Providing
 both retrieves the persisted record and overlays the JSON fields on top.
@@ -480,7 +481,7 @@ both retrieves the persisted record and overlays the JSON fields on top.
 | `IsValid` | Boolean | True when no `Block` action fired |
 | `FailedRuleCount` | Integer | Count of distinct rules with a fired `Block` action |
 | `Results` | String | JSON array of every fired action (see shape below) |
-| `Outcomes` | String | JSON array, one element per outcome per evaluated record: `[{ "recordId": "…", "ruleId": "…", "outcomeId": "…", "name": "High value", "value": true }]`. `value` is the outcome's value in the normal run (not the previous-value run). A rule held back by its execution conditions reports none. `Results` is unchanged. Created by `pipelines/Configure-RuleAuthoring.ps1` in the Register phase |
+| `Outcomes` | String | Only when `IncludeOutcomes = true`: JSON array, one element per outcome per evaluated record: `[{ "recordId": "…", "ruleId": "…", "outcomeId": "…", "name": "High value", "value": true }]`. `value` is the outcome's value in the normal run (not the previous-value run). A rule held back by its execution conditions reports none. Otherwise always present as `[]`. `Results` is unchanged. Created by `pipelines/Configure-RuleAuthoring.ps1` in the Register phase |
 | `ChangeSet` | String | JSON object `{ "creates": n, "updates": n, "deletes": n, "unchanged": n }`: what enforcement would write for the evaluated record after merging (a record with a fired Block counts zero) |
 | `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (`Ascentix.RulesEngine.Core/Diagnostics/RunDiagnosticsSerializer.cs`) containing `totalMs`, `rulesLoaded`, `rulesEvaluated`, `rulesFired`, `retrieveCount`, `retrieveMultipleCount`, `rowsFetched`, `stages[{name,ms}]`, `nodes[{nodeId,table,retrieveCount,retrieveMultipleCount,rows}]`. The write, page and scheduler figures below appear only when non-zero, so asx_RunRules (which writes nothing) never carries them. |
 
