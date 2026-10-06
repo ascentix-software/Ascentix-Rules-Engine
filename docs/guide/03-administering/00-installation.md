@@ -97,8 +97,10 @@ nothing is blocked wrongly, but nothing fires either. The script is
 
 Before you import the new version:
 
-1. Publish or discard every pending working-draft edit. The script republishes each enforcing
-   rule from its working draft, so unpublished edits in it would go live with the conversion.
+1. Every rule that has ever been published from the Rule Builder keeps a working draft. Open each
+   rule that has saved but unpublished changes and **Publish** or **Discard** them: the script
+   republishes every enforcing rule from its draft, so those changes would go live with the
+   conversion.
 2. Optionally run the script with `-WhatIf` (it writes nothing) to see what it would change.
 
 After you import it, sign in as a System Administrator or System Customizer and run

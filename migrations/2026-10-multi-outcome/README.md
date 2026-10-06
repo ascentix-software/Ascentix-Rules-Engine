@@ -19,7 +19,8 @@ For every rule (working drafts are handled together with their rule):
 2. **Names the outcomes.** Each outcome (a top-level validation group, not a "Run only when" group; a group
    whose "Run only when" flag is empty counts as an outcome, as it does in the engine) needs a
    unique name. A blank name becomes "Outcome N" (the smallest N not already used); a repeated name,
-   ignoring case, gets " (2)", " (3)" and so on.
+   ignoring case, gets " (2)", " (3)" and so on, with the name shortened if needed to fit the
+   100-character name column.
 3. **Builds each action's Fires when tree.** For each action that still has On match / On no match set and
    no tree:
    - **On match** becomes a root **ALL** group with one test "*outcome* is true" per outcome. A rule with
@@ -39,11 +40,13 @@ For every rule (working drafts are handled together with their rule):
 
 ## Before you upgrade
 
-Publish or discard every pending working-draft edit. The script republishes each enforcing rule's working
-draft, so any unpublished edits in it would go live with the conversion.
+Every rule that has ever been published from the Rule Builder keeps a working draft, so the script's
+"Rules with a working draft" list includes all of them. The script republishes every enforcing rule from
+its draft, so any saved but unpublished change in a draft would go live with the conversion. Before you
+upgrade, open each rule that has saved but unpublished changes and **Publish** or **Discard** them.
 
-Run the script with `-WhatIf` first (it can run before or after the upgrade; it writes nothing). Its
-"Rules with a working draft" list shows every rule that has a draft, so you can check each one.
+Run the script with `-WhatIf` first (it can run before or after the upgrade; it writes nothing) to see
+what it would change.
 
 ## Running it
 
@@ -62,8 +65,10 @@ $token = az account get-access-token --resource $url --query accessToken -o tsv
 ```
 
 Any Dataverse bearer token for such a user works in place of `az`. The script never prints the token, and
-prints only the host name of the environment, also with `-Verbose`. A token lasts about an hour: if it
-expires during a long run, get a new one and run the script again (see below).
+prints only the host name of the environment, also with `-Verbose`. A token lasts about an hour: if
+Dataverse refuses it during a run (HTTP 401), the script stops at that point with "The access token
+expired or is invalid; get a new token and re-run (the script resumes safely)." Get a new token and run
+the script again (see below).
 
 Add `-Confirm` to approve each write one at a time. If you decline any write for a rule (including opening
 its working draft), that rule is not published, nothing you declined is reported as done, and the rule is
@@ -79,7 +84,8 @@ summary:
 - **Converted**: rules whose outcomes or actions changed.
 - **Published**: enforcing rules that were republished (their published version was not yet converted).
 - **Deactivated**: `<rule> / <action>` for each On no match action on a rule with no outcomes.
-- **Rules with a working draft**: rules that already had a working draft (check these; see above).
+- **Rules with a working draft**: rules that already had a working draft. Every rule ever published from
+  the Rule Builder has one, so this lists all of them (see *Before you upgrade*).
 - **Drafts opened** (with `-WhatIf`: **Draft would be opened**): published rules that had no draft.
 - **Skipped (declined)**: rules where you declined a write under `-Confirm`; not published.
 - **Failed**: `Failed: <rule id> <rule name>: <message>`.

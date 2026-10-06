@@ -20,7 +20,8 @@ function New-Store {
        Actions = [System.Collections.Generic.List[hashtable]]::new(); Trees = [System.Collections.Generic.List[hashtable]]::new()
        Tests = [System.Collections.Generic.List[hashtable]]::new(); Log = [System.Collections.Generic.List[string]]::new()
        Publishes = [System.Collections.Generic.List[string]]::new(); Opens = [System.Collections.Generic.List[string]]::new()
-       FailPublish = @{}; SnapshotSource = @{}; FailTestCreateAt = 0; TestCreates = 0; Clock = 0 }
+       FailPublish = @{}; SnapshotSource = @{}; FailTestCreateAt = 0; TestCreates = 0; Clock = 0
+       ExpireTokenOn = $null; TokenExpired = $false; Rejected = 0 }
 }
 function NewId { [guid]::NewGuid().ToString() }
 function Stamp { $db.Clock++; '2026-01-01T00:00:{0:00}Z' -f $db.Clock }
@@ -59,10 +60,12 @@ function Writes { @($db.Log | Where-Object { $_ -notmatch '^GET ' -and $_ -ne 'P
 # What Dataverse returns: JSON objects, not hashtables.
 function Respond($Value) { $Value | ConvertTo-Json -Depth 10 | ConvertFrom-Json }
 
-# A Web API error as Invoke-RestMethod raises it: the Dataverse body is in ErrorDetails.
+# A Web API error as Invoke-RestMethod raises it: the status is on the exception's response and the Dataverse
+# body is in ErrorDetails.
 function Fail([int]$Status, [string]$Message) {
+    $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]$Status)
     $record = [System.Management.Automation.ErrorRecord]::new(
-        [System.Exception]::new("Response status code does not indicate success: $Status."), 'WebCmdletWebResponseException',
+        [Microsoft.PowerShell.Commands.HttpResponseException]::new("Response status code does not indicate success: $Status.", $response), 'WebCmdletWebResponseException',
         [System.Management.Automation.ErrorCategory]::InvalidOperation, $null)
     $record.ErrorDetails = [System.Management.Automation.ErrorDetails]::new((@{ error = @{ code = '0x80040265'; message = $Message } } | ConvertTo-Json -Compress))
     throw $record
@@ -134,6 +137,9 @@ function Invoke-RestMethod {
     Assert ($Headers.Authorization -eq 'Bearer mock-token') 'Every request must carry the bearer token.'
     $path = [uri]::UnescapeDataString($Uri.Substring($mockOrigin.Length))
     $db.Log.Add("$Method $path")
+    # The token expires at the first request that matches ExpireTokenOn; every request after that is refused.
+    if ($db.ExpireTokenOn -and $path -match $db.ExpireTokenOn) { $db.TokenExpired = $true }
+    if ($db.TokenExpired) { $db.Rejected++; Fail 401 'The access token has expired.' }
     $record = if ($Body) { $Body | ConvertFrom-Json -AsHashtable } else { @{} }
     if ($Method -eq 'GET') {
         if ($path -match '^asx_rules\?\$select=asx_ruleid,asx_name,statuscode,_asx_publishedrevision_value,_asx_draftof_value(?:&\$skiptoken=(\d+))?$') {
@@ -214,6 +220,8 @@ function Invoke-RestMethod {
             $group = @($db.Groups | Where-Object { $_.asx_conditiongroupid -eq $Matches[1] })[0]
             Assert ($null -ne $group) 'Rename of an unknown group.'
             Assert ((@($record.Keys) -join ',') -eq 'asx_name' -and ![string]::IsNullOrWhiteSpace($record.asx_name)) 'A group update sets only a non-blank asx_name.'
+            # asx_conditiongroup.asx_name holds at most 100 characters (MaxLength in the shipped solution).
+            if ($record.asx_name.Length -gt 100) { Fail 400 "A validation error occurred. The length of the 'asx_name' attribute of the 'asx_conditiongroup' entity exceeded the maximum allowed length of '100'." }
             AssertEditable $group._asx_rule_value
             $group.asx_name = $record.asx_name
             return
@@ -477,6 +485,7 @@ Assert ((Names $dry.Output 'Rules with a working draft') -eq 'P2 draft converted
 Assert ((Names $dry.Output 'Draft would be opened') -eq 'P1 published no draft, P6 published no pointer, U1 unpublished') "8: would-open list.`n$($dry.Output)"
 Assert ((Section $dry.Output 'Converted').Count -eq 7 -and (Section $dry.Output 'Deactivated') -contains 'P3 no outcomes / Never fired') "8: -WhatIf counts what would change.`n$($dry.Output)"
 Assert ((Names $dry.Output 'Published') -eq 'P1 published no draft, P3 no outcomes, P4 publish fails, P5 converted never published, P6 published no pointer') "8: -WhatIf counts would-be publishes.`n$($dry.Output)"
+Assert ($dry.Output -match 'Every rule ever published from the Rule Builder keeps a working draft' -and $dry.Output -match 'Publish or Discard') "8: -WhatIf explains the working-draft list and what to do before the real run.`n$($dry.Output)"
 Write-Host 'PASS: -WhatIf writes nothing and lists rules by draft state (case 8).'
 
 # 9. An interrupted conversion (a test create fails) is completed by the next run, without duplicates.
@@ -516,5 +525,44 @@ Assert ((Section $co 'Deactivated').Count -eq 0) "13: a declined deactivation is
 Assert ($f.P3 -notin $db.Publishes -and @(Writes | Where-Object { $_ -eq "PATCH asx_rules($($f.D3))" }).Count -eq 0) '13: a rule with a declined write is not published.'
 Assert ((Names $co 'Published') -eq 'P5 converted never published, P6 published no pointer') "13: the other enforcing rules still publish (P4 fails as before).`n$co"
 Write-Host 'PASS: declined -Confirm writes are not reported as done and block the publish (case 13).'
+
+# 14. The token expires part-way: the run stops at the first 401 with one clear message instead of failing every
+#     remaining rule, and a re-run with a new token finishes the work.
+$tokenMessage = 'The access token expired or is invalid; get a new token and re-run (the script resumes safely)'
+$script:db = New-Store
+$t1 = AddRule 'T1 before expiry'; $t1o = AddGroup $t1.asx_ruleid 'Ok'; $t1a = AddAction $t1.asx_ruleid 'Act' 1
+$t2 = AddRule 'T2 expires here'; AddGroup $t2.asx_ruleid 'Ok' | Out-Null; $t2a = AddAction $t2.asx_ruleid 'Act' 1
+$t3 = AddRule 'T3 after expiry'; AddGroup $t3.asx_ruleid 'Ok' | Out-Null; $t3a = AddAction $t3.asx_ruleid 'Act' 2
+$db.ExpireTokenOn = [regex]::Escape($t2.asx_ruleid)
+$expired = Run
+Assert ($expired.ExitCode -eq 1) "14: an expired token exits 1 (was $($expired.ExitCode)).`n$($expired.Output)"
+Assert ($expired.Output.Contains($tokenMessage)) "14: the run names the expired token.`n$($expired.Output)"
+Assert ($db.Rejected -eq 1) "14: the run stops at the first 401 (saw $($db.Rejected) refused requests)."
+Assert ((Section $expired.Output 'Failed').Count -eq 0) "14: the remaining rules are not listed as failed.`n$($expired.Output)"
+Assert ((Names $expired.Output 'Converted') -eq 'T1 before expiry' -and $null -eq $t1a.asx_fireon) "14: the rule before the expiry is converted.`n$($expired.Output)"
+Assert ($null -ne $t2a.asx_fireon -and $null -ne $t3a.asx_fireon -and @($db.Log | Where-Object { $_ -match $t3.asx_ruleid }).Count -eq 0) '14: nothing is attempted after the 401.'
+$db.ExpireTokenOn = $null; $db.TokenExpired = $false
+$resumed = Run
+Assert ($resumed.ExitCode -eq 0 -and (Names $resumed.Output 'Converted') -eq 'T2 expires here, T3 after expiry') "14: a re-run with a new token converts the rest.`n$($resumed.Output)"
+Assert ($null -eq $t2a.asx_fireon -and $null -eq $t3a.asx_fireon -and @(RootsOf $t1a.asx_ruleactionid).Count -eq 1) '14: the re-run finishes the remaining rules without redoing the first.'
+Write-Host 'PASS: an expired token stops the run with one message, and a re-run resumes (case 14).'
+
+# 15. A de-duplicated outcome name that would pass the 100-character column keeps its suffix and shortens its base.
+# 16. An action with an unknown asx_fireon value fails its rule; the run moves on to the next rule.
+$script:db = New-Store
+$long = 'Long outcome ' + ('n' * 87)  # exactly 100 characters
+$l1 = AddRule 'L1 long names'
+$l1First = AddGroup $l1.asx_ruleid $long; $l1Second = AddGroup $l1.asx_ruleid $long.ToUpperInvariant()
+AddAction $l1.asx_ruleid 'Act' 1 | Out-Null
+$m1 = AddRule 'M1 unknown fire on'; AddGroup $m1.asx_ruleid 'Ok' | Out-Null; $m1a = AddAction $m1.asx_ruleid 'Odd' 3
+$n1 = AddRule 'N1 after'; AddGroup $n1.asx_ruleid 'Ok' | Out-Null; $n1a = AddAction $n1.asx_ruleid 'Act' 1
+$edge = Run
+$expectedName = $long.ToUpperInvariant().Substring(0, 96) + ' (2)'
+Assert ($l1First.asx_name -ceq $long -and $l1Second.asx_name -ceq $expectedName -and $expectedName.Length -eq 100) "15: the duplicate becomes '$expectedName' (got '$($l1Second.asx_name)').`n$($edge.Output)"
+Assert ((Section $edge.Output 'Failed') -contains "Failed: $($m1.asx_ruleid) M1 unknown fire on: Action 'Odd' has an unknown asx_fireon value 3.") "16: M1 is listed under Failed.`n$($edge.Output)"
+Assert ((Section $edge.Output 'Failed').Count -eq 1 -and $edge.ExitCode -eq 1) "16: only M1 fails, and the run exits 1.`n$($edge.Output)"
+Assert ($m1a.asx_fireon -eq 3 -and @(RootsOf $m1a.asx_ruleactionid).Count -eq 0) '16: the unknown action is left as it is.'
+Assert ($null -eq $n1a.asx_fireon -and (Names $edge.Output 'Converted') -eq 'L1 long names, N1 after') "16: the run continues past M1.`n$($edge.Output)"
+Write-Host 'PASS: long duplicate names fit the column, and an unknown fire-on value fails only its rule (cases 15-16).'
 
 Write-Host 'PASS: Convert-RulesToOutcomes offline tests.'

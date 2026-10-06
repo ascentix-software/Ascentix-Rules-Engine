@@ -19,7 +19,9 @@
     get stable ids so a partial tree is completed rather than duplicated, and an enforcing rule whose publish
     failed or never happened is published by the next run. Under -Confirm, a rule with any declined write is
     not published and is listed under "Skipped (declined)".
-    Exit code 0 when no rule failed, 1 otherwise.
+    If Dataverse refuses the access token (HTTP 401, for example it expired), the run stops there with one
+    message; get a new token and run it again.
+    Exit code 0 when no rule failed, 1 otherwise (including a refused token).
 
 .PARAMETER EnvUrl
     The environment URL, for example https://contoso.crm.dynamics.com. Only its host name is printed.
@@ -55,6 +57,9 @@ $cmdlet = $PSCmdlet
 $dryRun = [bool]$WhatIfPreference
 # Set while a published rule is only being inspected (no draft could be opened): nothing may be written.
 $script:estimateOnly = $false
+# Set when Dataverse refuses the token (HTTP 401): every later request would fail the same way, so the run stops.
+$script:tokenRejected = $false
+$TokenMessage = 'The access token expired or is invalid; get a new token and re-run (the script resumes safely).'
 
 function Request([string]$Method, [string]$Path, $Body = $null, [hashtable]$Extra = $null) {
     $uri = if ($Path -match '^https://') { $Path } else { $base + $Path }
@@ -63,6 +68,8 @@ function Request([string]$Method, [string]$Path, $Body = $null, [hashtable]$Extr
     if ($null -ne $Body) { $call.ContentType = 'application/json; charset=utf-8'; $call.Body = $Body | ConvertTo-Json -Depth 5 -Compress }
     try { Invoke-RestMethod @call }
     catch {
+        $status = try { [int]$_.Exception.Response.StatusCode } catch { 0 }
+        if ($status -eq 401) { $script:tokenRejected = $true; throw [System.Exception]::new($TokenMessage) }
         $text = if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $_.ErrorDetails.Message } else { $_.Exception.Message }
         $message = try { ($text | ConvertFrom-Json).error.message } catch { $null }
         if (!$message) { $message = $text }
@@ -134,8 +141,17 @@ function Test-PublishedUnconverted([string]$RuleId) {
     $false
 }
 
-# New names for the outcomes that need one: blank -> "Outcome N" (smallest N free), repeated -> "<name> (k)".
-# Names compare trimmed and ignoring case, as the publish check does.
+# asx_conditiongroup.asx_name holds at most 100 characters (MaxLength in the shipped solution).
+$MaxOutcomeName = 100
+# "<base><suffix>", with the base shortened so the whole name fits the column.
+function Fit-OutcomeName([string]$Base, [string]$Suffix) {
+    $room = $MaxOutcomeName - $Suffix.Length
+    if ($Base.Length -gt $room) { $Base = $Base.Substring(0, $room).TrimEnd() }
+    "$Base$Suffix"
+}
+
+# New names for the outcomes that need one: blank -> "Outcome N" (smallest N free), repeated -> "<name> (k)"
+# (the name shortened to fit the column). Names compare trimmed and ignoring case, as the publish check does.
 function Get-OutcomeRenames($Outcomes) {
     $taken = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($o in $Outcomes) { $name = "$($o.asx_name)".Trim(); if ($name) { [void]$taken.Add($name) } }
@@ -148,8 +164,8 @@ function Get-OutcomeRenames($Outcomes) {
             $new = "Outcome $n"
         }
         elseif (!$seen.Add($name)) {
-            $k = 2; while ($taken.Contains("$name ($k)")) { $k++ }
-            $new = "$name ($k)"
+            $k = 2; while ($taken.Contains((Fit-OutcomeName $name " ($k)"))) { $k++ }
+            $new = Fit-OutcomeName $name " ($k)"
         }
         else { continue }
         [void]$taken.Add($new); [void]$seen.Add($new)
@@ -320,6 +336,11 @@ foreach ($rule in $rules) {
         Write-Host "  $($label): $note"
     }
     catch {
+        if ($script:tokenRejected) {
+            # Not this rule's fault: stop here, and the re-run picks this rule up again.
+            Write-Host "  $($label): stopped (access token refused)"
+            break
+        }
         $message = $_.Exception.Message
         $failed.Add("Failed: $($rule.asx_ruleid) $($rule.asx_name): $message")
         Write-Host "  $($label): FAILED: $message"
@@ -336,9 +357,21 @@ Write-Host "Summary$(if ($dryRun) { ' (-WhatIf: nothing was written; the lists s
 Show 'Converted' $converted
 Show 'Published' $publishedRules
 Show 'Deactivated' $deactivated
+# Every rule ever published from the Rule Builder keeps a working draft, so this list is usually long.
+if ($dryRun) {
+    Write-Host '  Every rule ever published from the Rule Builder keeps a working draft, so the next list includes all of them. Before the real run, open any of these rules that has saved but unpublished changes and Publish or Discard them: the script republishes every enforcing rule''s draft, so those changes would go live with it.'
+}
+else {
+    Write-Host '  Every rule ever published from the Rule Builder keeps a working draft, so the next list includes all of them. Each enforcing rule this run published went live from its draft, with any saved but unpublished changes in it.'
+}
 Show 'Rules with a working draft' $withDraft
 Show $(if ($dryRun) { 'Draft would be opened' } else { 'Drafts opened' }) $opened
 Show 'Skipped (declined)' $skipped
 Show 'Failed' $failed
+if ($script:tokenRejected) {
+    Write-Host ''
+    Write-Host "Stopped: $TokenMessage"
+    exit 1
+}
 if ($failed.Count -gt 0) { exit 1 }
 exit 0
