@@ -97,17 +97,23 @@ nothing is blocked wrongly, but nothing fires either. The script is
 
 Before you import the new version:
 
-1. Every rule that has ever been published from the Rule Builder keeps a working draft. Open each
-   rule that has saved but unpublished changes and **Publish** or **Discard** them: the script
-   republishes every enforcing rule from its draft, so those changes would go live with the
-   conversion.
-2. Optionally run the script with `-WhatIf` (it writes nothing) to see what it would change.
+1. Run the script with `-WhatIf` (it writes nothing) to see what it would change.
+2. Every rule that has ever been published from the Rule Builder keeps a working draft. The script
+   republishes enforcing rules from their drafts, so it first checks each draft and lists, under
+   **Drafts with edits since the last publish** (the first list of its summary), only the drafts
+   changed since their last publish. Open each listed rule and **Publish** or **Discard** its
+   changes.
 
 After you import it, sign in as a System Administrator or System Customizer and run
 `Convert-RulesToOutcomes.ps1` straight away. It names each outcome, builds each action's Fires
-when condition, and republishes the rules that are currently enforcing. It is safe to run again if
-a run is interrupted. The retired `asx_fireon` column stays in the solution for this release and
-is removed in the next one.
+when condition, and republishes the rules that are currently enforcing. It skips any enforcing
+rule whose draft has edits since the last publish, writes nothing to it, and lists it under
+**Drafts with edits since the last publish (skipped: publish or discard them, then re-run)**. For
+each listed rule, open it and Discard the draft changes, or Publish them (the upgraded Rule
+Builder first asks you to choose when each of its actions fires), then run the script again. Or,
+once you have checked them, run it again with `-PublishDraftEdits` to convert and publish those
+rules with their changes. It is safe to run again if a run is interrupted. The retired
+`asx_fireon` column stays in the solution for this release and is removed in the next one.
 
 The `asx_RunRules` and `asx_ReadRules` results no longer include `fireOn` on each action. This is
 a breaking change for any caller that reads it.

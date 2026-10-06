@@ -19,32 +19,83 @@ function New-Store {
     @{ Rules = [System.Collections.Generic.List[hashtable]]::new(); Groups = [System.Collections.Generic.List[hashtable]]::new()
        Actions = [System.Collections.Generic.List[hashtable]]::new(); Trees = [System.Collections.Generic.List[hashtable]]::new()
        Tests = [System.Collections.Generic.List[hashtable]]::new(); Log = [System.Collections.Generic.List[string]]::new()
+       # Rows of the other configuration tables (conditions, search criteria, node filters, messages), each with its Entity.
+       Extra = [System.Collections.Generic.List[hashtable]]::new()
+       # asx_rulerevision rows by id: the rule's frozen snapshot (Json) and createdon.
+       Revisions = @{}
        Publishes = [System.Collections.Generic.List[string]]::new(); Opens = [System.Collections.Generic.List[string]]::new()
        FailPublish = @{}; SnapshotSource = @{}; FailTestCreateAt = 0; TestCreates = 0; Clock = 0
        ExpireTokenOn = $null; TokenExpired = $false; Rejected = 0 }
 }
 function NewId { [guid]::NewGuid().ToString() }
-function Stamp { $db.Clock++; '2026-01-01T00:00:{0:00}Z' -f $db.Clock }
+# The mock clock: one second per row written, as ISO 8601 UTC strings (Dataverse's format for createdon/modifiedon).
+$mockEpoch = [datetime]::new(2026, 1, 1, 0, 0, 0, [DateTimeKind]::Utc)
+function Iso([datetime]$Value) { $Value.ToString('yyyy-MM-ddTHH:mm:ssZ', [cultureinfo]::InvariantCulture) }
+function Stamp { $db.Clock++; Iso $mockEpoch.AddSeconds($db.Clock) }
+function Plus([string]$Stamp, [int]$Seconds) {
+    Iso ([datetime]::Parse($Stamp, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]'AssumeUniversal, AdjustToUniversal')).AddSeconds($Seconds)
+}
 function AddRule([string]$Name, [int]$Status = 1, [bool]$Pointer = $false, [string]$DraftOf = $null) {
-    $rule = @{ asx_ruleid = (NewId); asx_name = $Name; statuscode = $Status
-        _asx_publishedrevision_value = $(if ($Pointer) { NewId } else { $null }); _asx_draftof_value = $DraftOf }
+    $now = Stamp
+    $rule = @{ asx_ruleid = (NewId); asx_name = $Name; statuscode = $Status; _asx_publishedrevision_value = $null; _asx_draftof_value = $DraftOf
+        createdon = $now; modifiedon = $now }
+    # A revision whose snapshot is taken by FreezeRevisions once the fixture's rows exist.
+    if ($Pointer) { $rule._asx_publishedrevision_value = NewId; $db.Revisions[$rule._asx_publishedrevision_value] = @{ Json = $null; CreatedOn = $null } }
     $db.Rules.Add($rule); $rule
 }
 function AddGroup([string]$Rule, [string]$Name, $Execution = $false, [string]$Parent = $null) {
+    $now = Stamp
     $group = @{ asx_conditiongroupid = (NewId); _asx_rule_value = $Rule; asx_name = $Name; asx_isexecutioncondition = $Execution
-        _asx_parentconditiongroup_value = $Parent; createdon = (Stamp) }
+        _asx_parentconditiongroup_value = $Parent; createdon = $now; modifiedon = $now }
     $db.Groups.Add($group); $group
 }
 function AddAction([string]$Rule, [string]$Name, $FireOn) {
-    $action = @{ asx_ruleactionid = (NewId); _asx_rule_value = $Rule; asx_name = $Name; asx_fireon = $FireOn; asx_isactive = $true }
+    $now = Stamp
+    $action = @{ asx_ruleactionid = (NewId); _asx_rule_value = $Rule; asx_name = $Name; asx_fireon = $FireOn; asx_isactive = $true; createdon = $now; modifiedon = $now }
     $db.Actions.Add($action); $action
 }
 # An author-built tree: a root ANY with one "is true" test on the given outcome.
 function AddTree([string]$Action, [string]$Outcome) {
-    $root = @{ asx_actionconditiongroupid = (NewId); _asx_ruleaction_value = $Action; _asx_parentgroup_value = $null; asx_logicaloperator = 2; asx_order = 1 }
+    $now = Stamp
+    $root = @{ asx_actionconditiongroupid = (NewId); _asx_ruleaction_value = $Action; _asx_parentgroup_value = $null; asx_logicaloperator = 2; asx_order = 1
+        createdon = $now; modifiedon = $now }
     $db.Trees.Add($root)
-    $db.Tests.Add(@{ asx_actionconditiontestid = (NewId); _asx_actionconditiongroup_value = $root.asx_actionconditiongroupid; _asx_outcome_value = $Outcome; asx_expected = $true; asx_order = 1 })
+    $db.Tests.Add(@{ asx_actionconditiontestid = (NewId); _asx_actionconditiongroup_value = $root.asx_actionconditiongroupid; _asx_outcome_value = $Outcome
+        asx_expected = $true; asx_order = 1; createdon = $now; modifiedon = $now })
     $root
+}
+# A row of one of the other configuration tables, linked to its parent by the given lookup values.
+function AddRow([string]$Entity, [hashtable]$Lookups) {
+    $now = Stamp
+    $row = @{ Entity = $Entity; "${Entity}id" = (NewId); createdon = $now; modifiedon = $now }
+    foreach ($key in $Lookups.Keys) { $row[$key] = $Lookups[$key] }
+    $db.Extra.Add($row); $row
+}
+
+# RuleSnapshot.Edges (Ascentix.RulesEngine.Core/Publication/RuleSnapshot.cs), written out independently of the script:
+# parent table, child table, and the child's lookup as the Web API names it. The tableconfig -> tableconfig edge is
+# left out: a rule's draft never owns the shared data model.
+$mockEdges = @(
+    @('asx_rule', 'asx_conditiongroup', '_asx_rule_value'), @('asx_rule', 'asx_ruleaction', '_asx_rule_value'),
+    @('asx_conditiongroup', 'asx_rulecondition', '_asx_conditiongroup_value'),
+    @('asx_conditiongroup', 'asx_nodefiltergroup', '_asx_conditiongroup_value'),
+    @('asx_rulecondition', 'asx_searchcriteriagroup', '_asx_rulecondition_value'),
+    @('asx_rulecondition', 'asx_nodefiltergroup', '_asx_rulecondition_value'),
+    @('asx_searchcriteriagroup', 'asx_searchcriterion', '_asx_criteriagroup_value'),
+    @('asx_searchcriteriagroup', 'asx_searchcriteriagroup', '_asx_parentcriteriagroup_value'),
+    @('asx_nodefiltergroup', 'asx_nodefiltergroup', '_asx_parentfiltergroup_value'),
+    @('asx_nodefiltergroup', 'asx_nodefiltercriterion', '_asx_filtergroup_value'),
+    @('asx_nodefiltercriterion', 'asx_nodefiltergroup', '_asx_owningcriterion_value'),
+    @('asx_ruleaction', 'asx_localizedmessage', '_asx_ruleaction_value'),
+    @('asx_ruleaction', 'asx_nodefiltergroup', '_asx_ruleaction_value'),
+    @('asx_ruleaction', 'asx_actionconditiongroup', '_asx_ruleaction_value'),
+    @('asx_actionconditiongroup', 'asx_actionconditiontest', '_asx_actionconditiongroup_value'))
+function TableRows([string]$Table) {
+    switch ($Table) {
+        'asx_rule' { @($db.Rules) } 'asx_conditiongroup' { @($db.Groups) } 'asx_ruleaction' { @($db.Actions) }
+        'asx_actionconditiongroup' { @($db.Trees) } 'asx_actionconditiontest' { @($db.Tests) }
+        default { @($db.Extra | Where-Object { $_.Entity -eq $Table }) }
+    }
 }
 function RuleById([string]$Id) { @($db.Rules | Where-Object { $_.asx_ruleid -eq $Id })[0] }
 function DraftOf([string]$Id) { @($db.Rules | Where-Object { $_._asx_draftof_value -eq $Id })[0] }
@@ -79,25 +130,57 @@ function AssertEditable([string]$Rule) {
     Assert ($header._asx_draftof_value -or (!$header._asx_publishedrevision_value -and $header.statuscode -ne $mockPublished -and !(DraftOf $Rule))) "Direct write to the rows of rule '$($header.asx_name)', which needs its working draft."
 }
 
-# The rule's active published revision, as asx_ReadPublishedRule returns it: a RuleSnapshot serialized by
-# DataContractJsonSerializer (Attributes is a list of Key/Value pairs; null attributes are absent). The rows
-# come from the rule itself until one of its drafts is published.
-function SnapshotOf([string]$RuleId) {
-    $source = if ($db.SnapshotSource.ContainsKey($RuleId)) { $db.SnapshotSource[$RuleId] } else { $RuleId }
+# A published revision, as asx_ReadPublishedRule returns it: a RuleSnapshot serialized by DataContractJsonSerializer
+# (Attributes is a list of Key/Value pairs; null attributes are absent), taken from the source rule's rows as they are
+# now. As RuleDrafts.Reidentify does, only the rule header's id becomes the published rule's; every other row keeps
+# its source id. A shared table configuration row is included, as RuleSnapshot.Capture includes the data model.
+function SnapshotJson([string]$RuleId, [string]$Source) {
     $rows = [System.Collections.Generic.List[object]]::new()
     $rows.Add(@{ Entity = 'asx_rule'; Id = $RuleId; Attributes = @(@{ Key = 'asx_name'; Value = @{ Kind = 'string'; Value = (RuleById $RuleId).asx_name } }) })
-    foreach ($a in ActionsOf $source) {
-        $attributes = @(@{ Key = 'asx_rule'; Value = @{ Kind = 'reference'; Value = $RuleId; Entity = 'asx_rule' } },
-            @{ Key = 'asx_isactive'; Value = @{ Kind = 'bool'; Value = $(if ($a.asx_isactive) { 'True' } else { 'False' }) } })
-        if ($null -ne $a.asx_fireon) { $attributes += @{ Key = 'asx_fireon'; Value = @{ Kind = 'option'; Value = "$($a.asx_fireon)" } } }
-        $rows.Add(@{ Entity = 'asx_ruleaction'; Id = $a.asx_ruleactionid; Attributes = $attributes })
-        foreach ($root in RootsOf $a.asx_ruleactionid) {
-            $rows.Add(@{ Entity = 'asx_actionconditiongroup'; Id = $root.asx_actionconditiongroupid; Attributes = @(
-                @{ Key = 'asx_ruleaction'; Value = @{ Kind = 'reference'; Value = $a.asx_ruleactionid; Entity = 'asx_ruleaction' } },
-                @{ Key = 'asx_logicaloperator'; Value = @{ Kind = 'option'; Value = "$($root.asx_logicaloperator)" } }) })
+    $seen = [System.Collections.Generic.HashSet[string]]::new()
+    $queue = [System.Collections.Generic.Queue[object]]::new()
+    $queue.Enqueue(@('asx_rule', $Source))
+    while ($queue.Count -gt 0) {
+        $parent = $queue.Dequeue()
+        foreach ($edge in $mockEdges | Where-Object { $_[0] -eq $parent[0] }) {
+            foreach ($row in TableRows $edge[1] | Where-Object { $_[$edge[2]] -eq $parent[1] }) {
+                $id = $row["$($edge[1])id"]
+                if (!$seen.Add("$($edge[1])/$id")) { continue }
+                $queue.Enqueue(@($edge[1], $id))
+                $attributes = @()
+                if ($edge[1] -eq 'asx_ruleaction') {
+                    $attributes = @(@{ Key = 'asx_rule'; Value = @{ Kind = 'reference'; Value = $RuleId; Entity = 'asx_rule' } },
+                        @{ Key = 'asx_isactive'; Value = @{ Kind = 'bool'; Value = $(if ($row.asx_isactive) { 'True' } else { 'False' }) } })
+                    if ($null -ne $row.asx_fireon) { $attributes += @{ Key = 'asx_fireon'; Value = @{ Kind = 'option'; Value = "$($row.asx_fireon)" } } }
+                }
+                elseif ($edge[1] -eq 'asx_actionconditiongroup') {
+                    $attributes = @(@{ Key = 'asx_ruleaction'; Value = @{ Kind = 'reference'; Value = $row._asx_ruleaction_value; Entity = 'asx_ruleaction' } },
+                        @{ Key = 'asx_logicaloperator'; Value = @{ Kind = 'option'; Value = "$($row.asx_logicaloperator)" } })
+                }
+                $rows.Add(@{ Entity = $edge[1]; Id = $id; Attributes = $attributes })
+            }
         }
     }
+    $rows.Add(@{ Entity = 'asx_tableconfig'; Id = (NewId); Attributes = @() })
     @{ Format = 1; RuleId = $RuleId; Rows = $rows.ToArray() } | ConvertTo-Json -Depth 10 -Compress
+}
+# Records a new revision of the rule taken from the source's rows and points the rule at it.
+function PublishRevision([string]$RuleId, [string]$Source) {
+    $id = NewId
+    $db.Revisions[$id] = @{ Json = (SnapshotJson $RuleId $Source); CreatedOn = (Stamp) }
+    (RuleById $RuleId)._asx_publishedrevision_value = $id
+    $db.Revisions[$id]
+}
+# Takes the snapshot of every revision a fixture created with AddRule -Pointer, from the rule itself or the draft
+# named in SnapshotSource.
+function FreezeRevisions {
+    foreach ($rule in @($db.Rules | Where-Object { $_._asx_publishedrevision_value })) {
+        $revision = $db.Revisions[$rule._asx_publishedrevision_value]
+        if ($revision.Json) { continue }
+        $source = if ($db.SnapshotSource.ContainsKey($rule.asx_ruleid)) { $db.SnapshotSource[$rule.asx_ruleid] } else { $rule.asx_ruleid }
+        $revision.Json = SnapshotJson $rule.asx_ruleid $source
+        $revision.CreatedOn = Stamp
+    }
 }
 
 # Copies a rule's rows into a new working draft with fresh ids, as asx_OpenRuleDraft does.
@@ -107,18 +190,21 @@ function OpenDraft([string]$RuleId) {
     $source = RuleById $RuleId
     $draft = AddRule $source.asx_name 1 $false $RuleId
     $map = @{}
+    $now = $draft.createdon
     foreach ($g in GroupsOf $RuleId) { $map[$g.asx_conditiongroupid] = NewId }
     foreach ($g in GroupsOf $RuleId) {
         $copy = $g.Clone(); $copy.asx_conditiongroupid = $map[$g.asx_conditiongroupid]; $copy._asx_rule_value = $draft.asx_ruleid
+        $copy.createdon = $now; $copy.modifiedon = $now
         if ($g._asx_parentconditiongroup_value) { $copy._asx_parentconditiongroup_value = $map[$g._asx_parentconditiongroup_value] }
         $db.Groups.Add($copy)
     }
     foreach ($a in ActionsOf $RuleId) {
-        $copy = $a.Clone(); $copy.asx_ruleactionid = NewId; $copy._asx_rule_value = $draft.asx_ruleid; $db.Actions.Add($copy)
+        $copy = $a.Clone(); $copy.asx_ruleactionid = NewId; $copy._asx_rule_value = $draft.asx_ruleid; $copy.createdon = $now; $copy.modifiedon = $now; $db.Actions.Add($copy)
         foreach ($root in RootsOf $a.asx_ruleactionid) {
-            $rootCopy = $root.Clone(); $rootCopy.asx_actionconditiongroupid = NewId; $rootCopy._asx_ruleaction_value = $copy.asx_ruleactionid; $db.Trees.Add($rootCopy)
+            $rootCopy = $root.Clone(); $rootCopy.asx_actionconditiongroupid = NewId; $rootCopy._asx_ruleaction_value = $copy.asx_ruleactionid
+            $rootCopy.createdon = $now; $rootCopy.modifiedon = $now; $db.Trees.Add($rootCopy)
             foreach ($t in TestsOf $root.asx_actionconditiongroupid) {
-                $testCopy = $t.Clone(); $testCopy.asx_actionconditiontestid = NewId
+                $testCopy = $t.Clone(); $testCopy.asx_actionconditiontestid = NewId; $testCopy.createdon = $now; $testCopy.modifiedon = $now
                 $testCopy._asx_actionconditiongroup_value = $rootCopy.asx_actionconditiongroupid; $testCopy._asx_outcome_value = $map[$t._asx_outcome_value]
                 $db.Tests.Add($testCopy)
             }
@@ -165,6 +251,31 @@ function Invoke-RestMethod {
         if ($path -match "^asx_actionconditiontests\?\`$filter=_asx_actionconditiongroup_value eq ($mockGuid)&\`$select=asx_actionconditiontestid$") {
             return Respond @{ value = @(TestsOf $Matches[1] | ForEach-Object { @{ asx_actionconditiontestid = $_.asx_actionconditiontestid } }) }
         }
+        # Draft-edit detection: the working draft header's modifiedon, the published revision's createdon, and the
+        # draft's configuration rows, one table and one parent lookup at a time.
+        if ($path -match "^asx_rules\(($mockGuid)\)\?\`$select=modifiedon$") {
+            $rule = RuleById $Matches[1]
+            Assert ($rule -and $rule._asx_draftof_value) 'Only a working draft header is read for its modifiedon.'
+            return Respond @{ asx_ruleid = $rule.asx_ruleid; modifiedon = $rule.modifiedon }
+        }
+        if ($path -match "^asx_rulerevisions\(($mockGuid)\)\?\`$select=createdon$") {
+            $revision = $db.Revisions[$Matches[1]]
+            Assert ($revision -and $revision.CreatedOn) "Read of an unknown revision $($Matches[1])."
+            return Respond @{ asx_rulerevisionid = $Matches[1]; createdon = $revision.CreatedOn }
+        }
+        if ($path -match "^(asx_[a-z]+)s\?\`$filter=\((.+)\)&\`$select=(asx_[a-z]+)id,modifiedon,createdon$") {
+            $table = $Matches[1]; $clauses = $Matches[2] -split ' or '; $select = $Matches[3]
+            Assert ($select -eq $table) "A $table query must select ${table}id (got ${select}id)."
+            $ids = @(foreach ($clause in $clauses) {
+                Assert ($clause -match "^(_asx_[a-z]+_value) eq ($mockGuid)$") "Unexpected filter clause on ${table}: $clause"
+                $lookup = $Matches[1]; $Matches[2]
+            })
+            Assert (@($clauses | Where-Object { $_ -notmatch "^$([regex]::Escape($lookup)) eq " }).Count -eq 0) "One $table query filters on one lookup only."
+            Assert (@($mockEdges | Where-Object { $_[1] -eq $table -and $_[2] -eq $lookup }).Count -eq 1) "$table is not a child of any rule table through ${lookup}."
+            Assert ($ids.Count -le 50) "At most 50 parents per $table query (got $($ids.Count))."
+            return Respond @{ value = @(TableRows $table | Where-Object { $_[$lookup] -and $ids -contains $_[$lookup] } |
+                ForEach-Object { @{ "${table}id" = $_["${table}id"]; modifiedon = $_.modifiedon; createdon = $_.createdon } }) }
+        }
     }
     if ($Method -eq 'POST') {
         Assert (!$Headers.ContainsKey('If-Match')) "POST $path must not send If-Match."
@@ -180,7 +291,9 @@ function Invoke-RestMethod {
             Assert ($rule -and !$rule._asx_draftof_value) 'asx_ReadPublishedRule is read for the rule, not its draft.'
             # No revision pointer means no published revision to read (a Published rule from before revisions).
             if (!$rule._asx_publishedrevision_value) { Fail 400 'This rule has no published revision.' }
-            return Respond @{ Definition = (SnapshotOf $record.RuleId) }
+            $revision = $db.Revisions[$rule._asx_publishedrevision_value]
+            Assert ($revision -and $revision.Json) "The fixture did not freeze the revision of '$($rule.asx_name)'."
+            return Respond @{ Definition = $revision.Json }
         }
         if ($path -eq 'asx_actionconditiongroups') {
             Assert ((@($record.Keys | Sort-Object) -join ',') -ceq 'asx_actionconditiongroupid,asx_logicaloperator,asx_order,asx_RuleAction@odata.bind') "Unexpected group body: $Body"
@@ -191,8 +304,9 @@ function Invoke-RestMethod {
             AssertEditable $action._asx_rule_value
             Assert (@($db.Trees | Where-Object { $_.asx_actionconditiongroupid -eq $record.asx_actionconditiongroupid }).Count -eq 0) 'Duplicate group id.'
             Assert (@(RootsOf $action.asx_ruleactionid).Count -eq 0) 'A second root group for one action.'
+            $now = Stamp
             $db.Trees.Add(@{ asx_actionconditiongroupid = $record.asx_actionconditiongroupid; _asx_ruleaction_value = $action.asx_ruleactionid
-                _asx_parentgroup_value = $null; asx_logicaloperator = $record.asx_logicaloperator; asx_order = $record.asx_order })
+                _asx_parentgroup_value = $null; asx_logicaloperator = $record.asx_logicaloperator; asx_order = $record.asx_order; createdon = $now; modifiedon = $now })
             return
         }
         if ($path -eq 'asx_actionconditiontests') {
@@ -208,8 +322,9 @@ function Invoke-RestMethod {
             Assert (@($db.Tests | Where-Object { $_.asx_actionconditiontestid -eq $record.asx_actionconditiontestid }).Count -eq 0) 'Duplicate test id.'
             $db.TestCreates++
             if ($db.TestCreates -eq $db.FailTestCreateAt) { Fail 500 'Simulated interruption while creating a test.' }
+            $now = Stamp
             $db.Tests.Add(@{ asx_actionconditiontestid = $record.asx_actionconditiontestid; _asx_actionconditiongroup_value = $group.asx_actionconditiongroupid
-                _asx_outcome_value = $outcome.asx_conditiongroupid; asx_expected = $record.asx_expected; asx_order = $record.asx_order })
+                _asx_outcome_value = $outcome.asx_conditiongroupid; asx_expected = $record.asx_expected; asx_order = $record.asx_order; createdon = $now; modifiedon = $now })
             return
         }
     }
@@ -224,6 +339,7 @@ function Invoke-RestMethod {
             if ($record.asx_name.Length -gt 100) { Fail 400 "A validation error occurred. The length of the 'asx_name' attribute of the 'asx_conditiongroup' entity exceeded the maximum allowed length of '100'." }
             AssertEditable $group._asx_rule_value
             $group.asx_name = $record.asx_name
+            $group.modifiedon = Stamp
             return
         }
         if ($path -match "^asx_ruleactions\(($mockGuid)\)$") {
@@ -234,6 +350,7 @@ function Invoke-RestMethod {
             if ($record.ContainsKey('asx_isactive')) { Assert ($record.asx_isactive -eq $false) 'Only deactivation is expected.' }
             AssertEditable $action._asx_rule_value
             foreach ($key in $record.Keys) { $action[$key] = $record[$key] }
+            $action.modifiedon = Stamp
             return
         }
         if ($path -match "^asx_rules\(($mockGuid)\)$") {
@@ -242,20 +359,23 @@ function Invoke-RestMethod {
             Assert ($rule -and $rule._asx_draftof_value) 'Only a working draft is published.'
             Assert ((@($record.Keys) -join ',') -eq 'statuscode' -and $record.statuscode -eq $mockPublished) 'Publishing sets only statuscode 753840000.'
             if ($db.FailPublish.ContainsKey($id)) { Fail 400 $db.FailPublish[$id] }
-            # The working copy stays a Draft; the original's active snapshot switches.
+            # The working copy stays a Draft (its header is updated); publishing records a revision taken from the
+            # draft, keeping its row ids, and points the original rule at it.
             $db.Publishes.Add($rule._asx_draftof_value)
-            $db.SnapshotSource[$rule._asx_draftof_value] = $id
-            # Publishing records a revision and points the original rule at it.
-            (RuleById $rule._asx_draftof_value)._asx_publishedrevision_value = NewId
+            $rule.modifiedon = Stamp
+            PublishRevision $rule._asx_draftof_value $id | Out-Null
             return
         }
     }
     throw "Unexpected request: $Method $path"
 }
 
-function Run([switch]$WhatIf, [switch]$Loud) {
+function Run([switch]$WhatIf, [switch]$Loud, [switch]$PublishDraftEdits) {
     $global:LASTEXITCODE = 0
-    $output = & $MigrationScript -EnvUrl 'https://migration.invalid/' -AccessToken 'mock-token' -WhatIf:$WhatIf -Verbose:$Loud *>&1 | Out-String
+    $switches = @{ WhatIf = $WhatIf; Verbose = $Loud }
+    # Passed only when set, so the existing cases also run against a script without the switch.
+    if ($PublishDraftEdits) { $switches.PublishDraftEdits = $true }
+    $output = & $MigrationScript -EnvUrl 'https://migration.invalid/' -AccessToken 'mock-token' @switches *>&1 | Out-String
     @{ Output = $output; ExitCode = $LASTEXITCODE }
 }
 # The lines listed under a summary heading, up to the next heading.
@@ -312,6 +432,7 @@ function Seed {
     $p3 = AddRule 'P3 no outcomes' $mockPublished $true
     $f.P3 = $p3.asx_ruleid
     # Its published revision: the pre-upgrade rows, which the draft below copies.
+    AddGroup $p3.asx_ruleid 'Run only when' $true | Out-Null
     AddAction $p3.asx_ruleid 'Always set' 1 | Out-Null
     AddAction $p3.asx_ruleid 'Never fired' 2 | Out-Null
     $d3 = AddRule $p3.asx_name 1 $false $p3.asx_ruleid
@@ -359,6 +480,7 @@ function Seed {
     $f.U1 = $u1.asx_ruleid
     AddGroup $u1.asx_ruleid 'Has phone' | Out-Null
     AddAction $u1.asx_ruleid 'Set flag' 1 | Out-Null
+    FreezeRevisions
     $f
 }
 
@@ -564,5 +686,157 @@ Assert ((Section $edge.Output 'Failed').Count -eq 1 -and $edge.ExitCode -eq 1) "
 Assert ($m1a.asx_fireon -eq 3 -and @(RootsOf $m1a.asx_ruleactionid).Count -eq 0) '16: the unknown action is left as it is.'
 Assert ($null -eq $n1a.asx_fireon -and (Names $edge.Output 'Converted') -eq 'L1 long names, N1 after') "16: the run continues past M1.`n$($edge.Output)"
 Write-Host 'PASS: long duplicate names fit the column, and an unknown fire-on value fails only its rule (cases 15-16).'
+
+# ---------- draft-edit detection (cases a-k) ----------
+$editsHeading = 'Drafts with edits since the last publish (skipped: publish or discard them, then re-run)'
+# A rule's configuration with a row in every table the draft walk visits, each reached through a different edge
+# (a node filter group through each of its five parents), plus an action that already has a Fires when tree.
+function Graph([string]$Rule) {
+    $g = @{}
+    $g.Outcome = AddGroup $Rule 'Valid'
+    $g.Condition = AddRow 'asx_rulecondition' @{ _asx_conditiongroup_value = $g.Outcome.asx_conditiongroupid }
+    $search = AddRow 'asx_searchcriteriagroup' @{ _asx_rulecondition_value = $g.Condition.asx_ruleconditionid }
+    $inner = AddRow 'asx_searchcriteriagroup' @{ _asx_parentcriteriagroup_value = $search.asx_searchcriteriagroupid }
+    AddRow 'asx_searchcriterion' @{ _asx_criteriagroup_value = $inner.asx_searchcriteriagroupid } | Out-Null
+    $filter = AddRow 'asx_nodefiltergroup' @{ _asx_conditiongroup_value = $g.Outcome.asx_conditiongroupid }
+    AddRow 'asx_nodefiltergroup' @{ _asx_rulecondition_value = $g.Condition.asx_ruleconditionid } | Out-Null
+    AddRow 'asx_nodefiltergroup' @{ _asx_parentfiltergroup_value = $filter.asx_nodefiltergroupid } | Out-Null
+    $criterion = AddRow 'asx_nodefiltercriterion' @{ _asx_filtergroup_value = $filter.asx_nodefiltergroupid }
+    AddRow 'asx_nodefiltergroup' @{ _asx_owningcriterion_value = $criterion.asx_nodefiltercriterionid } | Out-Null
+    $g.Notify = AddAction $Rule 'Notify' 1
+    $g.Message = AddRow 'asx_localizedmessage' @{ _asx_ruleaction_value = $g.Notify.asx_ruleactionid }
+    AddRow 'asx_nodefiltergroup' @{ _asx_ruleaction_value = $g.Notify.asx_ruleactionid } | Out-Null
+    $g.Tag = AddAction $Rule 'Tag' $null
+    AddTree $g.Tag.asx_ruleactionid $g.Outcome.asx_conditiongroupid | Out-Null
+    $g
+}
+# An enforcing rule last published from its working draft in the Rule Builder: the revision keeps the draft's row
+# ids, and the publish updates the draft header in the same operation.
+function SameIdRule([string]$Name, [scriptblock]$Before = $null) {
+    $rule = AddRule $Name $mockPublished
+    $draft = AddRule $Name 1 $false $rule.asx_ruleid
+    $g = Graph $draft.asx_ruleid
+    if ($Before) { & $Before $draft $g }
+    $revision = PublishRevision $rule.asx_ruleid $draft.asx_ruleid
+    $draft.modifiedon = $revision.CreatedOn
+    @{ Rule = $rule; Draft = $draft; G = $g; Published = $revision.CreatedOn }
+}
+# An enforcing rule published in place, whose working draft was opened a day later: asx_OpenRuleDraft (or Restore
+# published to draft) creates every row at once with new ids.
+function NewIdRule([string]$Name) {
+    $rule = AddRule $Name $mockPublished
+    Graph $rule.asx_ruleid | Out-Null
+    $revision = PublishRevision $rule.asx_ruleid $rule.asx_ruleid
+    $db.Clock += 86400
+    $draft = AddRule $Name 1 $false $rule.asx_ruleid
+    $g = Graph $draft.asx_ruleid
+    @{ Rule = $rule; Draft = $draft; G = $g; Published = $revision.CreatedOn }
+}
+function EditFixtures {
+    $script:db = New-Store
+    $e = @{}
+    # a: same ids, nothing changed (the header was updated 100 seconds after the revision: within the 2-minute margin).
+    #    52 conditions, so their children are read in two batches (50 parents per query); only the last has a child.
+    $e.A = SameIdRule 'Ea same ids unchanged' {
+        param($draft, $g)
+        $last = $null
+        foreach ($n in 1..51) { $last = AddRow 'asx_rulecondition' @{ _asx_conditiongroup_value = $g.Outcome.asx_conditiongroupid } }
+        AddRow 'asx_searchcriteriagroup' @{ _asx_rulecondition_value = $last.asx_ruleconditionid } | Out-Null
+    }
+    $e.A.Draft.modifiedon = Plus $e.A.Published 100
+    # b: same ids, an action changed 10 minutes after the publish.
+    $e.B = SameIdRule 'Eb action changed'; $e.B.G.Notify.modifiedon = Plus $e.B.Published 600
+    # c: same ids, a condition added after the publish.
+    $e.C = SameIdRule 'Ec condition added'
+    $e.C.Extra = AddRow 'asx_rulecondition' @{ _asx_conditiongroup_value = $e.C.G.Outcome.asx_conditiongroupid }
+    # d: same ids, a published message deleted from the draft.
+    $e.D = SameIdRule 'Ed message deleted'; [void]$db.Extra.Remove($e.D.G.Message)
+    # e: new ids, every row as the copy created it (one modified 3 seconds after its creation: within the margin).
+    $e.E = NewIdRule 'Ee new ids unchanged'; $e.E.G.Message.modifiedon = Plus $e.E.G.Message.createdon 3
+    # f: new ids, a condition changed a minute after the copy was made.
+    $e.F = NewIdRule 'Ef new ids condition changed'; $e.F.G.Condition.modifiedon = Plus $e.F.G.Condition.createdon 60
+    # c with new ids: a condition added later and never changed, so only the row count shows it.
+    $e.G = NewIdRule 'Eg new ids condition added'
+    $db.Clock += 600; AddRow 'asx_rulecondition' @{ _asx_conditiongroup_value = $e.G.G.Outcome.asx_conditiongroupid } | Out-Null
+    # f with a replaced row: a message deleted and a new one added 10 minutes later, never changed. The counts match;
+    #    only the late creation shows it.
+    $e.H = NewIdRule 'Eh new ids message replaced'; [void]$db.Extra.Remove($e.H.G.Message)
+    $db.Clock += 600; AddRow 'asx_localizedmessage' @{ _asx_ruleaction_value = $e.H.G.Notify.asx_ruleactionid } | Out-Null
+    # i: the draft was converted by an earlier run (no On match / On no match left) whose publish failed; the
+    #    conversion changed it after the publish, but it is not checked, so it is republished.
+    $e.I = SameIdRule 'Ei converted, publish failed'
+    $e.I.G.Notify.asx_fireon = $null; AddTree $e.I.G.Notify.asx_ruleactionid $e.I.G.Outcome.asx_conditiongroupid | Out-Null
+    $e.I.G.Notify.modifiedon = Plus $e.I.Published 3600
+    # j: same ids, the draft header (name, table, triggers) changed 3 minutes after the publish.
+    $e.J = SameIdRule 'Ej header changed'; $e.J.Draft.modifiedon = Plus $e.J.Published 180
+    # The migration runs an hour after the last publish.
+    $db.Clock += 3600
+    $e
+}
+$editedNames = 'Eb action changed, Ec condition added, Ed message deleted, Ef new ids condition changed, Eg new ids condition added, Eh new ids message replaced, Ej header changed'
+# Nothing was written to an edited rule or its draft.
+function AssertUntouched($Case, [string]$Label) {
+    $notify = $Case.G.Notify
+    Assert ($notify.asx_fireon -eq 1 -and @(RootsOf $notify.asx_ruleactionid).Count -eq 0) "${Label}: the edited draft's action is not converted."
+    Assert ($Case.Rule.asx_ruleid -notin $db.Publishes -and $Case.Rule.asx_ruleid -notin $db.Opens) "${Label}: the edited rule is not published and no draft is opened."
+    $ids = @($Case.Rule.asx_ruleid, $Case.Draft.asx_ruleid, $notify.asx_ruleactionid, $Case.G.Outcome.asx_conditiongroupid)
+    Assert (@(Writes | Where-Object { $w = $_; @($ids | Where-Object { $w -match $_ }).Count -gt 0 }).Count -eq 0) "${Label}: no write names the edited rule, its draft or their rows."
+}
+
+# a-f, i, j: one run over every kind of draft.
+$e = EditFixtures
+$edits = Run
+$eo = $edits.Output
+Assert ((Names $eo $editsHeading) -eq $editedNames) "b, c, d, f, j (and c and f variants): the edited drafts are listed under the new heading.`n$eo"
+Assert ($eo -match [regex]::Escape("Eb action changed ($($e.B.Rule.asx_ruleid)): skipped (its working draft has edits since the last publish)")) "b: the rule's line says why it was skipped.`n$eo"
+foreach ($case in @(@('B', 'b'), @('C', 'c'), @('D', 'd'), @('F', 'f'), @('G', 'c with new ids'), @('H', 'f with a replaced row'), @('J', 'j'))) { AssertUntouched $e[$case[0]] $case[1] }
+Assert ($edits.ExitCode -eq 0 -and (Section $eo 'Failed').Count -eq 0 -and (Section $eo 'Skipped (declined)').Count -eq 0) "b: a skipped draft is not a failure and does not change the exit code.`n$eo"
+foreach ($case in @(@('A', 'a'), @('E', 'e'))) {
+    $notify = $e[$case[0]].G.Notify
+    Assert ($null -eq $notify.asx_fireon -and @(RootsOf $notify.asx_ruleactionid).Count -eq 1) "$($case[1]): the unchanged draft is converted."
+}
+Assert ((Names $eo 'Converted') -eq 'Ea same ids unchanged, Ee new ids unchanged') "a, e: the unchanged drafts are converted (the run continued past the skipped ones).`n$eo"
+Assert ((Names $eo 'Published') -eq 'Ea same ids unchanged, Ee new ids unchanged, Ei converted, publish failed') "a, e, i: the unchanged and the already converted drafts are published.`n$eo"
+Assert ($e.I.Rule.asx_ruleid -in $db.Publishes) 'i: the already converted draft is republished.'
+Assert (@($db.Log | Where-Object { $_ -match [regex]::Escape("asx_rules($($e.I.Draft.asx_ruleid))?`$select=modifiedon") }).Count -eq 0) 'i: an already converted draft is not checked.'
+Assert ($eo -notmatch 'Every rule ever published from the Rule Builder keeps a working draft, so the next list includes all of them\. Each enforcing rule this run published went live from its draft, with any saved but unpublished changes in it') "The real run no longer says every published draft went live with its unpublished changes.`n$eo"
+Write-Host 'PASS: drafts with edits since the last publish are listed and skipped; unchanged and converted drafts are published (cases a-f, i, j).'
+
+# g: -PublishDraftEdits converts and publishes the drafts the previous run skipped.
+$db.Log.Clear()
+$forced = Run -PublishDraftEdits
+Assert ($forced.ExitCode -eq 0 -and (Section $forced.Output $editsHeading).Count -eq 0) "g: -PublishDraftEdits lists no draft as skipped.`n$($forced.Output)"
+Assert ((Names $forced.Output 'Published') -eq $editedNames -and (Names $forced.Output 'Converted') -eq $editedNames) "g: -PublishDraftEdits converts and publishes the edited drafts.`n$($forced.Output)"
+Assert ($null -eq $e.B.G.Notify.asx_fireon -and @(RootsOf $e.B.G.Notify.asx_ruleactionid).Count -eq 1 -and $e.B.Rule.asx_ruleid -in $db.Publishes) 'g: case b is converted and published.'
+Write-Host 'PASS: -PublishDraftEdits publishes drafts with edits (case g).'
+
+# h: -WhatIf lists the edited drafts first in the summary and writes nothing.
+$e = EditFixtures
+$dryEdits = Run -WhatIf
+$do = $dryEdits.Output
+Assert (@(Writes).Count -eq 0) "h: -WhatIf must send no POST or PATCH, saw:`n$(@(Writes) -join "`n")"
+$lines = $do -split "`r?`n"
+$summaryAt = [array]::FindIndex($lines, [Predicate[string]]{ param($l) $l -match '^Summary' })
+$firstHeading = @($lines | Select-Object -Skip ($summaryAt + 1) | Where-Object { $_ -match '^  \S.* \(\d+\):$' })[0]
+Assert ($summaryAt -ge 0 -and $firstHeading -eq "  $editsHeading (7):") "h: the new heading is the first list of the -WhatIf summary (got '$firstHeading').`n$do"
+Assert ((Names $do $editsHeading) -eq $editedNames) "h: -WhatIf lists the edited drafts, case b among them.`n$do"
+Assert ((Names $do 'Converted') -eq 'Ea same ids unchanged, Ee new ids unchanged' -and $dryEdits.ExitCode -eq 0) "h: -WhatIf counts only the unchanged drafts as converted.`n$do"
+Assert ($do -match '-PublishDraftEdits') "h: -WhatIf names -PublishDraftEdits.`n$do"
+Write-Host 'PASS: -WhatIf lists drafts with edits first and writes nothing (case h).'
+
+# k: a conversion the admin stopped half-way (here: declined one action under -Confirm) is not mistaken for an
+#    edit on the re-run, although the script's own writes on the draft came after the publish.
+$script:db = New-Store
+$k = SameIdRule 'K stopped half-way' { param($draft, $g) $g.Alert = AddAction $draft.asx_ruleid 'Alert' 2 }
+$db.Clock += 3600
+& {
+    function Approve-RuleMigrationWrite([string]$Target, [string]$Operation) { $Target -ne "action 'Alert' of rule 'K stopped half-way'" }
+    $script:kFirst = Run
+}
+Assert ((Names $kFirst.Output 'Skipped (declined)') -eq 'K stopped half-way' -and $null -eq $k.G.Notify.asx_fireon -and $k.G.Alert.asx_fireon -eq 2) "k: the first run converts Notify and stops at Alert.`n$($kFirst.Output)"
+$kSecond = Run
+Assert ((Section $kSecond.Output $editsHeading).Count -eq 0) "k: the script's own earlier writes are not reported as draft edits.`n$($kSecond.Output)"
+Assert ((Names $kSecond.Output 'Published') -eq 'K stopped half-way' -and $null -eq $k.G.Alert.asx_fireon -and $kSecond.ExitCode -eq 0) "k: the re-run finishes the conversion and publishes.`n$($kSecond.Output)"
+Write-Host 'PASS: a half-finished conversion is resumed, not reported as an edit (case k).'
 
 Write-Host 'PASS: Convert-RulesToOutcomes offline tests.'

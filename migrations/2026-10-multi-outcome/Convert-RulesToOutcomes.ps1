@@ -15,6 +15,10 @@
         then asx_fireon is cleared;
       - a rule that is enforcing (status Published) is republished while its published revision
         (asx_ReadPublishedRule) still has an active action with asx_fireon set or without a tree.
+    Before it touches an enforcing rule that already has a working draft still to convert, the script checks whether
+    the draft was changed since the rule was last published (see "Draft-edit detection" in README.md). A draft with
+    edits is listed under "Drafts with edits since the last publish" and its rule is skipped (nothing is written),
+    unless -PublishDraftEdits is set.
     Safe to re-run, and a re-run finishes an interrupted one: actions without asx_fireon are left alone, tree rows
     get stable ids so a partial tree is completed rather than duplicated, and an enforcing rule whose publish
     failed or never happened is published by the next run. Under -Confirm, a rule with any declined write is
@@ -29,6 +33,10 @@
 .PARAMETER AccessToken
     A Dataverse bearer token for a System Administrator or System Customizer. Never printed.
 
+.PARAMETER PublishDraftEdits
+    Convert and publish enforcing rules whose working drafts have edits since the last publish, edits included,
+    instead of skipping them. Use it once you have checked the drafts the previous run listed.
+
 .EXAMPLE
     ./Convert-RulesToOutcomes.ps1 -EnvUrl $url -AccessToken $token -WhatIf
 #>
@@ -36,7 +44,8 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)][string]$EnvUrl,
-    [Parameter(Mandatory)][string]$AccessToken
+    [Parameter(Mandatory)][string]$AccessToken,
+    [switch]$PublishDraftEdits
 )
 $ErrorActionPreference = 'Stop'
 
@@ -118,14 +127,23 @@ function Read-SnapshotAttributes($Attributes) {
     $map
 }
 
+# The rows of the rule's active published revision (asx_ReadPublishedRule), read once per rule and run.
+$publishedRows = @{}
+function Read-PublishedRows([string]$RuleId) {
+    if ($publishedRows.ContainsKey($RuleId)) { return , $publishedRows[$RuleId] }
+    $definition = (Request POST 'asx_ReadPublishedRule' @{ RuleId = $RuleId }).Definition
+    $snapshot = "$definition" | ConvertFrom-Json
+    if ($snapshot.Format -ne 1 -or $null -eq $snapshot.Rows) { throw 'asx_ReadPublishedRule returned a published revision in a format this script does not know.' }
+    $rows = @(foreach ($row in $snapshot.Rows) { @{ Entity = "$($row.Entity)"; Id = "$($row.Id)".ToLowerInvariant(); Attributes = (Read-SnapshotAttributes $row.Attributes) } })
+    $publishedRows[$RuleId] = $rows
+    , $rows
+}
+
 # Whether the rule's active published revision still uses On match / On no match: an active action with
 # asx_fireon set, or an active action with no Fires when tree. Such a rule needs its converted draft published,
 # even when this run changed nothing (an earlier run failed or was stopped before the publish).
 function Test-PublishedUnconverted([string]$RuleId) {
-    $definition = (Request POST 'asx_ReadPublishedRule' @{ RuleId = $RuleId }).Definition
-    $snapshot = "$definition" | ConvertFrom-Json
-    if ($snapshot.Format -ne 1 -or $null -eq $snapshot.Rows) { throw 'asx_ReadPublishedRule returned a published revision in a format this script does not know.' }
-    $rows = @(foreach ($row in $snapshot.Rows) { @{ Entity = "$($row.Entity)"; Id = "$($row.Id)"; Attributes = (Read-SnapshotAttributes $row.Attributes) } })
+    $rows = Read-PublishedRows $RuleId
     $withTree = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($row in $rows | Where-Object { $_.Entity -eq 'asx_actionconditiongroup' }) {
         $action = $row.Attributes['asx_ruleaction']
@@ -139,6 +157,126 @@ function Test-PublishedUnconverted([string]$RuleId) {
         if (($fireOn -and $fireOn.Kind -ne 'null') -or !$withTree.Contains($row.Id)) { return $true }
     }
     $false
+}
+
+# ---------- Draft-edit detection ----------
+# The parent -> child edges of a rule's configuration: the same list as RuleSnapshot.Edges in
+# Ascentix.RulesEngine.Core/Publication/RuleSnapshot.cs (keep the two in step), as parent table, child table and the
+# child's lookup to the parent. Its asx_tableconfig -> asx_tableconfig edge is left out: table configurations are the
+# shared data model, not part of a rule's draft, so the walk never reads or follows them. Every table's Web API
+# entity set is "<table>s" and its primary key "<table>id".
+$DraftEdges = @(
+    @('asx_rule', 'asx_conditiongroup', 'asx_rule'), @('asx_rule', 'asx_ruleaction', 'asx_rule'),
+    @('asx_conditiongroup', 'asx_rulecondition', 'asx_conditiongroup'),
+    @('asx_conditiongroup', 'asx_nodefiltergroup', 'asx_conditiongroup'),
+    @('asx_rulecondition', 'asx_searchcriteriagroup', 'asx_rulecondition'),
+    @('asx_rulecondition', 'asx_nodefiltergroup', 'asx_rulecondition'),
+    @('asx_searchcriteriagroup', 'asx_searchcriterion', 'asx_criteriagroup'),
+    @('asx_searchcriteriagroup', 'asx_searchcriteriagroup', 'asx_parentcriteriagroup'),
+    @('asx_nodefiltergroup', 'asx_nodefiltergroup', 'asx_parentfiltergroup'),
+    @('asx_nodefiltergroup', 'asx_nodefiltercriterion', 'asx_filtergroup'),
+    @('asx_nodefiltercriterion', 'asx_nodefiltergroup', 'asx_owningcriterion'),
+    @('asx_ruleaction', 'asx_localizedmessage', 'asx_ruleaction'),
+    @('asx_ruleaction', 'asx_nodefiltergroup', 'asx_ruleaction'),
+    @('asx_ruleaction', 'asx_actionconditiongroup', 'asx_ruleaction'),
+    @('asx_actionconditiongroup', 'asx_actionconditiontest', 'asx_actionconditiongroup'))
+# Parents per query: 50 "<lookup> eq <id>" clauses keep the URL well under the Web API's limit.
+$DraftWalkBatch = 50
+# After a Rule Builder publish, a draft row changed this long after the revision was created counts as edited (the
+# publish itself updates the draft header in the same operation).
+$PublishMarginSeconds = 120
+# A row copied into a new draft (asx_OpenRuleDraft, Restore published to draft) changed this long after it was
+# created counts as edited.
+$CopyMarginSeconds = 5
+# Such a copy is made by one plug-in operation, which Dataverse stops after 2 minutes: a draft row created later than
+# this after the first one was added afterwards (a row deleted and another added keeps the counts equal).
+$CopyWindowSeconds = 120
+
+# A createdon/modifiedon value as UTC. Invoke-RestMethod turns Dataverse's "...Z" strings into UTC DateTimes.
+function ConvertTo-Utc($Value) {
+    if ($Value -is [datetime]) {
+        if ($Value.Kind -eq [DateTimeKind]::Unspecified) { return [datetime]::SpecifyKind($Value, [DateTimeKind]::Utc) }
+        return $Value.ToUniversalTime()
+    }
+    if (!"$Value") { throw 'Dataverse returned a row without createdon or modifiedon.' }
+    [datetimeoffset]::Parse("$Value", [cultureinfo]::InvariantCulture).UtcDateTime
+}
+
+# Whether the working draft still has an action to convert: asx_fireon set and no Fires when tree. A draft whose
+# actions were all converted (by an earlier run, or in the Rule Builder) is not checked for edits, so a run that
+# converted a draft but failed to publish it still publishes it.
+function Test-DraftUnconverted([string]$DraftId) {
+    foreach ($action in GetAll "asx_ruleactions?`$filter=_asx_rule_value eq $DraftId and asx_fireon ne null&`$select=asx_ruleactionid,asx_name,asx_fireon,asx_isactive") {
+        $root = @((Request GET "asx_actionconditiongroups?`$filter=_asx_ruleaction_value eq $($action.asx_ruleactionid) and _asx_parentgroup_value eq null&`$select=asx_actionconditiongroupid&`$top=1").value | Where-Object { $null -ne $_ })
+        if ($root.Count -eq 0) { return $true }
+    }
+    $false
+}
+
+# Every configuration row under the working draft (header excluded), found table by table along $DraftEdges, with
+# its modifiedon and createdon.
+function Get-DraftRows([string]$DraftId) {
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $pending = @(@{ Entity = 'asx_rule'; Id = $DraftId })
+    while ($pending.Count -gt 0) {
+        $next = [System.Collections.Generic.List[object]]::new()
+        foreach ($edge in $DraftEdges) {
+            $parents = @($pending | Where-Object { $_.Entity -eq $edge[0] } | ForEach-Object { $_.Id })
+            for ($start = 0; $start -lt $parents.Count; $start += $DraftWalkBatch) {
+                $batch = $parents[$start..([Math]::Min($start + $DraftWalkBatch, $parents.Count) - 1)]
+                $filter = ($batch | ForEach-Object { "_$($edge[2])_value eq $_" }) -join ' or '
+                foreach ($row in GetAll "$($edge[1])s?`$filter=($filter)&`$select=$($edge[1])id,modifiedon,createdon") {
+                    $id = "$($row."$($edge[1])id")".ToLowerInvariant()
+                    if (!$seen.Add("$($edge[1])/$id")) { continue }
+                    if ($seen.Count -gt 10000) { throw 'The working draft has more than 10,000 configuration rows.' }
+                    $item = @{ Entity = $edge[1]; Id = $id; ModifiedOn = (ConvertTo-Utc $row.modifiedon); CreatedOn = (ConvertTo-Utc $row.createdon) }
+                    $rows.Add($item); $next.Add($item)
+                }
+            }
+        }
+        $pending = $next.ToArray()
+    }
+    , $rows.ToArray()
+}
+
+# Whether the enforcing rule's working draft was changed since the rule was last published. Compares the draft's
+# rows with the published revision's (the asx_rule header and shared asx_tableconfig rows aside):
+#  - Some draft row ids are the revision's (the draft was published from the Rule Builder, which keeps its row ids):
+#    edited when a revision row is missing from the draft, a draft row is not in the revision, or a draft row (the
+#    header included) was modified more than $PublishMarginSeconds after the revision was created.
+#  - No draft row id is the revision's (the draft was opened after an in-place publish, or reset with Restore
+#    published to draft): unchanged only when every table has as many rows as in the revision, no draft row was
+#    modified more than $CopyMarginSeconds after it was created, and every draft row was created within
+#    $CopyWindowSeconds of the first (by the one operation that made the copy).
+# A draft that already holds a Fires when root this script created was checked by the run that created it (or
+# that run had -PublishDraftEdits): the script's own writes are not edits, so it is not compared again.
+function Test-DraftEdited($Rule, [string]$DraftId) {
+    $draftRows = Get-DraftRows $DraftId
+    $ourRoots = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($row in $draftRows | Where-Object { $_.Entity -eq 'asx_ruleaction' }) { [void]$ourRoots.Add((StableId "$($row.Id)/root")) }
+    if (@($draftRows | Where-Object { $_.Entity -eq 'asx_actionconditiongroup' -and $ourRoots.Contains($_.Id) }).Count -gt 0) { return $false }
+
+    $published = Read-PublishedRows $Rule.asx_ruleid
+    $revisionRows = @($published | Where-Object { $_.Entity -notin @('asx_rule', 'asx_tableconfig') })
+    $revisionKeys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($row in $revisionRows) { [void]$revisionKeys.Add("$($row.Entity)/$($row.Id)") }
+    $shared = @($draftRows | Where-Object { $revisionKeys.Contains("$($_.Entity)/$($_.Id)") }).Count
+    if ($shared -gt 0) {
+        if ($shared -ne $draftRows.Count -or $shared -ne $revisionKeys.Count) { return $true }
+        $createdOn = ConvertTo-Utc (Request GET "asx_rulerevisions($($Rule._asx_publishedrevision_value))?`$select=createdon").createdon
+        $header = ConvertTo-Utc (Request GET "asx_rules($DraftId)?`$select=modifiedon").modifiedon
+        $limit = $createdOn.AddSeconds($PublishMarginSeconds)
+        return $header -gt $limit -or @($draftRows | Where-Object { $_.ModifiedOn -gt $limit }).Count -gt 0
+    }
+    $draftCounts = @{}; foreach ($row in $draftRows) { $draftCounts[$row.Entity] = 1 + [int]$draftCounts[$row.Entity] }
+    $revisionCounts = @{}; foreach ($row in $revisionRows) { $revisionCounts[$row.Entity] = 1 + [int]$revisionCounts[$row.Entity] }
+    foreach ($table in @($draftCounts.Keys) + @($revisionCounts.Keys)) {
+        if ([int]$draftCounts[$table] -ne [int]$revisionCounts[$table]) { return $true }
+    }
+    if ($draftRows.Count -eq 0) { return $false }
+    $copiedBy = @($draftRows | Sort-Object { $_.CreatedOn })[0].CreatedOn.AddSeconds($CopyWindowSeconds)
+    @($draftRows | Where-Object { $_.CreatedOn -gt $copiedBy -or ($_.ModifiedOn - $_.CreatedOn).TotalSeconds -gt $CopyMarginSeconds }).Count -gt 0
 }
 
 # asx_conditiongroup.asx_name holds at most 100 characters (MaxLength in the shipped solution).
@@ -215,14 +353,6 @@ function Convert-Target([string]$Target, [string]$RuleName) {
     $renames = Get-OutcomeRenames $outcomes
     $names = @{}
     foreach ($o in $outcomes) { $names[$o.asx_conditiongroupid] = $(if ($renames[$o.asx_conditiongroupid]) { $renames[$o.asx_conditiongroupid] } else { "$($o.asx_name)".Trim() }) }
-    foreach ($o in $outcomes) {
-        $new = $renames[$o.asx_conditiongroupid]
-        if (!$new) { continue }
-        $changed = $true
-        if (Change "outcome '$($o.asx_name)' of rule '$RuleName'" "Rename it to '$new'") {
-            Request PATCH "asx_conditiongroups($($o.asx_conditiongroupid))" @{ asx_name = $new } $ifMatch | Out-Null
-        }
-    }
     $actions = @(GetAll "asx_ruleactions?`$filter=_asx_rule_value eq $Target and asx_fireon ne null&`$select=asx_ruleactionid,asx_name,asx_fireon,asx_isactive")
     foreach ($action in $actions) {
         $id = $action.asx_ruleactionid
@@ -247,6 +377,17 @@ function Convert-Target([string]$Target, [string]$RuleName) {
         # Listed only when the deactivation was written (or, under -WhatIf, would be).
         if ($update.ContainsKey('asx_isactive') -and ($approved -or $dryRun)) { $deactivated.Add("$RuleName / $($action.asx_name)") }
     }
+    # Outcomes are renamed after the actions are converted (tests point at outcomes by id, so the order does not
+    # change the result): a run stopped part-way has then already written one of its own Fires when roots, which
+    # tells the next run's draft-edit check that this draft was checked before (see Test-DraftEdited).
+    foreach ($o in $outcomes) {
+        $new = $renames[$o.asx_conditiongroupid]
+        if (!$new) { continue }
+        $changed = $true
+        if (Change "outcome '$($o.asx_name)' of rule '$RuleName'" "Rename it to '$new'") {
+            Request PATCH "asx_conditiongroups($($o.asx_conditiongroupid))" @{ asx_name = $new } $ifMatch | Out-Null
+        }
+    }
     $changed
 }
 
@@ -257,6 +398,8 @@ $withDraft = [System.Collections.Generic.List[string]]::new()
 $opened = [System.Collections.Generic.List[string]]::new()
 $failed = [System.Collections.Generic.List[string]]::new()
 $skipped = [System.Collections.Generic.List[string]]::new()
+$draftEdits = [System.Collections.Generic.List[string]]::new()
+$DraftEditsHeading = 'Drafts with edits since the last publish (skipped: publish or discard them, then re-run)'
 
 Write-Host "[migrate] Converting rules to outcome logic in $envHost$(if ($dryRun) { ' (-WhatIf: nothing is written)' })."
 $allRules = @(GetAll 'asx_rules?$select=asx_ruleid,asx_name,statuscode,_asx_publishedrevision_value,_asx_draftof_value')
@@ -282,6 +425,14 @@ foreach ($rule in $rules) {
             if ($draft) {
                 $target = $draft.asx_ruleid
                 $withDraft.Add($label)
+                # Before any write: an enforcing rule's existing draft that still has actions to convert would be
+                # published with everything in it, so a draft changed since the last publish is left alone.
+                if ($enforcing -and $null -ne $rule._asx_publishedrevision_value -and !$PublishDraftEdits -and
+                    (Test-DraftUnconverted $target) -and (Test-DraftEdited $rule $target)) {
+                    $draftEdits.Add($label)
+                    Write-Host "  $($label): skipped (its working draft has edits since the last publish)"
+                    continue
+                }
             }
             elseif (Change "rule '$($rule.asx_name)'" 'Open a working draft') {
                 $draftId = "$((Request POST 'asx_OpenRuleDraft' @{ RuleId = $rule.asx_ruleid }).DraftId)"
@@ -354,15 +505,26 @@ function Show([string]$Heading, $Items) {
 }
 Write-Host ''
 Write-Host "Summary$(if ($dryRun) { ' (-WhatIf: nothing was written; the lists show what would change)' })"
+# First: the rules that need the admin before they can be converted.
+if (!$PublishDraftEdits) {
+    Show $DraftEditsHeading $draftEdits
+    if ($draftEdits.Count -gt 0) {
+        Write-Host '  Open each of these rules in the Rule Builder and Publish or Discard its draft changes, then run the script again. Or, once you have checked them, run it again with -PublishDraftEdits to convert and publish them with their changes.'
+    }
+}
 Show 'Converted' $converted
 Show 'Published' $publishedRules
 Show 'Deactivated' $deactivated
 # Every rule ever published from the Rule Builder keeps a working draft, so this list is usually long.
-if ($dryRun) {
-    Write-Host '  Every rule ever published from the Rule Builder keeps a working draft, so the next list includes all of them. Before the real run, open any of these rules that has saved but unpublished changes and Publish or Discard them: the script republishes every enforcing rule''s draft, so those changes would go live with it.'
+$everyDraft = '  Every rule ever published from the Rule Builder keeps a working draft, so the next list includes all of them.'
+if ($PublishDraftEdits) {
+    Write-Host "$everyDraft With -PublishDraftEdits, drafts are not checked for changes: each enforcing rule published $(if ($dryRun) { 'would go' } else { 'went' }) live from its draft, with any saved but unpublished changes in it."
+}
+elseif ($dryRun) {
+    Write-Host "$everyDraft Before converting an enforcing rule's draft, the script checks it for changes since the last publish and lists only the changed ones, first, under 'Drafts with edits since the last publish'. Publish or Discard those changes in the Rule Builder before the real run, or the real run skips those rules."
 }
 else {
-    Write-Host '  Every rule ever published from the Rule Builder keeps a working draft, so the next list includes all of them. Each enforcing rule this run published went live from its draft, with any saved but unpublished changes in it.'
+    Write-Host "$everyDraft Before converting an enforcing rule's draft, the script checked it for changes since the last publish; only the changed ones are listed, first, under 'Drafts with edits since the last publish', and those rules were left alone."
 }
 Show 'Rules with a working draft' $withDraft
 Show $(if ($dryRun) { 'Draft would be opened' } else { 'Drafts opened' }) $opened
