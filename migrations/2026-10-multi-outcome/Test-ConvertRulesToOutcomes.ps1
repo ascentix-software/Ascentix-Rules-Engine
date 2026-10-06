@@ -172,7 +172,8 @@ function Invoke-RestMethod {
             Assert (@($record.Keys).Count -eq 1 -and $record.RuleId -match "^$mockGuid$") 'asx_ReadPublishedRule takes only RuleId.'
             $rule = RuleById $record.RuleId
             Assert ($rule -and !$rule._asx_draftof_value) 'asx_ReadPublishedRule is read for the rule, not its draft.'
-            if (!$rule._asx_publishedrevision_value -and $rule.statuscode -ne $mockPublished) { Fail 400 'This rule has not been published.' }
+            # No revision pointer means no published revision to read (a Published rule from before revisions).
+            if (!$rule._asx_publishedrevision_value) { Fail 400 'This rule has no published revision.' }
             return Respond @{ Definition = (SnapshotOf $record.RuleId) }
         }
         if ($path -eq 'asx_actionconditiongroups') {
@@ -236,6 +237,8 @@ function Invoke-RestMethod {
             # The working copy stays a Draft; the original's active snapshot switches.
             $db.Publishes.Add($rule._asx_draftof_value)
             $db.SnapshotSource[$rule._asx_draftof_value] = $id
+            # Publishing records a revision and points the original rule at it.
+            (RuleById $rule._asx_draftof_value)._asx_publishedrevision_value = NewId
             return
         }
     }
@@ -440,8 +443,8 @@ Assert ($null -eq (ActionNamed $f.DQ 'Set').asx_fireon -and @(RootsOf (ActionNam
 Assert ($null -ne (ActionNamed $f.Q1 'Set').asx_fireon -and $f.Q1 -notin $db.Opens -and $f.Q1 -notin $db.Publishes) "12: Q1's own rows are untouched, no draft is opened, and Q1 is not published."
 Assert (@(Writes | Where-Object { $_ -eq "PATCH asx_rules($($f.DQ))" }).Count -eq 0) '12: no publish request for Q1.'
 
-# The published revision is read only for the enforcing rules (P1-P6).
-Assert ((Reads) -eq 6) "Only the six enforcing rules have their published revision read (saw $(Reads))."
+# The published revision is read only for enforcing rules that have one (P1-P5; P6 has no pointer).
+Assert ((Reads) -eq 5) "Only the enforcing rules with a revision pointer (P1-P5) have their published revision read (saw $(Reads))."
 
 # Summary lists.
 Assert ((Names $out 'Converted') -eq 'P1 published no draft, P3 no outcomes, P4 publish fails, P6 published no pointer, Q1 draft only, R1 never published, U1 unpublished') "Summary: Converted list.`n$out"

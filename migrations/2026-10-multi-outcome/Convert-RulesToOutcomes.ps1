@@ -299,8 +299,12 @@ foreach ($rule in $rules) {
         $note = if (!$changed) { 'no change' } elseif ($would) { 'would convert' } else { 'converted' }
         if ($changed) { $converted.Add($label) }
         # An enforcing rule is republished while its published revision still uses On match / On no match, whether
-        # or not this run changed its draft, so a run that failed or stopped before the publish is recovered.
-        if ($enforcing -and (Test-PublishedUnconverted $rule.asx_ruleid)) {
+        # or not this run changed its draft, so a run that failed or stopped before the publish is recovered. A
+        # Published rule with no revision pointer (published before revisions) has no revision to read: the engine
+        # runs it from its live rows, which still use On match / On no match, so it always needs publishing (that
+        # publish gives it a pointer, so the next run reads its revision instead).
+        $hasRevision = $null -ne $rule._asx_publishedrevision_value
+        if ($enforcing -and (!$hasRevision -or (Test-PublishedUnconverted $rule.asx_ruleid))) {
             if (Change "rule '$($rule.asx_name)'" 'Publish the converted working draft') {
                 Request PATCH "asx_rules($target)" @{ statuscode = $PublishedStatus } $ifMatch | Out-Null
             }

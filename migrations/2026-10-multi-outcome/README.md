@@ -31,6 +31,8 @@ For every rule (working drafts are handled together with their rule):
    published version (`asx_ReadPublishedRule`). While that version still has an active action with On
    match / On no match set, or an active action with no Fires when tree, the converted draft is published;
    the normal publish checks run. A rule whose published version is already converted is not republished.
+   A Published rule from before published revisions existed has no published version to read, so it is
+   always republished; that gives it one, and later runs read it like any other.
    A rule that was published before but is not enforcing now is converted in its draft and left
    unpublished. A rule whose publish fails is listed with the Dataverse message and the script moves on to
    the next rule.
