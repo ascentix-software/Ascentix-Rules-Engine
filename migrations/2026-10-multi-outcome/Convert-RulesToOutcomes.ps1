@@ -571,7 +571,7 @@ Write-Host "Summary$(if ($dryRun) { ' (-WhatIf: nothing was written; the lists s
 if (!$PublishDraftEdits) {
     Show $DraftEditsHeading $draftEdits
     if ($draftEdits.Count -gt 0) {
-        Write-Host '  Until these rules are converted and published, their actions do not fire: the upgraded engine ignores On match / On no match. Open each of these rules in the Rule Builder and Publish or Discard its draft changes, then run the script again. Or, once you have checked them, run it again with -PublishDraftEdits to convert and publish them with their changes.'
+        Write-Host '  Until these rules are converted and published, their actions do not fire (unless you already published a Fires when condition for them from the Rule Builder): the upgraded engine ignores On match / On no match. Open each of these rules in the Rule Builder and Publish or Discard its draft changes, then run the script again. Or, once you have checked them, run it again with -PublishDraftEdits to convert and publish them with their changes.'
     }
     Show $NotCheckedHeading $notChecked
     if ($notChecked.Count -gt 0) {

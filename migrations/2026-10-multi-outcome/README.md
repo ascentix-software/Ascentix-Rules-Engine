@@ -66,7 +66,8 @@ line names the first difference found, for example `row added: asx_rulecondition
 asx_localizedmessage`, `row modified 2026-10-06T09:12:00Z: asx_ruleaction`, `header modified ...` (the
 rule's own settings) or `row counts differ: ...`. This is not a failure and does not change the exit code.
 **Until a skipped rule is converted and published, its actions do not fire after the upgrade**: the
-upgraded engine ignores On match / On no match. So deal with the list straight away. For each listed rule,
+upgraded engine ignores On match / On no match. (An action you already published a Fires when condition
+for from the Rule Builder keeps firing.) So deal with the list straight away. For each listed rule,
 open it in the Rule Builder and either:
 
 - **Discard** the draft changes (the draft goes back to the published version), or
@@ -81,8 +82,9 @@ published with its changes.
 
 Drafts that are not checked:
 
-- A draft whose rule's published version is already converted: the script does not republish the rule, so
-  the draft and any edits in it stay unpublished.
+- A draft whose rule's published version is already converted: the script may convert the draft's
+  remaining On match / On no match actions in place, but it does not republish the rule, so the draft and
+  any edits in it stay unpublished.
 - A draft holding a Fires when condition this script created (a run that was stopped part-way, or where you
   declined a write under `-Confirm`): that run checked it before writing, and the script's own changes are
   not draft edits.
