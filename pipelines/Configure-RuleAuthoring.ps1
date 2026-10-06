@@ -31,6 +31,26 @@ function EnsureField([string]$Table, $Definition) {
     $existing = Request GET "EntityDefinitions(LogicalName='$Table')/Attributes?`$select=LogicalName&`$filter=LogicalName eq '$logical'"
     if ($existing.value.Count -eq 0) { Request POST "EntityDefinitions(LogicalName='$Table')/Attributes" $Definition | Out-Null }
 }
+# Seconds between metadata polls; a caller (the offline test) may set $MetadataPollSeconds first.
+$script:MetadataPollSeconds = if ($null -ne $MetadataPollSeconds) { [int]$MetadataPollSeconds } else { 5 }
+# A just-created table can answer "does not exist" for a while; wait until its attributes can be read.
+# Calls Invoke-RestMethod directly so Request's failure warning is not printed on every poll.
+function WaitForTable([string]$Table, [int]$TimeoutSeconds = 120) {
+    $attempts = [math]::Max(1, [math]::Ceiling($TimeoutSeconds / [math]::Max(1, $script:MetadataPollSeconds)))
+    for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+        try {
+            Invoke-RestMethod -Method GET -Uri "$base/EntityDefinitions(LogicalName='$Table')/Attributes?`$select=LogicalName&`$top=1" -Headers $headers | Out-Null
+            return
+        }
+        catch {
+            $status = try { [int]$_.Exception.Response.StatusCode } catch { 0 }
+            $text = "$($_.ErrorDetails.Message) $($_.Exception.Message)"
+            if ($status -ne 404 -and $text -notmatch 'does not exist|Could not find') { throw }
+        }
+        if ($attempt -lt $attempts) { Start-Sleep -Seconds $script:MetadataPollSeconds }
+    }
+    throw "Table $Table was created but is still not visible after $TimeoutSeconds seconds; wait a few minutes and run the Schema phase again."
+}
 function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'OrganizationOwned', [string]$EntitySetName = '') {
     $logical = $Name.ToLowerInvariant()
     $setName = if ($EntitySetName) { $EntitySetName } else { $logical + 's' }
@@ -58,6 +78,7 @@ function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'Orga
         OwnershipType = $Ownership; HasActivities = $false; HasNotes = $false;
         IsActivity = $false; IsAuditEnabled = @{ Value = $false }; Attributes = @($primary)
     } | Out-Null
+    WaitForTable $logical
 }
 function EnsureOptionLabel([string]$OptionSet, [int]$Value, [string]$Text) {
     $definition = Request GET "GlobalOptionSetDefinitions(Name='$OptionSet')/Microsoft.Dynamics.CRM.OptionSetMetadata?`$select=Options"
@@ -240,7 +261,7 @@ if ($Phase -eq 'Schema') {
     }
     # Environment variable type Boolean = 100000002; Dataverse stores a Boolean value as yes/no.
     EnsureEnvironmentVariableDefinition 'asx_CaptureDiagnostics' 'Capture diagnostics' 100000002 'no' 'When yes, every form save the rules engine evaluates writes one Rule Diagnostic row per saved record with its timings and counts. Leave it at no outside a measurement.'
-    # Data updates (docs/Schema.md §2.18): one row per release data update, written only by asx_ApplyDataUpdates.
+    # Data updates (docs/Schema.md §2.20): one row per release data update, written only by asx_ApplyDataUpdates.
     EnsureTable 'asx_DataUpdate' 'Data Update'
     $field = Field 'asx_Number' 'Integer' 'Number'; $field.MinValue = 0; $field.MaxValue = 2147483647
     EnsureField 'asx_dataupdate' $field

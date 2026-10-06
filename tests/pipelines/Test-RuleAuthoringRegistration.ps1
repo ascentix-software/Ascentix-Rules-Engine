@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $fixtureId = '11111111-1111-1111-1111-111111111111'
 $apis = @{}
 $parameters = @{}
-$state = @{ Creates = 0; FailParameterOnce = $false; DeleteGuardId = $null; GuardCreates = 0; DeleteStages = @{}; RevisionGuard = $true; RunStepId = $null; RunUpdateStepId = $null; ScheduleCreateStepId = $null; ScheduleUpdateStepId = $null }
+$state = @{ Creates = 0; FailParameterOnce = $false; DeleteGuardId = $null; GuardCreates = 0; DeleteStages = @{}; RevisionGuard = $true; RunStepId = $null; RunUpdateStepId = $null; ScheduleCreateStepId = $null; ScheduleUpdateStepId = $null; GuardSteps = @{} }
 $pluginTypeIds = @{}
 $messageIds = @{}
 $filterIds = @{}
@@ -133,6 +133,10 @@ function Invoke-RestMethod {
                 return
             }
         }
+        if ($record['eventhandler_plugintype@odata.bind'] -eq "/plugintypes($(TypeId 'RuleRevisionGuardPlugin'))") {
+            $state.GuardSteps["$($record.name)/$($record.stage)"] = @{ Rank = $record.rank; Mode = $record.mode
+                Message = $record['sdkmessageid@odata.bind']; Filter = $record['sdkmessagefilterid@odata.bind'] }
+        }
         if ($Method -eq 'POST') {
             Assert ($record.stage -eq 10 -and !$state.DeleteGuardId) 'Only the missing prevalidation guard should be created.'
             $state.DeleteGuardId = [guid]::NewGuid().ToString()
@@ -204,6 +208,7 @@ foreach ($interrupt in @($false, $true)) {
     $state.DeleteGuardId = $null; $state.GuardCreates = 0; $state.DeleteStages.Clear()
     $state.RunStepId = $null; $state.RunUpdateStepId = $null
     $state.ScheduleCreateStepId = $null; $state.ScheduleUpdateStepId = $null
+    $state.GuardSteps.Clear()
     $state.FailParameterOnce = $interrupt
     if ($interrupt) {
         $interrupted = $false
@@ -254,6 +259,14 @@ foreach ($interrupt in @($false, $true)) {
     Assert (($null -ne $state.RunUpdateStepId)) 'Expected the Rule Run update step to be registered.'
     Assert (($null -ne $state.ScheduleCreateStepId)) 'Expected the Rule Schedule creation step to be registered.'
     Assert (($null -ne $state.ScheduleUpdateStepId)) 'Expected the Rule Schedule update step to be registered.'
+    # The Fires when tables carry the revision guard like every other rule-owned table.
+    foreach ($table in @('asx_actionconditiongroup', 'asx_actionconditiontest')) {
+        foreach ($message in @('Create', 'Update', 'Delete')) {
+            $step = $state.GuardSteps["Ascentix revision guard: $table $message/20"]
+            Assert ($null -ne $step -and $step.Rank -eq 1 -and $step.Mode -eq 0) "Expected a synchronous rank-1 PreOperation revision guard on $table $message."
+            Assert ($step.Message -eq "/sdkmessages($(MessageId $message))" -and $step.Filter -eq "/sdkmessagefilters($(FilterId "$(MessageId $message)/$table"))") "The $table $message guard must be bound to that message on $table."
+        }
+    }
     # Simulate upgrading the old restore contract. A same-named input on another
     # API must survive, and rerunning registration must not recreate the old input.
     $restoreVersionKey = "customapirequestparameters/$($apis['asx_RestoreRuleDraft'].customapiid)/ExpectedVersion"
@@ -282,13 +295,34 @@ foreach ($interrupt in @($false, $true)) {
     $relationships = @{}
     $optionSets = @{}
     $environmentVariables = @{}
-    $schemaState = @{ Writes = 0; FailViewOnce = $false; TableUpdates = 0 }
+    $schemaState = @{ Writes = 0; FailViewOnce = $false; TableUpdates = 0; Hidden = @{}; HiddenReads = 0; HideForever = $false
+        PublishBodies = [System.Collections.Generic.List[string]]::new() }
+    # The script waits for a new table between polls; no real waiting here.
+    $MetadataPollSeconds = 0
+    # What Dataverse returns while a just-created table is not visible yet: a 404 whose body says it does not exist.
+    function NotVisible([string]$Table) {
+        $response = [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::NotFound)
+        $exception = [Microsoft.PowerShell.Commands.HttpResponseException]::new('Response status code does not indicate success: 404 (Not Found).', $response)
+        $error404 = [System.Management.Automation.ErrorRecord]::new($exception, 'WebCmdletWebResponseException', [System.Management.Automation.ErrorCategory]::InvalidOperation, $null)
+        $error404.ErrorDetails = [System.Management.Automation.ErrorDetails]::new((@{ error = @{ code = '0x80060888'; message = "Entity '$Table' does not exist" } } | ConvertTo-Json -Compress))
+        throw $error404
+    }
     function Invoke-RestMethod {
         param($Method, $Uri, $Headers, $ContentType, $Body)
         $path = $Uri.Substring('https://registration.invalid/api/data/v9.2/'.Length)
         $record = if ($Body) { $Body | ConvertFrom-Json -AsHashtable } else { @{} }
         if ($Method -eq 'GET') {
+            # The first two Attributes reads after a table is created fail as they do in DEV (or every read, with HideForever).
+            if ($path -match "^EntityDefinitions\(LogicalName='([^']+)'\)/Attributes\?" -and $schemaState.Hidden[$Matches[1]] -gt 0) {
+                if (!$schemaState.HideForever) { $schemaState.Hidden[$Matches[1]]-- }
+                $schemaState.HiddenReads++
+                NotVisible $Matches[1]
+            }
             switch -Regex ($path) {
+                "^EntityDefinitions\(LogicalName='([^']+)'\)/Attributes\?\`$select=LogicalName&\`$top=1$" {
+                    Assert ($tables.ContainsKey($Matches[1])) 'Waited for a table that was never created.'
+                    return @{ value = @(@{ LogicalName = 'asx_name' }) }
+                }
                 "^EntityDefinitions\?.*LogicalName eq '([^']+)'" {
                     return @{ value = @(if ($tables.ContainsKey($Matches[1])) { $tables[$Matches[1]] }) }
                 }
@@ -324,6 +358,7 @@ foreach ($interrupt in @($false, $true)) {
                     Assert (!$tables.ContainsKey($name)) 'Duplicate table creation.'
                     $tables[$name] = @{ LogicalName = $name; SchemaName = $record.SchemaName; OwnershipType = $record.OwnershipType;
                         EntitySetName = $record.EntitySetName; MetadataId = [guid]::NewGuid().ToString() }
+                    $schemaState.Hidden[$name] = 2
                     $schemaState.Writes++
                     return
                 }
@@ -344,7 +379,7 @@ foreach ($interrupt in @($false, $true)) {
                     $schemaState.Writes++
                     return
                 }
-                '^PublishXml$' { return }
+                '^PublishXml$' { $schemaState.PublishBodies.Add($record.ParameterXml); return }
                 '^environmentvariabledefinitions$' {
                     Assert (!$environmentVariables.ContainsKey($record.schemaname)) 'Duplicate environment variable definition.'
                     Assert ($Headers['MSCRM.SolutionUniqueName'] -eq 'AscentixRulesEngine') 'An environment variable definition must be created in the solution.'
@@ -421,6 +456,7 @@ foreach ($interrupt in @($false, $true)) {
         $optionSets.Clear(); $optionSets['asx_triggers'] = @{ Value = 3; Label = 'Manual' }
         $optionSets['asx_actiontype'] = @{ Value = 7; Label = 'Delete Record' }
         $schemaState.Writes = 0; $schemaState.FailViewOnce = $interrupt; $schemaState.TableUpdates = 0
+        $schemaState.Hidden.Clear(); $schemaState.HiddenReads = 0; $schemaState.HideForever = $false
         foreach ($table in @('asx_rule', 'asx_tableconfig')) {
             $folder = Join-Path $PSScriptRoot "../../Solutions/AscentixRulesEngine/AscentixRulesEngine_unmanaged/Entities/$table/SavedQueries"
             foreach ($file in Get-ChildItem -LiteralPath $folder -Filter '*.xml') {
@@ -442,8 +478,16 @@ foreach ($interrupt in @($false, $true)) {
             catch { if ($_.Exception.Message -ne 'Simulated view update interruption.') { throw }; $interrupted = $true }
             Assert $interrupted 'Schema retry scenario did not interrupt.'
         }
+        $schemaState.PublishBodies.Clear()
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
         Assert ($tables.Count -eq 9 -and $fields.Count -eq 70) 'Expected additive authoring tables and fields.'
+        Assert ($schemaState.HiddenReads -eq 18) "Expected the script to wait out two not-yet-visible reads per created table (saw $($schemaState.HiddenReads))."
+        Assert ($schemaState.PublishBodies.Count -eq 2) 'Expected two PublishXml requests.'
+        foreach ($body in $schemaState.PublishBodies) {
+            foreach ($entity in @('asx_actionconditiongroup', 'asx_actionconditiontest')) {
+                Assert ($body.Contains("<entity>$entity</entity>")) "PublishXml must publish $entity."
+            }
+        }
         Assert ($null -ne $fields['asx_nodefiltergroup/asx_ruleaction']) 'Expected the Rows filter action lookup.'
         $rowFilterRelation = @($relationships.Values | Where-Object { $_.ReferencingEntity -eq 'asx_nodefiltergroup' -and $_.ReferencingAttribute -eq 'asx_ruleaction' })
         Assert ($rowFilterRelation.Count -eq 1 -and $rowFilterRelation[0].SchemaName -eq 'asx_ruleaction_nodefiltergroup' -and $rowFilterRelation[0].ReferencedEntity -eq 'asx_ruleaction') 'Rows filter relationship must be asx_ruleaction_nodefiltergroup.'
@@ -537,4 +581,12 @@ foreach ($interrupt in @($false, $true)) {
         Assert ($schemaState.Writes -eq $writes + 14 -and $schemaState.TableUpdates -eq 1) 'Set-name reconciliation is not idempotent.'
         Write-Host "PASS: schema and shipped views, filter preservation, idempotent retry (interrupted=$interrupt)."
     }
+    # A created table that never becomes visible stops the run with the timeout message instead of waiting forever.
+    $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear(); $relationships.Clear(); $environmentVariables.Clear()
+    $schemaState.Hidden.Clear(); $schemaState.HiddenReads = 0; $schemaState.HideForever = $true
+    $timedOut = $null
+    try { & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock' } catch { $timedOut = $_.Exception.Message }
+    Assert ($timedOut -match '^Table asx_rulerevision was created but is still not visible after 120 seconds') "Expected the not-visible timeout, got: $timedOut"
+    Assert ($schemaState.HiddenReads -gt 2 -and $fields.Count -eq 0) 'The wait must poll repeatedly and add no column to a table it cannot see.'
+    Write-Host 'PASS: schema waits for a newly created table to become visible, and times out when it never does.'
 }
