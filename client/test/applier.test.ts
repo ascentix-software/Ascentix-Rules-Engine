@@ -42,23 +42,20 @@ describe("Applier", () => {
   it("field-level Block shows an inline notification only (no banner; platform rolls it up on save)", () => {
     const { xrm, applier } = setup(
       { creditlimit: { type: "money", value: 1, control: true } }, []);
-    applier.apply([fired({ actionType: "Block", targetColumn: "creditlimit",
-      message: "Too low", severity: "Error" })]);
+    applier.apply([fired({ actionType: "Block", targetColumn: "creditlimit", message: "Too low", severity: "Error" })]);
     expect(xrm.controlNotifications()).toEqual([{ name: "creditlimit", message: "Too low", uid: "r1:creditlimit:0" }]);
     expect(xrm.formNotifications()).toEqual([]);
   });
 
   it("form-level Block uses a form notification", () => {
     const { xrm, applier } = setup({}, []);
-    applier.apply([fired({ actionType: "Block", targetColumn: null,
-      message: "Invalid", severity: "Error" })]);
+    applier.apply([fired({ actionType: "Block", targetColumn: null, message: "Invalid", severity: "Error" })]);
     expect(xrm.formNotifications()).toEqual([{ message: "Invalid", level: "ERROR", uid: "r1:form:0" }]);
   });
 
   it("Block with a targetColumn not on the form falls back to a form notification", () => {
     const { xrm, applier } = setup({}, []); // no control for "offform"
-    applier.apply([fired({ actionType: "Block", targetColumn: "offform",
-      message: "Nope", severity: "Error" })]);
+    applier.apply([fired({ actionType: "Block", targetColumn: "offform", message: "Nope", severity: "Error" })]);
     expect(xrm.formNotifications()[0].message).toBe("Nope");
   });
 
@@ -79,8 +76,7 @@ describe("Applier", () => {
 
   it("ShowMessage with a target not on the form falls back to a form banner", () => {
     const { xrm, applier } = setup({}, []); // no control for "offform"
-    applier.apply([fired({ actionType: "ShowMessage", targetColumn: "offform",
-      message: "FYI", severity: "Warning" })]);
+    applier.apply([fired({ actionType: "ShowMessage", targetColumn: "offform", message: "FYI", severity: "Warning" })]);
     expect(xrm.controlNotifications()).toEqual([]);
     expect(xrm.formNotifications()[0]).toMatchObject({ message: "FYI", level: "WARNING" });
   });
@@ -93,7 +89,7 @@ describe("Applier", () => {
 
   it("ignores CreateRecord", () => {
     const { xrm, applier } = setup({}, []);
-    applier.apply([fired({ actionType: "CreateRecord", })]);
+    applier.apply([fired({ actionType: "CreateRecord" })]);
     expect(xrm.formNotifications()).toEqual([]);
   });
 
@@ -145,8 +141,7 @@ describe("Applier", () => {
 // -------------------------------------------------------------------------------------------
 describe("Applier atomicity", () => {
   const banner = (msg: string) =>
-    fired({ ruleId: "r1", actionType: "ShowMessage", targetColumn: null,
-      message: msg, severity: "Error" });
+    fired({ ruleId: "r1", actionType: "ShowMessage", targetColumn: null, message: msg, severity: "Error" });
   const hide = fired({ ruleId: "r1", actionType: "SetVisible", targetColumn: "telephone1", value: false });
 
   function established() {
