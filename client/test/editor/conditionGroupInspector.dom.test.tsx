@@ -62,3 +62,45 @@ describe("ConditionGroupInspector (routed via ruleEditorInspectorContent)", () =
     expect(screen.getByText("(missing)")).toBeInTheDocument();
   });
 });
+
+describe("ConditionGroupInspector for an outcome", () => {
+  const nested = makeGroup({ id: "n1", name: "Nested", parentGroupId: "o1", isExecutionCondition: false });
+  const graph = (name = "High value") => makeGraph({
+    validationGroups: [makeGroup({ id: "o1", name, isExecutionCondition: false, groups: [nested] })],
+  });
+
+  it("labels the name Outcome name, required, with the by-name hint", () => {
+    const { body, header } = ruleEditorInspectorContent(graph(), { kind: "group", id: "o1" }, handlers());
+    renderWithFluent(<>{body}</>);
+    const input = screen.getByRole("textbox", { name: /Outcome name/ });
+    expect(input).toHaveValue("High value");
+    expect(input).toBeRequired();
+    expect(input).not.toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Actions test this outcome by name.")).toBeInTheDocument();
+    expect(screen.queryByText("Group name")).toBeNull();
+    expect(header.eyebrow).toBe("Editing outcome");
+    expect(header.title).toBe("High value");
+  });
+
+  it("marks a blank outcome name invalid", () => {
+    const { body, header } = ruleEditorInspectorContent(graph(""), { kind: "group", id: "o1" }, handlers());
+    renderWithFluent(<>{body}</>);
+    expect(screen.getByRole("textbox", { name: /Outcome name/ })).toHaveAttribute("aria-invalid", "true");
+    expect(header.title).toBe("(unnamed)");
+  });
+
+  it("keeps Group name for a group nested in an outcome", () => {
+    const { body, header } = ruleEditorInspectorContent(graph(), { kind: "group", id: "n1" }, handlers());
+    renderWithFluent(<>{body}</>);
+    expect(screen.getByText("Group name")).toBeInTheDocument();
+    expect(screen.queryByText("Outcome name")).toBeNull();
+    expect(screen.queryByText("Actions test this outcome by name.")).toBeNull();
+    expect(header.eyebrow).toBe("Editing group");
+  });
+
+  it("keeps Group name for a top-level execution group", () => {
+    renderGroupInspector();
+    expect(screen.getByText("Group name")).toBeInTheDocument();
+    expect(screen.queryByText("Outcome name")).toBeNull();
+  });
+});

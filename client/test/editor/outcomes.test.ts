@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { outcomesOf, isOutcome, nextOutcomeName, actionsUsingOutcome } from "../../src/editor/model/outcomes";
+import { outcomesOf, isOutcome, nextOutcomeName, actionsUsingOutcome, actionsLeftNotSetByDeleting } from "../../src/editor/model/outcomes";
 import { addOutcome, deleteGroup, addGroup } from "../../src/editor/model/reducer";
 import { resetTempIds } from "../../src/editor/model/ids";
 import type { ActionNode, ConditionGroupNode, FiresWhenGroup, RuleGraph } from "../../src/editor/model/types";
@@ -117,5 +117,17 @@ describe("outcomes", () => {
     expect(f).not.toBeNull();
     expect(f!.tests).toEqual([]);
     expect(f!.groups).toEqual([]);
+  });
+
+  it("actionsLeftNotSetByDeleting names exactly the actions deleteGroup leaves not set", () => {
+    const nestedOnly: FiresWhenGroup = { id: "root", op: "all", tests: [], groups: [{ ...tree("o1"), id: "sub", op: "any" }] };
+    const g = graph({
+      validationGroups: [grp("o1", "A"), grp("o2", "B")],
+      actions: [act("a1", tree("o1")), act("a2", tree("o1", "o2")), act("a3", tree()), act("a4", null), act("a5", nestedOnly)],
+    });
+    const after = deleteGroup(g, "o1");
+    const notSet = after.actions.filter((a, i) => a.firesWhen === null && g.actions[i].firesWhen !== null).map((a) => a.id);
+    expect(actionsLeftNotSetByDeleting(g, "o1").map((a) => a.id)).toEqual(notSet);
+    expect(notSet).toEqual(["a1"]);
   });
 });

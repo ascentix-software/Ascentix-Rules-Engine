@@ -25,3 +25,16 @@ export function removeOutcomeTests(g: FiresWhenGroup, outcomeId: string): FiresW
     groups: g.groups.map((c) => removeOutcomeTests(c, outcomeId)),
   };
 }
+
+/**
+ * An action's tree once one outcome is deleted: that outcome's tests are gone, and a tree that had
+ * content but is left empty becomes not set (null). Left as an empty root it would read "Always" and
+ * fire every time the rule runs; not set never fires and publish refuses it until the author picks again.
+ */
+export function firesWhenAfterOutcomeDelete(g: FiresWhenGroup | null, outcomeId: string): FiresWhenGroup | null {
+  if (!g) return g;
+  const after = removeOutcomeTests(g, outcomeId);
+  const hadContent = g.tests.length > 0 || g.groups.length > 0;
+  const nowEmpty = after.tests.length === 0 && after.groups.length === 0;
+  return hadContent && nowEmpty ? null : after;
+}

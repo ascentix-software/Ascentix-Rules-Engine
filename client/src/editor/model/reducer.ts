@@ -3,7 +3,7 @@ import type {
   LocalizedMessage, TableConfigRef,
 } from "./types";
 import { newTempId } from "./ids";
-import { always, removeOutcomeTests } from "./firesWhen";
+import { always, firesWhenAfterOutcomeDelete } from "./firesWhen";
 import { isOutcome, nextOutcomeName } from "./outcomes";
 import {
   updateGroup as treeUpdateGroup, removeGroup as treeRemoveGroup, insertGroup,
@@ -161,19 +161,11 @@ export function deleteGroup(graph: RuleGraph, id: string): RuleGraph {
   const wasOutcome = isOutcome(graph, id);
   const next = editForests(graph, (f) => treeRemoveGroup(f, id));
   if (!wasOutcome) return next;
-  // Deleting an outcome drops every test of it from every action's Fires when tree.
+  // Deleting an outcome drops every test of it from every action's Fires when tree; a tree that
+  // tested only this outcome becomes not set rather than an empty root ("Always").
   return {
     ...next,
-    actions: next.actions.map((a) => {
-      const before = a.firesWhen;
-      if (!before) return a;
-      const after = removeOutcomeTests(before, id);
-      // A tree that tested only this outcome would otherwise become an empty root, i.e. "Always".
-      // Make it "not set" so the action never fires and publish refuses it, rather than firing on every run.
-      const hadContent = before.tests.length > 0 || before.groups.length > 0;
-      const nowEmpty = after.tests.length === 0 && after.groups.length === 0;
-      return { ...a, firesWhen: hadContent && nowEmpty ? null : after };
-    }),
+    actions: next.actions.map((a) => (a.firesWhen ? { ...a, firesWhen: firesWhenAfterOutcomeDelete(a.firesWhen, id) } : a)),
   };
 }
 

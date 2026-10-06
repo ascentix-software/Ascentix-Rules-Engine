@@ -473,6 +473,7 @@ function firesWhenTestAttrs(t: FlatFiresWhenTest): Record<string, any> {
 
 // Diffs one action's tree. Creates go to `creates` (ordered later by topoFiresWhenCreates, after the
 // action and outcome creates they bind to); deletes carry `_depth` so groups go deepest-first.
+// Cross-action moves are unsupported: a node copied to another action must get new ids.
 function diffFiresWhen(
   actionId: string, snapRoot: FiresWhenGroup | null, workRoot: FiresWhenGroup | null,
   creates: CreateOp[], updates: UpdateOp[], unbinds: UnbindOp[],

@@ -18,7 +18,7 @@ import { flattenGroups, flattenConditions } from "../model/tree";
 import {
   patchRule, addAction, updateAction, deleteAction, moveAction,
   addGroup, updateGroup, deleteGroup, addCondition, updateCondition, deleteCondition,
-  addTranslation, updateTranslation, removeTranslation,
+  addTranslation, updateTranslation, removeTranslation, addOutcome,
 } from "../model/reducer";
 import { flattenForDisplay } from "../model/tableConfigOps";
 import {
@@ -28,6 +28,8 @@ import { Breadcrumb } from "./Breadcrumb";
 import { navigate } from "./router";
 import { useUnsavedGuard } from "./useUnsavedGuard";
 import { ConfirmUnpublishDialog } from "./ConfirmUnpublishDialog";
+import { ConfirmDeleteOutcomeDialog } from "./ConfirmDeleteOutcomeDialog";
+import { isOutcome, actionsUsingOutcome } from "../model/outcomes";
 import { makeValueLabelResolver, type ValueLabelSnapshot } from "../load/valueLabels";
 import { saveRuleGraph, type SaveResult } from "../save/index";
 import { GraphTree, type GraphTreeHandlers } from "./GraphTree";
@@ -116,6 +118,8 @@ export function RuleEditorApp({
   const [nameDraft, setNameDraft] = React.useState("");
   const [panelOpen, setPanelOpen] = React.useState(false);
   const [unpublishOpen, setUnpublishOpen] = React.useState(false);
+  // An outcome some action tests, waiting on the delete confirmation.
+  const [outcomeToDelete, setOutcomeToDelete] = React.useState<string | null>(null);
   const [runNowRule, setRunNowRule] = React.useState<{
     id: string; name: string; table: string; scope: number; executionConditions: string[];
   } | null>(null);
@@ -270,7 +274,13 @@ export function RuleEditorApp({
   const handlers: GraphTreeHandlers = {
     onSelect: setSelection,
     onAddGroup: (bucket, parentGroupId) => setWorking((g) => recon(addGroup(g, bucket, parentGroupId))),
-    onDeleteGroup: (id) => { setWorking((g) => recon(deleteGroup(g, id))); setSelection({ kind: "rule" }); },
+    onDeleteGroup: (id) => {
+      // An outcome that actions test asks first; deleteGroup then prunes those tests.
+      const current = workingRef.current;
+      if (isOutcome(current, id) && actionsUsingOutcome(current, id).length > 0) { setOutcomeToDelete(id); return; }
+      setWorking((g) => recon(deleteGroup(g, id))); setSelection({ kind: "rule" });
+    },
+    onAddOutcome: () => setWorking((g) => recon(addOutcome(g))),
     onAddCondition: (groupId) => setWorking((g) => recon(addCondition(g, groupId))),
     onDeleteCondition: (id) => { setWorking((g) => recon(deleteCondition(g, id))); setSelection({ kind: "rule" }); },
     onAddAction: () => setWorking((g) => addAction(g)),
@@ -695,6 +705,13 @@ export function RuleEditorApp({
             onCancel={() => setUnpublishOpen(false)}
             onConfirm={onUnpublish}
           />
+          <ConfirmDeleteOutcomeDialog graph={working} outcomeId={outcomeToDelete}
+            onCancel={() => setOutcomeToDelete(null)}
+            onConfirm={() => {
+              const id = outcomeToDelete;
+              setOutcomeToDelete(null);
+              if (id) { setWorking((g) => recon(deleteGroup(g, id))); setSelection({ kind: "rule" }); }
+            }} />
           <ReviewChangesDialog open={reviewOpen} snapshot={snapshot} working={working} onClose={() => setReviewOpen(false)} />
           {runNowRule && (
             <RunNowDialog open={!!runNowRule} api={api} rule={runNowRule} onClose={() => setRunNowRule(null)} />

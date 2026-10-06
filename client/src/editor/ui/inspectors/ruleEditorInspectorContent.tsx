@@ -8,7 +8,7 @@ import { flattenGroups, flattenConditions } from "../../model/tree";
 import { ConditionGroupInspector } from "./ConditionGroupInspector";
 import { ConditionInspector } from "./ConditionInspector";
 import { ActionInspector } from "./ActionInspector";
-import { outcomesOf } from "../../model/outcomes";
+import { outcomesOf, isOutcome } from "../../model/outcomes";
 import { RuleInspector } from "./RuleInspector";
 import { ActionIcon, Callout } from "../primitives";
 import type { InspectorHeader } from "../InspectorShell";
@@ -65,9 +65,12 @@ export function ruleEditorInspectorContent(
 ): { header: InspectorHeader; body: React.ReactNode } {
   if (selection && selection.kind === "group") {
     const g = findGroup(graph, selection.id);
+    const outcome = !!g && isOutcome(graph, g.id);
     return {
-      header: { eyebrow: "Editing group", title: g?.name || "(group)", icon: tintIcon },
-      body: g ? <ConditionGroupInspector group={g} onPatch={(p) => h.onPatchGroup(g.id, p)} /> : <Text italic>(missing)</Text>,
+      header: outcome
+        ? { eyebrow: "Editing outcome", title: g!.name.trim() || "(unnamed)", icon: tintIcon }
+        : { eyebrow: "Editing group", title: g?.name || "(group)", icon: tintIcon },
+      body: g ? <ConditionGroupInspector group={g} outcome={outcome} onPatch={(p) => h.onPatchGroup(g.id, p)} /> : <Text italic>(missing)</Text>,
     };
   }
   if (selection && selection.kind === "condition") {
@@ -112,9 +115,11 @@ export function ruleEditorInspectorContent(
 /** Validation issues, rendered in the design system's announced surface. */
 export function IssueCallout({ issues }: { issues: ApiIssue[] }) {
   if (!issues.length) return null;
+  // Warnings alone don't stop a publish, so they read as a warning, not an error.
+  const intent = issues.some((x) => x.severity === "Error") ? "danger" : "warning";
   return (
     <div style={{ marginBottom: 14 }}>
-      <Callout intent="danger" title="Validation issues">
+      <Callout intent={intent} title="Validation issues">
         <ul style={{ margin: 0, paddingLeft: 16 }}>
           {issues.map((issue, i) => (
             <li key={i} style={{ fontSize: 12.5, color: issue.severity === "Error" ? color.danger : color.warnInk, marginBottom: 3 }}>

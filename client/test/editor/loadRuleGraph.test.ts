@@ -18,7 +18,7 @@ function childrenFor(options: string | undefined): any[] {
 const fwRoot = { asx_actionconditiongroupid: "fw-root", _asx_ruleaction_value: rawAction.asx_ruleactionid, asx_logicaloperator: 1, asx_order: 1, _asx_parentgroup_value: null };
 const fwTest = { asx_actionconditiontestid: "fw-test", _asx_actionconditiongroup_value: "fw-root", _asx_outcome_value: "o1", asx_expected: false, asx_order: 1 };
 
-function fakePort(withTree = true): WebApiPort {
+function fakePort(withTree = true, treeGroups: any[] = [fwRoot]): WebApiPort {
   return {
     retrieveRecord: async (entity, id) => {
       if (entity === ENTITY.rule) return { ...rawRule, asx_ruleid: id };
@@ -30,7 +30,7 @@ function fakePort(withTree = true): WebApiPort {
       if (entity === ENTITY.action) return { entities: [rawAction] };
       if (entity === ENTITY.tableConfig) return { entities: childrenFor(options) };
       if (entity === ENTITY.nodeFilterGroup) return { entities: [] };
-      if (entity === ENTITY.actionConditionGroup) return { entities: withTree ? [fwRoot] : [] };
+      if (entity === ENTITY.actionConditionGroup) return { entities: withTree ? treeGroups : [] };
       if (entity === ENTITY.actionConditionTest) return { entities: [fwTest] };
       throw new Error("unexpected retrieveMultipleRecords " + entity);
     },
@@ -58,6 +58,15 @@ describe("loadRuleGraph", () => {
     expect(g.actions[0].firesWhen).toMatchObject({ id: "fw-root", op: "all", groups: [] });
     expect(g.actions[0].firesWhen!.tests).toEqual([expect.objectContaining({ id: "fw-test", outcomeId: "o1", expected: false })]);
     expect(g.actions[0].firesWhenWarning).toBeNull();
+  });
+
+  it("uses the lowest-order root and warns when an action has two Fires when roots", async () => {
+    // Listed first but ordered second: the loader must pick by asx_order, not by row order.
+    const secondRoot = { ...fwRoot, asx_actionconditiongroupid: "fw-root-2", asx_order: 2 };
+    const g = await loadRuleGraph(fakePort(true, [secondRoot, fwRoot]), rawRule.asx_ruleid);
+    expect(g.actions[0].firesWhen!.id).toBe("fw-root");
+    expect(g.actions[0].firesWhen!.tests.map((t) => t.id)).toEqual(["fw-test"]);
+    expect(g.actions[0].firesWhenWarning).toEqual(expect.stringContaining("more than one Fires when tree"));
   });
 
   it("loads an action with no Fires when rows as firesWhen null", async () => {

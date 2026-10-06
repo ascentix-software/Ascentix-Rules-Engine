@@ -15,6 +15,7 @@ import { insertAt, friendlyTemplate } from "../../model/templateTokens";
 import { color } from "../tokens";
 import { OutsideField } from "../fieldScope";
 import { Callout } from "../primitives";
+import { FiresWhenEditor } from "./FiresWhenEditor";
 
 const ACTION_TYPES: ActionTypeLabel[] = [
   "SetVisible", "SetRequired", "ShowMessage", "Block", "CreateRecord", "UpdateRecord", "DeleteRecord", "DeactivateRecord",
@@ -127,6 +128,11 @@ export function ActionInspector({
       <Field label="Active">
         <Switch checked={action.isActive ?? true} onChange={(_e, d) => onPatch({ isActive: d.checked })} />
       </Field>
+
+      <Field label="Fires when">
+        <FiresWhenEditor value={action.firesWhen} outcomes={outcomes} onChange={(firesWhen) => onPatch({ firesWhen })} />
+      </Field>
+      {action.firesWhenWarning && <Callout intent="warning">{action.firesWhenWarning}</Callout>}
 
       {(t === "SetVisible" || t === "SetRequired") && (
         <>

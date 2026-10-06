@@ -145,3 +145,35 @@ describe("ActionInspector: apply to previous", () => {
     expect(screen.queryByLabelText(/Also apply to the previous/)).toBeNull();
   });
 });
+
+describe("ActionInspector Fires when", () => {
+  it("has no Fire on control and shows the Fires when editor", () => {
+    renderAction("Block");
+    expect(screen.queryByRole("combobox", { name: "Fire on" })).toBeNull();
+    expect(screen.queryByText("Fire on")).toBeNull();
+    expect(screen.getByText("Fires when")).toBeInTheDocument();
+    expect(screen.getByText("Always, when the rule runs")).toBeInTheDocument();
+  });
+
+  it("patches the action's firesWhen when the tree is edited", () => {
+    const h = handlers();
+    renderAction("Block", { firesWhen: null }, h);
+    fireEvent.click(screen.getByRole("button", { name: "Set to Always" }));
+    expect(h.onPatchAction).toHaveBeenCalledWith("a1", { firesWhen: expect.objectContaining({ op: "all", tests: [], groups: [] }) });
+  });
+
+  it("shows the loader's warning as a warning callout when firesWhenWarning is set", () => {
+    renderAction("Block", { firesWhenWarning: "This action has more than one Fires when tree in Dataverse." });
+    expect(screen.getByRole("alert")).toHaveTextContent("This action has more than one Fires when tree in Dataverse.");
+  });
+
+  it("shows no warning callout when firesWhenWarning is not set", () => {
+    renderAction("Block", { firesWhenWarning: null });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("says what happens using the Fires when summary", () => {
+    renderAction("Block");
+    expect(screen.getByText(/^Always, when the rule runs → shows the message/)).toBeInTheDocument();
+  });
+});

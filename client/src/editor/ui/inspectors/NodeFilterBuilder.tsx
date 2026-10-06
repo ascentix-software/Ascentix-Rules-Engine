@@ -40,11 +40,12 @@ const OP_LABEL: Record<number, string> = {
 };
 const VALUELESS = new Set([9, 10]);
 
-function OpToggle({ op, onToggle }: { op: "and" | "or"; onToggle(v: "and" | "or"): void }) {
+/** Two (or more) joined small buttons picking a group's operator; each shows its value upper-cased. */
+export function OpToggle<T extends string>({ op, options, onToggle }: { op: T; options: readonly T[]; onToggle(v: T): void }) {
   return (
     <div style={{ display: "inline-flex", border: `1px solid ${color.line}`, borderRadius: 6, overflow: "hidden" }}>
-      {(["and", "or"] as const).map((v) => (
-        <Button key={v} appearance={op === v ? "primary" : "subtle"} size="small"
+      {options.map((v) => (
+        <Button key={v} appearance={op === v ? "primary" : "subtle"} size="small" aria-pressed={op === v}
           style={{ minWidth: 44, borderRadius: 0 }} onClick={() => onToggle(v)}>{v.toUpperCase()}</Button>
       ))}
     </div>
@@ -258,7 +259,7 @@ export function NodeFilterBuilder({
   const head = (
     <>
       <span style={{ fontSize: 12, color: color.inkMuted }}>Match</span>
-      <OpToggle op={value.op} onToggle={(op) => onChange({ ...value, op })} />
+      <OpToggle op={value.op} options={["and", "or"] as const} onToggle={(op) => onChange({ ...value, op })} />
       <span style={{ fontSize: 12, color: color.inkMuted }}>of the following</span>
     </>
   );

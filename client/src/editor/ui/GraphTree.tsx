@@ -3,7 +3,8 @@ import { Button, Text, Spinner } from "@fluentui/react-components";
 import { BranchFork16Regular, Delete16Regular, ArrowUp16Regular, ArrowDown16Regular } from "@fluentui/react-icons";
 import type { RuleGraph, ConditionGroupNode, Selection, ConditionNode, TableConfigRef, ActionTypeLabel } from "../model/types";
 import type { ApiIssue } from "../webapi";
-import { conditionParts, actionEffect, actionVerb, actionDetail, type ActionEffectKind } from "./labels";
+import { conditionParts, actionEffect, actionVerb, actionDetail, firesWhenSummary, type ActionEffectKind } from "./labels";
+import { outcomesOf } from "../model/outcomes";
 import { NodeTag, OperatorPill, ValueText, LogicalBadge, GroupCard, ActionIcon, Pill, type PillTone } from "./primitives";
 import { useChoiceLabel } from "./useSystemChoices";
 import { SYSTEM_CHOICE } from "./choiceLabels";
@@ -50,6 +51,7 @@ export interface GraphTreeHandlers {
   onAddAction(): void;
   onDeleteAction(id: string): void;
   onMoveAction(id: string, dir: -1 | 1): void;
+  onAddOutcome(): void;
 }
 
 function isSelected(sel: Selection, kind: string, id?: string): boolean {
@@ -103,22 +105,25 @@ function GroupNode({
     </button>
   );
   const groupIssues = issuesByTargetId?.get(group.id) ?? [];
+  // A top-level validation group is an outcome: actions test it by name.
+  const outcome = bucket === "validation" && depth === 0;
+  const outcomeName = group.name.trim() === "" ? "(unnamed)" : group.name;
   const header = (
     <div role="button" tabIndex={0}
       aria-pressed={isSelected(selection, "group", group.id)}
-      aria-label={`Edit group ${group.name || "(group)"}`}
+      aria-label={outcome ? `Edit outcome ${outcomeName}` : `Edit group ${group.name || "(group)"}`}
       style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", cursor: "pointer" }}
       onClick={() => handlers.onSelect({ kind: "group", id: group.id })}
       onKeyDown={activateOnKey(() => handlers.onSelect({ kind: "group", id: group.id }))}>
       <LogicalBadge operator={group.logicalOperator} />
       <Text weight="semibold" style={{ fontSize: compact ? 12 : 14, color: compact ? color.inkMuted : color.ink }}>
-        {group.name || "(group)"}
+        {outcome ? `Outcome · ${outcomeName}` : group.name || "(group)"}
       </Text>
       {groupIssues.length > 0 && <IssueIndicator issues={groupIssues} />}
       <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
         {chip(() => handlers.onAddCondition(group.id), <span style={{ fontSize: 13 }}>+</span>, "Condition")}
         {chip(() => handlers.onAddGroup(bucket, group.id), <BranchFork16Regular />, "Subgroup")}
-        {chip(() => handlers.onDeleteGroup(group.id), <Delete16Regular />, "Delete group", true)}
+        {chip(() => handlers.onDeleteGroup(group.id), <Delete16Regular />, outcome ? "Delete outcome" : "Delete group", true)}
       </span>
     </div>
   );
@@ -217,6 +222,7 @@ function ActionRow({ a, index, count, graph, selection, handlers, labelForTree, 
   const verb = actionVerb(a, (token) => labelForTree(SYSTEM_CHOICE.actionType, actionTypeValue(token as ActionTypeLabel), token));
   const detail = actionDetail(a, graph.tableConfigs);
   const actionIssues = issuesByTargetId?.get(a.id) ?? [];
+  const firesWhen = firesWhenSummary(a.firesWhen, outcomesOf(graph));
   return (
     <div role="button" tabIndex={0}
       aria-pressed={sel}
@@ -231,6 +237,11 @@ function ActionRow({ a, index, count, graph, selection, handlers, labelForTree, 
       <ActionIcon actionType={a.actionType} />
       <span style={{ fontSize: 13.5, fontWeight: 600, color: color.ink }}>{verb}</span>
       {detail && <span style={{ fontSize: 12.5, color: color.inkMuted }}>{detail}</span>}
+      {/* One line under the verb: when this action fires. order 1 puts it after the controls, on its own row. */}
+      <span style={{ order: 1, flexBasis: "100%", paddingLeft: 23, fontSize: 12, color: color.inkMuted,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={firesWhen}>
+        {firesWhen}
+      </span>
       {eff.label && (
         <span style={{ marginLeft: "auto" }}>
           <Pill tone={EFFECT_TONE[eff.kind]}>{eff.label}</Pill>
@@ -267,9 +278,9 @@ export function GraphTree({
         ))}
       </Band>
 
-      <Band zone="validation" title="WHEN · Validation conditions" addLabel="+ Group"
-        onAdd={() => handlers.onAddGroup("validation", null)}
-        empty={graph.validationGroups.length === 0} emptyCta="+ Add group">
+      <Band zone="validation" title="WHEN · Outcomes" addLabel="+ Add outcome"
+        onAdd={() => handlers.onAddOutcome()}
+        empty={graph.validationGroups.length === 0} emptyCta="+ Add outcome">
         {graph.validationGroups.map((g) => (
           <GroupNode key={g.id} group={g} bucket="validation" graph={graph} selection={selection} handlers={handlers} depth={0} ruleTable={graph.rule.tableLogicalName} issuesByTargetId={issuesByTargetId} />
         ))}

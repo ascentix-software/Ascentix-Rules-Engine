@@ -254,6 +254,21 @@ describe("diffRuleGraph: Fires when tree", () => {
     ]);
   });
 
+  it("deletes a stored tree whose working Fires when goes to not set: tests, then groups deepest first, and never the action", () => {
+    const snap: RuleGraph = { ...baseGraph(), actions: [action("a1", loadedTree())] };
+    const w = clone(snap);
+    w.actions[0].firesWhen = null;
+
+    const ops = diffRuleGraph(snap, w);
+    expect(ops.map((o) => `${o.kind}:${o.entity}:${(o as any).id}`)).toEqual([
+      `delete:${ENTITY.actionConditionTest}:ft-1`,
+      `delete:${ENTITY.actionConditionTest}:ft-2`,
+      `delete:${ENTITY.actionConditionTest}:ft-3`,
+      `delete:${ENTITY.actionConditionGroup}:fg-child`,
+      `delete:${ENTITY.actionConditionGroup}:fg-root`,
+    ]);
+  });
+
   it("emits no ops for an unchanged tree", () => {
     const snap: RuleGraph = { ...baseGraph(), actions: [action("a1", loadedTree())] };
     expect(diffRuleGraph(snap, clone(snap))).toEqual([]);
