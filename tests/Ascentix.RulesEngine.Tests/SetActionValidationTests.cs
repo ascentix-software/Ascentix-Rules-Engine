@@ -33,7 +33,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var group = new ConditionGroup
             {
-                Id = Guid.NewGuid(), LogicalOperator = LogicalOperator.And, ChildGroups = new List<ConditionGroup>(),
+                Id = Guid.NewGuid(), Name = "Outcome", LogicalOperator = LogicalOperator.And, ChildGroups = new List<ConditionGroup>(),
                 Conditions = new List<RuleCondition> { new RuleCondition { Id = Guid.NewGuid(), TableConfigNodeId = Root,
                     ConditionType = ConditionType.FieldComparison, ComparisonColumn = "name", ComparisonOperator = ComparisonOperator.IsNotNull } },
             };

@@ -29,7 +29,7 @@ namespace Ascentix.RulesEngine.Tests
         internal static List<Entity> Rule(Guid id, string name = "Live")
         {
             var group = RefRow("asx_conditiongroup", Guid.NewGuid(), "asx_rule", "asx_rule", id);
-            group["asx_logicaloperator"] = new OptionSetValue(1); group["asx_isexecutioncondition"] = false;
+            group["asx_name"] = "Outcome"; group["asx_logicaloperator"] = new OptionSetValue(1); group["asx_isexecutioncondition"] = false;
             var condition = RefRow("asx_rulecondition", Guid.NewGuid(), "asx_conditiongroup", group.LogicalName, group.Id);
             condition["asx_tableconfig"] = new EntityReference("asx_tableconfig", Model);
             condition["asx_conditiontype"] = new OptionSetValue(1); condition["asx_comparisoncolumn"] = "name";

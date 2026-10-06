@@ -14,6 +14,7 @@ namespace Ascentix.RulesEngine.Core.Validation
         {
             var issues = new List<ValidationIssue>();
             issues.AddRange(new StructuralChecks().Check(model));
+            issues.AddRange(new OutcomeChecks().Check(model));
             issues.AddRange(new TraversalChecks().Check(model));
             issues.AddRange(new MetadataChecks().Check(model, metadata));
             return ValidationReport.From(issues);
