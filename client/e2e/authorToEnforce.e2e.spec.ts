@@ -3,7 +3,7 @@ import type { FrameLocator } from "@playwright/test";
 import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
-import { resolveAppId, createOrderConfigTree, createRuleOnConfig } from "./devHelpers";
+import { resolveAppId, createOrderConfigTree, createRuleOnConfig, readFiresWhen, outcomesOf } from "./devHelpers";
 import { openRuleFromHub, saveValidatePublish } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 import { saveOrderViaForm, awaitBlockArmed } from "./formSaveOracle";
@@ -17,7 +17,7 @@ import { saveOrderViaForm, awaitBlockArmed } from "./formSaveOracle";
 //     the REST helper (test-dev/ruleBehavior/authoring.ts), never by the editor.
 //
 // The seam between those two halves is exactly where a shipped bug hides: everything the editor
-// writes (asx_fireon, asx_actiontype, the condition's node binding, the trigger mask) is
+// writes (the Fires when tree, asx_actiontype, the condition's node binding, the trigger mask) is
 // asserted elsewhere either as a persisted column value or as an enforcement outcome, but never
 // both on the same row. A node filter left blank has precisely that shape: it saves clean, it
 // validates clean, and it makes every write to the table throw. This test closes the seam: a
@@ -79,7 +79,7 @@ test("a Block rule authored entirely in the editor stops a real form save, and a
     // band, where it gates whether the rule runs at all rather than deciding a match. A Block
     // rule authored that way silently stops enforcing: measured here, the
     // violating save went straight through because the execution condition was false for it.
-    await frame.getByRole("button", { name: "+ Add group" }).nth(1).click();
+    await frame.getByRole("button", { name: "+ Add outcome" }).first().click();
     await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
@@ -106,16 +106,18 @@ test("a Block rule authored entirely in the editor stops a real form save, and a
 
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
 
-    // ---- Author the action: Block, fired On No Match ------------------------------------
+    // ---- Author the action: Block, fires when the outcome is false ------------------------------------
     await frame.getByRole("button", { name: "+ Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     const type = frame.getByRole("combobox", { name: "Action type" });
     await type.click();
     await frame.getByRole("option", { name: CHOICE.actionType.block, exact: true }).click();
     await frame.getByRole("textbox", { name: "Block message" }).fill("ZZ_RB authored-in-ui block");
-    const fireOn = frame.getByRole("combobox", { name: "Fire on" });
-    await fireOn.click();
-    await frame.getByRole("option", { name: CHOICE.fireOn.onNoMatch, exact: true }).click();
+    // Fires when: the outcome is false (the old On No Match). A new action fires Always, so add a
+    // test (it takes the rule's first outcome) and flip it.
+    await frame.getByRole("button", { name: "+ Add test" }).click();
+    await frame.getByRole("combobox", { name: "Result" }).click();
+    await frame.getByRole("option", { name: "is false", exact: true }).click();
 
     await expect(frame.getByText("Unsaved changes")).toBeVisible();
     await saveValidatePublish(frame);
@@ -126,12 +128,21 @@ test("a Block rule authored entirely in the editor stops a real form save, and a
     const api = createDevApi();
     const actions = await api.retrieveMultipleRecords(
       ENTITY_SET.action,
-      `?$filter=${LOOKUP.ruleOfAction} eq ${rule.ruleId}&$select=asx_actiontype,asx_fireon,asx_isactive,asx_message`,
+      `?$filter=${LOOKUP.ruleOfAction} eq ${rule.ruleId}&$select=asx_ruleactionid,asx_actiontype,asx_isactive,asx_message`,
     );
     expect(actions.entities.length).toBe(1);
     expect(actions.entities[0].asx_actiontype).toBe(4); // Block
-    expect(actions.entities[0].asx_fireon).toBe(2);     // OnNoMatch
     expect(actions.entities[0].asx_isactive).toBe(true);
+    // Fires when: a root ALL with one test, "the rule's outcome is false" (the old On No Match).
+    const [outcome] = await outcomesOf(rule.ruleId);
+    expect(outcome, "the editor persisted no outcome").toBeTruthy();
+    const firesWhen = await readFiresWhen(String(actions.entities[0].asx_ruleactionid));
+    expect(firesWhen.groups.length).toBe(1);
+    expect(firesWhen.groups[0].op).toBe(1);            // ALL
+    expect(firesWhen.groups[0].parentId).toBeNull();
+    expect(firesWhen.tests.length).toBe(1);
+    expect(firesWhen.tests[0].outcomeId).toBe(outcome.id);
+    expect(firesWhen.tests[0].expected).toBe(false);   // is false
 
     // And the CONDITION the UI wrote. Without this a "everything got blocked" failure below is
     // ambiguous between "the plugin over-fires" and "the editor persisted a condition that can
@@ -166,7 +177,7 @@ test("a Block rule authored entirely in the editor stops a real form save, and a
     // Settle first so the browser assertion measures the RULE, not the step cache. See
     // formSaveOracle. Without this the spec passes alone and fails in a full suite run.
     await awaitBlockArmed(150, "a2e block armed");
-    // total 150 > 100 ⇒ the condition does NOT match ⇒ On No Match fires the Block.
+    // total 150 > 100 ⇒ the condition does NOT match ⇒ the outcome is false, so the Block fires.
     expect(await saveOrderViaForm(page, "ZZ_RB_a2e_violating", 150, "BLOCKED")).toBe("BLOCKED");
 
     // ---- ... and fixing the value saves (the second half of that path) --------------------
@@ -203,7 +214,7 @@ test("editing a published rule in the UI and re-publishing changes what the plug
     // band, where it gates whether the rule runs at all rather than deciding a match. A Block
     // rule authored that way silently stops enforcing: measured here, the
     // violating save went straight through because the execution condition was false for it.
-    await frame.getByRole("button", { name: "+ Add group" }).nth(1).click();
+    await frame.getByRole("button", { name: "+ Add outcome" }).first().click();
     await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
     // Bind the condition to the ROOT node FIRST. A new condition starts with
@@ -229,9 +240,11 @@ test("editing a published rule in the UI and re-publishing changes what the plug
     await type.click();
     await frame.getByRole("option", { name: CHOICE.actionType.block, exact: true }).click();
     await frame.getByRole("textbox", { name: "Block message" }).fill("ZZ_RB threshold 100");
-    const fireOn = frame.getByRole("combobox", { name: "Fire on" });
-    await fireOn.click();
-    await frame.getByRole("option", { name: CHOICE.fireOn.onNoMatch, exact: true }).click();
+    // Fires when: the outcome is false (the old On No Match). A new action fires Always, so add a
+    // test (it takes the rule's first outcome) and flip it.
+    await frame.getByRole("button", { name: "+ Add test" }).click();
+    await frame.getByRole("combobox", { name: "Result" }).click();
+    await frame.getByRole("option", { name: "is false", exact: true }).click();
     await saveValidatePublish(frame);
 
     // 150 violates a threshold of 100.
@@ -252,7 +265,7 @@ test("editing a published rule in the UI and re-publishing changes what the plug
     await saveValidatePublish(frame2);
 
     // The SAME record that was blocked a moment ago must now save: 150 <= 200 matches, so the
-    // On-No-Match Block does not fire. If the plugin kept enforcing the old threshold, this is
+    // Block (fires when the outcome is false) does not fire. If the plugin kept enforcing the old threshold, this is
     // where a stale-registration bug surfaces.
     expect(await saveOrderViaForm(page, "ZZ_RB_a2e_edit_v2", 150, "SAVED")).toBe("SAVED");
 

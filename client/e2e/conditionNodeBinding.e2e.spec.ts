@@ -67,8 +67,8 @@ test("a condition authored without touching the node dropdown is caught before i
     // dropdown is deliberately never opened.
     // The VALIDATION band (GraphTree.tsx:262-276 renders execution first, validation second).
     // `.first()` would author into the EXECUTION band, which gates whether the rule runs rather
-    // than deciding a match, so nth(1) is the validation band, which is what decides a match here.
-    await frame.getByRole("button", { name: "+ Add group" }).nth(1).click();
+    // than deciding a match, so the Outcomes band's "+ Add outcome" is the one that decides a match here.
+    await frame.getByRole("button", { name: "+ Add outcome" }).first().click();
     await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
     const columnBox = frame.getByRole("combobox", { name: "Comparison column" });
@@ -87,9 +87,11 @@ test("a condition authored without touching the node dropdown is caught before i
     await type.click();
     await frame.getByRole("option", { name: CHOICE.actionType.block, exact: true }).click();
     await frame.getByRole("textbox", { name: "Block message" }).fill("ZZ_RB node-binding pin");
-    const fireOn = frame.getByRole("combobox", { name: "Fire on" });
-    await fireOn.click();
-    await frame.getByRole("option", { name: CHOICE.fireOn.onNoMatch, exact: true }).click();
+    // Fires when: the outcome is false (the old On No Match). A new action fires Always, so add a
+    // test (it takes the rule's first outcome) and flip it.
+    await frame.getByRole("button", { name: "+ Add test" }).click();
+    await frame.getByRole("combobox", { name: "Result" }).click();
+    await frame.getByRole("option", { name: "is false", exact: true }).click();
 
     // Defence (1): the editor defaults the binding to the rule's root node, so
     // Save/Validate/Publish all succeed and the persisted condition points somewhere real.

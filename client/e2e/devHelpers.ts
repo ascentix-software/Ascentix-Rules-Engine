@@ -118,7 +118,8 @@ export async function createRuleFixture(opts: RuleFixtureOpts = {}): Promise<{ r
     }));
     if (opts.withGroup ?? true) {
       const groupId = track(ENTITY_SET.group, await api.createRecord(ENTITY_SET.group, {
-        asx_name: `${stamp}_grp`, asx_logicaloperator: 1, asx_isexecutioncondition: true,
+        // An outcome: its name is required, unique in the rule and at most 100 characters.
+        asx_name: `${stamp}_grp`.slice(0, 100), asx_logicaloperator: 1, asx_isexecutioncondition: true,
         [`${BIND_NAV.groupRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})`,
       }));
       const withCondition = opts.withCondition ?? true;
@@ -147,10 +148,16 @@ export async function createRuleFixture(opts: RuleFixtureOpts = {}): Promise<{ r
     }
     if (opts.withAction ?? true) {
       // One complete ShowMessage action (writes no data).
-      track(ENTITY_SET.action, await api.createRecord(ENTITY_SET.action, {
-        asx_name: `${stamp}_act`, asx_actiontype: 3 /* ShowMessage */, asx_order: 1, asx_fireon: 1,
+      const actionId = track(ENTITY_SET.action, await api.createRecord(ENTITY_SET.action, {
+        asx_name: `${stamp}_act`, asx_actiontype: 3 /* ShowMessage */, asx_order: 1,
         asx_message: "E2E throwaway — safe to ignore.", asx_severity: 1,
         [`${BIND_NAV.actionRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})`,
+      }));
+      // Fires when: an empty root ALL ("Always, when the rule runs"). An action with no tree never
+      // fires and publish refuses it, so without this the fixture would not validate.
+      track(ENTITY_SET.actionConditionGroup, await api.createRecord(ENTITY_SET.actionConditionGroup, {
+        asx_logicaloperator: 1 /* ALL */, asx_order: 1,
+        [`${BIND_NAV.actionConditionGroupAction}@odata.bind`]: `/${ENTITY_SET.action}(${actionId})`,
       }));
     }
 
@@ -281,4 +288,52 @@ export async function driveRunToCompletion(runId: string, maxCalls = 50): Promis
     if (last.done) return last;
   }
   throw new Error(`driveRunToCompletion: run ${runId} did not finish within ${maxCalls} calls.`);
+}
+
+// ---- Fires when oracle ---------------------------------------------------------------------
+// The tree the editor persisted for one action (asx_actionconditiongroup + asx_actionconditiontest,
+// docs/Schema.md 2.18-2.19), read back flat so a spec can assert its shape. `op` is the raw
+// asx_logicaloperator (ALL = 1, ANY = 2); a null `parentId` marks the root.
+export interface PersistedFiresWhen {
+  groups: { id: string; op: number; order: number; parentId: string | null }[];
+  tests: { groupId: string; outcomeId: string | null; expected: boolean; order: number }[];
+}
+
+export async function readFiresWhen(actionId: string): Promise<PersistedFiresWhen> {
+  const api = createDevApi();
+  const g = await api.retrieveMultipleRecords(
+    ENTITY_SET.actionConditionGroup,
+    `?$filter=${LOOKUP.acgAction} eq ${actionId}` +
+    `&$select=asx_actionconditiongroupid,asx_logicaloperator,asx_order,${LOOKUP.acgParent}&$orderby=asx_order asc`,
+  );
+  const groups = g.entities.map((e) => ({
+    id: String(e.asx_actionconditiongroupid),
+    op: e.asx_logicaloperator as number,
+    order: e.asx_order as number,
+    parentId: (e[LOOKUP.acgParent] as string | null) ?? null,
+  }));
+  if (groups.length === 0) return { groups, tests: [] };
+  const t = await api.retrieveMultipleRecords(
+    ENTITY_SET.actionConditionTest,
+    `?$filter=${groups.map((x) => `${LOOKUP.actGroup} eq ${x.id}`).join(" or ")}` +
+    `&$select=asx_expected,asx_order,${LOOKUP.actGroup},${LOOKUP.actOutcome}&$orderby=asx_order asc`,
+  );
+  const tests = t.entities.map((e) => ({
+    groupId: String(e[LOOKUP.actGroup]),
+    outcomeId: (e[LOOKUP.actOutcome] as string | null) ?? null,
+    expected: e.asx_expected as boolean,
+    order: e.asx_order as number,
+  }));
+  return { groups, tests };
+}
+
+// The rule's outcomes: its top-level validation groups (asx_isexecutioncondition false, no parent).
+export async function outcomesOf(ruleId: string): Promise<{ id: string; name: string }[]> {
+  const api = createDevApi();
+  const r = await api.retrieveMultipleRecords(
+    ENTITY_SET.group,
+    `?$filter=${LOOKUP.ruleOfGroup} eq ${ruleId} and asx_isexecutioncondition eq false and ${LOOKUP.parentGroup} eq null` +
+    `&$select=asx_conditiongroupid,asx_name`,
+  );
+  return r.entities.map((e) => ({ id: String(e.asx_conditiongroupid), name: String(e.asx_name) }));
 }
