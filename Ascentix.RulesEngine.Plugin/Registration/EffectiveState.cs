@@ -156,6 +156,7 @@ namespace Ascentix.RulesEngine.Plugin.Registration
             Name = a.Name,
             // Read-only here: shared, not deep-copied (nothing on this path mutates a filter).
             RowFilter = a.RowFilter,
+            Condition = a.Condition,
         };
     }
 }

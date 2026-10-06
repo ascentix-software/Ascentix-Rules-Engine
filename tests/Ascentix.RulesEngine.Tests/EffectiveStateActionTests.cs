@@ -147,6 +147,7 @@ namespace Ascentix.RulesEngine.Tests
                 TargetTable = "task", TargetNodeId = Guid.NewGuid(), FieldMapping = "[]", Order = 3, IsActive = true,
                 ApplyToPrevious = true, LocalizedMessages = new Dictionary<int, string> { [1036] = "fr" }, Name = "Stamp",
                 RowFilter = new NodeFilterGroup { TableConfigNodeId = Guid.NewGuid() },
+                Condition = new ActionConditionGroup { Id = Guid.NewGuid() },
             };
 
             var copy = EffectiveState.ApplyActionDelta(new Dictionary<Guid, List<RuleAction>> { [ruleId] = new List<RuleAction> { original } }, null)[ruleId].Single();

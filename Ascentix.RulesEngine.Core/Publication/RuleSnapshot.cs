@@ -25,7 +25,8 @@ namespace Ascentix.RulesEngine.Core.Publication
         public static readonly Guid LockId = new Guid("7e0d7362-c0fd-44ab-a8a1-aecb70d86a79");
         public static readonly string[] ConfigTables = { "asx_rule", "asx_conditiongroup", "asx_rulecondition",
             "asx_searchcriteriagroup", "asx_searchcriterion", "asx_nodefiltergroup", "asx_nodefiltercriterion",
-            "asx_ruleaction", "asx_localizedmessage", "asx_tableconfig" };
+            "asx_ruleaction", "asx_localizedmessage", "asx_tableconfig",
+            "asx_actionconditiongroup", "asx_actionconditiontest" };
         public static bool IsConfig(string entity) => ConfigTables.Contains(entity);
         public static bool IsProtected(string field) => field == Pointer || field == Number || field == DraftStamp || field == DraftOf || field == DraftBaseVersion;
     }
@@ -211,6 +212,8 @@ namespace Ascentix.RulesEngine.Core.Publication
             new Edge("asx_nodefiltercriterion", "asx_nodefiltergroup", "asx_owningcriterion"),
             new Edge("asx_ruleaction", "asx_localizedmessage", "asx_ruleaction"),
             new Edge("asx_ruleaction", "asx_nodefiltergroup", "asx_ruleaction"),
+            new Edge("asx_ruleaction", "asx_actionconditiongroup", "asx_ruleaction"),
+            new Edge("asx_actionconditiongroup", "asx_actionconditiontest", "asx_actionconditiongroup"),
             new Edge("asx_tableconfig", "asx_tableconfig", "asx_parenttable") };
 
         public static List<Entity> QueryAll(IOrganizationService service, QueryExpression query)

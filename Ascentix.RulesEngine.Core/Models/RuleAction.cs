@@ -39,5 +39,8 @@ namespace Ascentix.RulesEngine.Core.Models
         /// <summary>The Rows filter (asx_nodefiltergroup.asx_ruleaction): which rows of the target node
         /// a set action writes. Null = every row.</summary>
         public NodeFilterGroup RowFilter { get; set; }
+
+        /// <summary>The action's "Fires when" tree; null = the action never fires.</summary>
+        public ActionConditionGroup Condition { get; set; }
     }
 }

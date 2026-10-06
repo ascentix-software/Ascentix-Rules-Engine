@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Ascentix.RulesEngine.Core.Loaders;
 using Ascentix.RulesEngine.Core.Publication;
@@ -413,5 +414,88 @@ namespace Ascentix.RulesEngine.Tests
             A.CallTo(() => execution.IsInTransaction).Returns(true);
             PublicationCoordinator.Internal(execution, service, writer => writer.Update(new Entity("asx_rule", Guid.NewGuid())), reconcile);
         }
-    }
+
+        // --- Action "Fires when" trees ride along with the rule ---
+
+        // Rule(id) plus a root ALL group on its action and one test of the rule's condition group (expected false).
+        private static List<Entity> WithTree(List<Entity> rule)
+        {
+            var group = new Entity("asx_actionconditiongroup", Guid.NewGuid()) { ["asx_ruleaction"] = rule[3].ToEntityReference(),
+                ["asx_logicaloperator"] = new OptionSetValue(1), ["asx_order"] = 1 };
+            var test = new Entity("asx_actionconditiontest", Guid.NewGuid()) { ["asx_actionconditiongroup"] = group.ToEntityReference(),
+                ["asx_outcome"] = rule[1].ToEntityReference(), ["asx_expected"] = false, ["asx_order"] = 1 };
+            rule.Add(group); rule.Add(test);
+            return rule;
+        }
+
+        private static void AssertTreeWired(IOrganizationService service, Guid rule)
+        {
+            var rows = RuleSnapshot.Capture(service, rule).Rows;
+            var action = rows.Single(r => r.Entity == "asx_ruleaction"); var conditionGroup = rows.Single(r => r.Entity == "asx_conditiongroup");
+            var group = rows.Single(r => r.Entity == "asx_actionconditiongroup"); var test = rows.Single(r => r.Entity == "asx_actionconditiontest");
+            Assert.Equal(action.Id, group.ToSdk().GetAttributeValue<EntityReference>("asx_ruleaction").Id);
+            Assert.Equal(group.Id, test.ToSdk().GetAttributeValue<EntityReference>("asx_actionconditiongroup").Id);
+            Assert.Equal(conditionGroup.Id, test.ToSdk().GetAttributeValue<EntityReference>("asx_outcome").Id);
+            Assert.False(test.ToSdk().GetAttributeValue<bool>("asx_expected"));
+        }
+
+        [Fact]
+        public void Capture_includes_the_action_tree_rows()
+        {
+            var id = Guid.NewGuid(); var rows = WithTree(Rule(id)); var context = Context(rows); var service = context.GetOrganizationService();
+            var captured = RuleSnapshot.Capture(service, id).Rows;
+            Assert.Equal(rows[4].Id, Assert.Single(captured, r => r.Entity == "asx_actionconditiongroup").Id);
+            Assert.Equal(rows[5].Id, Assert.Single(captured, r => r.Entity == "asx_actionconditiontest").Id);
+        }
+
+        [Fact]
+        public void Opening_a_draft_copies_the_action_tree_with_new_ids_and_remapped_lookups()
+        {
+            var id = Guid.NewGuid(); var rows = WithTree(Rule(id)); var context = Context(rows); var service = context.GetOrganizationService();
+            var draftId = OpenDraft(context, id);
+            var draft = RuleSnapshot.Capture(service, draftId).Rows;
+            var group = Assert.Single(draft, r => r.Entity == "asx_actionconditiongroup"); var test = Assert.Single(draft, r => r.Entity == "asx_actionconditiontest");
+            Assert.NotEqual(rows[4].Id, group.Id); Assert.NotEqual(rows[5].Id, test.Id);
+            AssertTreeWired(service, draftId);
+            Assert.NotEqual(rows[1].Id, draft.Single(r => r.Entity == "asx_conditiongroup").Id);
+            // The live rule keeps its own tree.
+            Assert.Equal(rows[4].Id, Assert.Single(RuleSnapshot.Capture(service, id).Rows, r => r.Entity == "asx_actionconditiongroup").Id);
+        }
+
+        [Fact]
+        public void Restore_brings_the_action_tree_back_with_remapped_lookups()
+        {
+            var id = Guid.NewGuid(); var rows = WithTree(Rule(id)); var context = Context(rows); var service = context.GetOrganizationService(); Freeze(service, id);
+            var snapshot = Read(service, id);
+            service.Delete("asx_actionconditiontest", rows[5].Id);
+            RuleRevisionApi.Restore(service, service.Retrieve("asx_rule", id, new ColumnSet(true)), snapshot);
+            AssertTreeWired(service, id);
+            var loaded = new RuleActionLoader(service).LoadActionsByRule(new[] { id })[id].Single();
+            Assert.Equal(service.RetrieveMultiple(new QueryExpression("asx_conditiongroup")).Entities.Single().Id, loaded.Condition.Tests.Single().OutcomeId);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Deleting_a_rule_removes_its_action_tree(bool published)
+        {
+            var id = Guid.NewGuid(); var rows = WithTree(Rule(id));
+            if (!published) rows[0]["statuscode"] = new OptionSetValue(1);
+            var context = Context(rows); var service = context.GetOrganizationService();
+            if (published) { Freeze(service, id); OpenDraft(context, id); }
+            DeleteRule(context, id);
+            Assert.Empty(service.RetrieveMultiple(new QueryExpression("asx_actionconditiongroup")).Entities);
+            Assert.Empty(service.RetrieveMultiple(new QueryExpression("asx_actionconditiontest")).Entities);
+        }
+
+        [Fact]
+        public void Direct_edits_to_a_published_rules_action_tree_are_rejected()
+        {
+            var id = Guid.NewGuid(); var rows = WithTree(Rule(id)); var context = Context(rows);
+            var patch = new Entity("asx_actionconditiontest", rows[5].Id) { ["asx_expected"] = true };
+            var error = Assert.Throws<InvalidPluginExecutionException>(() => context.ExecuteTransactional<RuleRevisionGuardPlugin>(
+                new XrmFakedPluginExecutionContext { Stage = 20, MessageName = "Update", PrimaryEntityName = patch.LogicalName,
+                    InputParameters = new ParameterCollection { { "Target", patch } } }));
+            Assert.Contains("Edit this rule's working draft in the Rule Builder.", error.Message);
+        }    }
 }
