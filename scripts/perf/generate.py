@@ -47,8 +47,8 @@ Option values used (PUBLISHED here, the rest in profiles.py; sources cited):
   LOG_OR           = 2         — docs/Schema.md s1 (Or = 2); author-rules.py line 142
   ACT_SHOWMSG      = 3         — docs/Schema.md s1 (Show Message = 3); author-rules.py line 149
   ACT_BLOCK        = 4         — docs/Schema.md s1 (Block = 4); author-rules.py line 116
-  FIREON_MATCH     = 1         — docs/Schema.md s1 (On Match = 1); author-rules.py line 97
-  FIREON_NOMATCH   = 2         — docs/Schema.md s1 (On No Match = 2); author-rules.py line 116
+  FIREON_MATCH     = 1         — shorthand only: translated into a Fires when tree (asx_fireon is never sent)
+  FIREON_NOMATCH   = 2         — shorthand only: translated into a Fires when tree (asx_fireon is never sent)
   CATEGORY values  = 30001, 30002, 30003 — create-schema.py line 231 (Option A/B/C)
 
 Operator pools per column type (ConditionEvaluator.cs authoritative):
@@ -572,31 +572,31 @@ def _cond_rowcount(group_id, tc_id, min_rows, max_rows=None):
 
 
 def _action_showmsg(rule_id, msg, severity=1, fireon=FIREON_MATCH):
+    """Returns (action payload, fireon shorthand); the shorthand becomes a Fires when tree in seed_rules."""
     nav_act_rule = nav("asx_ruleaction", "asx_rule", "asx_rule")
     return {
         "asx_name":      f"act-{rule_id[:8]}-msg",
         "asx_actiontype": profiles.ACT_SHOWMSG,  # docs/Schema.md s1; author-rules.py line 149
-        "asx_fireon":    fireon,             # FIREON_MATCH=1; docs/Schema.md s1
         "asx_message":   msg,
         "asx_severity":  severity,
         "asx_order":     1,
         "asx_isactive":  True,
         f"{nav_act_rule}@odata.bind": f"/asx_rules({rule_id})",
-    }
+    }, fireon
 
 
 def _action_block(rule_id, msg, severity=3, fireon=FIREON_NOMATCH):
+    """Returns (action payload, fireon shorthand); the shorthand becomes a Fires when tree in seed_rules."""
     nav_act_rule = nav("asx_ruleaction", "asx_rule", "asx_rule")
     return {
         "asx_name":      f"act-{rule_id[:8]}-block",
         "asx_actiontype": profiles.ACT_BLOCK,  # docs/Schema.md s1; author-rules.py line 116
-        "asx_fireon":    fireon,              # FIREON_NOMATCH=2; docs/Schema.md s1
         "asx_message":   msg,
         "asx_severity":  severity,
         "asx_order":     1,
         "asx_isactive":  True,
         f"{nav_act_rule}@odata.bind": f"/asx_rules({rule_id})",
-    }
+    }, fireon
 
 
 # ---------------------------------------------------------------------------
@@ -855,7 +855,8 @@ def seed_rules(rng, rule_count, tc_ids, lookup_breadth, block_as_message=False):
     # Step 2: create groups, conditions, actions per rule
     all_groups_payloads = []     # (rule_guid, group_payload)
     all_group_meta = []          # (rule_index, group_local_index, conditions_for_this_group)
-    all_actions_payloads = []    # (rule_guid, action_payload)
+    all_actions_payloads = []    # (rule_index, action_payload)
+    action_fireons = []          # the fireon shorthand of each action, in the same order
 
     nav_cg_rule = nav("asx_conditiongroup", "asx_rule", "asx_rule")
 
@@ -872,13 +873,14 @@ def seed_rules(rng, rule_count, tc_ids, lookup_breadth, block_as_message=False):
         for gi, cond in cond_per_group:
             all_group_meta.append((ri, gi, cond))
 
-        for act in actions:
+        for act, fireon in actions:
             act = dict(act)
             if block_as_message:
                 act = profiles.downgrade_block(act)
             nav_act_rule = nav("asx_ruleaction", "asx_rule", "asx_rule")
             act[f"{nav_act_rule}@odata.bind"] = f"/asx_rules({rule_id})"
             all_actions_payloads.append((ri, act))
+            action_fireons.append(fireon)
 
     # Bulk-create groups
     group_payloads_only = [p for (_, _, p) in all_groups_payloads]
@@ -908,6 +910,19 @@ def seed_rules(rng, rule_count, tc_ids, lookup_breadth, block_as_message=False):
     action_guids = bulk_create("asx_ruleactions", action_payloads_only, "actions")
     print(f"  Actions created: {len(action_guids)}")
 
+    # Fires when trees: every shape has exactly one top-level group, which is the rule's one outcome.
+    trees = [profiles.fires_when_tree(fireon, [group_guid_map[(ri, 0)]])
+             for (ri, _), fireon in zip(all_actions_payloads, action_fireons)]
+    root_guids = bulk_create(
+        "asx_actionconditiongroups",
+        [profiles.fires_when_root_payload(tree, action_id, nav) for tree, action_id in zip(trees, action_guids)],
+        "Fires when roots")
+    test_payloads = [profiles.fires_when_test_payload(test, order, root_id, nav)
+                     for tree, root_id in zip(trees, root_guids)
+                     for order, test in enumerate(tree["tests"], 1)]
+    test_guids = bulk_create("asx_actionconditiontests", test_payloads, "Fires when tests")
+    print(f"  Fires when trees created: {len(root_guids)} ({len(test_guids)} tests)")
+
     return shape_distribution, rule_guids
 
 
@@ -935,6 +950,11 @@ def author_spec(spec, tc_ids):
                 post("asx_nodefiltercriterions", profiles.criterion_payload(crit, fg, nav))
     for i, action in enumerate(spec["actions"]):
         action_id = post("asx_ruleactions", profiles.action_payload(action, i, spec["name"], rule_id, tc_ids, nav))
+        # The action's "Fires when" tree: the rule's one outcome is its group.
+        tree = profiles.fires_when_tree(action.get("fireOn", profiles.FIREON_MATCH), [group_id])
+        root_id = post("asx_actionconditiongroups", profiles.fires_when_root_payload(tree, action_id, nav))
+        for order, test in enumerate(tree["tests"], 1):
+            post("asx_actionconditiontests", profiles.fires_when_test_payload(test, order, root_id, nav))
         if action.get("rowFilter"):
             fg = post("asx_nodefiltergroups", profiles.row_filter_group_payload(action, action_id, tc_ids, nav))
             for crit in action["rowFilter"]:

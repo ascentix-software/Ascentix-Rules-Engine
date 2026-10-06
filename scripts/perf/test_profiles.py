@@ -35,11 +35,11 @@ def test_date_values_are_deterministic_utc_midnights_within_sixty_days():
 
 
 def test_a_block_downgrades_to_a_show_message_with_the_same_text():
-    block = {"asx_name": "act-1234abcd-block", "asx_actiontype": 4, "asx_fireon": 2, "asx_message": "m", "asx_severity": 3}
+    block = {"asx_name": "act-1234abcd-block", "asx_actiontype": 4, "asx_message": "m", "asx_severity": 3}
     shown = profiles.downgrade_block(block)
     assert shown["asx_actiontype"] == 3
     assert shown["asx_name"] == "act-1234abcd-msg"
-    assert (shown["asx_fireon"], shown["asx_message"], shown["asx_severity"]) == (2, "m", 3)
+    assert (shown["asx_message"], shown["asx_severity"]) == ("m", 3)
     other = {"asx_name": "act-x-msg", "asx_actiontype": 3}
     assert profiles.downgrade_block(other) == other
 
@@ -169,6 +169,51 @@ def test_a_date_filter_criterion_carries_its_date_expression_source_and_a_condit
                   "NAV[asx_nodefiltergroup.asx_conditiongroup]@odata.bind": "/asx_conditiongroups(g-1)",
                   "NAV[asx_nodefiltergroup.asx_rulecondition]@odata.bind": "/asx_ruleconditions(c-1)",
                   "NAV[asx_nodefiltergroup.asx_tableconfignode]@odata.bind": "/asx_tableconfigs(id-4)"}
+
+
+def test_no_action_payload_carries_asx_fireon():
+    for profile in profiles.PROFILES:
+        for spec in profiles.rule_specs(profile, 2):
+            for i, action in enumerate(spec["actions"]):
+                p = profiles.action_payload(action, i, spec["name"], "r-1", TC, fake_nav)
+                assert "asx_fireon" not in p
+
+
+def test_on_match_becomes_an_all_tree_of_every_outcome_true():
+    tree = profiles.fires_when_tree(profiles.FIREON_MATCH, ["o-1", "o-2"])
+    assert tree == {"operator": 1, "tests": [{"outcome": "o-1", "expected": True}, {"outcome": "o-2", "expected": True}]}
+    assert profiles.fires_when_tree(profiles.FIREON_MATCH, []) == {"operator": 1, "tests": []}
+
+
+def test_on_no_match_becomes_an_any_tree_of_every_outcome_false():
+    tree = profiles.fires_when_tree(profiles.FIREON_NOMATCH, ["o-1"])
+    assert tree == {"operator": 2, "tests": [{"outcome": "o-1", "expected": False}]}
+
+
+def test_on_no_match_without_outcomes_and_unknown_values_are_errors():
+    for fire_on, outcomes in ((profiles.FIREON_NOMATCH, []), (3, ["o-1"]), (None, ["o-1"])):
+        try:
+            profiles.fires_when_tree(fire_on, outcomes)
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
+
+
+def test_tree_payloads_bind_the_action_the_root_and_the_outcome():
+    tree = profiles.fires_when_tree(profiles.FIREON_NOMATCH, ["o-1", "o-2"])
+    root = profiles.fires_when_root_payload(tree, "a-1", fake_nav)
+    assert root == {"asx_logicaloperator": 2, "asx_order": 1,
+                    "NAV[asx_actionconditiongroup.asx_ruleaction]@odata.bind": "/asx_ruleactions(a-1)"}
+    test = profiles.fires_when_test_payload(tree["tests"][1], 2, "root-1", fake_nav)
+    assert test == {"asx_expected": False, "asx_order": 2,
+                    "NAV[asx_actionconditiontest.asx_actionconditiongroup]@odata.bind": "/asx_actionconditiongroups(root-1)",
+                    "NAV[asx_actionconditiontest.asx_outcome]@odata.bind": "/asx_conditiongroups(o-2)"}
+
+
+def test_every_profile_rule_group_has_a_name():
+    for profile in profiles.PROFILES:
+        for spec in profiles.rule_specs(profile, 2):
+            assert profiles.group_payload(spec, "r-1", fake_nav)["asx_name"].strip()
 
 
 if __name__ == "__main__":

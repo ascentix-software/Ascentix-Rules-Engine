@@ -18,6 +18,10 @@ NAV_COND_CG = resolve_nav_property("asx_rulecondition", "asx_conditiongroup", "a
 NAV_COND_TC = resolve_nav_property("asx_rulecondition", "asx_tableconfig", "asx_tableconfig")
 NAV_COND_VALNODE = resolve_nav_property("asx_rulecondition", "asx_tableconfig", "asx_comparisonvaluenode")
 NAV_ACTION_RULE = resolve_nav_property("asx_ruleaction", "asx_rule", "asx_rule")
+NAV_AG_ACTION = resolve_nav_property("asx_actionconditiongroup", "asx_ruleaction", "asx_ruleaction")
+NAV_AT_GROUP = resolve_nav_property("asx_actionconditiontest", "asx_actionconditiongroup", "asx_actionconditiongroup")
+NAV_AT_OUTCOME = resolve_nav_property("asx_actionconditiontest", "asx_conditiongroup", "asx_outcome")
+FIRE_ON_MATCH, FIRE_ON_NO_MATCH = 1, 2  # shorthand only: translated into a Fires when tree, never sent as asx_fireon
 NAV_TC_PARENT = resolve_nav_property("asx_tableconfig", "asx_tableconfig", "asx_parenttable")
 
 
@@ -79,10 +83,26 @@ def condition(name, cg_id, tc_id, **extra):
     return ensure("asx_ruleconditions", name, payload)
 
 
-def action(name, rule_id, **extra):
-    return ensure("asx_ruleactions", name, {
+def action(name, rule_id, outcome_id, fire_on, **extra):
+    """Creates the action and its "Fires when" tree (the rule's one outcome is its group). On match -> ALL
+    of the outcome true; On no match -> ANY of the outcome false. Idempotent: the tree is created once."""
+    if fire_on not in (FIRE_ON_MATCH, FIRE_ON_NO_MATCH):
+        raise ValueError(f"Unknown fire_on value: {fire_on!r}")
+    action_id = ensure("asx_ruleactions", name, {
         f"{NAV_ACTION_RULE}@odata.bind": f"/asx_rules({rule_id})", "asx_order": 1,
         "asx_isactive": True, **extra})
+    flt = _dv.urllib.parse.quote(f"_asx_ruleaction_value eq {action_id} and _asx_parentgroup_value eq null")
+    if not get(f"asx_actionconditiongroups?$filter={flt}&$select=asx_actionconditiongroupid&$top=1")["value"]:
+        on_match = fire_on == FIRE_ON_MATCH
+        root_id = post("asx_actionconditiongroups", {
+            "asx_logicaloperator": 1 if on_match else 2, "asx_order": 1,
+            f"{NAV_AG_ACTION}@odata.bind": f"/asx_ruleactions({action_id})"})
+        post("asx_actionconditiontests", {
+            "asx_expected": on_match, "asx_order": 1,
+            f"{NAV_AT_GROUP}@odata.bind": f"/asx_actionconditiongroups({root_id})",
+            f"{NAV_AT_OUTCOME}@odata.bind": f"/asx_conditiongroups({outcome_id})"})
+        print(f"[create] Fires when tree for '{name}'")
+    return action_id
 
 
 def main():
@@ -94,7 +114,7 @@ def main():
     condition("SAMPLE R1 cond", g1, tc["order"], asx_conditiontype=1,
               asx_comparisoncolumn="sample_isexpedited", asx_comparisonoperator=1,
               asx_comparisonvalue="1", asx_comparisonvaluesource=1)
-    action("SAMPLE R1 action", r1, asx_actiontype=2, asx_fireon=1,
+    action("SAMPLE R1 action", r1, g1, FIRE_ON_MATCH, asx_actiontype=2,
            asx_targetcolumn="sample_approvalnotes", asx_valuebool=True,
            asx_applyinversewhennotfired=True)
 
@@ -104,7 +124,7 @@ def main():
     condition("SAMPLE R2 cond", g2, tc["order"], asx_conditiontype=1,
               asx_comparisoncolumn="sample_ordertags", asx_comparisonoperator=7,  # Contains
               asx_comparisonvalue="2", asx_comparisonvaluesource=1)  # Fragile=2
-    action("SAMPLE R2 action", r2, asx_actiontype=1, asx_fireon=1,
+    action("SAMPLE R2 action", r2, g2, FIRE_ON_MATCH, asx_actiontype=1,
            asx_targetcolumn="sample_handlinginstructions", asx_valuebool=True,
            asx_applyinversewhennotfired=True)
 
@@ -113,7 +133,7 @@ def main():
     g3 = group("SAMPLE R3 group", r3)
     condition("SAMPLE R3 cond", g3, tc["order"], asx_conditiontype=4,  # EmailAddress
               asx_comparisoncolumn="sample_contactemail", asx_comparisonvaluesource=1)
-    action("SAMPLE R3 action", r3, asx_actiontype=4, asx_fireon=2,  # Block OnNoMatch
+    action("SAMPLE R3 action", r3, g3, FIRE_ON_NO_MATCH, asx_actiontype=4,  # Block OnNoMatch
            asx_targetcolumn="sample_contactemail",  # surfaces inline on the field
            asx_message="Contact email is not a valid email address.", asx_severity=3)
 
@@ -122,7 +142,7 @@ def main():
     g4 = group("SAMPLE R4 group", r4)
     condition("SAMPLE R4 cond", g4, tc["line"], asx_conditiontype=2,  # RowCount
               asx_minexpectedrows=1, asx_comparisonvaluesource=1)
-    action("SAMPLE R4 action", r4, asx_actiontype=4, asx_fireon=2,
+    action("SAMPLE R4 action", r4, g4, FIRE_ON_NO_MATCH, asx_actiontype=4,
            asx_message="An order must have at least one order line.", asx_severity=3)
 
     # R5 — total <= customer credit limit (FieldReference to lookup node, Block)
@@ -133,7 +153,7 @@ def main():
               asx_comparisonvaluesource=2,  # FieldReference
               asx_comparisonvaluecolumn="sample_creditlimit",
               **{f"{NAV_COND_VALNODE}@odata.bind": f"/asx_tableconfigs({tc['customer']})"})
-    action("SAMPLE R5 action", r5, asx_actiontype=4, asx_fireon=2,
+    action("SAMPLE R5 action", r5, g5, FIRE_ON_NO_MATCH, asx_actiontype=4,
            asx_targetcolumn="sample_ordertotal",  # surfaces inline on the field
            asx_message="Order total exceeds the customer credit limit.", asx_severity=3)
 
@@ -146,7 +166,7 @@ def main():
     condition("SAMPLE R6 cond parent", g6, tc["parent"], asx_conditiontype=1,
               asx_comparisoncolumn="sample_segments", asx_comparisonoperator=7,
               asx_comparisonvalue="3", asx_comparisonvaluesource=1)
-    action("SAMPLE R6 action", r6, asx_actiontype=3, asx_fireon=1,  # ShowMessage OnMatch
+    action("SAMPLE R6 action", r6, g6, FIRE_ON_MATCH, asx_actiontype=3,  # ShowMessage OnMatch
            asx_message="VIP customer — apply white-glove handling.", asx_severity=1)
 
     print("\nDONE. six rules + tableconfig graph authored.")
