@@ -349,21 +349,28 @@ export function nodeFilterDeleteOps(blocks: NodeFilterBlock[] | null | undefined
 const FILTER_CREATE_DEP_NAV_PROPS: readonly string[] = [
   BIND_NAV.filterGroupParent, BIND_NAV.filterGroupOwningCriterion, BIND_NAV.filterCriterionGroup,
 ];
-function topoFilterCreates(filterCreates: CreateOp[]): CreateOp[] {
-  const byTemp = new Map(filterCreates.map((o) => [o.tempId, o]));
+
+/**
+ * Orders creates so each follows every create it references through a NEW-id bind on one of
+ * `depNavProps` (a parent group, an owning criterion, ...): a batch's Content-ID references only
+ * point back. Otherwise keeps the input order. A node is marked before its dependencies are
+ * visited, so even a malformed cycle ends instead of recursing forever.
+ */
+function topoCreates(ops: CreateOp[], depNavProps: readonly string[]): CreateOp[] {
+  const byTemp = new Map(ops.map((o) => [o.tempId, o]));
   const emitted = new Set<string>();
   const out: CreateOp[] = [];
   const visit = (op: CreateOp) => {
     if (emitted.has(op.tempId)) return;
     emitted.add(op.tempId);
     for (const bind of op.binds) {
-      if (FILTER_CREATE_DEP_NAV_PROPS.includes(bind.navProp) && bind.ref.kind === "new" && byTemp.has(bind.ref.tempId)) {
+      if (depNavProps.includes(bind.navProp) && bind.ref.kind === "new" && byTemp.has(bind.ref.tempId)) {
         visit(byTemp.get(bind.ref.tempId)!);
       }
     }
     out.push(op);
   };
-  filterCreates.forEach(visit);
+  ops.forEach(visit);
   return out;
 }
 
@@ -471,7 +478,7 @@ function firesWhenTestAttrs(t: FlatFiresWhenTest): Record<string, any> {
   return { asx_expected: t.test.expected, asx_order: t.order };
 }
 
-// Diffs one action's tree. Creates go to `creates` (ordered later by topoFiresWhenCreates, after the
+// Diffs one action's tree. Creates go to `creates` (ordered later by topoCreates, after the
 // action and outcome creates they bind to); deletes carry `_depth` so groups go deepest-first.
 // Cross-action moves are unsupported: a node copied to another action must get new ids.
 function diffFiresWhen(
@@ -542,23 +549,6 @@ function diffFiresWhen(
 const FIRES_WHEN_CREATE_DEP_NAV_PROPS: readonly string[] = [
   BIND_NAV.actionConditionGroupParent, BIND_NAV.actionConditionTestGroup,
 ];
-function topoFiresWhenCreates(treeCreates: CreateOp[]): CreateOp[] {
-  const byTemp = new Map(treeCreates.map((o) => [o.tempId, o]));
-  const emitted = new Set<string>();
-  const out: CreateOp[] = [];
-  const visit = (op: CreateOp) => {
-    if (emitted.has(op.tempId)) return;
-    emitted.add(op.tempId);
-    for (const bind of op.binds) {
-      if (FIRES_WHEN_CREATE_DEP_NAV_PROPS.includes(bind.navProp) && bind.ref.kind === "new" && byTemp.has(bind.ref.tempId)) {
-        visit(byTemp.get(bind.ref.tempId)!);
-      }
-    }
-    out.push(op);
-  };
-  treeCreates.forEach(visit);
-  return out;
-}
 
 export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operation[] {
   const creates: CreateOp[] = [];
@@ -796,10 +786,11 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
   // ---- Ordering ----
   const ruleUpdate = updates.filter((o) => o.entity === ENTITY.rule);
   const otherUpdates = updates.filter((o) => o.entity !== ENTITY.rule);
-  const groupCreates = topoGroupCreates(creates.filter((o) => o.entity === ENTITY.group));
-  const nodeCreates = topoTableConfigCreates(creates.filter((o) => o.entity === ENTITY.tableConfig));
+  // New parent groups and nodes precede their children (lower Content-ID).
+  const groupCreates = topoCreates(creates.filter((o) => o.entity === ENTITY.group), [BIND_NAV.groupParent]);
+  const nodeCreates = topoCreates(creates.filter((o) => o.entity === ENTITY.tableConfig), [BIND_NAV.tableConfigParent]);
   const condCreates = creates.filter((o) => o.entity === ENTITY.condition);
-  const filterCreates = topoFilterCreates(creates.filter((o) => o.entity === ENTITY.nodeFilterGroup || o.entity === ENTITY.nodeFilterCriterion));
+  const filterCreates = topoCreates(creates.filter((o) => o.entity === ENTITY.nodeFilterGroup || o.entity === ENTITY.nodeFilterCriterion), FILTER_CREATE_DEP_NAV_PROPS);
   const actionCreatesOnly = creates.filter((o) => o.entity === ENTITY.action);
   const localizedCreates = creates.filter((o) => o.entity === ENTITY.localizedMessage);
   const condDeletes = deletes.filter((o) => o.entity === ENTITY.condition);
@@ -837,7 +828,7 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
   return [
     ...ruleUpdate, ...nodeCreates, ...groupCreates, ...condCreates,
     ...filterCreates,
-    ...actionCreatesOnly, ...topoFilterCreates(actionFilterCreates), ...topoFiresWhenCreates(firesWhenCreates),
+    ...actionCreatesOnly, ...topoCreates(actionFilterCreates, FILTER_CREATE_DEP_NAV_PROPS), ...topoCreates(firesWhenCreates, FIRES_WHEN_CREATE_DEP_NAV_PROPS),
     ...localizedCreates,
     ...otherUpdates, ...unbinds,
     ...scalarFilterCriterionDeletes, ...structuralFilterDeletes,
@@ -861,23 +852,6 @@ function actionBindChanges(prev: ActionNode, next: ActionNode): Bind[] {
   return out;
 }
 
-// New parent groups must precede new child groups (lower Content-ID).
-function topoGroupCreates(groupCreates: CreateOp[]): CreateOp[] {
-  const byTemp = new Map(groupCreates.map((o) => [o.tempId, o]));
-  const emitted = new Set<string>();
-  const out: CreateOp[] = [];
-  const visit = (op: CreateOp) => {
-    if (emitted.has(op.tempId)) return;
-    const parentBind = op.binds.find((b) => b.navProp === BIND_NAV.groupParent);
-    if (parentBind && parentBind.ref.kind === "new" && byTemp.has(parentBind.ref.tempId)) {
-      visit(byTemp.get(parentBind.ref.tempId)!);
-    }
-    emitted.add(op.tempId);
-    out.push(op);
-  };
-  groupCreates.forEach(visit);
-  return out;
-}
 
 function groupDepth(snapGroups: { group: ConditionGroupNode; parentId: string | null }[], id: string): number {
   const byId = new Map(snapGroups.map((x) => [x.group.id, x]));
@@ -894,18 +868,4 @@ function tableConfigDepth(nodes: Record<string, import("../model/types").TableCo
   let depth = 0; let cur = nodes[id]?.parentTableConfigId ?? null; const seen = new Set<string>();
   while (cur && nodes[cur] && !seen.has(cur)) { seen.add(cur); depth += 1; cur = nodes[cur].parentTableConfigId; }
   return depth;
-}
-
-// New parent nodes must precede new child nodes (lower Content-ID).
-function topoTableConfigCreates(nodeCreates: CreateOp[]): CreateOp[] {
-  const byTemp = new Map(nodeCreates.map((o) => [o.tempId, o]));
-  const emitted = new Set<string>(); const out: CreateOp[] = [];
-  const visit = (op: CreateOp) => {
-    if (emitted.has(op.tempId)) return;
-    const parentBind = op.binds.find((b) => b.navProp === BIND_NAV.tableConfigParent);
-    if (parentBind && parentBind.ref.kind === "new" && byTemp.has(parentBind.ref.tempId)) visit(byTemp.get(parentBind.ref.tempId)!);
-    emitted.add(op.tempId); out.push(op);
-  };
-  nodeCreates.forEach(visit);
-  return out;
 }
