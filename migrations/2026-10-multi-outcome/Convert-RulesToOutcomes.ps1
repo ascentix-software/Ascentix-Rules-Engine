@@ -5,17 +5,20 @@
 .DESCRIPTION
     Run once per environment, right after upgrading to the release that introduces "Fires when"
     (see README.md next to this script). Uses only the public Web API:
-      - a published rule (it has a published revision, or its status is Published) is edited through its
-        working draft, opened with asx_OpenRuleDraft when it has none; a never-published rule is edited directly;
+      - a rule with a published revision, Published status or a working draft is edited through its working
+        draft, opened with asx_OpenRuleDraft when it has none; any other rule is edited directly;
       - blank outcome names become "Outcome N" and duplicate names (ignoring case) get " (2)", " (3)", ...;
       - each action with asx_fireon set and no tree gets one:
           On match    -> root ALL with "<outcome> is true" for every outcome (no outcomes: an empty ALL, i.e. always);
           On no match -> root ANY with "<outcome> is false" for every outcome (no outcomes: the action never fired,
                          so it is deactivated and listed);
         then asx_fireon is cleared;
-      - a rule that is enforcing (status Published) and whose draft changed is republished.
-    Safe to re-run: actions without asx_fireon are left alone, tree rows get stable ids so an interrupted run is
-    completed rather than duplicated, and a rule whose draft needed no change is not republished.
+      - a rule that is enforcing (status Published) is republished while its published revision
+        (asx_ReadPublishedRule) still has an active action with asx_fireon set or without a tree.
+    Safe to re-run, and a re-run finishes an interrupted one: actions without asx_fireon are left alone, tree rows
+    get stable ids so a partial tree is completed rather than duplicated, and an enforcing rule whose publish
+    failed or never happened is published by the next run. Under -Confirm, a rule with any declined write is
+    not published and is listed under "Skipped (declined)".
     Exit code 0 when no rule failed, 1 otherwise.
 
 .PARAMETER EnvUrl
@@ -55,7 +58,8 @@ $script:estimateOnly = $false
 
 function Request([string]$Method, [string]$Path, $Body = $null, [hashtable]$Extra = $null) {
     $uri = if ($Path -match '^https://') { $Path } else { $base + $Path }
-    $call = @{ Method = $Method; Uri = $uri; Headers = $(if ($Extra) { $headers + $Extra } else { $headers }) }
+    # -Verbose:$false: a -Verbose run must not print full request URLs.
+    $call = @{ Method = $Method; Uri = $uri; Headers = $(if ($Extra) { $headers + $Extra } else { $headers }); Verbose = $false }
     if ($null -ne $Body) { $call.ContentType = 'application/json; charset=utf-8'; $call.Body = $Body | ConvertTo-Json -Depth 5 -Compress }
     try { Invoke-RestMethod @call }
     catch {
@@ -87,9 +91,47 @@ function StableId([string]$Key) {
     [guid]::new([byte[]]$hash[0..15]).ToString()
 }
 
+# Whether to make one write. -WhatIf says no without counting it as declined; a no under -Confirm marks the
+# current rule as declined, so it is not published and is listed under "Skipped (declined)". The offline test
+# stands in for the -Confirm prompt by defining Approve-RuleMigrationWrite before it calls this script.
 function Change([string]$Target, [string]$Operation) {
     if ($script:estimateOnly) { return $false }
-    $cmdlet.ShouldProcess($Target, $Operation)
+    $approved = if (!$dryRun -and (Test-Path function:Approve-RuleMigrationWrite)) { [bool](Approve-RuleMigrationWrite $Target $Operation) }
+                else { $cmdlet.ShouldProcess($Target, $Operation) }
+    if (!$approved -and !$dryRun) { $script:declined = $true }
+    $approved
+}
+
+# The attributes of one snapshot row as a hashtable. DataContractJsonSerializer writes a dictionary as a list of
+# { Key, Value } pairs; the object form is accepted too.
+function Read-SnapshotAttributes($Attributes) {
+    $map = @{}
+    if ($Attributes -is [System.Array]) { foreach ($pair in $Attributes) { $map["$($pair.Key)"] = $pair.Value } }
+    elseif ($null -ne $Attributes) { foreach ($p in $Attributes.PSObject.Properties) { $map[$p.Name] = $p.Value } }
+    $map
+}
+
+# Whether the rule's active published revision still uses On match / On no match: an active action with
+# asx_fireon set, or an active action with no Fires when tree. Such a rule needs its converted draft published,
+# even when this run changed nothing (an earlier run failed or was stopped before the publish).
+function Test-PublishedUnconverted([string]$RuleId) {
+    $definition = (Request POST 'asx_ReadPublishedRule' @{ RuleId = $RuleId }).Definition
+    $snapshot = "$definition" | ConvertFrom-Json
+    if ($snapshot.Format -ne 1 -or $null -eq $snapshot.Rows) { throw 'asx_ReadPublishedRule returned a published revision in a format this script does not know.' }
+    $rows = @(foreach ($row in $snapshot.Rows) { @{ Entity = "$($row.Entity)"; Id = "$($row.Id)"; Attributes = (Read-SnapshotAttributes $row.Attributes) } })
+    $withTree = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($row in $rows | Where-Object { $_.Entity -eq 'asx_actionconditiongroup' }) {
+        $action = $row.Attributes['asx_ruleaction']
+        if ($action -and $action.Kind -eq 'reference' -and $action.Value) { [void]$withTree.Add("$($action.Value)") }
+    }
+    foreach ($row in $rows | Where-Object { $_.Entity -eq 'asx_ruleaction' }) {
+        # Absent or null reads as false, as the engine reads it (GetAttributeValue<bool>).
+        $active = $row.Attributes['asx_isactive']
+        if (!($active -and $active.Kind -eq 'bool' -and "$($active.Value)" -eq 'true')) { continue }
+        $fireOn = $row.Attributes['asx_fireon']
+        if (($fireOn -and $fireOn.Kind -ne 'null') -or !$withTree.Contains($row.Id)) { return $true }
+    }
+    $false
 }
 
 # New names for the outcomes that need one: blank -> "Outcome N" (smallest N free), repeated -> "<name> (k)".
@@ -132,6 +174,7 @@ function Build-Tree($Action, $Outcomes, [bool]$RootExists, [string]$RuleName, [h
             'asx_RuleAction@odata.bind' = "/asx_ruleactions($id)"
         } | Out-Null
     }
+    elseif (!$dryRun) { return }  # root declined under -Confirm: its tests have nothing to hang on
     $order = 0
     foreach ($o in $Outcomes) {
         $order++
@@ -150,7 +193,9 @@ function Build-Tree($Action, $Outcomes, [bool]$RootExists, [string]$RuleName, [h
 # Converts one rule's editable rows (its working draft, or the rule itself). Returns whether anything changed.
 function Convert-Target([string]$Target, [string]$RuleName) {
     $changed = $false
-    $outcomes = @(GetAll "asx_conditiongroups?`$filter=_asx_rule_value eq $Target and _asx_parentconditiongroup_value eq null and asx_isexecutioncondition eq false&`$select=asx_conditiongroupid,asx_name,createdon&`$orderby=createdon asc")
+    # A null "Run only when" flag reads as false in the engine (GetAttributeValue<bool>). Dataverse's "ne true" would
+    # drop the null rows (SQL semantics), so ask for false or null explicitly.
+    $outcomes = @(GetAll "asx_conditiongroups?`$filter=_asx_rule_value eq $Target and _asx_parentconditiongroup_value eq null and (asx_isexecutioncondition eq false or asx_isexecutioncondition eq null)&`$select=asx_conditiongroupid,asx_name,createdon&`$orderby=createdon asc")
     $renames = Get-OutcomeRenames $outcomes
     $names = @{}
     foreach ($o in $outcomes) { $names[$o.asx_conditiongroupid] = $(if ($renames[$o.asx_conditiongroupid]) { $renames[$o.asx_conditiongroupid] } else { "$($o.asx_name)".Trim() }) }
@@ -181,10 +226,10 @@ function Convert-Target([string]$Target, [string]$RuleName) {
             $update.asx_isactive = $false
         }
         $operation = if ($update.ContainsKey('asx_isactive')) { 'Deactivate it and clear On match / On no match' } else { 'Clear On match / On no match' }
-        if (Change "action '$($action.asx_name)' of rule '$RuleName'" $operation) {
-            Request PATCH "asx_ruleactions($id)" $update $ifMatch | Out-Null
-        }
-        if ($update.ContainsKey('asx_isactive')) { $deactivated.Add("$RuleName / $($action.asx_name)") }
+        $approved = Change "action '$($action.asx_name)' of rule '$RuleName'" $operation
+        if ($approved) { Request PATCH "asx_ruleactions($id)" $update $ifMatch | Out-Null }
+        # Listed only when the deactivation was written (or, under -WhatIf, would be).
+        if ($update.ContainsKey('asx_isactive') -and ($approved -or $dryRun)) { $deactivated.Add("$RuleName / $($action.asx_name)") }
     }
     $changed
 }
@@ -195,6 +240,7 @@ $deactivated = [System.Collections.Generic.List[string]]::new()
 $withDraft = [System.Collections.Generic.List[string]]::new()
 $opened = [System.Collections.Generic.List[string]]::new()
 $failed = [System.Collections.Generic.List[string]]::new()
+$skipped = [System.Collections.Generic.List[string]]::new()
 
 Write-Host "[migrate] Converting rules to outcome logic in $envHost$(if ($dryRun) { ' (-WhatIf: nothing is written)' })."
 $allRules = @(GetAll 'asx_rules?$select=asx_ruleid,asx_name,statuscode,_asx_publishedrevision_value,_asx_draftof_value')
@@ -208,8 +254,11 @@ $rules = @($allRules | Where-Object { !$_._asx_draftof_value } | Sort-Object asx
 foreach ($rule in $rules) {
     $label = "$($rule.asx_name) ($($rule.asx_ruleid))"
     $script:estimateOnly = $false
+    $script:declined = $false
     try {
-        $published = $null -ne $rule._asx_publishedrevision_value -or $rule.statuscode -eq $PublishedStatus
+        # As RuleDrafts.RequiresWorkingDraft: a rule with a published revision, Published status or a working draft
+        # is edited only through its draft.
+        $published = $null -ne $rule._asx_publishedrevision_value -or $rule.statuscode -eq $PublishedStatus -or $draftOf.ContainsKey($rule.asx_ruleid)
         $enforcing = $rule.statuscode -eq $PublishedStatus
         $target = $rule.asx_ruleid
         if ($published) {
@@ -226,23 +275,43 @@ foreach ($rule in $rules) {
                 $target = $draftId
                 $opened.Add($label)
             }
+            elseif (!$dryRun) {
+                # Declined under -Confirm: leave the rule alone.
+                $skipped.Add($label)
+                Write-Host "  $($label): skipped (declined)"
+                continue
+            }
             else {
-                # A declined -Confirm: leave the rule alone. -WhatIf: estimate from the rule's own rows, which the
-                # draft would copy (nothing is written while estimateOnly is set).
-                if (!$dryRun) { Write-Host "  $($label): skipped"; continue }
+                # -WhatIf: estimate from the rule's own rows, which the draft would copy (nothing is written while
+                # estimateOnly is set).
                 $opened.Add($label)
                 $script:estimateOnly = $true
             }
         }
         $changed = Convert-Target $target $rule.asx_name
-        $note = if (!$changed) { 'no change' } elseif ($dryRun -or $script:estimateOnly) { 'would convert' } else { 'converted' }
+        if ($script:declined) {
+            # Part of the conversion was declined: the draft is incomplete, so it is not offered for publishing.
+            $skipped.Add($label)
+            Write-Host "  $($label): skipped (declined); not published"
+            continue
+        }
+        $would = $dryRun -or $script:estimateOnly
+        $note = if (!$changed) { 'no change' } elseif ($would) { 'would convert' } else { 'converted' }
         if ($changed) { $converted.Add($label) }
-        if ($changed -and $published -and $enforcing) {
+        # An enforcing rule is republished while its published revision still uses On match / On no match, whether
+        # or not this run changed its draft, so a run that failed or stopped before the publish is recovered.
+        if ($enforcing -and (Test-PublishedUnconverted $rule.asx_ruleid)) {
             if (Change "rule '$($rule.asx_name)'" 'Publish the converted working draft') {
                 Request PATCH "asx_rules($target)" @{ statuscode = $PublishedStatus } $ifMatch | Out-Null
             }
-            $publishedRules.Add($label)
-            $note += $(if ($dryRun -or $script:estimateOnly) { ', would publish' } else { ', published' })
+            if ($script:declined) {
+                $skipped.Add($label)
+                $note += ', publish declined'
+            }
+            else {
+                $publishedRules.Add($label)
+                $note += $(if ($would) { ', would publish' } else { ', published' })
+            }
         }
         Write-Host "  $($label): $note"
     }
@@ -265,6 +334,7 @@ Show 'Published' $publishedRules
 Show 'Deactivated' $deactivated
 Show 'Rules with a working draft' $withDraft
 Show $(if ($dryRun) { 'Draft would be opened' } else { 'Drafts opened' }) $opened
+Show 'Skipped (declined)' $skipped
 Show 'Failed' $failed
 if ($failed.Count -gt 0) { exit 1 }
 exit 0

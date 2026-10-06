@@ -13,10 +13,11 @@ by setting a draft's status. It does not touch the engine or the Rule Builder.
 
 For every rule (working drafts are handled together with their rule):
 
-1. **Where it edits.** A published rule (it has a published revision, or its status is Published) is edited
-   through its working draft; the script opens one with `asx_OpenRuleDraft` if the rule has none. A rule
-   that was never published is edited directly.
-2. **Names the outcomes.** Each outcome (a top-level validation group, not a "Run only when" group) needs a
+1. **Where it edits.** A rule that has a published revision, has the status Published, or already has a
+   working draft is edited through its working draft; the script opens one with `asx_OpenRuleDraft` if the
+   rule has none. Any other rule (never published) is edited directly.
+2. **Names the outcomes.** Each outcome (a top-level validation group, not a "Run only when" group; a group
+   whose "Run only when" flag is empty counts as an outcome, as it does in the engine) needs a
    unique name. A blank name becomes "Outcome N" (the smallest N not already used); a repeated name,
    ignoring case, gets " (2)", " (3)" and so on.
 3. **Builds each action's Fires when tree.** For each action that still has On match / On no match set and
@@ -26,10 +27,13 @@ For every rule (working drafts are handled together with their rule):
    - **On no match** becomes a root **ANY** group with one test "*outcome* is false" per outcome. With no
      outcomes the action could never fire, so it is **deactivated** and listed.
    - On match / On no match is then cleared. An action that already has a tree keeps it.
-4. **Republishes.** A rule that is currently enforcing (status Published) and whose draft changed is
-   published again; the normal publish checks run. A rule that was published before but is not enforcing
-   now is converted in its draft and left unpublished. A rule whose publish fails is listed with the
-   Dataverse message and the script moves on to the next rule.
+4. **Republishes.** For a rule that is currently enforcing (status Published), the script reads its
+   published version (`asx_ReadPublishedRule`). While that version still has an active action with On
+   match / On no match set, or an active action with no Fires when tree, the converted draft is published;
+   the normal publish checks run. A rule whose published version is already converted is not republished.
+   A rule that was published before but is not enforcing now is converted in its draft and left
+   unpublished. A rule whose publish fails is listed with the Dataverse message and the script moves on to
+   the next rule.
 
 ## Before you upgrade
 
@@ -56,20 +60,26 @@ $token = az account get-access-token --resource $url --query accessToken -o tsv
 ```
 
 Any Dataverse bearer token for such a user works in place of `az`. The script never prints the token, and
-prints only the host name of the environment. Add `-Confirm` to approve each write one at a time; a rule
-whose draft you decline to open is reported as `skipped`. A token lasts about an hour: if it expires during
-a long run, get a new one and run the script again (see below).
+prints only the host name of the environment, also with `-Verbose`. A token lasts about an hour: if it
+expires during a long run, get a new one and run the script again (see below).
+
+Add `-Confirm` to approve each write one at a time. If you decline any write for a rule (including opening
+its working draft), that rule is not published, nothing you declined is reported as done, and the rule is
+listed under **Skipped (declined)**. Its draft may be partly converted; run the script again (without
+declining) to finish it.
 
 ## Output
 
-Each rule gets one line (`converted`, `published`, `no change` or `FAILED: <message>`), followed by a
+Each rule gets one line (`converted`, `published`, `no change`, `skipped (declined)` or
+`FAILED: <message>`), followed by a
 summary:
 
 - **Converted**: rules whose outcomes or actions changed.
-- **Published**: enforcing rules that were republished.
+- **Published**: enforcing rules that were republished (their published version was not yet converted).
 - **Deactivated**: `<rule> / <action>` for each On no match action on a rule with no outcomes.
 - **Rules with a working draft**: rules that already had a working draft (check these; see above).
 - **Drafts opened** (with `-WhatIf`: **Draft would be opened**): published rules that had no draft.
+- **Skipped (declined)**: rules where you declined a write under `-Confirm`; not published.
 - **Failed**: `Failed: <rule id> <rule name>: <message>`.
 
 Under `-WhatIf` the lists show what would change. For a published rule without a draft, the estimate is
@@ -78,14 +88,15 @@ read from the rule's own rows, which the new draft would copy. The exit code is 
 
 ## Running it again
 
-It is safe to re-run. Actions without On match / On no match are left alone, and a rule whose draft needed
-no change is not republished, so a second run on a converted environment writes nothing. If a run was
-interrupted while building a tree, the next run completes that tree (tree rows get stable ids) instead of
-adding a second one.
+It is safe to re-run, and re-running is how an interrupted or partly failed run is finished:
 
-A rule listed under **Failed** at the publish step is already converted in its working draft. Fix the
-problem the message names, then publish the rule from the Rule Builder: a re-run does not republish it,
-because its draft no longer needs a change.
+- Actions without On match / On no match are left alone, so work already done is not repeated.
+- If a run was interrupted while building a tree, the next run completes that tree (tree rows get stable
+  ids) instead of adding a second one.
+- An enforcing rule is republished whenever its published version still uses On match / On no match, even
+  if its draft needs no change. So a rule whose publish failed (fix the problem the message names first),
+  or whose run stopped before the publish, is published by the next run.
+- Once every enforcing rule's published version is converted, a further run writes nothing.
 
 ## For maintainers
 
