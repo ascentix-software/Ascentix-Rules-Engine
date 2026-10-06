@@ -93,7 +93,8 @@ OnLoad handler: `Ascentix.Authoring.onConditionLoad` (§5).
 ### `asx_ruleaction`: Action (conditional-visibility)
 
 **General** tab, section *Action*: `asx_name`, `asx_rule`, `asx_order`, `asx_actiontype`,
-`asx_fireon` (retired: the engine no longer reads it; remove it from the form), `asx_applyinversewhennotfired`, plus conditional fields `[cond]`:
+`asx_fireon` (retired: the engine no longer reads it; remove it from the form),
+`asx_applyinversewhennotfired`, plus conditional fields `[cond]`:
 `asx_targetcolumn`, `asx_valuebool`, `asx_targettable`, `asx_targetnode`, `asx_message`, `asx_severity`,
 `asx_fieldmapping`, `asx_isactive`. `asx_message` is labelled **"Message (default /
 fallback)"**. Per-language overrides live in `asx_localizedmessage`.

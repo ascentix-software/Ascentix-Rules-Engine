@@ -2,7 +2,7 @@ import {
   Dialog, DialogSurface, DialogBody, DialogTitle, DialogContent, DialogActions, Button,
 } from "@fluentui/react-components";
 import type { ActionNode, RuleGraph } from "../model/types";
-import { actionsUsingOutcome, actionsLeftNotSetByDeleting } from "../model/outcomes";
+import { actionsUsingOutcome, actionsLeftNotSetByDeleting, outcomeDisplayName } from "../model/outcomes";
 import { color } from "./tokens";
 
 /**
@@ -14,7 +14,7 @@ export function ConfirmDeleteOutcomeDialog({ graph, outcomeId, onCancel, onConfi
   graph: RuleGraph; outcomeId: string | null; onCancel(): void; onConfirm(): void;
 }) {
   const outcome = outcomeId ? graph.validationGroups.find((g) => g.id === outcomeId) : undefined;
-  const name = outcome ? outcome.name.trim() || "(unnamed)" : "";
+  const name = outcome ? outcomeDisplayName(outcome.name) : "";
   const label = (a: ActionNode) => a.name.trim() || `Action ${graph.actions.indexOf(a) + 1}`;
   const users = outcomeId ? actionsUsingOutcome(graph, outcomeId).map(label) : [];
   const leftNotSet = outcomeId ? actionsLeftNotSetByDeleting(graph, outcomeId).map(label) : [];

@@ -149,14 +149,17 @@ namespace Ascentix.RulesEngine.Tests
             var issue = Assert.Single(issues, i => i.Code == "OUTCOME_UNUSED");
             Assert.Equal(unused.Id, issue.Target.Id);
             Assert.Equal(IssueSeverity.Warning, issue.Severity);
+            Assert.Equal("No active action uses this outcome. It is still evaluated and reported.", issue.Message);
         }
 
+        // Only active actions count, so the message says "active": an inactive action may still test it.
         [Fact]
         public void Outcome_used_only_by_an_inactive_action_is_unused()
         {
             var o = Outcome("A");
             var issues = Run(Model(new[] { o }, Action(ActionTrees.AllTrue(o.Id), active: false)));
-            Assert.Single(issues, i => i.Code == "OUTCOME_UNUSED");
+            var issue = Assert.Single(issues, i => i.Code == "OUTCOME_UNUSED");
+            Assert.Equal("No active action uses this outcome. It is still evaluated and reported.", issue.Message);
         }
 
         [Fact]

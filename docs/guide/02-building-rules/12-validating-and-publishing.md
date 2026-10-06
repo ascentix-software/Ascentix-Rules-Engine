@@ -70,8 +70,9 @@ their own checks:
   rule doesn't have."
 - **`ACTION_EMPTY_GROUP`** (error): "A group in "Fires when" has no tests or groups." An empty
   root ALL group is fine; it means "Always, when the rule runs".
-- **`OUTCOME_UNUSED`** (warning): "No action uses this outcome. It is still evaluated and
-  reported." It does not block publishing.
+- **`OUTCOME_UNUSED`** (warning): "No active action uses this outcome. It is still evaluated and
+  reported." Only active actions count, so an outcome tested only by an inactive action gets it
+  too. It does not block publishing.
 
 ## Set-action errors
 

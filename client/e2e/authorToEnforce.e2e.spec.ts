@@ -106,7 +106,7 @@ test("a Block rule authored entirely in the editor stops a real form save, and a
 
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
 
-    // ---- Author the action: Block, fires when the outcome is false ------------------------------------
+    // ---- Author the action: Block, fires when the outcome is false ---------------------
     await frame.getByRole("button", { name: "+ Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     const type = frame.getByRole("combobox", { name: "Action type" });
@@ -265,8 +265,8 @@ test("editing a published rule in the UI and re-publishing changes what the plug
     await saveValidatePublish(frame2);
 
     // The SAME record that was blocked a moment ago must now save: 150 <= 200 matches, so the
-    // Block (fires when the outcome is false) does not fire. If the plugin kept enforcing the old threshold, this is
-    // where a stale-registration bug surfaces.
+    // Block (fires when the outcome is false) does not fire. If the plugin kept enforcing the old
+    // threshold, this is where a stale-registration bug surfaces.
     expect(await saveOrderViaForm(page, "ZZ_RB_a2e_edit_v2", 150, "SAVED")).toBe("SAVED");
 
     // ... and the new threshold is genuinely armed, not merely absent.

@@ -46,8 +46,8 @@ with the hint "Actions test this outcome by name."
 - Names must be unique in the rule, ignoring upper and lower case.
 - A name can be at most 100 characters.
 
-Every outcome is evaluated; there is no short-circuit. An outcome that no action tests still
-runs and is reported, but publishing warns you (`OUTCOME_UNUSED`). Subgroups inside an outcome
+Every outcome is evaluated; there is no short-circuit. An outcome that no active action tests
+still runs and is reported, but publishing warns you (`OUTCOME_UNUSED`). Subgroups inside an outcome
 are not outcomes of their own; they only shape how that outcome is decided. Execution
 groups are not outcomes either. They gate the whole rule.
 

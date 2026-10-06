@@ -7,6 +7,7 @@ import { RecordPickerDialog } from "../ui/pickers/RecordPickerDialog";
 import { Callout } from "../ui/primitives";
 import { formatError } from "../ui/errors";
 import { triggerLabel } from "../model/enums";
+import { outcomeDisplayName } from "../model/outcomes";
 import { describeFiredAction, describeWrite, summarizeChangeSet, triggerName, type DryRunAction, type DryRunResult } from "./dryRunFormat";
 
 export interface TestRunRule { id: string; name: string; table: string; triggers: number[]; }
@@ -65,7 +66,7 @@ export function TestRunResults({ result, ruleId }: { result: DryRunResult; ruleI
                 {o.value
                   ? <Checkmark16Regular aria-hidden style={{ verticalAlign: "middle", marginRight: 4 }} />
                   : <Dismiss16Regular aria-hidden style={{ verticalAlign: "middle", marginRight: 4 }} />}
-                {o.name?.trim() || "(unnamed outcome)"}: {o.value ? "true" : "false"}
+                {outcomeDisplayName(o.name)}: {o.value ? "true" : "false"}
               </li>
             ))}
           </ul>

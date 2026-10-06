@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { outcomesOf, isOutcome, nextOutcomeName, actionsUsingOutcome, actionsLeftNotSetByDeleting } from "../../src/editor/model/outcomes";
+import { outcomesOf, isOutcome, nextOutcomeName, actionsUsingOutcome, actionsLeftNotSetByDeleting, outcomeDisplayName } from "../../src/editor/model/outcomes";
 import { addOutcome, deleteGroup, addGroup } from "../../src/editor/model/reducer";
 import { resetTempIds } from "../../src/editor/model/ids";
 import type { ActionNode, ConditionGroupNode, FiresWhenGroup, RuleGraph } from "../../src/editor/model/types";
@@ -129,5 +129,15 @@ describe("outcomes", () => {
     const notSet = after.actions.filter((a, i) => a.firesWhen === null && g.actions[i].firesWhen !== null).map((a) => a.id);
     expect(actionsLeftNotSetByDeleting(g, "o1").map((a) => a.id)).toEqual(notSet);
     expect(notSet).toEqual(["a1"]);
+  });
+});
+
+describe("outcomeDisplayName", () => {
+  it("shows a blank or missing name as (unnamed outcome), and any other name as it is", () => {
+    expect(outcomeDisplayName("")).toBe("(unnamed outcome)");
+    expect(outcomeDisplayName("   ")).toBe("(unnamed outcome)");
+    expect(outcomeDisplayName(null)).toBe("(unnamed outcome)");
+    expect(outcomeDisplayName(undefined)).toBe("(unnamed outcome)");
+    expect(outcomeDisplayName("High value")).toBe("High value");
   });
 });

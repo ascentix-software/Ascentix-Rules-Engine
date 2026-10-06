@@ -29,9 +29,9 @@ outcomes (see *Building Conditions*):
   Publishing refuses an action that is not set (`ACTION_NO_TREE`).
 
 Click **+ Add test** to test an outcome, and **+ Add group** to nest a group. Until the rule has
-an outcome, **+ Add test** is hidden and the hint "Add an outcome to test it here." shows in its
-place. A group with nothing in it is refused at publish, unless it is the empty root ALL
-(`ACTION_EMPTY_GROUP`).
+an outcome, both **+ Add test** and **+ Add group** are hidden and the hint "Add an outcome to
+test it here." shows in their place. A group with nothing in it is refused at publish, unless it
+is the empty root ALL (`ACTION_EMPTY_GROUP`).
 
 The action row shows a summary, for example "When High value AND (At risk OR NOT Critical
 case)". A validation rule typically pairs a **Block** action with a test that its "valid"

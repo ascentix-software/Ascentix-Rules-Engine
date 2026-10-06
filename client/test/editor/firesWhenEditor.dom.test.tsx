@@ -89,7 +89,7 @@ describe("FiresWhenEditor", () => {
   it("+ Add group inside an ANY subgroup adds an ALL group under it", () => {
     const sub: FiresWhenGroup = { id: "sub", op: "any", tests: [{ id: "t1", outcomeId: "o1", expected: true }], groups: [] };
     const { last } = render(tree({ groups: [sub] }));
-    const card = screen.getByRole("group", { name: "Subgroup" });
+    const card = screen.getByRole("group", { name: "Subgroup 1" });
     fireEvent.click(within(card).getByRole("button", { name: "+ Add group" }));
     expect(last()!.groups[0]).toMatchObject({ id: "sub", op: "any" });
     expect(last()!.groups[0].groups).toEqual([expect.objectContaining({ op: "all", tests: [], groups: [] })]);
@@ -98,7 +98,7 @@ describe("FiresWhenEditor", () => {
   it("toggles a subgroup's own op", () => {
     const sub: FiresWhenGroup = { id: "sub", op: "any", tests: [], groups: [] };
     const { last } = render(tree({ groups: [sub] }));
-    const card = screen.getByRole("group", { name: "Subgroup" });
+    const card = screen.getByRole("group", { name: "Subgroup 1" });
     fireEvent.click(within(card).getByRole("button", { name: "ALL" }));
     expect(last()!.groups).toEqual([{ id: "sub", op: "all", tests: [], groups: [] }]);
   });
@@ -110,22 +110,64 @@ describe("FiresWhenEditor", () => {
     expect(last()).toEqual({ id: "root", op: "all", tests: [{ id: "t0", outcomeId: "o2", expected: true }], groups: [] });
   });
 
-  it("an empty subgroup and an empty ANY root each ask for a test", () => {
+  it("an empty ANY root asks for a test or ALL, since the root can't be removed", () => {
     render(tree({ op: "any" }));
-    expect(screen.getByText("Add a test, or remove this group.")).toBeInTheDocument();
+    expect(screen.getByText("Add a test, or switch to ALL to fire every time the rule runs.")).toBeInTheDocument();
+    expect(screen.queryByText("Add a test, or remove this group.")).toBeNull();
     expect(screen.queryByText("Always, when the rule runs")).toBeNull();
   });
 
   it("an empty subgroup asks for a test", () => {
     render(tree({ tests: [{ id: "t0", outcomeId: "o1", expected: true }], groups: [{ id: "sub", op: "any", tests: [], groups: [] }] }));
-    const card = screen.getByRole("group", { name: "Subgroup" });
+    const card = screen.getByRole("group", { name: "Subgroup 1" });
     expect(within(card).getByText("Add a test, or remove this group.")).toBeInTheDocument();
   });
 
-  it("hides + Add test when the rule has no outcomes and says why", () => {
+  it("numbers sibling subgroups so each has its own name", () => {
+    const sub = (id: string): FiresWhenGroup => ({ id, op: "any", tests: [{ id: `${id}-t`, outcomeId: "o1", expected: true }], groups: [] });
+    render(tree({ groups: [sub("s1"), sub("s2")] }));
+    expect(screen.getByRole("group", { name: "Subgroup 1" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Subgroup 2" })).toBeInTheDocument();
+  });
+
+  it("hides + Add test and + Add group when the rule has no outcomes and says why", () => {
     render(tree(), []);
     expect(screen.queryByRole("button", { name: "+ Add test" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "+ Add group" })).toBeNull();
     expect(screen.getByText("Add an outcome to test it here.")).toBeInTheDocument();
+  });
+
+  it("never changes the tree it was given: every edit hands back a new one", async () => {
+    const deepFreeze = <T,>(o: T): T => {
+      Object.values(o as object).forEach((v) => { if (v && typeof v === "object") deepFreeze(v); });
+      return Object.freeze(o);
+    };
+    const input = deepFreeze(tree({
+      tests: [{ id: "t0", outcomeId: "o1", expected: true }],
+      groups: [{ id: "sub", op: "any", tests: [{ id: "t1", outcomeId: "o2", expected: true }], groups: [] }],
+    }));
+    const before = JSON.parse(JSON.stringify(input));
+    const { onChange } = render(input);
+    const root = () => screen.getAllByRole("button", { name: "ANY" })[0];
+    const card = () => screen.getByRole("group", { name: "Subgroup 1" });
+
+    fireEvent.click(root());                                                          // toggle the root
+    fireEvent.click(within(card()).getByRole("button", { name: "ALL" }));             // toggle a subgroup
+    fireEvent.click(screen.getAllByRole("button", { name: "+ Add test" })[0]);        // add a test (root)
+    fireEvent.click(within(card()).getByRole("button", { name: "+ Add test" }));      // add a test (subgroup)
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove test" })[0]);       // remove a test (root)
+    fireEvent.click(within(card()).getByRole("button", { name: "Remove test" }));     // remove a test (subgroup)
+    fireEvent.click(screen.getAllByRole("button", { name: "+ Add group" })[0]);       // add a group (root)
+    fireEvent.click(within(card()).getByRole("button", { name: "+ Add group" }));     // add a group (subgroup)
+    fireEvent.click(screen.getByRole("button", { name: "Remove group" }));            // remove a group
+    fireEvent.click(screen.getAllByRole("combobox", { name: "Outcome" })[0]);         // change an outcome
+    fireEvent.click(await screen.findByRole("option", { name: "At risk" }));
+    fireEvent.click(within(card()).getByRole("combobox", { name: "Result" }));        // change expected (subgroup)
+    fireEvent.click(await screen.findByRole("option", { name: "is false" }));
+
+    expect(onChange).toHaveBeenCalledTimes(11);
+    for (const [next] of onChange.mock.calls) expect(next).not.toBe(input);
+    expect(input).toEqual(before);
   });
 
   it("shows (missing outcome) for a test whose outcome is gone, and lets it be repointed", async () => {

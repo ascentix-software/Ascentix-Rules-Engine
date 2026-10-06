@@ -1,5 +1,6 @@
 import type { ConditionNode, ActionNode, TableConfigRef, ConditionTypeLabel, ConditionGroupNode, FiresWhenGroup } from "../model/types";
 import { isAlways } from "../model/firesWhen";
+import { outcomeDisplayName } from "../model/outcomes";
 import { comparisonOperatorLabel } from "../model/enums";
 import type { OptionMeta } from "../metadata";
 
@@ -214,7 +215,7 @@ export function firesWhenSummary(tree: FiresWhenGroup | null, outcomes: Conditio
   if (isAlways(tree)) return "Always, when the rule runs";
   const nameOf = (id: string | null) => {
     const o = outcomes.find((x) => x.id === id);
-    return !o ? "(missing outcome)" : o.name.trim() === "" ? "(unnamed outcome)" : o.name;
+    return !o ? "(missing outcome)" : outcomeDisplayName(o.name);
   };
   const render = (g: FiresWhenGroup): string => {
     if (g.tests.length === 0 && g.groups.length === 0) return "empty group";
@@ -227,10 +228,7 @@ export function firesWhenSummary(tree: FiresWhenGroup | null, outcomes: Conditio
   return `When ${render(tree)}`;
 }
 
-export function actionWhatHappens(
-  a: ActionNode, _tcs: Record<string, TableConfigRef>, _resolveValueLabel: ValueLabelResolver | undefined,
-  outcomes: ConditionGroupNode[],
-): string {
+export function actionWhatHappens(a: ActionNode, outcomes: ConditionGroupNode[]): string {
   if (!a.firesWhen) return firesWhenSummary(null, outcomes);
   const when = firesWhenSummary(a.firesWhen, outcomes);
   switch (a.actionType) {

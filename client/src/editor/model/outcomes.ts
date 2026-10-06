@@ -10,6 +10,14 @@ export function isOutcome(graph: RuleGraph, groupId: string): boolean {
   return graph.validationGroups.some((g) => g.id === groupId);
 }
 
+/**
+ * How an outcome's name is shown wherever it stands alone: a blank (or, from the server, missing)
+ * name reads "(unnamed outcome)". The outcome card's own header keeps "Outcome · (unnamed)".
+ */
+export function outcomeDisplayName(name: string | null | undefined): string {
+  return name && name.trim() !== "" ? name : "(unnamed outcome)";
+}
+
 /** "Outcome N" with the smallest N not already used (names compare case-insensitively). */
 export function nextOutcomeName(graph: RuleGraph): string {
   const used = new Set(graph.validationGroups.map((g) => g.name.trim().toLowerCase()));

@@ -118,7 +118,8 @@ export async function createRuleFixture(opts: RuleFixtureOpts = {}): Promise<{ r
     }));
     if (opts.withGroup ?? true) {
       const groupId = track(ENTITY_SET.group, await api.createRecord(ENTITY_SET.group, {
-        // An outcome: its name is required, unique in the rule and at most 100 characters.
+        // An execution group ("Run only when"), not an outcome: it gates the rule. Kept within the
+        // 100-character name column.
         asx_name: `${stamp}_grp`.slice(0, 100), asx_logicaloperator: 1, asx_isexecutioncondition: true,
         [`${BIND_NAV.groupRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})`,
       }));

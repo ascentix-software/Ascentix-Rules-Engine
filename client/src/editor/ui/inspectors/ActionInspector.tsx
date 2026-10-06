@@ -329,7 +329,7 @@ export function ActionInspector({
           <div style={{ borderLeft: `3px solid ${accent.bar}`, borderRadius: "0 6px 6px 0",
             background: accent.bg, padding: "10px 12px", marginTop: 4 }}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: accent.bar }}>What happens</div>
-            <div style={{ fontSize: 12.5, color: color.ink, marginTop: 2 }}>{actionWhatHappens(action, tableConfigs, undefined, outcomes)}</div>
+            <div style={{ fontSize: 12.5, color: color.ink, marginTop: 2 }}>{actionWhatHappens(action, outcomes)}</div>
           </div>
         );
       })()}

@@ -817,7 +817,7 @@ Field notes:
   `ACTION_NO_TREE` (Error: an active action has no Fires when tree, so it could never fire),
   `ACTION_TEST_UNKNOWN_OUTCOME` (Error: a test names an outcome the rule doesn't have),
   `ACTION_EMPTY_GROUP` (Error: a Fires when group other than an empty root ALL has no tests or groups),
-  `OUTCOME_UNUSED` (Warning: no action's tree tests this outcome; it is still evaluated and reported),
+  `OUTCOME_UNUSED` (Warning: no active action's tree tests this outcome; it is still evaluated and reported),
   `STRUCT_DEACTIVATE_MAPPING` (Error: Deactivate Record's field mapping may
   only set Status Reason, `statuscode`; any other mapped column is refused), `META_TABLE_NOT_DEACTIVATABLE` (Error:
   Deactivate Record's target table has no `statecode`, or changes state only through its own dedicated message —

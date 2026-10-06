@@ -86,7 +86,7 @@ describe("ConditionGroupInspector for an outcome", () => {
     const { body, header } = ruleEditorInspectorContent(graph(""), { kind: "group", id: "o1" }, handlers());
     renderWithFluent(<>{body}</>);
     expect(screen.getByRole("textbox", { name: /Outcome name/ })).toHaveAttribute("aria-invalid", "true");
-    expect(header.title).toBe("(unnamed)");
+    expect(header.title).toBe("(unnamed outcome)");
   });
 
   it("keeps Group name for a group nested in an outcome", () => {

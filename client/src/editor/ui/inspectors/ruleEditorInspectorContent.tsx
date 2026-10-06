@@ -8,7 +8,7 @@ import { flattenGroups, flattenConditions } from "../../model/tree";
 import { ConditionGroupInspector } from "./ConditionGroupInspector";
 import { ConditionInspector } from "./ConditionInspector";
 import { ActionInspector } from "./ActionInspector";
-import { outcomesOf, isOutcome } from "../../model/outcomes";
+import { outcomesOf, isOutcome, outcomeDisplayName } from "../../model/outcomes";
 import { RuleInspector } from "./RuleInspector";
 import { ActionIcon, Callout } from "../primitives";
 import type { InspectorHeader } from "../InspectorShell";
@@ -68,7 +68,7 @@ export function ruleEditorInspectorContent(
     const outcome = !!g && isOutcome(graph, g.id);
     return {
       header: outcome
-        ? { eyebrow: "Editing outcome", title: g!.name.trim() || "(unnamed)", icon: tintIcon }
+        ? { eyebrow: "Editing outcome", title: outcomeDisplayName(g!.name), icon: tintIcon }
         : { eyebrow: "Editing group", title: g?.name || "(group)", icon: tintIcon },
       body: g ? <ConditionGroupInspector group={g} outcome={outcome} onPatch={(p) => h.onPatchGroup(g.id, p)} /> : <Text italic>(missing)</Text>,
     };

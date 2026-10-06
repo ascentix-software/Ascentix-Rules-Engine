@@ -97,6 +97,17 @@ describe("Deleting an outcome", () => {
     expect(screen.getByText("When At risk")).toBeInTheDocument();
   });
 
+  it("names an unnamed outcome (unnamed outcome) in the confirmation", async () => {
+    renderApp(makeGraph({
+      validationGroups: [outcome("o1", "")],
+      actions: [makeAction({ id: "a1", name: "Block save", firesWhen: tests("o1") })],
+    }));
+    // The card already says "Outcome ·", so its own label keeps the short "(unnamed)".
+    deleteOutcome("(unnamed)");
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Delete outcome (unnamed outcome)?")).toBeInTheDocument();
+  });
+
   it("deletes an outcome no action tests without asking", () => {
     renderApp(makeGraph({
       validationGroups: [outcome("o1", "High value"), outcome("o2", "At risk")],

@@ -38,7 +38,7 @@ namespace Ascentix.RulesEngine.Core.Validation
 
             foreach (var o in outcomes.Where(o => !used.Contains(o.Id)))
                 issues.Add(ValidationIssue.Warning("OUTCOME_UNUSED",
-                    "No action uses this outcome. It is still evaluated and reported.", IssueTarget.Group(o.Id)));
+                    "No active action uses this outcome. It is still evaluated and reported.", IssueTarget.Group(o.Id)));
             return issues;
         }
 

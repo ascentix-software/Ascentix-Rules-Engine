@@ -63,8 +63,8 @@ describe("actionEffect", () => {
   });
   it.each([1, 2, 3])("marks a field message as form-blocking at severity %i", (severity) => {
     expect(actionEffect(act({ targetColumn: "name", severity }))).toEqual({ kind: "block", label: "Blocks form save" });
-    expect(actionWhatHappens(act({ targetColumn: "name", severity }), tcs, undefined, [])).toContain("regardless of severity");
-    expect(actionWhatHappens(act({ severity }), tcs, undefined, [])).toContain("save still allowed");
+    expect(actionWhatHappens(act({ targetColumn: "name", severity }), [])).toContain("regardless of severity");
+    expect(actionWhatHappens(act({ severity }), [])).toContain("save still allowed");
   });
 });
 
@@ -75,16 +75,16 @@ describe("actionWhatHappens", () => {
     applyInverseWhenNotFired: null, severity: null, isActive: true, localizedMessages: [], ...p,
   });
   it("describes a field-targeted warning that blocks this form", () => {
-    const s = actionWhatHappens(act({ actionType: "ShowMessage", severity: 2, targetColumn: "region" }), tcs, undefined, []);
+    const s = actionWhatHappens(act({ actionType: "ShowMessage", severity: 2, targetColumn: "region" }), []);
     expect(s).toContain("region");
     expect(s).toContain("blocks this form's save");
     expect(s).not.toContain("save still allowed");
   });
   it("describes a block", () => {
-    expect(actionWhatHappens(act({ actionType: "Block" }), tcs, undefined, [])).toContain("prevents the save");
+    expect(actionWhatHappens(act({ actionType: "Block" }), [])).toContain("prevents the save");
   });
   it("describes Deactivate Record", () => {
-    expect(actionWhatHappens(act({ actionType: "DeactivateRecord" }), tcs, undefined, [])).toContain("deactivates the target record(s)");
+    expect(actionWhatHappens(act({ actionType: "DeactivateRecord" }), [])).toContain("deactivates the target record(s)");
   });
 });
 
@@ -191,16 +191,16 @@ describe("firesWhenSummary", () => {
   });
   it("actionWhatHappens starts with the summary and never says conditions match", () => {
     const a = act({ firesWhen: { id: "r", op: "all", groups: [], tests: [{ id: "1", outcomeId: "hv", expected: true }] } });
-    const s = actionWhatHappens(a, tcs, undefined, outcomes);
+    const s = actionWhatHappens(a, outcomes);
     expect(s.startsWith("When High Value")).toBe(true);
     expect(s).not.toContain("conditions match");
   });
   it("actionWhatHappens for an always action starts with Always", () => {
     const a = act({ firesWhen: { id: "r", op: "all", groups: [], tests: [] } });
-    expect(actionWhatHappens(a, tcs, undefined, outcomes).startsWith("Always, when the rule runs")).toBe(true);
+    expect(actionWhatHappens(a, outcomes).startsWith("Always, when the rule runs")).toBe(true);
   });
   it("actionWhatHappens for a null tree is only the not-set sentence", () => {
-    expect(actionWhatHappens(act({ firesWhen: null }), tcs, undefined, outcomes)).toBe("Not set: this action never fires.");
+    expect(actionWhatHappens(act({ firesWhen: null }), outcomes)).toBe("Not set: this action never fires.");
   });
   it("shows a blank-named outcome as unnamed, distinct from a missing one", () => {
     const tree: FiresWhenGroup = { id: "r", op: "all", groups: [], tests: [

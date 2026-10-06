@@ -3,6 +3,7 @@ import { Button, Dropdown, Option } from "@fluentui/react-components";
 import { Delete16Regular } from "@fluentui/react-icons";
 import type { ConditionGroupNode, FiresWhenGroup, FiresWhenTest } from "../../model/types";
 import { always, emptyGroup, emptyTest, isAlways } from "../../model/firesWhen";
+import { outcomeDisplayName } from "../../model/outcomes";
 import { GroupCard } from "../primitives";
 import { OutsideField } from "../fieldScope";
 import { color } from "../tokens";
@@ -13,7 +14,7 @@ type Op = (typeof OPS)[number];
 // A new subgroup starts on the other operator: one with the parent's own operator would only
 // repeat what the parent already says.
 const opposite = (op: Op): Op => (op === "all" ? "any" : "all");
-const outcomeLabel = (o: ConditionGroupNode) => (o.name.trim() === "" ? "(unnamed outcome)" : o.name);
+const outcomeLabel = (o: ConditionGroupNode) => outcomeDisplayName(o.name);
 
 const note: React.CSSProperties = { fontSize: 12, color: color.inkMuted };
 
@@ -46,8 +47,9 @@ function TestRow({ test, outcomes, onChange, onRemove }: {
   );
 }
 
-function GroupEditor({ group, outcomes, root, onChange, onRemove }: {
-  group: FiresWhenGroup; outcomes: ConditionGroupNode[]; root: boolean;
+/** `position` numbers a subgroup among its siblings (1-based), so each has its own accessible name. */
+function GroupEditor({ group, outcomes, root, position, onChange, onRemove }: {
+  group: FiresWhenGroup; outcomes: ConditionGroupNode[]; root: boolean; position?: number;
   onChange(next: FiresWhenGroup): void; onRemove?(): void;
 }) {
   const empty = group.tests.length === 0 && group.groups.length === 0;
@@ -73,12 +75,17 @@ function GroupEditor({ group, outcomes, root, onChange, onRemove }: {
         <TestRow key={t.id} test={t} outcomes={outcomes} onChange={(n) => setTest(i, n)} onRemove={() => removeTest(i)} />
       ))}
       {group.groups.map((g, i) => (
-        <GroupEditor key={g.id} group={g} outcomes={outcomes} root={false}
+        <GroupEditor key={g.id} group={g} outcomes={outcomes} root={false} position={i + 1}
           onChange={(n) => setGroup(i, n)} onRemove={() => removeGroup(i)} />
       ))}
       {root && isAlways(group) && <span style={{ fontSize: 12.5, color: color.ink }}>Always, when the rule runs</span>}
-      {/* Publish refuses an empty group other than the root ALL (server check); say so here. */}
-      {empty && !(root && isAlways(group)) && <span style={{ fontSize: 12, color: color.warnInk }}>Add a test, or remove this group.</span>}
+      {/* Publish refuses an empty group other than the root ALL (server check); say so here. The root
+          can't be removed, so an empty ANY root points at ALL instead. */}
+      {empty && !(root && isAlways(group)) && (
+        <span style={{ fontSize: 12, color: color.warnInk }}>
+          {root ? "Add a test, or switch to ALL to fire every time the rule runs." : "Add a test, or remove this group."}
+        </span>
+      )}
       {outcomes.length > 0 ? (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <Button size="small" onClick={() => onChange({ ...group, tests: [...group.tests, emptyTest(outcomes[0].id)] })}>
@@ -96,7 +103,7 @@ function GroupEditor({ group, outcomes, root, onChange, onRemove }: {
   );
   if (root) return <div>{head}{body}</div>;
   return (
-    <div role="group" aria-label="Subgroup">
+    <div role="group" aria-label={`Subgroup ${position ?? 1}`}>
       <GroupCard zone="validation" nested header={head}>{body}</GroupCard>
     </div>
   );
