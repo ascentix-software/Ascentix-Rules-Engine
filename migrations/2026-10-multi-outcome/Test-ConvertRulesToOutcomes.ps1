@@ -952,3 +952,5 @@ Assert ($db.Log.Count -eq 1 -and (Section $preReal.Output 'Failed').Count -eq 0)
 Write-Host 'PASS: before the upgrade, -WhatIf still checks drafts and a real run stops (missing Fires when tables).'
 
 Write-Host 'PASS: Convert-RulesToOutcomes offline tests.'
+# The last case runs the script into its own exit 1; a CI pwsh step exits with $LASTEXITCODE, so end clean.
+exit 0
