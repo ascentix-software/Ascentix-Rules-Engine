@@ -15,8 +15,8 @@
         then asx_fireon is cleared;
       - a rule that is enforcing (status Published) is republished while its published revision
         (asx_ReadPublishedRule) still has an active action with asx_fireon set or without a tree.
-    Before it touches an enforcing rule that already has a working draft still to convert, the script checks whether
-    the draft was changed since the rule was last published (see "Draft-edit detection" in README.md). A draft with
+    Before it touches an enforcing rule that already has a working draft and would be republished, the script checks
+    whether the draft was changed since the rule was last published (see "Draft-edit detection" in README.md). A draft with
     edits is listed under "Drafts with edits since the last publish" and its rule is skipped (nothing is written),
     unless -PublishDraftEdits is set. An enforcing rule with a draft but no published revision to compare is listed
     under "Drafts not checked" and converted and published as before. Under -WhatIf before the upgrade (the Fires
@@ -230,17 +230,6 @@ function Get-RootId([string]$ActionId) {
     if ($script:treeTablesMissing) { return $null }
     $root = @((Request GET "asx_actionconditiongroups?`$filter=_asx_ruleaction_value eq $ActionId and _asx_parentgroup_value eq null&`$select=asx_actionconditiongroupid&`$top=1").value | Where-Object { $null -ne $_ })
     if ($root.Count -gt 0) { "$($root[0].asx_actionconditiongroupid)" }
-}
-
-# Whether the working draft still has an action to convert: asx_fireon set and no Fires when tree, active or not (a
-# draft that deactivated a published action has an edit too). A draft whose actions were all converted (by an
-# earlier run, or in the Rule Builder) is not checked for edits, so a run that converted a draft but failed to
-# publish it still publishes it.
-function Test-DraftUnconverted([string]$DraftId) {
-    foreach ($action in GetAll "asx_ruleactions?`$filter=_asx_rule_value eq $DraftId and asx_fireon ne null&`$select=asx_ruleactionid,asx_name,asx_fireon,asx_isactive") {
-        if (!(Get-RootId $action.asx_ruleactionid)) { return $true }
-    }
-    $false
 }
 
 # Every configuration row under the working draft (header excluded), found table by table along $DraftEdges, with
@@ -486,15 +475,18 @@ foreach ($rule in $rules) {
             if ($draft) {
                 $target = $draft.asx_ruleid
                 $withDraft.Add($label)
-                # Before any write: an enforcing rule's existing draft that still has actions to convert would be
-                # published with everything in it, so a draft changed since the last publish is left alone.
+                # Before any write: an enforcing rule whose published version still uses On match / On no match is
+                # republished from its existing draft, with everything in it, so a draft changed since the last
+                # publish is left alone. That holds whatever the draft's actions look like: one converted by hand in
+                # the Rule Builder keeps asx_fireon, and one with every action deleted has none left to convert. A
+                # draft this script already converted is told apart inside Get-DraftEdit (its stable-id roots).
                 if ($enforcing -and !$PublishDraftEdits) {
                     if ($null -eq $rule._asx_publishedrevision_value) {
                         # Published before revisions existed: there is no published version to compare the draft with.
                         # It is converted and published as before, and listed for the admin to review.
                         $notChecked.Add($label)
                     }
-                    elseif (Test-DraftUnconverted $target) {
+                    elseif (Test-PublishedUnconverted $rule.asx_ruleid) {
                         $edit = Get-DraftEdit $rule $target
                         if ($edit) {
                             $draftEdits.Add($label)

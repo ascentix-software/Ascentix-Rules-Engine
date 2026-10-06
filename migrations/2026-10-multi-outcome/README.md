@@ -42,8 +42,10 @@ For every rule (working drafts are handled together with their rule):
 
 Republishing an enforcing rule publishes everything in its working draft, including changes someone saved
 but never published. So before the script writes anything to an enforcing rule that already has a working
-draft with actions still to convert (On match / On no match set, no Fires when tree), it checks whether that
-draft was changed since the rule was last published:
+draft and that it would republish (its published version still uses On match / On no match, see step 4), it
+checks whether that draft was changed since the rule was last published. That includes a draft whose actions
+already have a Fires when condition (the Rule Builder leaves On match / On no match set, so a rule converted
+and published there still needs republishing) and a draft with every action deleted:
 
 - It reads the published version (`asx_ReadPublishedRule`) and when it was published (the revision's
   `createdon`), and reads the draft's configuration rows table by table: outcomes and their conditions,
@@ -69,8 +71,9 @@ open it in the Rule Builder and either:
 
 - **Discard** the draft changes (the draft goes back to the published version), or
 - **Publish** them. After the upgrade, the Rule Builder only publishes a rule whose actions each have a
-  Fires when condition, so choose one for each action first; the script then has nothing left to convert in
-  that rule.
+  Fires when condition, so choose one for each action first. The next run checks the draft again, finds no
+  edits since that publish, clears On match / On no match (the Rule Builder leaves them set) and republishes
+  the rule. Edits saved after that publish are listed again.
 
 Then run the script again. Or, once you have checked the listed drafts and want their changes to go live,
 run it again with `-PublishDraftEdits`: drafts are then not checked, and each listed rule is converted and
@@ -78,9 +81,8 @@ published with its changes.
 
 Drafts that are not checked:
 
-- A draft with no actions left to convert (converted by an earlier run, or in the Rule Builder): the
-  republish decision above applies as usual, so a run that converted a draft but failed to publish it is
-  still finished by the next run.
+- A draft whose rule's published version is already converted: the script does not republish the rule, so
+  the draft and any edits in it stay unpublished.
 - A draft holding a Fires when condition this script created (a run that was stopped part-way, or where you
   declined a write under `-Confirm`): that run checked it before writing, and the script's own changes are
   not draft edits.
@@ -91,9 +93,11 @@ Drafts that are not checked:
 - Rules without a working draft (the script opens one, which has no edits), rules that are not enforcing (they
   are not published), and rules that were never published.
 
-One case is flagged although nothing was edited by hand: a rule with no outcomes whose On no match actions
-the script was deactivating when a run stopped part-way. Its next run lists it as edited (the deactivation
-it already made counts as a change); run again with `-PublishDraftEdits` to finish it.
+One case is flagged although nothing was edited by hand: a run that changed a draft without creating a Fires
+when condition of its own, then stopped or failed before publishing it. That happens when every action it
+converted already had a Fires when condition (it only cleared On match / On no match) or, on a rule with no
+outcomes, was an On no match action it deactivated. The next run lists the rule as edited (the changes it
+already made count as edits); run again with `-PublishDraftEdits` to finish it.
 
 Before the upgrade the Fires when tables do not exist yet. A `-WhatIf` run then reads every action as having
 no Fires when condition and still checks the drafts (it says so at the start); a real run stops at once with

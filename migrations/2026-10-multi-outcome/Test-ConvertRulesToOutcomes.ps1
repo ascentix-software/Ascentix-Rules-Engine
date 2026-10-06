@@ -66,6 +66,22 @@ function AddTree([string]$Action, [string]$Outcome) {
         asx_expected = $true; asx_order = 1; createdon = $now; modifiedon = $now })
     $root
 }
+# The id the script gives one of its own tree rows (StableId in Convert-RulesToOutcomes.ps1, written out again here).
+function ScriptId([string]$Key) {
+    $hash = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes("asx-multi-outcome-2026-10/$Key".ToLowerInvariant()))
+    [guid]::new([byte[]]$hash[0..15]).ToString()
+}
+# The tree an earlier run of the script built for an On match action with one outcome: a root ALL and an "is true"
+# test, both with the script's stable ids. The caller clears the action's asx_fireon, as that run did.
+function AddScriptTree([string]$Action, [string]$Outcome) {
+    $now = Stamp
+    $root = @{ asx_actionconditiongroupid = (ScriptId "$Action/root"); _asx_ruleaction_value = $Action; _asx_parentgroup_value = $null; asx_logicaloperator = 1
+        asx_order = 1; createdon = $now; modifiedon = $now }
+    $db.Trees.Add($root)
+    $db.Tests.Add(@{ asx_actionconditiontestid = (ScriptId "$Action/test/$Outcome"); _asx_actionconditiongroup_value = $root.asx_actionconditiongroupid
+        _asx_outcome_value = $Outcome; asx_expected = $true; asx_order = 1; createdon = $now; modifiedon = $now })
+    $root
+}
 # A row of one of the other configuration tables, linked to its parent by the given lookup values.
 function AddRow([string]$Entity, [hashtable]$Lookups) {
     $now = Stamp
@@ -470,7 +486,7 @@ function Seed {
     $f.D5 = $d5.asx_ruleid
     $d5Outcome = AddGroup $d5.asx_ruleid 'Ok'
     $d5Action = AddAction $d5.asx_ruleid 'Notify' $null
-    AddTree $d5Action.asx_ruleactionid $d5Outcome.asx_conditiongroupid | Out-Null
+    AddScriptTree $d5Action.asx_ruleactionid $d5Outcome.asx_conditiongroupid | Out-Null
     # 11. Published status with no revision pointer (published before revisions existed), no draft.
     $p6 = AddRule 'P6 published no pointer' $mockPublished $false
     $f.P6 = $p6.asx_ruleid
@@ -775,10 +791,10 @@ function EditFixtures {
     #    only the late creation shows it.
     $e.H = NewIdRule 'Eh new ids message replaced'; [void]$db.Extra.Remove($e.H.G.Message)
     $db.Clock += 600; $e.H.Late = AddRow 'asx_localizedmessage' @{ _asx_ruleaction_value = $e.H.G.Notify.asx_ruleactionid }
-    # i: the draft was converted by an earlier run (no On match / On no match left) whose publish failed; the
-    #    conversion changed it after the publish, but it is not checked, so it is republished.
+    # i: the draft was converted by an earlier run (its stable-id Fires when roots) whose publish failed; the
+    #    conversion changed it after the publish, but the script's own writes are not edits, so it is republished.
     $e.I = SameIdRule 'Ei converted, publish failed'
-    $e.I.G.Notify.asx_fireon = $null; AddTree $e.I.G.Notify.asx_ruleactionid $e.I.G.Outcome.asx_conditiongroupid | Out-Null
+    $e.I.G.Notify.asx_fireon = $null; AddScriptTree $e.I.G.Notify.asx_ruleactionid $e.I.G.Outcome.asx_conditiongroupid | Out-Null
     $e.I.G.Notify.modifiedon = Plus $e.I.Published 3600
     # j: same ids, the draft header (name, table, triggers) changed 3 minutes after the publish.
     $e.J = SameIdRule 'Ej header changed'; $e.J.Draft.modifiedon = Plus $e.J.Published 180
@@ -843,7 +859,7 @@ Assert ((Names $eo 'Published') -eq 'Ea same ids unchanged, Ee new ids unchanged
 Assert ((Names $eo $notCheckedHeading) -eq 'Ep published before revisions' -and $e.P.Rule.asx_ruleid -in $db.Publishes) "A draft with no published version to compare is listed for review, and still converted and published.`n$eo"
 Assert ($eo -match 'their actions do not fire') "The advice says the skipped rules' actions do not fire until they are converted.`n$eo"
 Assert ($e.I.Rule.asx_ruleid -in $db.Publishes) 'i: the already converted draft is republished.'
-Assert (@($db.Log | Where-Object { $_ -match [regex]::Escape("asx_rules($($e.I.Draft.asx_ruleid))?`$select=modifiedon") }).Count -eq 0) 'i: an already converted draft is not checked.'
+Assert (@($db.Log | Where-Object { $_ -match [regex]::Escape("asx_rules($($e.I.Draft.asx_ruleid))?`$select=modifiedon") }).Count -eq 0) 'i: a draft the script already converted is not compared.'
 Assert ($eo -notmatch 'Every rule ever published from the Rule Builder keeps a working draft, so the next list includes all of them\. Each enforcing rule this run published went live from its draft, with any saved but unpublished changes in it') "The real run no longer says every published draft went live with its unpublished changes.`n$eo"
 Write-Host 'PASS: drafts with edits since the last publish are listed and skipped; unchanged and converted drafts are published (cases a-f, i, j).'
 
@@ -884,6 +900,36 @@ $kSecond = Run
 Assert ((Section $kSecond.Output $editsHeading).Count -eq 0) "k: the script's own earlier writes are not reported as draft edits.`n$($kSecond.Output)"
 Assert ((Names $kSecond.Output 'Published') -eq 'K stopped half-way' -and $null -eq $k.G.Alert.asx_fireon -and $kSecond.ExitCode -eq 0) "k: the re-run finishes the conversion and publishes.`n$($kSecond.Output)"
 Write-Host 'PASS: a half-finished conversion is resumed, not reported as an edit (case k).'
+
+# Drafts with no action left to convert are still checked whenever the rule would be republished. The Rule Builder
+# never clears On match / On no match, so a rule converted by hand and published keeps them in its published version.
+$script:db = New-Store
+# The author chose a Fires when for Notify in the Rule Builder and published (On match stays set).
+$handConvert = { param($draft, $g) AddTree $g.Notify.asx_ruleactionid $g.Outcome.asx_conditiongroupid | Out-Null }
+# l: then saved more draft edits.
+$hl = SameIdRule 'Hl hand converted then edited' $handConvert; $hl.G.Condition.modifiedon = Plus $hl.Published 600
+# m: and saved nothing since.
+$hm = SameIdRule 'Hm hand converted unchanged' $handConvert
+# n: a pre-upgrade draft that deleted every action (and the rows under them).
+$hn = SameIdRule 'Hn every action deleted' -NoTree
+[void]$db.Actions.Remove($hn.G.Notify)
+foreach ($row in @($db.Extra | Where-Object { $_._asx_ruleaction_value -eq $hn.G.Notify.asx_ruleactionid })) { [void]$db.Extra.Remove($row) }
+$hn.Draft.modifiedon = Plus $hn.Published 600
+# o: a rule whose published version is already converted, with draft edits since: nothing to publish, so it is not
+#    checked or listed.
+$ho = SameIdRule 'Ho converted then edited' { param($draft, $g) $g.Notify.asx_fireon = $null; & $handConvert $draft $g }
+$ho.G.Condition.modifiedon = Plus $ho.Published 600
+$db.Clock += 3600
+$hand = Run
+$ho2 = $hand.Output
+Assert ((Names $ho2 $editsHeading) -eq 'Hl hand converted then edited, Hn every action deleted') "l, n: drafts with nothing left to convert are still checked and listed when edited.`n$ho2"
+Assert ((SkipReason $ho2 $hl) -eq "row modified $(Plus $hl.Published 600): asx_rulecondition") "l: the skip line names the edited condition.`n$ho2"
+Assert ((SkipReason $ho2 $hn) -eq 'row removed: asx_ruleaction') "n: the skip line names the deleted action.`n$ho2"
+Assert ($hl.Rule.asx_ruleid -notin $db.Publishes -and $hn.Rule.asx_ruleid -notin $db.Publishes) 'l, n: the edited drafts are not published.'
+Assert ($hl.G.Notify.asx_fireon -eq 1) 'l: nothing is written to the edited draft.'
+Assert ((Names $ho2 'Published') -eq 'Hm hand converted unchanged' -and $null -eq $hm.G.Notify.asx_fireon -and @(RootsOf $hm.G.Notify.asx_ruleactionid).Count -eq 1) "m: the unchanged hand-converted draft is converted (its tree kept) and republished.`n$ho2"
+Assert ($ho.Rule.asx_ruleid -notin $db.Publishes -and $ho2 -match "(?m)^\s*Ho converted then edited \($($ho.Rule.asx_ruleid)\): no change\r?$") "o: a rule whose published version is converted is not checked, listed or published.`n$ho2"
+Write-Host 'PASS: hand-converted and emptied drafts are checked before a republish (cases l, m, n, o).'
 
 # Before the upgrade the Fires when tables do not exist. -WhatIf reads every action as having no tree and still
 # checks the drafts; a real run stops at once with one message.
