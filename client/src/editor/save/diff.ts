@@ -1,5 +1,5 @@
 import type {
-  RuleGraph, ConditionGroupNode, ConditionNode, ActionNode, TableConfigRef,
+  RuleGraph, ConditionGroupNode, ConditionNode, ActionNode, TableConfigRef, FiresWhenGroup, FiresWhenTest,
 } from "../model/types";
 import type { NodeFilterBlock, NodeFilterGroupModel, NodeFilterLeaf } from "../model/nodeFilter";
 import { isBlockEmpty } from "../model/nodeFilter";
@@ -445,6 +445,120 @@ function diffOwnedFilters(
   }
 }
 
+// ---- Fires when trees (asx_actionconditiongroup / asx_actionconditiontest) ----
+// Each group holds two ordered lists, tests then subgroups; asx_order is position + 1 within each
+// list (the engine orders each list by asx_order). Only the tree in `firesWhen` is diffed: extra
+// roots the loader skipped (direct API writes) are never in the model, so a save never touches them.
+interface FlatFiresWhenGroup { node: FiresWhenGroup; parentId: string | null; order: number; depth: number; }
+interface FlatFiresWhenTest { test: FiresWhenTest; groupId: string; order: number; }
+
+function flattenFiresWhen(root: FiresWhenGroup | null): { groups: FlatFiresWhenGroup[]; tests: FlatFiresWhenTest[] } {
+  const groups: FlatFiresWhenGroup[] = [];
+  const tests: FlatFiresWhenTest[] = [];
+  const walk = (node: FiresWhenGroup, parentId: string | null, order: number, depth: number) => {
+    groups.push({ node, parentId, order, depth });
+    node.tests.forEach((test, i) => tests.push({ test, groupId: node.id, order: i + 1 }));
+    node.groups.forEach((child, i) => walk(child, node.id, i + 1, depth + 1));
+  };
+  if (root) walk(root, null, 1, 0);
+  return { groups, tests };
+}
+
+function firesWhenGroupAttrs(g: FlatFiresWhenGroup): Record<string, any> {
+  return { asx_logicaloperator: g.node.op === "any" ? 2 : 1, asx_order: g.order };
+}
+function firesWhenTestAttrs(t: FlatFiresWhenTest): Record<string, any> {
+  return { asx_expected: t.test.expected, asx_order: t.order };
+}
+
+// Diffs one action's tree. Creates go to `creates` (ordered later by topoFiresWhenCreates, after the
+// action and outcome creates they bind to); deletes carry `_depth` so groups go deepest-first.
+function diffFiresWhen(
+  actionId: string, snapRoot: FiresWhenGroup | null, workRoot: FiresWhenGroup | null,
+  creates: CreateOp[], updates: UpdateOp[], unbinds: UnbindOp[],
+  deletes: Array<DeleteOp & { _depth?: number }>,
+): void {
+  const snap = flattenFiresWhen(snapRoot);
+  const work = flattenFiresWhen(workRoot);
+  const snapGroupById = new Map(snap.groups.map((g) => [g.node.id, g]));
+  const snapTestById = new Map(snap.tests.map((t) => [t.test.id, t]));
+  const workGroupIds = new Set(work.groups.map((g) => g.node.id));
+  const workTestIds = new Set(work.tests.map((t) => t.test.id));
+  const G = { entity: ENTITY.actionConditionGroup, set: ENTITY_SET.actionConditionGroup };
+  const T = { entity: ENTITY.actionConditionTest, set: ENTITY_SET.actionConditionTest };
+  const parentBind = (id: string): Bind => ({ navProp: BIND_NAV.actionConditionGroupParent, targetSet: ENTITY_SET.actionConditionGroup, ref: ref(id) });
+  const groupBind = (id: string): Bind => ({ navProp: BIND_NAV.actionConditionTestGroup, targetSet: ENTITY_SET.actionConditionGroup, ref: ref(id) });
+  const outcomeBind = (id: string): Bind => ({ navProp: BIND_NAV.actionConditionTestOutcome, targetSet: ENTITY_SET.group, ref: ref(id) });
+
+  for (const g of work.groups) {
+    const binds: Bind[] = [{ navProp: BIND_NAV.actionConditionGroupAction, targetSet: ENTITY_SET.action, ref: ref(actionId) }];
+    if (g.parentId) binds.push(parentBind(g.parentId));
+    if (isNewId(g.node.id)) {
+      creates.push({ kind: "create", ...G, tempId: g.node.id, attrs: firesWhenGroupAttrs(g), binds });
+      continue;
+    }
+    const prev = snapGroupById.get(g.node.id);
+    const attrs = prev ? changedAttrs(firesWhenGroupAttrs(prev), firesWhenGroupAttrs(g)) : firesWhenGroupAttrs(g);
+    // The action never changes for an existing node; only a move to another parent is a bind change.
+    const bindChanges = !prev ? binds
+      : g.parentId && g.parentId !== prev.parentId ? [parentBind(g.parentId)] : [];
+    if (Object.keys(attrs).length > 0 || bindChanges.length > 0) {
+      updates.push({ kind: "update", ...G, id: g.node.id, attrs, binds: bindChanges, etag: etagOf(prev?.node) });
+    }
+    if (prev?.parentId && !g.parentId) unbinds.push({ kind: "unbind", ...G, id: g.node.id, navProp: BIND_NAV.actionConditionGroupParent });
+  }
+
+  for (const t of work.tests) {
+    const binds: Bind[] = [groupBind(t.groupId)];
+    if (t.test.outcomeId) binds.push(outcomeBind(t.test.outcomeId));
+    if (isNewId(t.test.id)) {
+      creates.push({ kind: "create", ...T, tempId: t.test.id, attrs: firesWhenTestAttrs(t), binds });
+      continue;
+    }
+    const prev = snapTestById.get(t.test.id);
+    const attrs = prev ? changedAttrs(firesWhenTestAttrs(prev), firesWhenTestAttrs(t)) : firesWhenTestAttrs(t);
+    let bindChanges: Bind[] = binds;
+    if (prev) {
+      bindChanges = [];
+      if (t.groupId !== prev.groupId) bindChanges.push(groupBind(t.groupId));
+      if (t.test.outcomeId && t.test.outcomeId !== prev.test.outcomeId) bindChanges.push(outcomeBind(t.test.outcomeId));
+    }
+    if (Object.keys(attrs).length > 0 || bindChanges.length > 0) {
+      updates.push({ kind: "update", ...T, id: t.test.id, attrs, binds: bindChanges, etag: etagOf(prev?.test) });
+    }
+    if (prev?.test.outcomeId && !t.test.outcomeId) unbinds.push({ kind: "unbind", ...T, id: t.test.id, navProp: BIND_NAV.actionConditionTestOutcome });
+  }
+
+  for (const t of snap.tests) {
+    if (!workTestIds.has(t.test.id) && !isNewId(t.test.id)) deletes.push({ kind: "delete", ...T, id: t.test.id });
+  }
+  for (const g of snap.groups) {
+    if (!workGroupIds.has(g.node.id) && !isNewId(g.node.id)) deletes.push({ kind: "delete", ...G, id: g.node.id, _depth: g.depth });
+  }
+}
+
+// New parent groups precede their child groups, and a group precedes its tests (lower Content-ID).
+const FIRES_WHEN_CREATE_DEP_NAV_PROPS: readonly string[] = [
+  BIND_NAV.actionConditionGroupParent, BIND_NAV.actionConditionTestGroup,
+];
+function topoFiresWhenCreates(treeCreates: CreateOp[]): CreateOp[] {
+  const byTemp = new Map(treeCreates.map((o) => [o.tempId, o]));
+  const emitted = new Set<string>();
+  const out: CreateOp[] = [];
+  const visit = (op: CreateOp) => {
+    if (emitted.has(op.tempId)) return;
+    emitted.add(op.tempId);
+    for (const bind of op.binds) {
+      if (FIRES_WHEN_CREATE_DEP_NAV_PROPS.includes(bind.navProp) && bind.ref.kind === "new" && byTemp.has(bind.ref.tempId)) {
+        visit(byTemp.get(bind.ref.tempId)!);
+      }
+    }
+    out.push(op);
+  };
+  treeCreates.forEach(visit);
+  return out;
+}
+
 export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operation[] {
   const creates: CreateOp[] = [];
   const updates: UpdateOp[] = [];
@@ -666,6 +780,18 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
       actionFilterCreates, updates, deletes);
   }
 
+  // ---- Fires when trees ----
+  // Per action (union of snapshot + working ids): a removed action's tree is deleted explicitly,
+  // before the action delete, like the Rows filter. Creates collect separately so they follow the
+  // action and outcome-group creates their binds point at.
+  const firesWhenCreates: CreateOp[] = [];
+  for (const actionId of new Set([...snapActById.keys(), ...workActById.keys()])) {
+    const snapRoot = snapActById.get(actionId)?.firesWhen ?? null;
+    const workRoot = workActById.get(actionId)?.firesWhen ?? null;
+    if (!snapRoot && !workRoot) continue;
+    diffFiresWhen(actionId, snapRoot, workRoot, firesWhenCreates, updates, unbinds, deletes);
+  }
+
   // ---- Ordering ----
   const ruleUpdate = updates.filter((o) => o.entity === ENTITY.rule);
   const otherUpdates = updates.filter((o) => o.entity !== ENTITY.rule);
@@ -699,13 +825,22 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
     .map(({ _depth, _structural, ...o }) => o as DeleteOp);
   const actionDeletes = deletes.filter((o) => o.entity === ENTITY.action);
   const localizedDeletes = deletes.filter((o) => o.entity === ENTITY.localizedMessage);
+  // Fires when tree deletes: tests first (they reference their group and outcome), then groups
+  // deepest-first, all before the outcome-group and action deletes the tree points at.
+  const firesWhenTestDeletes = deletes.filter((o) => o.entity === ENTITY.actionConditionTest)
+    .map(({ _depth, ...o }) => o as DeleteOp);
+  const firesWhenGroupDeletes = deletes.filter((o) => o.entity === ENTITY.actionConditionGroup)
+    .sort((a, b) => (b._depth ?? 0) - (a._depth ?? 0))
+    .map(({ _depth, ...o }) => o as DeleteOp);
 
   return [
     ...ruleUpdate, ...nodeCreates, ...groupCreates, ...condCreates,
     ...filterCreates,
-    ...actionCreatesOnly, ...topoFilterCreates(actionFilterCreates), ...localizedCreates,
+    ...actionCreatesOnly, ...topoFilterCreates(actionFilterCreates), ...topoFiresWhenCreates(firesWhenCreates),
+    ...localizedCreates,
     ...otherUpdates, ...unbinds,
     ...scalarFilterCriterionDeletes, ...structuralFilterDeletes,
+    ...firesWhenTestDeletes, ...firesWhenGroupDeletes,
     ...condDeletes, ...groupDeletes, ...nodeDeletes, ...actionDeletes, ...localizedDeletes,
   ];
 }
