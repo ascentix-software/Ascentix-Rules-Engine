@@ -206,6 +206,29 @@ if ($Phase -eq 'Schema') {
     EnsureField 'asx_schedulerstatus' $callsToday
     EnsureLookup 'asx_schedulerstatus' 'systemuser' 'asx_LastSeenBy' 'Last seen by' 'RemoveLink'
     EnsureLookup 'asx_nodefiltergroup' 'asx_ruleaction' 'asx_RuleAction' 'Rule action' 'Cascade' 'asx_ruleaction_nodefiltergroup'
+    # Multi-outcome actions (docs/Schema.md 2.18-2.19): an action's "Fires when" tree. Every node carries
+    # asx_ruleaction (one query loads a whole tree); tests point at an outcome (a top-level validation group).
+    EnsureTable 'asx_ActionConditionGroup' 'Action Condition Group' 'UserOwned'
+    $op = Field 'asx_LogicalOperator' 'Picklist' 'Logical operator'
+    $op.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.OptionSetMetadata'; IsGlobal = $false; OptionSetType = 'Picklist';
+        Options = @(@{ Value = 1; Label = (Label 'ALL') }, @{ Value = 2; Label = (Label 'ANY') }) }
+    EnsureField 'asx_actionconditiongroup' $op
+    $field = Field 'asx_Order' 'Integer' 'Order'; $field.MinValue = 0; $field.MaxValue = 2147483647
+    EnsureField 'asx_actionconditiongroup' $field
+    EnsureLookup 'asx_actionconditiongroup' 'asx_ruleaction' 'asx_RuleAction' 'Rule action' 'Cascade' 'asx_ruleaction_actionconditiongroup'
+    EnsureLookup 'asx_actionconditiongroup' 'asx_actionconditiongroup' 'asx_ParentGroup' 'Parent group' 'RemoveLink' 'asx_actionconditiongroup_actionconditiongroup'
+
+    EnsureTable 'asx_ActionConditionTest' 'Action Condition Test' 'UserOwned'
+    # asx_Expected: true = "is true", false = "is false".
+    $expected = Field 'asx_Expected' 'Boolean' 'Expected'
+    $expected.DefaultValue = $true
+    $expected.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.BooleanOptionSetMetadata';
+        TrueOption = @{ Value = 1; Label = (Label 'Is true') }; FalseOption = @{ Value = 0; Label = (Label 'Is false') } }
+    EnsureField 'asx_actionconditiontest' $expected
+    $field = Field 'asx_Order' 'Integer' 'Order'; $field.MinValue = 0; $field.MaxValue = 2147483647
+    EnsureField 'asx_actionconditiontest' $field
+    EnsureLookup 'asx_actionconditiontest' 'asx_actionconditiongroup' 'asx_ActionConditionGroup' 'Group' 'Cascade' 'asx_actionconditiongroup_actionconditiontest'
+    EnsureLookup 'asx_actionconditiontest' 'asx_conditiongroup' 'asx_Outcome' 'Outcome' 'RemoveLink' 'asx_conditiongroup_actionconditiontest'
     EnsureOptionValue 'asx_actiontype' 8 'Deactivate Record'
     # Opt-in diagnostics for form saves: one row per saved record while asx_CaptureDiagnostics is on.
     EnsureTable 'asx_RuleDiagnostic' 'Rule Diagnostic'
@@ -239,7 +262,7 @@ if ($Phase -eq 'Schema') {
         EnsureField 'asx_dataupdate' $field
     }
     EnsureLookup 'asx_dataupdate' 'systemuser' 'asx_RunBy' 'Run by' 'RemoveLink'
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity><entity>asx_dataupdate</entity></entities><optionsets><optionset>asx_triggers</optionset><optionset>asx_actiontype</optionset></optionsets></importexportxml>' } | Out-Null
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity><entity>asx_dataupdate</entity><entity>asx_actionconditiongroup</entity><entity>asx_actionconditiontest</entity></entities><optionsets><optionset>asx_triggers</optionset><optionset>asx_actiontype</optionset></optionsets></importexportxml>' } | Out-Null
     # Only configure the product's shipped views; personal/customer views are not selected.
     foreach ($spec in @(@('asx_rule','asx_draftof'), @('asx_tableconfig','asx_isprivate'))) {
         $viewFolder = Join-Path $PSScriptRoot "../Solutions/$SolutionName/${SolutionName}_unmanaged/Entities/$($spec[0])/SavedQueries"
@@ -273,7 +296,7 @@ if ($Phase -eq 'Schema') {
             }
         }
     }
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity><entity>asx_dataupdate</entity></entities></importexportxml>' } | Out-Null
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity><entity>asx_dataupdate</entity><entity>asx_actionconditiongroup</entity><entity>asx_actionconditiontest</entity></entities></importexportxml>' } | Out-Null
     Write-Host '[revisions] additive schema ready'
     return
 }
@@ -310,7 +333,8 @@ function EnsureStep([string]$Table, [string]$Message, [string]$TypeId, [int]$Ran
 }
 $guard = PluginType 'RuleRevisionGuardPlugin'
 $tables = @('asx_rule','asx_conditiongroup','asx_rulecondition','asx_searchcriteriagroup','asx_searchcriterion',
-    'asx_nodefiltergroup','asx_nodefiltercriterion','asx_ruleaction','asx_localizedmessage','asx_tableconfig')
+    'asx_nodefiltergroup','asx_nodefiltercriterion','asx_ruleaction','asx_localizedmessage','asx_tableconfig',
+    'asx_actionconditiongroup','asx_actionconditiontest')
 foreach ($table in $tables) { foreach ($message in @('Create','Update','Delete')) {
     $stage = if ($table -eq 'asx_rule' -and $message -eq 'Delete') { 10 } else { 20 }
     EnsureStep $table $message $guard 1 $stage
