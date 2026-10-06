@@ -25,7 +25,9 @@ function New-Store {
        Revisions = @{}
        Publishes = [System.Collections.Generic.List[string]]::new(); Opens = [System.Collections.Generic.List[string]]::new()
        FailPublish = @{}; SnapshotSource = @{}; FailTestCreateAt = 0; TestCreates = 0; Clock = 0
-       ExpireTokenOn = $null; TokenExpired = $false; Rejected = 0 }
+       ExpireTokenOn = $null; TokenExpired = $false; Rejected = 0
+       # Before the upgrade: the Fires when tables do not exist, so every request to them answers 404.
+       NoTreeTables = $false }
 }
 function NewId { [guid]::NewGuid().ToString() }
 # The mock clock: one second per row written, as ISO 8601 UTC strings (Dataverse's format for createdon/modifiedon).
@@ -227,7 +229,15 @@ function Invoke-RestMethod {
     if ($db.ExpireTokenOn -and $path -match $db.ExpireTokenOn) { $db.TokenExpired = $true }
     if ($db.TokenExpired) { $db.Rejected++; Fail 401 'The access token has expired.' }
     $record = if ($Body) { $Body | ConvertFrom-Json -AsHashtable } else { @{} }
+    if ($db.NoTreeTables -and $path -match '^(asx_actionconditiongroups|asx_actionconditiontests)\b') {
+        Fail 404 "Resource not found for the segment '$($Matches[1])'."
+    }
     if ($Method -eq 'GET') {
+        # The script asks once per run whether the Fires when tables exist.
+        if ($path -match '^(asx_actionconditiongroup|asx_actionconditiontest)s\?\$select=(asx_[a-z]+)id&\$top=1$') {
+            Assert ($Matches[1] -eq $Matches[2]) "The $($Matches[1]) probe must select its primary key."
+            return Respond @{ value = @() }
+        }
         if ($path -match '^asx_rules\?\$select=asx_ruleid,asx_name,statuscode,_asx_publishedrevision_value,_asx_draftof_value(?:&\$skiptoken=(\d+))?$') {
             # Two rows a page, so the script must follow @odata.nextLink.
             $skip = if ($Matches[1]) { [int]$Matches[1] } else { 0 }
@@ -691,7 +701,7 @@ Write-Host 'PASS: long duplicate names fit the column, and an unknown fire-on va
 $editsHeading = 'Drafts with edits since the last publish (skipped: publish or discard them, then re-run)'
 # A rule's configuration with a row in every table the draft walk visits, each reached through a different edge
 # (a node filter group through each of its five parents), plus an action that already has a Fires when tree.
-function Graph([string]$Rule) {
+function Graph([string]$Rule, [switch]$NoTree) {
     $g = @{}
     $g.Outcome = AddGroup $Rule 'Valid'
     $g.Condition = AddRow 'asx_rulecondition' @{ _asx_conditiongroup_value = $g.Outcome.asx_conditiongroupid }
@@ -706,16 +716,19 @@ function Graph([string]$Rule) {
     $g.Notify = AddAction $Rule 'Notify' 1
     $g.Message = AddRow 'asx_localizedmessage' @{ _asx_ruleaction_value = $g.Notify.asx_ruleactionid }
     AddRow 'asx_nodefiltergroup' @{ _asx_ruleaction_value = $g.Notify.asx_ruleactionid } | Out-Null
-    $g.Tag = AddAction $Rule 'Tag' $null
-    AddTree $g.Tag.asx_ruleactionid $g.Outcome.asx_conditiongroupid | Out-Null
+    # Before the upgrade no action has a tree.
+    if (!$NoTree) {
+        $g.Tag = AddAction $Rule 'Tag' $null
+        AddTree $g.Tag.asx_ruleactionid $g.Outcome.asx_conditiongroupid | Out-Null
+    }
     $g
 }
 # An enforcing rule last published from its working draft in the Rule Builder: the revision keeps the draft's row
 # ids, and the publish updates the draft header in the same operation.
-function SameIdRule([string]$Name, [scriptblock]$Before = $null) {
+function SameIdRule([string]$Name, [scriptblock]$Before = $null, [switch]$NoTree) {
     $rule = AddRule $Name $mockPublished
     $draft = AddRule $Name 1 $false $rule.asx_ruleid
-    $g = Graph $draft.asx_ruleid
+    $g = Graph $draft.asx_ruleid -NoTree:$NoTree
     if ($Before) { & $Before $draft $g }
     $revision = PublishRevision $rule.asx_ruleid $draft.asx_ruleid
     $draft.modifiedon = $revision.CreatedOn
@@ -723,13 +736,13 @@ function SameIdRule([string]$Name, [scriptblock]$Before = $null) {
 }
 # An enforcing rule published in place, whose working draft was opened a day later: asx_OpenRuleDraft (or Restore
 # published to draft) creates every row at once with new ids.
-function NewIdRule([string]$Name) {
+function NewIdRule([string]$Name, [switch]$NoTree) {
     $rule = AddRule $Name $mockPublished
-    Graph $rule.asx_ruleid | Out-Null
+    Graph $rule.asx_ruleid -NoTree:$NoTree | Out-Null
     $revision = PublishRevision $rule.asx_ruleid $rule.asx_ruleid
     $db.Clock += 86400
     $draft = AddRule $Name 1 $false $rule.asx_ruleid
-    $g = Graph $draft.asx_ruleid
+    $g = Graph $draft.asx_ruleid -NoTree:$NoTree
     @{ Rule = $rule; Draft = $draft; G = $g; Published = $revision.CreatedOn }
 }
 function EditFixtures {
@@ -761,7 +774,7 @@ function EditFixtures {
     # f with a replaced row: a message deleted and a new one added 10 minutes later, never changed. The counts match;
     #    only the late creation shows it.
     $e.H = NewIdRule 'Eh new ids message replaced'; [void]$db.Extra.Remove($e.H.G.Message)
-    $db.Clock += 600; AddRow 'asx_localizedmessage' @{ _asx_ruleaction_value = $e.H.G.Notify.asx_ruleactionid } | Out-Null
+    $db.Clock += 600; $e.H.Late = AddRow 'asx_localizedmessage' @{ _asx_ruleaction_value = $e.H.G.Notify.asx_ruleactionid }
     # i: the draft was converted by an earlier run (no On match / On no match left) whose publish failed; the
     #    conversion changed it after the publish, but it is not checked, so it is republished.
     $e.I = SameIdRule 'Ei converted, publish failed'
@@ -769,11 +782,32 @@ function EditFixtures {
     $e.I.G.Notify.modifiedon = Plus $e.I.Published 3600
     # j: same ids, the draft header (name, table, triggers) changed 3 minutes after the publish.
     $e.J = SameIdRule 'Ej header changed'; $e.J.Draft.modifiedon = Plus $e.J.Published 180
+    # New ids, the header changed 10 minutes after the copy's rows were created.
+    $e.K = NewIdRule 'Ek new ids header changed'; $e.K.Draft.modifiedon = Plus (Iso $mockEpoch.AddSeconds($db.Clock)) 600
+    # New ids, the header updated 3 seconds after the rows, as Restore published to draft does: unchanged.
+    $e.L = NewIdRule 'El new ids restored'; $e.L.Draft.modifiedon = Plus (Iso $mockEpoch.AddSeconds($db.Clock)) 3
+    # Same ids, the action deactivated in the draft after the publish: its only unconverted action is inactive, and
+    #    the draft is still checked.
+    $e.M = SameIdRule 'Em action deactivated'; $e.M.G.Notify.asx_isactive = $false; $e.M.G.Notify.modifiedon = Plus $e.M.Published 600
+    # Published before revisions existed (Published status, no revision pointer), with a draft changed later: nothing
+    #    to compare with, so it is listed for review and converted and published as before.
+    $p = AddRule 'Ep published before revisions' $mockPublished
+    Graph $p.asx_ruleid | Out-Null
+    $db.Clock += 86400
+    $pDraft = AddRule $p.asx_name 1 $false $p.asx_ruleid
+    $pg = Graph $pDraft.asx_ruleid; $pg.Condition.modifiedon = Plus $pg.Condition.createdon 600
+    $e.P = @{ Rule = $p; Draft = $pDraft; G = $pg }
     # The migration runs an hour after the last publish.
     $db.Clock += 3600
     $e
 }
-$editedNames = 'Eb action changed, Ec condition added, Ed message deleted, Ef new ids condition changed, Eg new ids condition added, Eh new ids message replaced, Ej header changed'
+$editedNames = 'Eb action changed, Ec condition added, Ed message deleted, Ef new ids condition changed, Eg new ids condition added, Eh new ids message replaced, Ej header changed, Ek new ids header changed, Em action deactivated'
+$notCheckedHeading = 'Drafts not checked (no published version to compare): review them by hand'
+# The reason on the rule's "skipped" line.
+function SkipReason([string]$Output, $Case) {
+    $pattern = "(?m)^\s*$([regex]::Escape($Case.Rule.asx_name)) \($($Case.Rule.asx_ruleid)\): skipped \(its working draft has edits since the last publish: (.+)\)\r?$"
+    if ($Output -match $pattern) { $Matches[1] } else { '(no skip line)' }
+}
 # Nothing was written to an edited rule or its draft.
 function AssertUntouched($Case, [string]$Label) {
     $notify = $Case.G.Notify
@@ -788,15 +822,26 @@ $e = EditFixtures
 $edits = Run
 $eo = $edits.Output
 Assert ((Names $eo $editsHeading) -eq $editedNames) "b, c, d, f, j (and c and f variants): the edited drafts are listed under the new heading.`n$eo"
-Assert ($eo -match [regex]::Escape("Eb action changed ($($e.B.Rule.asx_ruleid)): skipped (its working draft has edits since the last publish)")) "b: the rule's line says why it was skipped.`n$eo"
-foreach ($case in @(@('B', 'b'), @('C', 'c'), @('D', 'd'), @('F', 'f'), @('G', 'c with new ids'), @('H', 'f with a replaced row'), @('J', 'j'))) { AssertUntouched $e[$case[0]] $case[1] }
+$reasons = [ordered]@{
+    B = "row modified $(Plus $e.B.Published 600): asx_ruleaction"; C = 'row added: asx_rulecondition'; D = 'row removed: asx_localizedmessage'
+    F = "row modified $(Plus $e.F.G.Condition.createdon 60): asx_rulecondition"; G = 'row counts differ: asx_rulecondition (draft 2, published 1)'
+    H = "row added $($e.H.Late.createdon): asx_localizedmessage"; J = "header modified $(Plus $e.J.Published 180)"
+    K = "header modified $($e.K.Draft.modifiedon)"; M = "row modified $(Plus $e.M.Published 600): asx_ruleaction" }
+foreach ($key in $reasons.Keys) {
+    $got = SkipReason $eo $e[$key]
+    Assert ($got -eq $reasons[$key]) "The skip line of '$($e[$key].Rule.asx_name)' names the reason '$($reasons[$key])' (got '$got').`n$eo"
+}
+foreach ($case in @(@('B', 'b'), @('C', 'c'), @('D', 'd'), @('F', 'f'), @('G', 'c with new ids'), @('H', 'f with a replaced row'), @('J', 'j'),
+        @('K', 'new ids, header changed'), @('M', 'inactive unconverted action'))) { AssertUntouched $e[$case[0]] $case[1] }
 Assert ($edits.ExitCode -eq 0 -and (Section $eo 'Failed').Count -eq 0 -and (Section $eo 'Skipped (declined)').Count -eq 0) "b: a skipped draft is not a failure and does not change the exit code.`n$eo"
-foreach ($case in @(@('A', 'a'), @('E', 'e'))) {
+foreach ($case in @(@('A', 'a'), @('E', 'e'), @('L', 'new ids, header updated with the rows'), @('P', 'no published version'))) {
     $notify = $e[$case[0]].G.Notify
     Assert ($null -eq $notify.asx_fireon -and @(RootsOf $notify.asx_ruleactionid).Count -eq 1) "$($case[1]): the unchanged draft is converted."
 }
-Assert ((Names $eo 'Converted') -eq 'Ea same ids unchanged, Ee new ids unchanged') "a, e: the unchanged drafts are converted (the run continued past the skipped ones).`n$eo"
-Assert ((Names $eo 'Published') -eq 'Ea same ids unchanged, Ee new ids unchanged, Ei converted, publish failed') "a, e, i: the unchanged and the already converted drafts are published.`n$eo"
+Assert ((Names $eo 'Converted') -eq 'Ea same ids unchanged, Ee new ids unchanged, El new ids restored, Ep published before revisions') "a, e: the unchanged drafts are converted (the run continued past the skipped ones).`n$eo"
+Assert ((Names $eo 'Published') -eq 'Ea same ids unchanged, Ee new ids unchanged, Ei converted, publish failed, El new ids restored, Ep published before revisions') "a, e, i: the unchanged and the already converted drafts are published.`n$eo"
+Assert ((Names $eo $notCheckedHeading) -eq 'Ep published before revisions' -and $e.P.Rule.asx_ruleid -in $db.Publishes) "A draft with no published version to compare is listed for review, and still converted and published.`n$eo"
+Assert ($eo -match 'their actions do not fire') "The advice says the skipped rules' actions do not fire until they are converted.`n$eo"
 Assert ($e.I.Rule.asx_ruleid -in $db.Publishes) 'i: the already converted draft is republished.'
 Assert (@($db.Log | Where-Object { $_ -match [regex]::Escape("asx_rules($($e.I.Draft.asx_ruleid))?`$select=modifiedon") }).Count -eq 0) 'i: an already converted draft is not checked.'
 Assert ($eo -notmatch 'Every rule ever published from the Rule Builder keeps a working draft, so the next list includes all of them\. Each enforcing rule this run published went live from its draft, with any saved but unpublished changes in it') "The real run no longer says every published draft went live with its unpublished changes.`n$eo"
@@ -818,9 +863,10 @@ Assert (@(Writes).Count -eq 0) "h: -WhatIf must send no POST or PATCH, saw:`n$(@
 $lines = $do -split "`r?`n"
 $summaryAt = [array]::FindIndex($lines, [Predicate[string]]{ param($l) $l -match '^Summary' })
 $firstHeading = @($lines | Select-Object -Skip ($summaryAt + 1) | Where-Object { $_ -match '^  \S.* \(\d+\):$' })[0]
-Assert ($summaryAt -ge 0 -and $firstHeading -eq "  $editsHeading (7):") "h: the new heading is the first list of the -WhatIf summary (got '$firstHeading').`n$do"
+Assert ($summaryAt -ge 0 -and $firstHeading -eq "  $editsHeading (9):") "h: the new heading is the first list of the -WhatIf summary (got '$firstHeading').`n$do"
 Assert ((Names $do $editsHeading) -eq $editedNames) "h: -WhatIf lists the edited drafts, case b among them.`n$do"
-Assert ((Names $do 'Converted') -eq 'Ea same ids unchanged, Ee new ids unchanged' -and $dryEdits.ExitCode -eq 0) "h: -WhatIf counts only the unchanged drafts as converted.`n$do"
+Assert ((Names $do 'Converted') -eq 'Ea same ids unchanged, Ee new ids unchanged, El new ids restored, Ep published before revisions' -and $dryEdits.ExitCode -eq 0) "h: -WhatIf counts only the unchanged drafts as converted.`n$do"
+Assert ((Names $do $notCheckedHeading) -eq 'Ep published before revisions') "h: -WhatIf lists the drafts it cannot check.`n$do"
 Assert ($do -match '-PublishDraftEdits') "h: -WhatIf names -PublishDraftEdits.`n$do"
 Write-Host 'PASS: -WhatIf lists drafts with edits first and writes nothing (case h).'
 
@@ -838,5 +884,25 @@ $kSecond = Run
 Assert ((Section $kSecond.Output $editsHeading).Count -eq 0) "k: the script's own earlier writes are not reported as draft edits.`n$($kSecond.Output)"
 Assert ((Names $kSecond.Output 'Published') -eq 'K stopped half-way' -and $null -eq $k.G.Alert.asx_fireon -and $kSecond.ExitCode -eq 0) "k: the re-run finishes the conversion and publishes.`n$($kSecond.Output)"
 Write-Host 'PASS: a half-finished conversion is resumed, not reported as an edit (case k).'
+
+# Before the upgrade the Fires when tables do not exist. -WhatIf reads every action as having no tree and still
+# checks the drafts; a real run stops at once with one message.
+$script:db = New-Store
+$db.NoTreeTables = $true
+$na = SameIdRule 'Na unchanged' -NoTree
+$nb = SameIdRule 'Nb action changed' -NoTree; $nb.G.Notify.modifiedon = Plus $nb.Published 600
+$nc = NewIdRule 'Nc new ids unchanged' -NoTree
+$db.Clock += 3600
+$pre = Run -WhatIf
+$po = $pre.Output
+Assert ($pre.ExitCode -eq 0 -and (Section $po 'Failed').Count -eq 0 -and @(Writes).Count -eq 0) "Pre-upgrade -WhatIf: no failure and no writes.`n$po"
+Assert ((Names $po $editsHeading) -eq 'Nb action changed') "Pre-upgrade -WhatIf: the edited draft is listed.`n$po"
+Assert ((Names $po 'Converted') -eq 'Na unchanged, Nc new ids unchanged' -and (Names $po 'Published') -eq 'Na unchanged, Nc new ids unchanged') "Pre-upgrade -WhatIf: the unchanged drafts would be converted and published.`n$po"
+Assert ($po -match 'The Fires when tables are not in this environment yet') "Pre-upgrade -WhatIf says why no trees were read.`n$po"
+$db.Log.Clear()
+$preReal = Run
+Assert ($preReal.ExitCode -eq 1 -and $preReal.Output.Contains('Upgrade the solution first: the Fires when tables are missing.')) "A real run before the upgrade stops with one message.`n$($preReal.Output)"
+Assert ($db.Log.Count -eq 1 -and (Section $preReal.Output 'Failed').Count -eq 0) "A real run before the upgrade sends nothing after the probe, saw:`n$($db.Log -join "`n")"
+Write-Host 'PASS: before the upgrade, -WhatIf still checks drafts and a real run stops (missing Fires when tables).'
 
 Write-Host 'PASS: Convert-RulesToOutcomes offline tests.'

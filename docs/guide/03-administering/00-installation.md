@@ -108,11 +108,16 @@ After you import it, sign in as a System Administrator or System Customizer and 
 `Convert-RulesToOutcomes.ps1` straight away. It names each outcome, builds each action's Fires
 when condition, and republishes the rules that are currently enforcing. It skips any enforcing
 rule whose draft has edits since the last publish, writes nothing to it, and lists it under
-**Drafts with edits since the last publish (skipped: publish or discard them, then re-run)**. For
+**Drafts with edits since the last publish (skipped: publish or discard them, then re-run)**. The
+actions of a skipped rule do not fire until its draft is published or discarded and the script is
+run again (or run with `-PublishDraftEdits`), so deal with this list straight away. For
 each listed rule, open it and Discard the draft changes, or Publish them (the upgraded Rule
 Builder first asks you to choose when each of its actions fires), then run the script again. Or,
 once you have checked them, run it again with `-PublishDraftEdits` to convert and publish those
-rules with their changes. It is safe to run again if a run is interrupted. The retired
+rules with their changes. A rule published before published versions were kept has nothing to
+compare its draft with: it is converted and published as it is, and listed under **Drafts not
+checked (no published version to compare): review them by hand**. It is safe to run again if a
+run is interrupted. The retired
 `asx_fireon` column stays in the solution for this release and is removed in the next one.
 
 The `asx_RunRules` and `asx_ReadRules` results no longer include `fireOn` on each action. This is

@@ -54,12 +54,18 @@ draft was changed since the rule was last published:
   rows (the rule's own settings included) was modified more than 2 minutes after the publish.
 - **A draft with all-new row ids** (opened after the rule was published without a draft, or reset with
   Discard) counts as unchanged only when each table has as many rows as the published version, no row was
-  modified more than a few seconds after it was created, and all its rows were created together (within 2
-  minutes of each other, by the one operation that made the copy).
+  modified more than a few seconds after it was created, all its rows were created together (within 2
+  minutes of each other, by the one operation that made the copy), and the rule's own settings were not
+  modified more than 2 minutes after the last row was created (Discard updates them right after the rows).
 
 A changed draft is listed under **Drafts with edits since the last publish (skipped: publish or discard
-them, then re-run)** and its rule is skipped: nothing is written to it and it is not published. This is not
-a failure and does not change the exit code. For each listed rule, open it in the Rule Builder and either:
+them, then re-run)** and its rule is skipped: nothing is written to it and it is not published. The rule's
+line names the first difference found, for example `row added: asx_rulecondition`, `row removed:
+asx_localizedmessage`, `row modified 2026-10-06T09:12:00Z: asx_ruleaction`, `header modified ...` (the
+rule's own settings) or `row counts differ: ...`. This is not a failure and does not change the exit code.
+**Until a skipped rule is converted and published, its actions do not fire after the upgrade**: the
+upgraded engine ignores On match / On no match. So deal with the list straight away. For each listed rule,
+open it in the Rule Builder and either:
 
 - **Discard** the draft changes (the draft goes back to the published version), or
 - **Publish** them. After the upgrade, the Rule Builder only publishes a rule whose actions each have a
@@ -78,8 +84,20 @@ Drafts that are not checked:
 - A draft holding a Fires when condition this script created (a run that was stopped part-way, or where you
   declined a write under `-Confirm`): that run checked it before writing, and the script's own changes are
   not draft edits.
+- An enforcing rule published before published versions were kept (status Published, no published
+  version): there is nothing to compare its draft with. It is converted and published from its draft as
+  before, with any saved but unpublished changes in it, and listed under **Drafts not checked (no published
+  version to compare): review them by hand**. Open each and check that what is live is what you want.
 - Rules without a working draft (the script opens one, which has no edits), rules that are not enforcing (they
   are not published), and rules that were never published.
+
+One case is flagged although nothing was edited by hand: a rule with no outcomes whose On no match actions
+the script was deactivating when a run stopped part-way. Its next run lists it as edited (the deactivation
+it already made counts as a change); run again with `-PublishDraftEdits` to finish it.
+
+Before the upgrade the Fires when tables do not exist yet. A `-WhatIf` run then reads every action as having
+no Fires when condition and still checks the drafts (it says so at the start); a real run stops at once with
+"Upgrade the solution first: the Fires when tables are missing." and exit code 1.
 
 ## Before you upgrade
 
@@ -130,12 +148,16 @@ declining) to finish it.
 ## Output
 
 Each rule gets one line (`converted`, `published`, `no change`, `skipped (declined)`,
-`skipped (its working draft has edits since the last publish)` or `FAILED: <message>`), followed by a
-summary:
+`skipped (its working draft has edits since the last publish: <first difference>)` or
+`FAILED: <message>`), followed by a summary:
 
 - **Drafts with edits since the last publish (skipped: publish or discard them, then re-run)**, listed
   first: enforcing rules whose working draft changed since their last publish; nothing was written to them
-  (see *Draft-edit detection*). Not shown with `-PublishDraftEdits`.
+  (see *Draft-edit detection*). Their actions do not fire until they are converted and published. Not shown
+  with `-PublishDraftEdits`.
+- **Drafts not checked (no published version to compare): review them by hand**: enforcing rules published
+  before published versions were kept; converted and published from their drafts as they are. Not shown with
+  `-PublishDraftEdits`.
 - **Converted**: rules whose outcomes or actions changed.
 - **Published**: enforcing rules that were republished (their published version was not yet converted).
 - **Deactivated**: `<rule> / <action>` for each On no match action on a rule with no outcomes.
