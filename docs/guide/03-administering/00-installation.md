@@ -58,7 +58,7 @@ on each target table (*Evaluation Context*).
    configurations tabs, both empty, without errors.
 4. **Author a test rule:** in the hub, create a rule on any test table with
    a new configuration; add one condition that a test record will violate
-   and a **Block** action (fire on **On No Match**) with a recognizable
+   and a **Block** action that fires when the outcome is false, with a recognizable
    message; triggers **On Create**.
 5. **Validate & publish:** Validate shows no errors; Publish succeeds.
 6. **Enforcement is live:** create a violating record → the save is blocked

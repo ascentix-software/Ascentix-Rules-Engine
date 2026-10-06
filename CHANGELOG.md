@@ -80,8 +80,7 @@ only, so the version an administrator sees in their org can never carry the word
   it, and it is removed in the next release. Run the one-time script
   `migrations/2026-10-multi-outcome/Convert-RulesToOutcomes.ps1` after upgrading (see
   *Administering → Installation → Upgrading*); until it has run, actions on rules published
-  before the upgrade do not fire. The Rule Builder's own screens for outcomes and Fires when
-  follow in a later change.
+  before the upgrade do not fire. The Rule Builder edits outcomes and each action's Fires when.
 - The **Manual** trigger is now labelled **On demand**. The stored choice value (3) is unchanged,
   and the API trigger name `Manual` is still accepted alongside the new `OnDemand`.
 - Every rule evaluated by one save uses the same "now".
