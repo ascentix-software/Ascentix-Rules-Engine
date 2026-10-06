@@ -90,6 +90,7 @@ an ISO-8601 string; and `null` clears/omits the attribute.
 | `IsValid` | Boolean | `true` when no `Block` action fired |
 | `FailedRuleCount` | Integer | Count of distinct rules with a fired `Block` action |
 | `Results` | String | JSON array of every fired action |
+| `Outcomes` | String | JSON array of each rule outcome's value per record (see below) |
 | `ChangeSet` | String | JSON object summarizing the writes this evaluation would make (see below) |
 | `Diagnostics` | String | Only when `IncludeDiagnostics` was `true`: a JSON object describing the evaluation (see below) |
 
@@ -134,6 +135,19 @@ fired for the previous value of a changed lookup ("Also apply to the previous"),
 otherwise. It appears only when the dry run evaluates an Update — `Triggers` is `OnUpdate` and
 both `RecordId` and `RecordJson` are supplied. `previousOf` doesn't apply to a set target: "Also
 apply to the previous" is available only on a single-record target.
+
+**`Outcomes`** reports the value of every outcome (top-level validation group) of every rule
+evaluated, per record:
+
+```json
+[{ "recordId": "…", "ruleId": "…", "outcomeId": "…", "name": "High value", "value": true }]
+```
+
+`name` is the outcome's name and `value` is `true` or `false`. The values are those of the normal
+run only. A rule held back by its execution conditions reports no outcomes. `Results` keeps its
+shape. The Rule Builder's **Test** dialog lists the tested rule's outcomes from this output. The
+`Outcomes` output is created by `pipelines/Configure-RuleAuthoring.ps1` when the deploy's Register
+phase runs.
 
 **`ChangeSet`** summarizes every write this evaluation would make, across every rule and action
 that fired, after writes to the same record are merged (see *Building Actions* → *Writing a set of

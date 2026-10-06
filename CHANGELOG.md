@@ -80,7 +80,18 @@ only, so the version an administrator sees in their org can never carry the word
   it, and it is removed in the next release. Run the one-time script
   `migrations/2026-10-multi-outcome/Convert-RulesToOutcomes.ps1` after upgrading (see
   *Administering → Installation → Upgrading*); until it has run, actions on rules published
-  before the upgrade do not fire. The Rule Builder edits outcomes and each action's Fires when.
+  before the upgrade do not fire. The Rule Builder edits outcomes and each action's Fires when:
+  the validation band is titled **WHEN · Outcomes** with a **+ Add outcome** button, names are
+  required, unique (ignoring case) and at most 100 characters, and deleting an outcome that
+  actions test removes those tests. New publish errors: `OUTCOME_UNNAMED`,
+  `OUTCOME_DUPLICATE_NAME`, `ACTION_NO_TREE`, `ACTION_TEST_UNKNOWN_OUTCOME`,
+  `ACTION_EMPTY_GROUP`; new warning: `OUTCOME_UNUSED`.
+- **Test run shows outcomes; `asx_RunRules` returns `Outcomes`.** The Rule Builder's **Test**
+  lists the rule's outcomes as true or false. `asx_RunRules` has a new `Outcomes` output
+  (string JSON per record: `recordId`, `ruleId`, `outcomeId`, `name`, `value`); `Results` is
+  unchanged. The output is created when the deploy's Register step
+  (`pipelines/Configure-RuleAuthoring.ps1`) runs, right after the plug-in update. Calls in the
+  few seconds between can fail; run them again.
 - The **Manual** trigger is now labelled **On demand**. The stored choice value (3) is unchanged,
   and the API trigger name `Manual` is still accepted alongside the new `OnDemand`.
 - Every rule evaluated by one save uses the same "now".

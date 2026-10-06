@@ -5,8 +5,8 @@ order: 207
 slug: building-actions
 screenshots:
   - file: images/02-07-building-actions-01.png
-    caption: The action inspector, with action type, fire-on, optional target field, message, and severity.
-    alt: Action editing panel "EDITING ACTION 1 · Block" with Action type (Block), Active toggle, Fire on (On No Match), Target field, Message ("Order total exceeds the customer's credit limit."), Severity (Error), and a WHAT HAPPENS explainer.
+    caption: The action inspector, with action type, the Fires when condition, optional target field, message, and severity.
+    alt: Action editing panel "EDITING ACTION 1 · Block" with Action type (Block), Active toggle, Fires when (an outcome test), Target field, Message ("Order total exceeds the customer's credit limit."), Severity (Error), and a WHAT HAPPENS explainer.
 ---
 
 # Building Actions
@@ -14,13 +14,28 @@ screenshots:
 Actions are the **THEN** layer of a rule: what happens once the validation
 conditions have been checked.
 
-## Fire on
+## Fires when
 
-Every action has a **Fire on** setting:
+Every action has a **Fires when** condition that says when it fires. It tests the rule's
+outcomes (see *Building Conditions*):
 
-- **On Match**: the action fires when the rule's validation conditions
-  match.
-- **On No Match**: the action fires when they don't.
+- A **group** is **ALL** (every part must hold) or **ANY** (at least one must hold). Groups can
+  nest.
+- A **test** reads "<outcome> is true" or "<outcome> is false".
+- An empty root ALL group reads **Always, when the rule runs**. This is the default for a new
+  action.
+- **Not set: this action never fires.** appears when an action has no condition at all, for
+  example after you restore an older revision. Click **Set to Always**, or build a condition.
+  Publishing refuses an action that is not set (`ACTION_NO_TREE`).
+
+Click **+ Add test** to test an outcome, and **+ Add group** to nest a group. Until the rule has
+an outcome, **+ Add test** is hidden and the hint "Add an outcome to test it here." shows in its
+place. A group with nothing in it is refused at publish, unless it is the empty root ALL
+(`ACTION_EMPTY_GROUP`).
+
+The action row shows a summary, for example "When High value AND (At risk OR NOT Critical
+case)". A validation rule typically pairs a **Block** action with a test that its "valid"
+outcome is false.
 
 ## Action types
 
@@ -79,7 +94,7 @@ Selecting an action opens its inspector, where you configure:
 - **Action type**: one of the eight types above.
 - **Active**: a toggle to enable or disable the action without deleting
   it.
-- **Fire on**: On Match or On No Match.
+- **Fires when**: the outcome tree described above.
 - **Target field**: as described above, required for Set Visible / Set
   Required and optional for Show Message / Block.
 - **Value toggle**: for Set Visible / Set Required, the value to apply
@@ -91,7 +106,7 @@ Selecting an action opens its inspector, where you configure:
 A **WHAT HAPPENS** explainer in the inspector summarizes what the
 currently-configured action will do.
 
-![Action editing panel "EDITING ACTION 1 · Block" with Action type (Block), Active toggle, Fire on (On No Match), Target field, Message ("Order total exceeds the customer's credit limit."), Severity (Error), and a WHAT HAPPENS explainer.](../images/02-07-building-actions-01.png)
+![Action editing panel "EDITING ACTION 1 · Block" with Action type (Block), Active toggle, Fires when (an outcome test), Target field, Message ("Order total exceeds the customer's credit limit."), Severity (Error), and a WHAT HAPPENS explainer.](../images/02-07-building-actions-01.png)
 
 Create Record and Update Record actions replace the Message/Severity
 fields with a field mapping. See *Field Mapping* for how to map target

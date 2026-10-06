@@ -5,8 +5,8 @@ order: 204
 slug: editor-layout
 screenshots:
   - file: images/02-04-editor-layout-01.png
-    caption: The rule editor, showing header actions, properties band, data-map tree, and the WHEN (execution + validation) and THEN (actions) zones.
-    alt: "Rule editor for 'Order total within credit limit': breadcrumb, Save/Reload/Validate/Publish actions, a properties band (Table sample_order, Triggers, Channels All), a DATA MAP row (Orders, sample_customer, sample_orderline, sample_product), a WHEN Execution conditions zone, a WHEN Validation conditions zone with a 'Credit check' ALL·AND group and one condition, and a THEN Actions zone with a 'Block save' action."
+    caption: The rule editor, showing header actions, properties band, data-map tree, and the WHEN (execution conditions and outcomes) and THEN (actions) zones.
+    alt: "Rule editor for 'Order total within credit limit': breadcrumb, Save/Reload/Validate/Publish actions, a properties band (Table sample_order, Triggers, Channels All), a DATA MAP row (Orders, sample_customer, sample_orderline, sample_product), a WHEN Execution conditions zone, a WHEN Outcomes zone with an 'Outcome · Credit check' ALL·AND group and one condition, and a THEN Actions zone with a 'Block save' action."
 ---
 
 # Editor Layout
@@ -14,7 +14,7 @@ screenshots:
 The editor has four regions: the header, the properties band, the data map,
 and the WHEN/THEN zones that hold the rule body.
 
-![Rule editor for "Order total within credit limit": breadcrumb, Save/Reload/Validate/Publish actions, a properties band (Table sample_order, Triggers, Channels All), a DATA MAP row (Orders, sample_customer, sample_orderline, sample_product), a WHEN Execution conditions zone, a WHEN Validation conditions zone with a "Credit check" ALL·AND group and one condition, and a THEN Actions zone with a "Block save" action.](../images/02-04-editor-layout-01.png)
+![Rule editor for "Order total within credit limit": breadcrumb, Save/Reload/Validate/Publish actions, a properties band (Table sample_order, Triggers, Channels All), a DATA MAP row (Orders, sample_customer, sample_orderline, sample_product), a WHEN Execution conditions zone, a WHEN Outcomes zone with an "Outcome · Credit check" ALL·AND group and one condition, and a THEN Actions zone with a "Block save" action.](../images/02-04-editor-layout-01.png)
 
 ## Header
 
@@ -59,10 +59,11 @@ built and extended.
 The rule body is organized into three zones:
 
 - **WHEN · Execution conditions**: gate whether the rule is evaluated at all.
-- **WHEN · Validation conditions**: the condition groups (AND/OR trees)
-  checked at save time. Whether they match determines whether the rule's
-  actions fire.
-- **THEN · Actions**: the actions the rule performs, run in order when the
-  rule fires.
+- **WHEN · Outcomes**: the validation condition groups (AND/OR trees)
+  checked at save time. Each top-level group is a named **outcome**, true or
+  false, and has an **+ Add outcome** button. Each action's **Fires when**
+  condition tests these outcomes.
+- **THEN · Actions**: the actions the rule performs, run in order. Each
+  fires when its **Fires when** condition holds.
 
 See *Building Conditions* and *Building Actions* for how to build out each of these zones.

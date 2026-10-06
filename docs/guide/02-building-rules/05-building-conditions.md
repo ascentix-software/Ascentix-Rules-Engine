@@ -5,8 +5,8 @@ order: 205
 slug: building-conditions
 screenshots:
   - file: images/02-05-building-conditions-01.png
-    caption: A condition group tree with an ANY·OR group holding a direct condition and a nested ALL·AND subgroup.
-    alt: Validation conditions zone with an "ANY · OR" group "Review triggers" containing a direct condition (sample_approvalnotes Is Null) and a nested "ALL · AND" subgroup "Expedited & high value" with two conditions (sample_isexpedited Equals Yes; sample_ordertotal Greater Than 1000).
+    caption: An outcome (a top-level validation group) holding a direct condition and a nested ALL·AND subgroup.
+    alt: Validation zone, titled WHEN · Outcomes, with an outcome (a top-level "ANY · OR" group) "Review triggers" containing a direct condition (sample_approvalnotes Is Null) and a nested "ALL · AND" subgroup "Expedited & high value" with two conditions (sample_isexpedited Equals Yes; sample_ordertotal Greater Than 1000).
   - file: images/02-05-building-conditions-02.png
     caption: The condition inspector, with fields for table-config node, condition type, comparison column, operator, value source, and value.
     alt: Condition editing panel for "sample_ordertotal > 1000" with fields Condition name, Table-config node (Orders), Condition type (Field Comparison), Comparison column (Order Total), Operator (Greater Than), Value source (Literal), Value (1000).
@@ -18,7 +18,7 @@ screenshots:
 # Building Conditions
 
 Conditions are what a rule checks. They appear in two zones,
-**WHEN · Execution conditions** and **WHEN · Validation conditions**, which
+**WHEN · Execution conditions** and **WHEN · Outcomes**, which
 use the same building blocks and differ only in their role in the rule (see
 *Editor Layout*).
 
@@ -36,7 +36,26 @@ group holding a direct condition and an **ALL · AND** subgroup matches if
 either the direct condition matches, or every condition in the subgroup
 does.
 
-![Validation conditions zone with an "ANY · OR" group "Review triggers" containing a direct condition (sample_approvalnotes Is Null) and a nested "ALL · AND" subgroup "Expedited & high value" with two conditions (sample_isexpedited Equals Yes; sample_ordertotal Greater Than 1000).](../images/02-05-building-conditions-01.png)
+## Outcomes
+
+Each top-level group in **WHEN · Outcomes** is an **outcome**. Click **+ Add outcome** to add
+one. Its card reads **Outcome · <name>**, and its inspector has an **Outcome name** field
+with the hint "Actions test this outcome by name."
+
+- The name is required.
+- Names must be unique in the rule, ignoring upper and lower case.
+- A name can be at most 100 characters.
+
+Every outcome is evaluated; there is no short-circuit. An outcome that no action tests still
+runs and is reported, but publishing warns you (`OUTCOME_UNUSED`). Subgroups inside an outcome
+are not outcomes of their own; they only shape how that outcome is decided. Execution
+groups are not outcomes either. They gate the whole rule.
+
+If you delete an outcome that actions test, a dialog names those actions and removes their
+tests of it. An action whose only test was that outcome becomes **Not set**, and the dialog
+says it will then never fire until you set its **Fires when**. See *Building Actions*.
+
+![Validation zone, titled WHEN · Outcomes, with an outcome (a top-level "ANY · OR" group) "Review triggers" containing a direct condition (sample_approvalnotes Is Null) and a nested "ALL · AND" subgroup "Expedited & high value" with two conditions (sample_isexpedited Equals Yes; sample_ordertotal Greater Than 1000).](../images/02-05-building-conditions-01.png)
 
 ## Condition types
 
@@ -148,4 +167,4 @@ by default), and Value.
 ![Condition editing panel for "sample_ordertotal > 1000" with fields Condition name, Table-config node (Orders), Condition type (Field Comparison), Comparison column (Order Total), Operator (Greater Than), Value source (Literal), Value (1000).](../images/02-05-building-conditions-02.png)
 
 See *Comparison Value Sources* for the rest of the value-source options, and
-*Building Actions* for what happens once a group's conditions match.
+*Building Actions* for how actions use outcomes.

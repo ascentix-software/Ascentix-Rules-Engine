@@ -16,8 +16,9 @@ follow the codebase-design glossary and are not redefined here.
 - **Condition.** One test inside a condition group: FieldComparison, RowCount, RegexMatch,
   Expression (mathexpr). Reads one **node** of the rule's configuration tree and may carry a
   **node filter**.
-- **Action.** What fires when the group's verdict says so: Block, ShowMessage, SetVisible,
-  SetRequired, CreateRecord, UpdateRecord, DeleteRecord. Fire on match or on no-match.
+- **Outcome.** A top-level validation condition group, with a required name unique in the rule. It is true or false for a record, and every outcome is evaluated. Execution groups are not outcomes.
+- **Action.** What fires when its **Fires when** tree holds: Block, ShowMessage, SetVisible,
+  SetRequired, CreateRecord, UpdateRecord, DeleteRecord. The tree tests outcomes as true or false.
 - **Trigger.** When a rule is evaluated: OnCreate, OnForm, Manual, OnUpdate, OnDelete.
 - **Channel.** Where the save comes from: Standard (every non-portal origin: forms, the Web API,
   integrations, service principals, SYSTEM/async) or Portal (Power Pages, `IsPortalsClientCall`).

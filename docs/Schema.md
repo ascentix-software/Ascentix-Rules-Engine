@@ -98,7 +98,7 @@ AND/OR group tree. Self-referential. Belongs to a rule.
 | Parent Condition Group | `asx_parentconditiongroup` | Lookup → `asx_conditiongroup` | | Self-ref |
 | Logical Operator | `asx_logicaloperator` | Choice → `asx_logicaloperator` | ✔ | Combine children |
 | Is Execution Condition | `asx_isexecutioncondition` | Yes/No | ✔ | Rule gate (evaluated before validation groups) |
-| Name | `asx_name` | Text (200, primary) | | Outcome name for a top-level validation group: required, unique in the rule |
+| Name | `asx_name` | Text (100, primary) | | Outcome name for a top-level validation group: required, unique in the rule |
 
 A **top-level validation group** (no parent, not an execution condition) is an **outcome**: it is evaluated on its own and reported by name, and an action's "Fires when" tree (§2.18) tests it as true or false. The name is checked when the rule is published (§5).
 
@@ -480,6 +480,7 @@ both retrieves the persisted record and overlays the JSON fields on top.
 | `IsValid` | Boolean | True when no `Block` action fired |
 | `FailedRuleCount` | Integer | Count of distinct rules with a fired `Block` action |
 | `Results` | String | JSON array of every fired action (see shape below) |
+| `Outcomes` | String | JSON array, one element per outcome per evaluated record: `[{ "recordId": "…", "ruleId": "…", "outcomeId": "…", "name": "High value", "value": true }]`. `value` is the outcome's value in the normal run (not the previous-value run). A rule held back by its execution conditions reports none. `Results` is unchanged. Created by `pipelines/Configure-RuleAuthoring.ps1` in the Register phase |
 | `ChangeSet` | String | JSON object `{ "creates": n, "updates": n, "deletes": n, "unchanged": n }`: what enforcement would write for the evaluated record after merging (a record with a fired Block counts zero) |
 | `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (`Ascentix.RulesEngine.Core/Diagnostics/RunDiagnosticsSerializer.cs`) containing `totalMs`, `rulesLoaded`, `rulesEvaluated`, `rulesFired`, `retrieveCount`, `retrieveMultipleCount`, `rowsFetched`, `stages[{name,ms}]`, `nodes[{nodeId,table,retrieveCount,retrieveMultipleCount,rows}]`. The write, page and scheduler figures below appear only when non-zero, so asx_RunRules (which writes nothing) never carries them. |
 

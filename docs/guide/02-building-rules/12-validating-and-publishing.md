@@ -56,6 +56,23 @@ Below, a condition's **Comparison column** and an action's **Target
 column** both reference columns that no longer exist, raising two
 `META_COLUMN_NOT_FOUND` errors.
 
+## Outcome and Fires when checks
+
+Outcomes (the top-level validation groups) and each action's **Fires when** condition get
+their own checks:
+
+- **`OUTCOME_UNNAMED`** (error): "Name this outcome."
+- **`OUTCOME_DUPLICATE_NAME`** (error): "Another outcome is already named "<name>"." Names are
+  compared ignoring upper and lower case.
+- **`ACTION_NO_TREE`** (error): "Choose when this action fires." The action's **Fires when** is
+  not set.
+- **`ACTION_TEST_UNKNOWN_OUTCOME`** (error): "A test in "Fires when" refers to an outcome this
+  rule doesn't have."
+- **`ACTION_EMPTY_GROUP`** (error): "A group in "Fires when" has no tests or groups." An empty
+  root ALL group is fine; it means "Always, when the rule runs".
+- **`OUTCOME_UNUSED`** (warning): "No action uses this outcome. It is still evaluated and
+  reported." It does not block publishing.
+
 ## Set-action errors
 
 A set action (Update Record, Delete Record or Deactivate Record on a collection, or Create Record
@@ -105,3 +122,7 @@ underlying report shape, including the `ChangeSet` summary Test renders for set 
 Block fires on the record, from this rule or another rule on the same record, Test says "A Block
 fired, so nothing would be written.", lists each Block's message, and marks this rule's writes as
 not written.
+
+Test also lists this rule's outcomes under **Outcomes**, as "<name>: true" or "<name>: false", each
+with a tick or cross icon. The values are those of the normal run; a rule held back by its
+execution conditions reports none.

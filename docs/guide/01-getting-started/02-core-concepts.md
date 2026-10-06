@@ -30,17 +30,21 @@ tree is a **Condition**, which has a **Condition Type**:
 - **Calculation**: evaluates a math expression (aggregates over a child
   collection plus arithmetic) and compares the numeric result against a value.
 
-Whether the group as a whole is satisfied is the rule's **match** or **no-match**
-outcome, which drives which actions fire.
+Each top-level validation group is an **outcome**: it has a required name, and it is
+either true (its conditions are met) or false. A rule can have several outcomes, such as
+"High value" and "At risk". Every outcome is evaluated. Actions test outcomes by name to
+decide when they fire. Execution groups are not outcomes; they gate the whole rule.
 
 ## Actions (THEN)
 
 The THEN side of a rule is one or more **Actions**. Each action has an **Action
 Type**: Set Visible, Set Required, Show Message, Block, Create Record, Update
-Record, or Delete Record. Each also fires on either **On Match** or **On No Match**
-(its **Fire On** setting). A validation rule typically pairs a *Block* action with
-**On No Match**; a form-behavior rule typically pairs *Set Visible* or *Set
-Required* with **On Match**.
+Record, or Delete Record. Each action has a **Fires when** condition: a small tree of
+tests such as "High value is true" or "At risk is false", joined by ALL or ANY. A new
+action fires **Always, when the rule runs**; you narrow it by testing outcomes. A
+validation rule typically pairs a *Block* action with a test that its "valid" outcome is
+**false**; a form-behavior rule typically pairs *Set Visible* or *Set Required* with a
+test that an outcome is **true**.
 
 ## Table Config
 
