@@ -63,6 +63,7 @@ def build_tableconfig():
 
 
 RULES = []  # every rule authored this run; published at the end, once its tree rows exist
+LOCKED = set()  # rules already Published or with a published revision: the guard refuses writes to their rows
 
 
 def rule(name, severity=None):
@@ -72,6 +73,9 @@ def rule(name, severity=None):
         payload["asx_severity"] = severity
     rule_id = ensure("asx_rules", name, payload)
     RULES.append((name, rule_id))
+    state = get(f"asx_rules({rule_id})?$select=statuscode,_asx_publishedrevision_value")
+    if state.get("statuscode") == PUBLISHED or state.get("_asx_publishedrevision_value"):
+        LOCKED.add(rule_id)
     return rule_id
 
 
@@ -101,12 +105,17 @@ def condition(name, cg_id, tc_id, **extra):
 
 def action(name, rule_id, outcome_id, fire_on, **extra):
     """Creates the action and its "Fires when" tree (the rule's one outcome is its group). On match -> ALL
-    of the outcome true; On no match -> ANY of the outcome false. Idempotent: the tree is created once."""
+    of the outcome true; On no match -> ANY of the outcome false. Idempotent: the tree is created once, and
+    skipped for a rule that is already published (see LOCKED)."""
     if fire_on not in (FIRE_ON_MATCH, FIRE_ON_NO_MATCH):
         raise ValueError(f"Unknown fire_on value: {fire_on!r}")
     action_id = ensure("asx_ruleactions", name, {
         f"{NAV_ACTION_RULE}@odata.bind": f"/asx_rules({rule_id})", "asx_order": 1,
         "asx_isactive": True, **extra})
+    if rule_id in LOCKED:
+        # The guard refuses writes to a published rule's rows; the outcome migration converts such rules.
+        print(f"[skip] Fires when tree for '{name}' (rule is published; run the outcome migration instead)")
+        return action_id
     flt = _dv.urllib.parse.quote(f"_asx_ruleaction_value eq {action_id} and _asx_parentgroup_value eq null")
     roots = get(f"asx_actionconditiongroups?$filter={flt}&$select=asx_actionconditiongroupid&$top=1")["value"]
     on_match = fire_on == FIRE_ON_MATCH
