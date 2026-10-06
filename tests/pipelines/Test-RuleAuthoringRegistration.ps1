@@ -443,7 +443,7 @@ foreach ($interrupt in @($false, $true)) {
             Assert $interrupted 'Schema retry scenario did not interrupt.'
         }
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($tables.Count -eq 7 -and $fields.Count -eq 62) 'Expected additive authoring tables and fields.'
+        Assert ($tables.Count -eq 9 -and $fields.Count -eq 70) 'Expected additive authoring tables and fields.'
         Assert ($null -ne $fields['asx_nodefiltergroup/asx_ruleaction']) 'Expected the Rows filter action lookup.'
         $rowFilterRelation = @($relationships.Values | Where-Object { $_.ReferencingEntity -eq 'asx_nodefiltergroup' -and $_.ReferencingAttribute -eq 'asx_ruleaction' })
         Assert ($rowFilterRelation.Count -eq 1 -and $rowFilterRelation[0].SchemaName -eq 'asx_ruleaction_nodefiltergroup' -and $rowFilterRelation[0].ReferencedEntity -eq 'asx_ruleaction') 'Rows filter relationship must be asx_ruleaction_nodefiltergroup.'
@@ -496,35 +496,45 @@ foreach ($interrupt in @($false, $true)) {
         Assert (![string]::IsNullOrWhiteSpace($capture.displayname)) 'asx_CaptureDiagnostics needs a display name.'
         # 54 before the diagnostics table, + 1 table (its primary name rides in the table body)
         # + 5 columns + 1 environment variable definition (no value row), + 11 for the data update
-        # (1 table, 9 attributes, 1 lookup relationship).
-        Assert ($schemaState.Writes -eq (72 + $views.Count)) 'Unexpected metadata write count.'
+        # (1 table, 9 attributes, 1 lookup relationship), + 10 for the action condition tables
+        # (2 tables, 4 attributes, 4 lookup relationships).
+        Assert ($schemaState.Writes -eq (82 + $views.Count)) 'Unexpected metadata write count.'
         $writes = $schemaState.Writes
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
         Assert ($schemaState.Writes -eq $writes) 'Schema retry changed already configured metadata.'
+        Assert ($tables['asx_actionconditiongroup'].OwnershipType -eq 'UserOwned' -and $tables['asx_actionconditiontest'].OwnershipType -eq 'UserOwned') 'The action condition tables must be user-owned.'
+        foreach ($spec in @(@('asx_actionconditiongroup', 'asx_ruleaction', 'asx_ruleaction_actionconditiongroup', 'Cascade'),
+                @('asx_actionconditiongroup', 'asx_actionconditiongroup', 'asx_actionconditiongroup_actionconditiongroup', 'RemoveLink'),
+                @('asx_actionconditiontest', 'asx_actionconditiongroup', 'asx_actionconditiongroup_actionconditiontest', 'Cascade'),
+                @('asx_actionconditiontest', 'asx_conditiongroup', 'asx_conditiongroup_actionconditiontest', 'RemoveLink'))) {
+            $relation = @($relationships.Values | Where-Object { $_.ReferencingEntity -eq $spec[0] -and $_.ReferencedEntity -eq $spec[1] -and $_.SchemaName -eq $spec[2] })
+            Assert ($relation.Count -eq 1 -and $relation[0].CascadeConfiguration.Delete -eq $spec[3]) "Incorrect action condition relationship $($spec[2])."
+        }
         Assert ($optionSets['asx_triggers'].Label -eq 'On demand') 'A re-run must not relabel an already-updated option.'
         # Upgrade the previous restrictive lifecycle relationships without changing
         # publisher ownership or any non-delete cascade setting.
         foreach ($relation in $relationships.Values) { $relation.CascadeConfiguration.Delete = 'Restrict' }
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 9) 'Expected exactly nine relationship upgrades.'
+        Assert ($schemaState.Writes -eq $writes + 13) 'Expected exactly thirteen relationship upgrades.'
         foreach ($relation in $relationships.Values) {
             $expected = if ($relation.ReferencingAttribute -eq 'asx_publisher') { 'Restrict' }
                 elseif ($relation.ReferencingAttribute -eq 'asx_rule' -and $relation.ReferencingEntity -in @('asx_rulerun', 'asx_ruleschedule')) { 'Cascade' }
-                elseif ($relation.ReferencingAttribute -eq 'asx_ruleaction' -and $relation.ReferencingEntity -eq 'asx_nodefiltergroup') { 'Cascade' }
+                elseif ($relation.ReferencingAttribute -eq 'asx_ruleaction' -and $relation.ReferencingEntity -in @('asx_nodefiltergroup', 'asx_actionconditiongroup')) { 'Cascade' }
+                elseif ($relation.ReferencingAttribute -eq 'asx_actionconditiongroup' -and $relation.ReferencingEntity -eq 'asx_actionconditiontest') { 'Cascade' }
                 else { 'RemoveLink' }
             Assert ($relation.CascadeConfiguration.Delete -eq $expected) 'Incorrect native delete relationship behavior.'
             Assert ($relation.CascadeConfiguration.Assign -eq 'NoCascade') 'Unrelated cascade setting changed.'
         }
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 9) 'Relationship upgrade is not idempotent.'
+        Assert ($schemaState.Writes -eq $writes + 13) 'Relationship upgrade is not idempotent.'
         # An environment provisioned before the set name was fixed converges: exactly one table
         # update, only for Scheduler Status, then nothing on a re-run.
         $tables['asx_schedulerstatus'].EntitySetName = 'asx_schedulerstatuss'
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 10 -and $schemaState.TableUpdates -eq 1) 'Expected exactly one table update for the mismatched set name.'
+        Assert ($schemaState.Writes -eq $writes + 14 -and $schemaState.TableUpdates -eq 1) 'Expected exactly one table update for the mismatched set name.'
         Assert ($tables['asx_schedulerstatus'].EntitySetName -ceq 'asx_schedulerstatuses') 'The mismatched Scheduler Status set name was not reconciled.'
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 10 -and $schemaState.TableUpdates -eq 1) 'Set-name reconciliation is not idempotent.'
+        Assert ($schemaState.Writes -eq $writes + 14 -and $schemaState.TableUpdates -eq 1) 'Set-name reconciliation is not idempotent.'
         Write-Host "PASS: schema and shipped views, filter preservation, idempotent retry (interrupted=$interrupt)."
     }
 }
