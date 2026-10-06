@@ -201,6 +201,96 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void Outcome_values_come_from_the_normal_run_only()
+        {
+            // Same move as the first test. Run 2 evaluates the rule again for order A (where the
+            // outcome is false), but the record reports the outcome once: order B's value, true.
+            Guid ruleId = Guid.NewGuid(), rootCfg = Guid.NewGuid(), orderCfg = Guid.NewGuid(), siblingsCfg = Guid.NewGuid();
+            Guid grp = Guid.NewGuid(), cond = Guid.NewGuid();
+            Guid orderA = Guid.NewGuid(), orderB = Guid.NewGuid();
+            Guid line1 = Guid.NewGuid(), line2 = Guid.NewGuid(), line3 = Guid.NewGuid();
+
+            EntityReference Cfg(Guid id) => new EntityReference(Q(SchemaNames.TableConfig.Entity), id);
+            Entity Line(Guid id, Guid order) => new Entity("sample_orderline", id)
+                { ["sample_orderid"] = new EntityReference("sample_order", order), ["sample_name"] = id.ToString() };
+
+            var seed = new List<Entity>
+            {
+                new Entity(Q(SchemaNames.TableConfig.Entity), rootCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_orderline",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.RootTable),
+                },
+                new Entity(Q(SchemaNames.TableConfig.Entity), orderCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_order",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.LookupTable),
+                    [Q(SchemaNames.TableConfig.ParentTable)] = Cfg(rootCfg),
+                    [Q(SchemaNames.TableConfig.LookupColumnLogicalName)] = "sample_orderid",
+                    [Q(SchemaNames.TableConfig.LookupTargetIdAttribute)] = "sample_orderid",
+                },
+                new Entity(Q(SchemaNames.TableConfig.Entity), siblingsCfg)
+                {
+                    [Q(SchemaNames.TableConfig.TableLogicalName)] = "sample_orderline",
+                    [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.ChildTable),
+                    [Q(SchemaNames.TableConfig.ParentTable)] = Cfg(orderCfg),
+                    [Q(SchemaNames.TableConfig.ChildLinkField)] = "sample_orderid",
+                },
+                new Entity(Q(SchemaNames.Rule.Entity), ruleId)
+                {
+                    [Q(SchemaNames.Rule.TableLogicalName)] = "sample_orderline",
+                    ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
+                    [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
+                        new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnUpdate) }),
+                },
+                new Entity(Q(SchemaNames.ConditionGroup.Entity), grp)
+                {
+                    [Q(SchemaNames.PrimaryName)] = "Two lines",
+                    [Q(SchemaNames.ConditionGroup.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
+                    [Q(SchemaNames.ConditionGroup.LogicalOperator)] = new OptionSetValue((int)CoreModels.LogicalOperator.And),
+                    [Q(SchemaNames.ConditionGroup.IsExecutionCondition)] = false,
+                },
+                new Entity(Q(SchemaNames.RuleCondition.Entity), cond)
+                {
+                    [Q(SchemaNames.RuleCondition.ConditionGroup)] = new EntityReference(Q(SchemaNames.ConditionGroup.Entity), grp),
+                    [Q(SchemaNames.RuleCondition.TableConfig)] = Cfg(siblingsCfg),
+                    [Q(SchemaNames.RuleCondition.ConditionType)] = new OptionSetValue((int)ConditionType.RowCount),
+                    [Q(SchemaNames.RuleCondition.MinExpectedRows)] = 2,
+                },
+                Action(Guid.NewGuid(), ruleId, orderCfg, AllTrue(grp),
+                    "[{\"target\":\"sample_isexpedited\",\"source\":\"literal\",\"value\":true}]", tick: true, order: 1),
+                Action(Guid.NewGuid(), ruleId, orderCfg, AnyFalse(grp),
+                    "[{\"target\":\"sample_isexpedited\",\"source\":\"literal\",\"value\":false}]", tick: true, order: 2),
+                new Entity("sample_order", orderA),
+                new Entity("sample_order", orderB),
+                Line(line1, orderA),
+                Line(line2, orderA),   // the line being moved; still on A in the database
+                Line(line3, orderB),
+            };
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(seed);
+            var service = new MetadataService(ctx.GetOrganizationService());
+
+            var overlay = new Entity("sample_orderline", line2) { ["sample_orderid"] = new EntityReference("sample_order", orderB) };
+            var outcome = new RulesEngineRunner().Run(
+                systemService: service,
+                userService: service,
+                logicalName: "sample_orderline",
+                inputs: new List<RootInput> { new RootInput { Id = line2, Overlay = overlay } },
+                trigger: RuleTrigger.OnUpdate,
+                channel: RuleChannel.Standard,
+                languageId: 1033,
+                buildMode: RootBuildMode.RetrieveAndOverlay,
+                trace: new XrmFakedTracingService());
+
+            // Run 2 did evaluate (it fired the ticked expedite=false for order A)...
+            Assert.Contains(outcome.Records[0].FiredActions, a => a.PreviousOfNodeId == orderCfg);
+            // ...yet the outcome is reported once, with the normal run's value.
+            var reported = Assert.Single(outcome.Records[0].Outcomes);
+            Assert.Equal((ruleId, grp, "Two lines", true), (reported.RuleId, reported.OutcomeId, reported.Name, reported.Value));
+        }
+
+        [Fact]
         public void Run_2_contributes_nothing_for_a_rule_with_no_ticked_action_for_the_changed_lookup()
         {
             // Same shape as the first test (a line moves from A to B), plus a second rule in the

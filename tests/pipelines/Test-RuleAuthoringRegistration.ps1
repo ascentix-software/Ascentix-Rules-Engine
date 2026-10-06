@@ -220,12 +220,12 @@ foreach ($interrupt in @($false, $true)) {
         Assert ($apis.Count -eq 3 -and $parameters.Count -eq 0) 'Unexpected partial-deployment state.'
     }
     Register
-    Assert ($apis.Count -eq 11 -and $parameters.Count -eq 42) 'Expected nine new APIs and forty-two parameters/properties.'
-    Assert ($state.Creates -eq 55) 'Expected exactly fifty-five successful creates.'
+    Assert ($apis.Count -eq 11 -and $parameters.Count -eq 43) 'Expected nine new APIs and forty-three parameters/properties.'
+    Assert ($state.Creates -eq 56) 'Expected exactly fifty-six successful creates.'
     foreach ($spec in @(
         @('asx_ReadPublishedRule', 'RuleId', 10), @('asx_ReadPublishedRule', 'Definition', 10),
         @('asx_RestoreRuleDraft', 'RuleId', 10),
-        @('asx_OpenRuleDraft', 'RuleId', 10), @('asx_OpenRuleDraft', 'DraftId', 10), @('asx_CopyRule', 'RuleId', 10), @('asx_CopyRule', 'NewRuleId', 10), @('asx_DeleteRule', 'RuleId', 10), @('asx_ValidateRule', 'DraftHash', 10), @('asx_RunRules', 'ChangeSet', 10)
+        @('asx_OpenRuleDraft', 'RuleId', 10), @('asx_OpenRuleDraft', 'DraftId', 10), @('asx_CopyRule', 'RuleId', 10), @('asx_CopyRule', 'NewRuleId', 10), @('asx_DeleteRule', 'RuleId', 10), @('asx_ValidateRule', 'DraftHash', 10), @('asx_RunRules', 'ChangeSet', 10), @('asx_RunRules', 'Outcomes', 10)
     )) {
         $binding = "/customapis($($apis[$spec[0]].customapiid))"
         $match = @($parameters.Values | Where-Object { $_.uniquename -eq $spec[1] -and $_['CustomAPIId@odata.bind'] -eq $binding })
@@ -278,7 +278,7 @@ foreach ($interrupt in @($false, $true)) {
     Assert ($parameters.ContainsKey($otherVersionKey)) 'Registration removed another API parameter.'
     $parameters.Remove($otherVersionKey)
     Register
-    Assert ($parameters.Count -eq 42 -and $state.Creates -eq 55) 'Completed deployment retry changed the API contract.'
+    Assert ($parameters.Count -eq 43 -and $state.Creates -eq 56) 'Completed deployment retry changed the API contract.'
     Assert ($state.GuardCreates -eq 1 -and $state.DeleteStages.Count -eq 3 -and $state.DeleteStages.ContainsKey(10) -and $state.DeleteStages.ContainsKey(20) -and $state.DeleteStages.ContainsKey(40)) 'Expected capture in PreValidation and transactional cleanup in PreOperation/PostOperation.'
     Assert (!$state.RevisionGuard) 'Revision-table plugin vetoes must be removed.'
     Assert ($apis['asx_OpenRuleDraft'].executeprivilegename -eq 'prvWriteasx_rule') 'Opening a draft requires the platform Write privilege.'

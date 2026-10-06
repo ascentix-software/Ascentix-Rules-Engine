@@ -2,7 +2,7 @@ import * as React from "react";
 import {
   Dialog, DialogSurface, DialogBody, DialogTitle, DialogContent, DialogActions, Button, Dropdown, Option, Field,
 } from "@fluentui/react-components";
-import { Dismiss20Regular } from "@fluentui/react-icons";
+import { Checkmark16Regular, Dismiss16Regular, Dismiss20Regular } from "@fluentui/react-icons";
 import { RecordPickerDialog } from "../ui/pickers/RecordPickerDialog";
 import { Callout } from "../ui/primitives";
 import { formatError } from "../ui/errors";
@@ -11,13 +11,15 @@ import { describeFiredAction, describeWrite, summarizeChangeSet, triggerName, ty
 
 export interface TestRunRule { id: string; name: string; table: string; triggers: number[]; }
 
-/** This rule's fired actions from a dry run (set actions expandable) and the record's change set.
- *  A blocked record (a Block fired, from this rule or another) writes nothing, and says so. */
+/** This rule's fired actions from a dry run (set actions expandable), its outcome values and the
+ *  record's change set. A blocked record (a Block fired, from this rule or another) writes nothing,
+ *  and says so. */
 export function TestRunResults({ result, ruleId }: { result: DryRunResult; ruleId: string }) {
   const [expanded, setExpanded] = React.useState<Record<number, boolean>>({});
   const listId = React.useId();
-  const isMine = (a: DryRunAction) => a.ruleId.toLowerCase() === ruleId.toLowerCase();
+  const isMine = (a: { ruleId: string }) => a.ruleId.toLowerCase() === ruleId.toLowerCase();
   const mine = result.actions.filter(isMine);
+  const outcomes = result.outcomes.filter(isMine);
   const blocked = !result.isValid;
   const blocks = result.actions.filter((a) => a.actionType === "Block");
   const writes = (a: DryRunAction) => Boolean(a.write || a.writes);
@@ -53,6 +55,21 @@ export function TestRunResults({ result, ruleId }: { result: DryRunResult; ruleI
             );
           })}
         </ul>
+      )}
+      {outcomes.length > 0 && (
+        <div>
+          <div id={`${listId}-outcomes`} style={{ fontWeight: 600 }}>Outcomes</div>
+          <ul aria-labelledby={`${listId}-outcomes`} style={{ margin: 0, paddingLeft: 18 }}>
+            {outcomes.map((o, i) => (
+              <li key={i}>
+                {o.value
+                  ? <Checkmark16Regular aria-hidden style={{ verticalAlign: "middle", marginRight: 4 }} />
+                  : <Dismiss16Regular aria-hidden style={{ verticalAlign: "middle", marginRight: 4 }} />}
+                {o.name?.trim() || "(unnamed outcome)"}: {o.value ? "true" : "false"}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {result.changeSet && (
         <div>{blocked

@@ -37,12 +37,14 @@ namespace Ascentix.RulesEngine.Core.Engine
 
             var firedByRecord = new List<IReadOnlyList<FiredActionResult>>(input.Records.Count);
             var gatedByRecord = new List<IReadOnlyList<Guid>>(input.Records.Count);
+            var outcomesByRecord = new List<IReadOnlyList<OutcomeResult>>(input.Records.Count);
             foreach (var record in input.Records)
             {
                 var root = record.Root;
                 var cache = record.Cache;
                 var fired = new List<FiredActionResult>();
                 var gated = new List<Guid>();
+                var outcomeValues = new List<OutcomeResult>();
 
                 using (diag?.Time("evaluate"))
                 {
@@ -90,6 +92,11 @@ namespace Ascentix.RulesEngine.Core.Engine
                         // Every outcome is evaluated (no short-circuit): actions may test any of them.
                         var outcomes = new Dictionary<Guid, bool>();
                         foreach (var g in ruleGroups) outcomes[g.Id] = groups.EvaluateGroup(g, ruleRoot).Passed;
+                        // The record's outcome values are the normal run's; a second run evaluates a
+                        // previous record, not this one.
+                        if (previousOf == null)
+                            foreach (var g in ruleGroups)
+                                outcomeValues.Add(new OutcomeResult { RuleId = ruleId, OutcomeId = g.Id, Name = g.Name, Value = outcomes[g.Id] });
 
                         input.ActionsByRule.TryGetValue(ruleId, out var actions);
                         foreach (var a in ActionDispatcher.ComputeFiredActions(outcomes, actions))
@@ -121,9 +128,10 @@ namespace Ascentix.RulesEngine.Core.Engine
 
                 firedByRecord.Add(fired);
                 gatedByRecord.Add(gated);
+                outcomesByRecord.Add(outcomeValues);
             }
 
-            return new EvaluationVerdict(firedByRecord, gatedByRecord);
+            return new EvaluationVerdict(firedByRecord, gatedByRecord, outcomesByRecord);
         }
 
         // The gather stage's memo holds every mapping the reference computation parsed. One it

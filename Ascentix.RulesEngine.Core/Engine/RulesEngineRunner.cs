@@ -59,10 +59,12 @@ namespace Ascentix.RulesEngine.Core.Engine
 
             var fired = new List<FiredActionResult>[inputs.Count];
             var gated = new List<Guid>[inputs.Count];
+            var outcomes = new List<OutcomeResult>[inputs.Count];
             for (var i = 0; i < inputs.Count; i++)
             {
                 fired[i] = new List<FiredActionResult>();
                 gated[i] = new List<Guid>();
+                outcomes[i] = new List<OutcomeResult>();
             }
 
             // Table metadata (column types, option labels, date behaviors) is the same for every
@@ -112,11 +114,12 @@ namespace Ascentix.RulesEngine.Core.Engine
                 {
                     fired[input.Records[k].Index].AddRange(verdict.FiredByRecord[k]);
                     gated[input.Records[k].Index].AddRange(verdict.GatedByRecord[k]);
+                    outcomes[input.Records[k].Index].AddRange(verdict.OutcomesByRecord[k]);
                 }
             }
 
             overall.Stop();
-            return RunOutcomeAssembler.Assemble(inputs, fired, gated, diag, overall.ElapsedMilliseconds, trace);
+            return RunOutcomeAssembler.Assemble(inputs, fired, gated, outcomes, diag, overall.ElapsedMilliseconds, trace);
         }
     }
 }

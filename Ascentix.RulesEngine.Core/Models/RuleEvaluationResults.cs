@@ -33,11 +33,25 @@ namespace Ascentix.RulesEngine.Core.Models
             WriteIntents ?? (WriteIntent != null ? new[] { WriteIntent } : Enumerable.Empty<WriteIntent>());
     }
 
+    /// <summary>One outcome's value for one record: a top-level validation group of an evaluated
+    /// rule, from the normal run only.</summary>
+    public class OutcomeResult
+    {
+        public Guid RuleId { get; set; }
+        public Guid OutcomeId { get; set; }
+        public string Name { get; set; }
+        public bool Value { get; set; }
+    }
+
     /// <summary>All actions that fired for a single root record.</summary>
     public class RecordEvaluationResult
     {
         public Guid RecordId { get; set; }
         public IList<FiredActionResult> FiredActions { get; set; } = new List<FiredActionResult>();
+
+        /// <summary>Every outcome of each rule that evaluated for this record (not gated), in rule
+        /// evaluation order then outcome order as loaded. Only asx_RunRules reports it. Never null.</summary>
+        public List<OutcomeResult> Outcomes { get; set; } = new List<OutcomeResult>();
 
         /// <summary>Rules whose execution conditions did not pass for this record (the rule did not
         /// evaluate). Never null.</summary>

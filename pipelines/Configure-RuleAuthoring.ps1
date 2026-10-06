@@ -433,6 +433,7 @@ EnsureParameter $validate.value[0].customapiid 'DraftHash' 10 $true 'SHA-256 has
 $runRules = Request GET "customapis?`$select=customapiid&`$filter=uniquename eq 'asx_RunRules'"
 if ($runRules.value.Count -ne 1) { throw 'Missing asx_RunRules API.' }
 EnsureParameter $runRules.value[0].customapiid 'ChangeSet' 10 $true 'JSON change-set summary: creates, updates, deletes and unchanged rows.'
+EnsureParameter $runRules.value[0].customapiid 'Outcomes' 10 $true 'JSON per record: each rule outcome (name and true or false).'
 $applyRulesType = PluginType 'ApplyRulesApi'
 $id = EnsureApi 'asx_ApplyRules' 'prvCreateasx_RuleRun' 'Evaluates one On demand rule for one record and applies its results (enforcing).' 'Apply Rules' $applyRulesType
 EnsureParameter $id 'RuleId' 12 $false 'Identifier of the On demand rule to evaluate.'

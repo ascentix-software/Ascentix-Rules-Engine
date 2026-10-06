@@ -211,5 +211,61 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal("{\"creates\":0,\"updates\":0,\"deletes\":0,\"unchanged\":0}", RunRulesResultSerializer.SerializeChangeSet(outcome));
             Assert.Contains("\"writeCount\":1", RunRulesResultSerializer.Serialize(outcome));
         }
+
+        // ── Outcomes ───────────────────────────────────────────────────────────
+
+        [Fact]
+        public void SerializeOutcomes_lists_records_then_rules_then_outcomes_in_camel_case()
+        {
+            Guid rec1 = Guid.NewGuid(), rec2 = Guid.NewGuid(), ruleA = Guid.NewGuid(), ruleB = Guid.NewGuid();
+            Guid high = Guid.NewGuid(), risk = Guid.NewGuid(), other = Guid.NewGuid();
+            var outcome = new RuleEvaluationOutcome
+            {
+                Records = new List<RecordEvaluationResult>
+                {
+                    new RecordEvaluationResult
+                    {
+                        RecordId = rec1,
+                        Outcomes = new List<OutcomeResult>
+                        {
+                            new OutcomeResult { RuleId = ruleA, OutcomeId = high, Name = "High value", Value = true },
+                            new OutcomeResult { RuleId = ruleA, OutcomeId = risk, Name = "At risk", Value = false },
+                            new OutcomeResult { RuleId = ruleB, OutcomeId = other, Name = "Other", Value = true },
+                        },
+                    },
+                    new RecordEvaluationResult
+                    {
+                        RecordId = rec2,
+                        Outcomes = new List<OutcomeResult>
+                        {
+                            new OutcomeResult { RuleId = ruleA, OutcomeId = high, Name = "High value", Value = false },
+                        },
+                    },
+                },
+            };
+
+            var json = RunRulesResultSerializer.SerializeOutcomes(outcome);
+
+            string Item(Guid rec, Guid rule, Guid id, string name, bool value) =>
+                $"{{\"recordId\":\"{rec}\",\"ruleId\":\"{rule}\",\"outcomeId\":\"{id}\",\"name\":\"{name}\",\"value\":{(value ? "true" : "false")}}}";
+            Assert.Equal("[" + string.Join(",",
+                Item(rec1, ruleA, high, "High value", true),
+                Item(rec1, ruleA, risk, "At risk", false),
+                Item(rec1, ruleB, other, "Other", true),
+                Item(rec2, ruleA, high, "High value", false)) + "]", json);
+        }
+
+        [Fact]
+        public void SerializeOutcomes_is_an_empty_array_when_no_outcome_was_evaluated()
+        {
+            Assert.Equal("[]", RunRulesResultSerializer.SerializeOutcomes(OutcomeWith()));
+            Assert.Equal("[]", RunRulesResultSerializer.SerializeOutcomes(new RuleEvaluationOutcome()));
+        }
+
+        [Fact]
+        public void A_record_reports_no_outcomes_until_one_is_added()
+        {
+            Assert.Empty(new RecordEvaluationResult().Outcomes);
+        }
     }
 }

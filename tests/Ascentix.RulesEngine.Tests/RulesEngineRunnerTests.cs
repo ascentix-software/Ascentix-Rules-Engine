@@ -246,13 +246,14 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         /// <summary>
-        /// One account rule with two outcomes: HighValue (name = "Acme") and AtRisk (accountnumber =
-        /// "RISK"). A1 Update description "both" when HighValue AND AtRisk (order 1); A2 Update
-        /// description "high only" when HighValue AND NOT AtRisk (order 2); A3 ShowMessage "always"
-        /// (order 3). <paramref name="withLater"/> adds A4 Update description "later" when AtRisk
-        /// (order 4), the same column as A1.
+        /// One account rule with two outcomes: "High value" (name = "Acme") and "At risk" (accountnumber =
+        /// "RISK"). A1 Update description "both" when "High value" AND "At risk" (order 1); A2 Update
+        /// description "high only" when "High value" AND NOT "At risk" (order 2); A3 ShowMessage "always"
+        /// (order 3). <paramref name="withLater"/> adds A4 Update description "later" when "At risk"
+        /// (order 4), the same column as A1. <paramref name="gated"/> adds an execution condition
+        /// (name = "Never") that gates the rule out.
         /// </summary>
-        private static List<Entity> OutcomeSeed(bool withLater = false)
+        private static List<Entity> OutcomeSeed(bool withLater = false, bool gated = false)
         {
             var ids = (rule: Guid.NewGuid(), cfg: Guid.NewGuid(), highValue: Guid.NewGuid(), atRisk: Guid.NewGuid());
             var rows = new List<Entity>
@@ -289,8 +290,28 @@ namespace Ascentix.RulesEngine.Tests
                     [Q(SchemaNames.RuleCondition.ComparisonValue)] = value,
                 });
             }
-            Outcome(ids.highValue, "HighValue", "name", "Acme");
-            Outcome(ids.atRisk, "AtRisk", "accountnumber", "RISK");
+            Outcome(ids.highValue, "High value", "name", "Acme");
+            Outcome(ids.atRisk, "At risk", "accountnumber", "RISK");
+            if (gated)
+            {
+                // An execution condition no record in these tests meets: the rule never evaluates.
+                var gate = Guid.NewGuid();
+                rows.Add(new Entity(Q(SchemaNames.ConditionGroup.Entity), gate)
+                {
+                    [Q(SchemaNames.ConditionGroup.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
+                    [Q(SchemaNames.ConditionGroup.LogicalOperator)] = new OptionSetValue((int)LogicalOperator.And),
+                    [Q(SchemaNames.ConditionGroup.IsExecutionCondition)] = true,
+                });
+                rows.Add(new Entity(Q(SchemaNames.RuleCondition.Entity), Guid.NewGuid())
+                {
+                    [Q(SchemaNames.RuleCondition.ConditionGroup)] = new EntityReference(Q(SchemaNames.ConditionGroup.Entity), gate),
+                    [Q(SchemaNames.RuleCondition.TableConfig)] = new EntityReference(Q(SchemaNames.TableConfig.Entity), ids.cfg),
+                    [Q(SchemaNames.RuleCondition.ConditionType)] = new OptionSetValue((int)ConditionType.FieldComparison),
+                    [Q(SchemaNames.RuleCondition.ComparisonColumn)] = "name",
+                    [Q(SchemaNames.RuleCondition.ComparisonOperator)] = new OptionSetValue((int)ComparisonOperator.Equals),
+                    [Q(SchemaNames.RuleCondition.ComparisonValue)] = "Never",
+                });
+            }
 
             Entity Action(ActionType type, int order, string description = null)
             {
@@ -394,6 +415,40 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(new[] { "both", "always", "later" }, Fired(record));
             var merged = ChangeSet.ForRecord(record, new RootRecord("account", overlay.Id));
             Assert.Equal("later", merged.RootInPlaceValues["description"]);
+        }
+
+        // ── Outcome values per record ──────────────────────────────────────────
+
+        private static Guid OutcomeId(List<Entity> seed, string name) => seed.Single(e =>
+            e.LogicalName == Q(SchemaNames.ConditionGroup.Entity) && e.GetAttributeValue<string>(Q(SchemaNames.PrimaryName)) == name).Id;
+
+        [Fact]
+        public void Each_record_reports_every_outcome_of_an_evaluated_rule_with_its_name_and_value()
+        {
+            var seed = OutcomeSeed();
+            var ruleId = seed.Single(e => e.LogicalName == Q(SchemaNames.Rule.Entity)).Id;
+            var ctx = OutcomeContext(seed);
+            var overlay = new Entity("account", Guid.NewGuid()) { ["name"] = "Acme", ["accountnumber"] = "SAFE" };
+
+            var record = Run(ctx, overlay).Records.Single();
+
+            Assert.Equal(
+                new[] { (ruleId, OutcomeId(seed, "High value"), "High value", true), (ruleId, OutcomeId(seed, "At risk"), "At risk", false) },
+                record.Outcomes.Select(o => (o.RuleId, o.OutcomeId, o.Name, o.Value)).ToArray());
+        }
+
+        [Fact]
+        public void A_gated_rule_reports_no_outcomes()
+        {
+            var seed = OutcomeSeed(gated: true);
+            var ruleId = seed.Single(e => e.LogicalName == Q(SchemaNames.Rule.Entity)).Id;
+            var ctx = OutcomeContext(seed);
+            var overlay = new Entity("account", Guid.NewGuid()) { ["name"] = "Acme", ["accountnumber"] = "RISK" };
+
+            var record = Run(ctx, overlay).Records.Single();
+
+            Assert.Equal(new[] { ruleId }, record.GatedRuleIds.ToArray());
+            Assert.Empty(record.Outcomes);
         }
     }
 }

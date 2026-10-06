@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Plugin;
 using Ascentix.RulesEngine.Schema;
@@ -32,6 +33,7 @@ namespace Ascentix.RulesEngine.Tests
             };
             var group = new Entity(Q(SchemaNames.ConditionGroup.Entity), ids.grp)
             {
+                [Q(SchemaNames.PrimaryName)] = "Name is Valid",
                 [Q(SchemaNames.ConditionGroup.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.ConditionGroup.LogicalOperator)] = new OptionSetValue((int)LogicalOperator.And),
                 [Q(SchemaNames.ConditionGroup.IsExecutionCondition)] = false,
@@ -86,6 +88,34 @@ namespace Ascentix.RulesEngine.Tests
             Assert.False((bool)pctx.OutputParameters["IsValid"]);
             Assert.Equal(1, (int)pctx.OutputParameters["FailedRuleCount"]);
             Assert.Contains("Name must be Valid.", (string)pctx.OutputParameters["Results"]);
+        }
+
+        [Fact]
+        public void Reports_each_outcome_in_its_own_output_and_leaves_Results_unchanged()
+        {
+            var seed = Seed();
+            var ruleId = seed.Single(e => e.LogicalName == Q(SchemaNames.Rule.Entity)).Id;
+            var groupId = seed.Single(e => e.LogicalName == Q(SchemaNames.ConditionGroup.Entity)).Id;
+            var recordId = Guid.NewGuid();
+            seed.Add(new Entity("account", recordId) { ["name"] = "Invalid" });
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(seed);
+            var input = new ParameterCollection
+            {
+                { "TableName", "account" },
+                { "RecordId", recordId.ToString() },
+            };
+
+            var pctx = ApiContext(input);
+            ctx.ExecutePluginWith<RunRulesApi>(pctx);
+
+            // Results keeps its exact shape: one fired Block, nothing about outcomes.
+            Assert.Equal(
+                $"[{{\"ruleId\":\"{ruleId}\",\"actionType\":\"Block\",\"targetColumn\":null,\"value\":null,\"message\":\"Name must be Valid.\",\"severity\":null,\"targetTable\":null}}]",
+                (string)pctx.OutputParameters["Results"]);
+            Assert.Equal(
+                $"[{{\"recordId\":\"{recordId}\",\"ruleId\":\"{ruleId}\",\"outcomeId\":\"{groupId}\",\"name\":\"Name is Valid\",\"value\":false}}]",
+                (string)pctx.OutputParameters["Outcomes"]);
         }
 
         [Fact]

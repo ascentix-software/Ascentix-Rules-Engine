@@ -50,6 +50,16 @@ namespace Ascentix.RulesEngine.Core.Engine
         }
 
         [DataContract]
+        private class OutcomeDto
+        {
+            [DataMember(Name = "recordId", Order = 1)] public string RecordId { get; set; }
+            [DataMember(Name = "ruleId", Order = 2)] public string RuleId { get; set; }
+            [DataMember(Name = "outcomeId", Order = 3)] public string OutcomeId { get; set; }
+            [DataMember(Name = "name", Order = 4)] public string Name { get; set; }
+            [DataMember(Name = "value", Order = 5)] public bool Value { get; set; }
+        }
+
+        [DataContract]
         [KnownType(typeof(string))]
         [KnownType(typeof(int))]
         [KnownType(typeof(long))]
@@ -153,6 +163,27 @@ namespace Ascentix.RulesEngine.Core.Engine
             using (var ms = new MemoryStream())
             {
                 serializer.WriteObject(ms, dtos);
+                return Encoding.UTF8.GetString(ms.ToArray());
+            }
+        }
+
+        /// <summary>The asx_RunRules Outcomes output: every outcome's value per record, in record
+        /// order, then rule evaluation order, then outcome order as loaded. A gated rule has none.</summary>
+        public static string SerializeOutcomes(RuleEvaluationOutcome outcome)
+        {
+            var dtos = outcome.Records
+                .SelectMany(r => r.Outcomes.Select(o => new OutcomeDto
+                {
+                    RecordId = r.RecordId.ToString(),
+                    RuleId = o.RuleId.ToString(),
+                    OutcomeId = o.OutcomeId.ToString(),
+                    Name = o.Name,
+                    Value = o.Value,
+                }))
+                .ToList();
+            using (var ms = new MemoryStream())
+            {
+                new DataContractJsonSerializer(typeof(List<OutcomeDto>)).WriteObject(ms, dtos);
                 return Encoding.UTF8.GetString(ms.ToArray());
             }
         }

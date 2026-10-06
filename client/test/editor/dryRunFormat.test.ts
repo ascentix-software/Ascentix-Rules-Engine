@@ -29,4 +29,15 @@ describe("dry-run formatting", () => {
     expect(triggerName(4)).toBe("OnUpdate");
     expect(triggerName(3)).toBe("OnDemand");
   });
+
+  it("reads each record's outcome values from the Outcomes output", () => {
+    const outcomes = [{ recordId: "rec", ruleId: "R1", outcomeId: "o1", name: "High value", value: true },
+      { recordId: "rec", ruleId: "R1", outcomeId: "o2", name: "At risk", value: false }];
+    const r = parseDryRun({ IsValid: true, Results: "[]", Outcomes: JSON.stringify(outcomes) });
+    expect(r.outcomes).toEqual(outcomes);
+  });
+
+  it("has no outcomes when the server sends no Outcomes output", () => {
+    expect(parseDryRun({ IsValid: true, Results: "[]" }).outcomes).toEqual([]);
+  });
 });
