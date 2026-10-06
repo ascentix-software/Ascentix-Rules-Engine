@@ -18,6 +18,7 @@ trigger:
       - Ascentix.RulesEngine.Core/**
       - Ascentix.RulesEngine.Plugin/**
       - tests/**
+      - migrations/**
       - pipelines/plugin-ci.yml
       - pipelines/Deploy-PluginAssembly.ps1
       - pipelines/Configure-RuleAuthoring.ps1
@@ -51,6 +52,8 @@ stages:
         steps:
           - pwsh: ./tests/pipelines/Test-RuleAuthoringRegistration.ps1
             displayName: Test authoring schema, views, API registration and retry
+          - pwsh: ./migrations/2026-10-multi-outcome/Test-ConvertRulesToOutcomes.ps1
+            displayName: Test the multi-outcome migration script
           - task: UseDotNet@2
             inputs: { packageType: sdk, version: '10.x' }
             displayName: Use .NET SDK
