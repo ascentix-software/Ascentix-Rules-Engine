@@ -2,7 +2,7 @@ import * as React from "react";
 import { Button, Tooltip, tokens, Field as FluentField, type FieldProps, RadioGroup, Radio } from "@fluentui/react-components";
 import {
   Info16Regular, Prohibited16Regular, Warning16Regular, Eye16Regular,
-  Important16Regular, Add16Regular, Edit16Regular, Delete16Regular, CircleOff16Regular,
+  Important16Regular, Add16Regular, Edit16Regular, Delete16Regular, CircleOff16Regular, ErrorCircle16Regular,
 } from "@fluentui/react-icons";
 import type { ActionTypeLabel, ActionNode } from "../model/types";
 import { statusReasonLabel } from "../model/enums";
@@ -73,12 +73,20 @@ const ACTION_ICON: Record<ActionTypeLabel, React.ReactElement> = {
   DeactivateRecord: <CircleOff16Regular />,
 };
 
-export const ActionIcon: React.FC<{ actionType: ActionTypeLabel | null }> = ({ actionType }) => {
+// A message's icon follows its severity: Information (or unset) · Warning · Error.
+const MESSAGE_LOOK: Record<number, { bg: string; fg: string; icon: React.ReactElement }> = {
+  1: { bg: color.brandTint, fg: color.brandInk, icon: <Info16Regular /> },
+  2: { bg: color.warnTint, fg: color.warnInk, icon: <Warning16Regular /> },
+  3: { bg: color.dangerTint, fg: color.danger, icon: <ErrorCircle16Regular /> },
+};
+
+export const ActionIcon: React.FC<{ actionType: ActionTypeLabel | null; severity?: number | null }> = ({ actionType, severity }) => {
   const s = useEditorStyles();
-  const chip = actionType ? ACTION_CHIP[actionType] : { bg: color.fill, fg: color.inkMuted };
+  const message = actionType === "ShowMessage" ? MESSAGE_LOOK[severity ?? 1] ?? MESSAGE_LOOK[1] : null;
+  const chip = message ?? (actionType ? ACTION_CHIP[actionType] : { bg: color.fill, fg: color.inkMuted });
   return (
     <div className={s.actionIcon} style={{ background: chip.bg, color: chip.fg }}>
-      {actionType ? ACTION_ICON[actionType] : <Info16Regular />}
+      {message ? message.icon : actionType ? ACTION_ICON[actionType] : <Info16Regular />}
     </div>
   );
 };
@@ -252,8 +260,8 @@ export function SegmentedToggle<T extends string>({
   };
   return (
     <div role="radiogroup" aria-label={ariaLabel} aria-disabled={disabled || undefined} style={{
-      display: fullWidth ? "grid" : "inline-flex",
-      gridTemplateColumns: fullWidth ? `repeat(${options.length}, minmax(0,1fr))` : undefined,
+      // Full width shares the spare room but never squeezes a label below its own width.
+      display: fullWidth ? "flex" : "inline-flex",
       border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4, overflow: "hidden",
       background: color.surface, flex: "none",
     }}>
@@ -271,12 +279,13 @@ export function SegmentedToggle<T extends string>({
               if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); move(i - 1); }
             }}
             style={{
-              height: 24, padding: "3px 12px", fontSize: 12, lineHeight: "16px", fontFamily: "inherit",
+              flex: fullWidth ? "1 0 auto" : undefined,
+              height: 24, padding: fullWidth ? "3px 8px" : "3px 12px", fontSize: 12, lineHeight: "16px", fontFamily: "inherit",
               border: 0, borderLeft: i === 0 ? 0 : `1px solid ${tokens.colorNeutralStroke1}`,
               background: on ? color.brand : "transparent",
               color: on ? tokens.colorNeutralForegroundOnBrand : color.ink,
               fontWeight: on ? 600 : 400, cursor: disabled ? "default" : "pointer",
-              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
           >
             {o.label}

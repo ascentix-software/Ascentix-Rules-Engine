@@ -8,7 +8,8 @@ import { LifecycleStatus } from "./LifecycleStatus";
 import type { Lifecycle } from "./lifecycle";
 
 const iconBtn: React.CSSProperties = { minWidth: 32, width: 32, height: 32, padding: 0 };
-const fit: React.CSSProperties = { minWidth: "auto", padding: "0 14px" };
+// Same 32px height as Run, Issues and ⋯ (a bare horizontal padding drops Fluent's vertical padding).
+const fit: React.CSSProperties = { minWidth: "auto", height: 32, padding: "0 14px" };
 
 export interface HeaderPrimary {
   kind: "edit" | "publish" | "backToDraft";

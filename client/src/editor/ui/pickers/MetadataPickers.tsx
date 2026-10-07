@@ -13,6 +13,20 @@ import { RecordPickerDialog } from "./RecordPickerDialog";
 import { OutsideField } from "../fieldScope";
 import { color } from "../tokens";
 
+// The listbox treats a click inside it as picking an option and cancels it, so a checkbox in the
+// popup's header never toggled. Stop the click (and the mousedown that moves focus) here.
+// A long list scrolls inside its popup instead of running off the screen.
+// autoSize shrinks the popup to the room left on screen; 360px caps it on a tall one.
+const LISTBOX = {
+  listbox: { style: { maxHeight: 360, overflowY: "auto" as const } },
+  positioning: { autoSize: "height" as const },
+};
+
+const KEEP_CLICKS = {
+  onClick: (e: React.MouseEvent) => e.stopPropagation(),
+  onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
+};
+
 export function TablePicker({ value, onChange, sentence, ariaLabel, invalid }: {
   value: string | null; onChange(v: string): void;
   /** Shows the display name with the logical name after it (muted); options "Display · logical". */
@@ -33,7 +47,7 @@ export function TablePicker({ value, onChange, sentence, ariaLabel, invalid }: {
   const after = sentence && selected && !open ? selected.logicalName : "";
 
   const combo = (
-    <Combobox
+    <Combobox {...LISTBOX}
       freeform
       aria-label={ariaLabel}
       aria-invalid={invalid || undefined}
@@ -45,7 +59,7 @@ export function TablePicker({ value, onChange, sentence, ariaLabel, invalid }: {
       onInput={(e) => { setOpen(true); setQuery((e.target as HTMLInputElement).value); }}
       onOptionSelect={(_e, d) => { if (d.optionValue) onChange(d.optionValue); setOpen(false); setQuery(""); }}
     >
-      <div style={{ position: "sticky", top: 0, zIndex: 1, background: color.surface,
+      <div {...KEEP_CLICKS} style={{ position: "sticky", top: 0, zIndex: 1, background: color.surface,
         padding: "6px 10px", borderBottom: `1px solid ${color.line}` }}>
         {/* OutsideField: this checkbox lives inside the Combobox popup, which React-renders
             inside whatever <Field> wraps the picker; without the barrier it would claim that
@@ -123,7 +137,7 @@ export function ColumnPicker({
   });
 
   const combo = (
-    <Combobox
+    <Combobox {...LISTBOX}
       freeform
       aria-label={ariaLabel}
       style={{ width: "100%" }}
@@ -134,7 +148,7 @@ export function ColumnPicker({
       onInput={(e) => { setOpen(true); setQuery((e.target as HTMLInputElement).value); }}
       onOptionSelect={(_e, d) => { onChange(d.optionValue ?? ""); setOpen(false); setQuery(""); }}
     >
-      <div style={{ position: "sticky", top: 0, zIndex: 1, background: color.surface,
+      <div {...KEEP_CLICKS} style={{ position: "sticky", top: 0, zIndex: 1, background: color.surface,
         padding: "6px 10px", borderBottom: `1px solid ${color.line}` }}>
         {/* OutsideField: see TablePicker above. The popup is inside the Field's React tree. */}
         <OutsideField>
@@ -192,7 +206,7 @@ export function MultiColumnPicker({
   const text = value.map(labelFor).join(", ");
 
   return (
-    <Combobox
+    <Combobox {...LISTBOX}
       multiselect
       aria-label={ariaLabel}
       style={{ width: "100%" }}
@@ -218,7 +232,7 @@ export function OptionSetPicker({
   React.useEffect(() => { svc.optionSet(table, column).then(setOpts); }, [svc, table, column]);
   if (!opts) return <Spinner size="tiny" />;
   return (
-    <Dropdown
+    <Dropdown {...LISTBOX}
       aria-label={ariaLabel}
       value={value ?? ""}
       selectedOptions={value ? [value] : []}
@@ -247,7 +261,7 @@ export function MultiSelectPicker({
     .map((v) => opts.find((o) => String(o.value) === v)?.label ?? v)
     .join(", ");
   return (
-    <Combobox
+    <Combobox {...LISTBOX}
       multiselect
       aria-label={ariaLabel}
       placeholder="Select values"
@@ -275,7 +289,7 @@ export function BooleanPicker({
   if (!labels) return <Spinner size="tiny" />;
   const text = value === "true" ? labels.trueLabel : value === "false" ? labels.falseLabel : "";
   return (
-    <Dropdown
+    <Dropdown {...LISTBOX}
       aria-label={ariaLabel}
       value={text}
       selectedOptions={value ? [value] : []}
@@ -341,7 +355,7 @@ export function LookupPicker({
         // Secondary control: the Combobox below is the one the enclosing <Field> labels, so this
         // dropdown must not also claim that Field's generated id. It names itself instead.
         <OutsideField>
-          <Dropdown
+          <Dropdown {...LISTBOX}
             aria-label="Target table"
             placeholder="Choose target table"
             value={target ?? ""}
@@ -353,7 +367,7 @@ export function LookupPicker({
         </OutsideField>
       )}
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <Combobox
+        <Combobox {...LISTBOX}
           freeform
           disabled={!target}
           aria-label={ariaLabel}
