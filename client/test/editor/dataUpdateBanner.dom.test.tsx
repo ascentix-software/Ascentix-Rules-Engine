@@ -37,7 +37,8 @@ async function applyNow() {
 describe("data update banner", () => {
   it("offers Apply now to an administrator and makes the views read-only", async () => {
     renderBanner({ applyDataUpdates: vi.fn().mockResolvedValue(pending(true)) });
-    expect(await screen.findByText("Update 1 · Convert actions must be applied before rules can be edited.")).toBeInTheDocument();
+    expect(await screen.findByText("Read-only until Update 1 is applied.")).toBeInTheDocument();
+    expect(screen.getByText("Convert actions")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Apply now" })).toBeInTheDocument();
     expect(screen.getByTestId("probe")).toHaveTextContent("read-only");
   });

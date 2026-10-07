@@ -2,7 +2,8 @@ import * as React from "react";
 import {
   Button, Dialog, DialogSurface, DialogBody, DialogTitle, DialogContent, DialogActions, Spinner,
 } from "@fluentui/react-components";
-import { Callout } from "../ui/primitives";
+import { Callout, NoticeBar, InfoTip } from "../ui/primitives";
+import { Warning20Regular } from "@fluentui/react-icons";
 import { formatError } from "../ui/errors";
 import { DATA_UPDATE_STATUS, type DataUpdateRef, type DataUpdateStatus, type WebApiPort } from "../webapi";
 import { useDataUpdates } from "./DataUpdateContext";
@@ -54,12 +55,14 @@ export function DataUpdateBanner({ api, reloadPage = reloadWindow }: { api: Api;
   const next = status.pending[0];
   if (next) {
     return (
-      <div style={{ marginTop: 12 }} data-testid="data-update-banner">
-        <Callout intent="warning" title={pendingText(next)}>
-          {status.canApply
-            ? <Button appearance="primary" onClick={() => setConfirming(true)}>Apply now</Button>
-            : NOT_ADMIN_NOTE}
-        </Callout>
+      <div data-testid="data-update-banner">
+        <NoticeBar tone="warn" icon={<Warning20Regular />} lead={`Read-only until Update ${next.number} is applied.`}
+          actions={status.canApply
+            ? <Button appearance="primary" size="small" onClick={() => setConfirming(true)}>Apply now</Button>
+            : undefined}>
+          {next.title}
+          <InfoTip label="Data update" text={NOT_ADMIN_NOTE} />
+        </NoticeBar>
         {dialogs}
       </div>
     );
@@ -68,16 +71,17 @@ export function DataUpdateBanner({ api, reloadPage = reloadWindow }: { api: Api;
   const latest = status.latest;
   if (latest && latest.status === DATA_UPDATE_STATUS.CompletedWithFailures && status.canApply && !dismissed) {
     return (
-      <div style={{ marginTop: 12 }} data-testid="data-update-failures">
-        <Callout intent="info" title={`Update ${latest.number} · ${latest.title} finished with ${latest.failed} failed item(s).`}>
-          <ul style={{ margin: "4px 0 8px", paddingLeft: 18 }}>
+      <div data-testid="data-update-failures">
+        <NoticeBar tone="warn" icon={<Warning20Regular />}
+          lead={`Update ${latest.number} · ${latest.title} finished with ${latest.failed} failed item(s).`}
+          actions={<>
+            <Button size="small" onClick={() => setApplying({ retry: latest.number })}>Retry failed items</Button>
+            <Button size="small" appearance="subtle" onClick={() => setDismissed(true)}>Dismiss</Button>
+          </>}>
+          <ul style={{ margin: "4px 0 0", paddingLeft: 18, width: "100%" }}>
             {latest.failures.map((f) => <li key={f.item}><code>{f.item}</code>: {f.message}</li>)}
           </ul>
-          <div style={{ display: "flex", gap: 8 }}>
-            <Button onClick={() => setApplying({ retry: latest.number })}>Retry failed items</Button>
-            <Button appearance="subtle" onClick={() => setDismissed(true)}>Dismiss</Button>
-          </div>
-        </Callout>
+        </NoticeBar>
         {dialogs}
       </div>
     );

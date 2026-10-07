@@ -43,7 +43,7 @@ export function hintIssues(graph: RuleGraph): HintIssue[] {
     if (node.tableConfigType === "LookupTable" && !node.lookupTargetIdAttribute) {
       issues.push({
         code: "HINT_MISSING_LOOKUP_TARGET_ID",
-        message: "Lookup node needs a target id attribute. Re-pick the relationship.",
+        message: "Re-pick the relationship: this lookup has no target id attribute.",
         nodeId: node.id,
       });
     }
@@ -84,21 +84,21 @@ function collectConditionHints(c: ConditionNode, issues: HintIssue[]): void {
 
 function checkFieldComparison(c: ConditionNode, issues: HintIssue[]): void {
   if (!c.comparisonColumn) {
-    issues.push({ code: "HINT_MISSING_FIELD", message: "Comparison column is required.", nodeId: c.id });
+    issues.push({ code: "HINT_MISSING_FIELD", message: "Choose a column to compare.", nodeId: c.id });
   }
   if (c.comparisonOperator === null) {
-    issues.push({ code: "HINT_MISSING_FIELD", message: "Comparison operator is required.", nodeId: c.id });
+    issues.push({ code: "HINT_MISSING_FIELD", message: "Choose an operator.", nodeId: c.id });
     return; // further value checks are meaningless without an operator
   }
   if (!NULL_CHECK_OPERATORS.has(c.comparisonOperator)) {
     // Value is required: check by source
     if (c.valueSource === 2 /* FieldReference */) {
       if (!c.comparisonValueColumn) {
-        issues.push({ code: "HINT_MISSING_FIELD", message: "Field-reference column is required.", nodeId: c.id });
+        issues.push({ code: "HINT_MISSING_FIELD", message: "Choose the column to compare against.", nodeId: c.id });
       }
     } else /* Literal (1) or null */ {
       if (!c.comparisonValue) {
-        issues.push({ code: "HINT_MISSING_FIELD", message: "Comparison value is required.", nodeId: c.id });
+        issues.push({ code: "HINT_MISSING_FIELD", message: "Enter a value to compare against.", nodeId: c.id });
       }
     }
   }
@@ -106,27 +106,27 @@ function checkFieldComparison(c: ConditionNode, issues: HintIssue[]): void {
 
 function checkRowCount(c: ConditionNode, issues: HintIssue[]): void {
   if (c.minExpectedRows === null && c.maxExpectedRows === null) {
-    issues.push({ code: "HINT_MISSING_FIELD", message: "Row count needs a minimum or maximum.", nodeId: c.id });
+    issues.push({ code: "HINT_MISSING_FIELD", message: "Enter a minimum or maximum row count.", nodeId: c.id });
   }
 }
 
 function checkRegexMatch(c: ConditionNode, issues: HintIssue[]): void {
   if (!c.comparisonColumn) {
-    issues.push({ code: "HINT_MISSING_FIELD", message: "Regex target column is required.", nodeId: c.id });
+    issues.push({ code: "HINT_MISSING_FIELD", message: "Choose a column to match.", nodeId: c.id });
   }
   if (!c.comparisonValue) {
-    issues.push({ code: "HINT_MISSING_FIELD", message: "Regex pattern is required.", nodeId: c.id });
+    issues.push({ code: "HINT_MISSING_FIELD", message: "Enter a pattern to match.", nodeId: c.id });
   }
 }
 
 function checkExpression(c: ConditionNode, issues: HintIssue[]): void {
   if (!c.expression || !c.expression.trim()) {
-    issues.push({ code: "HINT_MISSING_FIELD", message: "Expression is required.", nodeId: c.id });
+    issues.push({ code: "HINT_MISSING_FIELD", message: "Enter a calculation.", nodeId: c.id });
   } else if (!parseMathExpr(c.expression).ok) {
-    issues.push({ code: "HINT_INVALID_EXPRESSION", message: "Expression does not parse.", nodeId: c.id });
+    issues.push({ code: "HINT_INVALID_EXPRESSION", message: "Fix the calculation: it doesn't parse.", nodeId: c.id });
   }
   if (c.comparisonOperator === null) {
-    issues.push({ code: "HINT_MISSING_FIELD", message: "Comparison operator is required.", nodeId: c.id });
+    issues.push({ code: "HINT_MISSING_FIELD", message: "Choose an operator.", nodeId: c.id });
   }
 }
 
@@ -150,15 +150,15 @@ function walkFilterGroup(g: NodeFilterGroupModel, nodeId: string, issues: HintIs
     if (n.kind === "group") {
       walkFilterGroup(n, nodeId, issues);
     } else if (n.kind === "rule" && leafIsPartial(n)) {
-      issues.push({ code: "HINT_INCOMPLETE_FILTER", message: "A filter rule is incomplete.", nodeId });
+      issues.push({ code: "HINT_INCOMPLETE_FILTER", message: "Finish or remove the incomplete filter.", nodeId });
     } else if (n.kind === "exists") {
       // Check for incomplete collection (exists needs a target collection)
       if (n.collectionNodeId == null) {
-        issues.push({ code: "HINT_EXISTS_INCOMPLETE", message: "A related-rows filter needs a collection.", nodeId });
+        issues.push({ code: "HINT_EXISTS_INCOMPLETE", message: "Choose the related rows to filter on.", nodeId });
       }
       // Check for invalid count range (min cannot exceed max)
       if (n.minCount != null && n.maxCount != null && n.minCount > n.maxCount) {
-        issues.push({ code: "HINT_EXISTS_COUNT_RANGE", message: "Minimum count cannot exceed maximum.", nodeId });
+        issues.push({ code: "HINT_EXISTS_COUNT_RANGE", message: "Make the minimum count no more than the maximum.", nodeId });
       }
       // Recurse into the sub-filter to check for incomplete scalar rules
       walkFilterGroup(n.sub, nodeId, issues);
@@ -171,7 +171,7 @@ function checkNodeFilter(c: ConditionNode, issues: HintIssue[]): void {
   for (const block of c.filter) {
     // A block with completed criteria but no chosen target node is incomplete.
     if (!block.targetNodeId && !isGroupEmpty(block.root)) {
-      issues.push({ code: "HINT_INCOMPLETE_FILTER", message: "Filter needs a target node.", nodeId: c.id });
+      issues.push({ code: "HINT_INCOMPLETE_FILTER", message: "Choose which table the filter applies to.", nodeId: c.id });
     }
     walkFilterGroup(block.root, c.id, issues);
   }
@@ -218,34 +218,34 @@ function collectActionHints(a: ActionNode, issues: HintIssue[]): void {
     case "SetVisible":
     case "SetRequired":
       if (!a.targetColumn) {
-        issues.push({ code: "HINT_MISSING_TARGET_COLUMN", message: "Target column is required.", nodeId: a.id });
+        issues.push({ code: "HINT_MISSING_TARGET_COLUMN", message: "Choose a target field.", nodeId: a.id });
       }
       break;
     case "ShowMessage":
     case "Block":
       if (!a.message) {
-        issues.push({ code: "HINT_MISSING_MESSAGE", message: "Message is required.", nodeId: a.id });
+        issues.push({ code: "HINT_MISSING_MESSAGE", message: "Enter a message.", nodeId: a.id });
       }
       break;
     case "CreateRecord":
       if (!a.targetTable) {
-        issues.push({ code: "HINT_MISSING_TARGET_TABLE", message: "Target table is required.", nodeId: a.id });
+        issues.push({ code: "HINT_MISSING_TARGET_TABLE", message: "Choose a table to create the record in.", nodeId: a.id });
       }
       if (mappingHasIssue(a.fieldMapping))
-        issues.push({ code: "HINT_INCOMPLETE_FIELD_MAPPING", message: "A field mapping row is incomplete.", nodeId: a.id });
+        issues.push({ code: "HINT_INCOMPLETE_FIELD_MAPPING", message: "Finish or remove the incomplete field mapping.", nodeId: a.id });
       if (mappingHasAggregateFilterKeyIssue(a.fieldMapping))
-        issues.push({ code: "HINT_AGGREGATE_FILTER_KEY", message: "A filter key is missing or unused in a calculation.", nodeId: a.id });
+        issues.push({ code: "HINT_AGGREGATE_FILTER_KEY", message: "Match each calculation filter key to a filter, and remove unused ones.", nodeId: a.id });
       break;
     case "UpdateRecord":
     case "DeleteRecord":
     case "DeactivateRecord":
       if (!a.targetNodeId) {
-        issues.push({ code: "HINT_MISSING_TARGET_NODE", message: "Target node is required.", nodeId: a.id });
+        issues.push({ code: "HINT_MISSING_TARGET_NODE", message: "Choose the records to write.", nodeId: a.id });
       }
       if (a.actionType === "UpdateRecord" && mappingHasIssue(a.fieldMapping))
-        issues.push({ code: "HINT_INCOMPLETE_FIELD_MAPPING", message: "A field mapping row is incomplete.", nodeId: a.id });
+        issues.push({ code: "HINT_INCOMPLETE_FIELD_MAPPING", message: "Finish or remove the incomplete field mapping.", nodeId: a.id });
       if (a.actionType === "UpdateRecord" && mappingHasAggregateFilterKeyIssue(a.fieldMapping))
-        issues.push({ code: "HINT_AGGREGATE_FILTER_KEY", message: "A filter key is missing or unused in a calculation.", nodeId: a.id });
+        issues.push({ code: "HINT_AGGREGATE_FILTER_KEY", message: "Match each calculation filter key to a filter, and remove unused ones.", nodeId: a.id });
       break;
     // null actionType → user hasn't chosen yet; no hint
   }

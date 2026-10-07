@@ -111,7 +111,7 @@ describe("hintIssues — FieldComparison", () => {
     const issues = hintIssues(g);
     const hit = issues.find((i) => i.code === "HINT_MISSING_FIELD" && i.nodeId === "c1");
     expect(hit).toBeDefined();
-    expect(hit!.message).toMatch(/field.reference|reference column/i);
+    expect(hit!.message).toMatch(/column to compare against/i);
   });
 
   it("does NOT flag a value hint for IsNull operator (9)", () => {
@@ -196,7 +196,7 @@ describe("hintIssues — Expression", () => {
     const issues = hintIssues(g);
     const hit = issues.find((i) => i.code === "HINT_MISSING_FIELD" && i.nodeId === "c1");
     expect(hit).toBeDefined();
-    expect(hit!.message).toMatch(/expression/i);
+    expect(hit!.message).toMatch(/calculation/i);
   });
 
   it("flags HINT_INVALID_EXPRESSION when the expression does not parse", () => {
@@ -261,7 +261,7 @@ describe("hintIssues — actions", () => {
     const issues = hintIssues(g);
     const hit = issues.find((i) => i.code === "HINT_MISSING_TARGET_COLUMN" && i.nodeId === "a1");
     expect(hit).toBeDefined();
-    expect(hit!.message).toMatch(/target column/i);
+    expect(hit!.message).toMatch(/target field/i);
   });
 
   it("flags HINT_MISSING_TARGET_COLUMN when SetRequired has no targetColumn", () => {
@@ -282,7 +282,7 @@ describe("hintIssues — actions", () => {
     const issues = hintIssues(g);
     const hit = issues.find((i) => i.code === "HINT_MISSING_TARGET_TABLE" && i.nodeId === "a1");
     expect(hit).toBeDefined();
-    expect(hit!.message).toMatch(/target table/i);
+    expect(hit!.message).toMatch(/table to create the record in/i);
   });
 });
 
@@ -604,7 +604,7 @@ describe("hintIssues — HINT_INCOMPLETE_FILTER", () => {
     const issues = hintIssues(g);
     const hit = issues.find((i) => i.code === "HINT_INCOMPLETE_FILTER" && i.nodeId === "c1");
     expect(hit).toBeDefined();
-    expect(hit!.message).toMatch(/target node/i);
+    expect(hit!.message).toMatch(/which table the filter applies to/i);
   });
 
   it("does not flag a fully complete filter (leaf complete + targetNodeId set)", () => {
