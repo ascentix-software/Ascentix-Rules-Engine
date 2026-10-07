@@ -26,7 +26,7 @@ import uuid
 sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "perf"))
 import _dv  # noqa: E402
 import datastate  # noqa: E402
-from _dv import get, delete  # noqa: E402
+from _dv import get  # noqa: E402
 
 
 def delete_rules():
@@ -38,9 +38,22 @@ def delete_rules():
         if not rules:
             break
         for r in rules:
-            delete(f"asx_rules({r['asx_ruleid']})")
+            _delete_rule(r["asx_ruleid"])
         total += len(rules)
     print(f"[delete] asx_rules (PERF-RULE-*): {total} record(s)")
+
+
+def _delete_rule(rule_id):
+    """Deleting a published rule also deletes its working draft, so a draft listed on the same page
+    can be gone before its own DELETE (any rule opened in the Rule Builder, or by the outcome
+    migration, has one). A rule that no longer exists counts as deleted; any other failure stops."""
+    path = f"asx_rules({rule_id})"
+    try:
+        _dv.request("DELETE", path, solution=True, timeout=None)
+    except _dv.DataverseError as e:
+        if e.status == 404 or "Does Not Exist" in (e.message or ""):
+            return
+        raise SystemExit(f"ERROR DELETE {path}: {e.status}\n{e.message}")
 
 
 BATCH = 100  # $batch parts per request (Dataverse cap is 1000; 100 keeps each call short)
