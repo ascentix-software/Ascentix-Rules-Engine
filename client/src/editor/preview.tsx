@@ -46,9 +46,11 @@ const metaStub: MetadataService = {
   }),
   views: async () => [],
 };
+const SAMPLE_RECORDS = [{ id: "o1", name: "Contoso 2026 renewal" }, { id: "o2", name: "Fabrikam expansion" }];
 const recordStub: RecordSearchService = {
-  search: async () => [],
+  search: async (_t, q) => SAMPLE_RECORDS.filter((r) => r.name.toLowerCase().includes(q.toLowerCase())),
   resolveName: async () => null,
+  resolveNames: async (_t, ids) => new Map(SAMPLE_RECORDS.filter((r) => ids.includes(r.id)).map((r) => [r.id, r.name])),
   queryByFetchXml: async () => [],
 };
 // ?state=new (never published) | live (live, no draft) | draft (default: a draft of live v3)
@@ -66,7 +68,17 @@ const apiStub = {
   publishRule: async () => {},
   unpublishRule: async () => {},
   openRuleDraft: async () => "draft",
-  dryRun: async () => ({ isValid: true, actions: [], outcomes: [], changeSet: [] }),
+  dryRun: async () => ({
+    isValid: true,
+    changeSet: { creates: 0, updates: 1, deletes: 0, unchanged: 0 },
+    outcomes: [{ ruleId: "sample", name: "Approval gaps", value: true }],
+    actions: [
+      { ruleId: "sample", actionType: "ShowMessage", message: "Low probability for this stage", targetTable: null },
+      { ruleId: "sample", actionType: "UpdateRecord", message: null, targetTable: "opportunity",
+        writes: [{ operation: "Update", targetTable: "opportunity", targetId: "o1" }], writeCount: 1, unchangedCount: 0 },
+      { ruleId: "other", actionType: "ShowMessage", message: "Check the close date", targetTable: null },
+    ],
+  }),
 } as unknown as EditorApi;
 
 // --- sample graph: "High-value deal guardrails" --------------------------
