@@ -51,6 +51,9 @@ export const LOOKUP = {
   ruleOfRun: "_asx_rule_value",
   // asx_ruleschedule.asx_rule: same lowercase lookup-value field name pattern as above.
   ruleOfSchedule: "_asx_rule_value",
+  // A Fires when group's rule, through its action (every tree node carries asx_ruleaction), so one
+  // $filter reads a rule's whole tree. Round-tripped by bindNav.dev.test.ts.
+  acgRule: "asx_RuleAction/_asx_rule_value",
 } as const;
 
 export const NAV = {
@@ -60,6 +63,8 @@ export const NAV = {
   // action → localized messages; confirm nav name in live smoke if a fetch 400s
   actionLocalizedMessages: "asx_ruleaction_localizedmessage",
   filterGroupCriteria: "asx_nodefiltergroup_criterion",
+  // Fires when group → its tests (relationship asx_actionconditiongroup_actionconditiontest)
+  actionConditionGroupTests: "asx_actionconditiongroup_actionconditiontest",
 } as const;
 
 export const RULE_SELECT =

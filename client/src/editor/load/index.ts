@@ -126,16 +126,14 @@ export async function loadRuleGraph(api: WebApiPort, ruleId: string): Promise<Ru
     }
   }
 
-  // Each action's Fires when tree (asx_actionconditiongroup + asx_actionconditiontest). An action
-  // with no rows loads with firesWhen null: it never fires and publish refuses it.
+  // Each action's Fires when tree (asx_actionconditiongroup + asx_actionconditiontest), read in one
+  // request: every group of the rule (through its action's rule), with its tests expanded. An
+  // action with no rows loads with firesWhen null: it never fires and publish refuses it.
   if (actions.length) {
-    const byActionIds = actions.map((a) => `${LOOKUP.acgAction} eq ${a.id}`).join(" or ");
     const groupRows = (await api.retrieveMultipleRecords(ENTITY.actionConditionGroup,
-      `?$select=${ACG_SELECT}&$filter=${byActionIds}`)).entities;
-    const testRows = groupRows.length
-      ? (await api.retrieveMultipleRecords(ENTITY.actionConditionTest,
-          `?$select=${ACT_SELECT}&$filter=${groupRows.map((g: any) => `${LOOKUP.actGroup} eq ${g.asx_actionconditiongroupid}`).join(" or ")}`)).entities
-      : [];
+      `?$select=${ACG_SELECT}&$filter=${LOOKUP.acgRule} eq ${ruleId}` +
+        `&$expand=${NAV.actionConditionGroupTests}($select=${ACT_SELECT})`)).entities;
+    const testRows = groupRows.flatMap((g: any) => g[NAV.actionConditionGroupTests] ?? []);
     const trees = mapFiresWhenTrees(groupRows, testRows);
     for (const a of actions) {
       a.firesWhen = trees[a.id]?.root ?? null;
