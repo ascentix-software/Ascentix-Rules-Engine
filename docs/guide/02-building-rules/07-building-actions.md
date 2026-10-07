@@ -5,70 +5,75 @@ order: 207
 slug: building-actions
 screenshots:
   - file: images/02-07-building-actions-01.png
-    caption: The action inspector, with action type, the Fires when condition, optional target field, message, and severity.
+    caption: The action panel, with its plain summary, type, optional target field, message, severity, and the When section.
     alt: Action editing panel "EDITING ACTION 1 · Block" with Action type (Block), Active toggle, Fires when (an outcome test), Target field, Message ("Order total exceeds the customer's credit limit."), Severity (Error), and a WHAT HAPPENS explainer.
 ---
 
 # Building Actions
 
-Actions are the **THEN** layer of a rule: what happens once the validation
-conditions have been checked.
+Actions are the **Then** layer of a rule: what happens once the validation
+conditions have been checked. Add one with **Add action** on the **Then** band.
 
-## Fires when
+## When
 
-Every action has a **Fires when** condition that says when it fires. It tests the rule's
-outcomes (see *Building Conditions*):
+Every action has a **When** section, the last section of its panel, that says when it fires (its
+Fires when tree). It tests the rule's outcomes (see *Building Conditions*):
 
-- A **group** is **ALL** (every part must hold) or **ANY** (at least one must hold). Groups can
-  nest.
-- A **test** reads "<outcome> is true" or "<outcome> is false".
-- An empty root ALL group reads **Always, when the rule runs**. This is the default for a new
+- A **group** is **All** (every part must hold) or **Any** (at least one must hold). The root's
+  toggle is labelled **When matches**. Groups can nest.
+- A **test** reads "<outcome> **is true**" or "<outcome> **is false**".
+- An empty root **All** group reads **Always, when the rule runs**. This is the default for a new
   action.
-- **Not set: this action never fires.** appears when an action has no condition at all, for
-  example after you restore an older revision. Click **Set to Always**, or build a condition.
+- **Not set. This action never runs.** appears when an action has no condition at all, for
+  example after you restore an older revision. Click **Run always**, or build a condition.
   Publishing refuses an action that is not set (`ACTION_NO_TREE`).
 
-Click **+ Add test** to test an outcome, and **+ Add group** to nest a group. Until the rule has
-an outcome, both **+ Add test** and **+ Add group** are hidden and the hint "Add an outcome to
+Click **Add test** to test an outcome, and **Add group** to nest a group. Until the rule has
+an outcome, both **Add test** and **Add group** are hidden and the hint "Add an outcome to
 test it here." shows in their place. A group with nothing in it is refused at publish, unless it
-is the empty root ALL (`ACTION_EMPTY_GROUP`).
+is the empty root **All** (`ACTION_EMPTY_GROUP`).
 
-The action row shows a summary, for example "When High value AND (At risk OR NOT Critical
-case)". A validation rule typically pairs a **Block** action with a test that its "valid"
+The action row shows a summary, for example "When High value and (At risk or Critical case is
+false)". A validation rule typically pairs a **Block save** action with a test that its "valid"
 outcome is false.
 
 ## Action types
 
-- **Set Visible**: shows or hides a form field.
-- **Set Required**: marks a form field required or not required.
-- **Show Message**: surfaces a message to the user at a given severity.
-  Never blocks a save.
-- **Block**: prevents the save. Server-enforced.
-- **Create Record**: creates a new record, with values from a field
-  mapping.
-- **Update Record**: updates a target record, with values from a field
-  mapping.
-- **Delete Record**: deletes a target record.
-- **Deactivate Record**: makes the target record(s) inactive (`statecode` 1). Optionally sets a
-  status reason; otherwise the table's default inactive status.
+The **Type** dropdown names each type in sentence case; the rest of this
+guide uses the stored names in brackets.
 
-**Set Visible** and **Set Required** are form actions that use a
-**Target field** to say which field they apply to. **Show Message** and
-**Block** also take an optional **Target field**: set one and the
-notification (or block) attaches to that field inline; leave it blank and
-it applies at the form level instead: a form banner for Show Message, or
-a form-level block for Block. **Show Message** and **Block** carry a
-**Message** plus a **Severity** (Information, Warning, or Error).
+- **Set visible** (Set Visible): shows or hides a form field.
+- **Set required** (Set Required): marks a form field required or not required.
+- **Show message** (Show Message): surfaces a message to the user at a given severity.
+  Never blocks a save.
+- **Block save** (Block): prevents the save. Server-enforced.
+- **Create record** (Create Record): creates a new record, with values from a field
+  mapping.
+- **Update record** (Update Record): updates a target record, with values from a field
+  mapping.
+- **Delete record** (Delete Record): deletes a target record.
+- **Deactivate record** (Deactivate Record): makes the target record(s) inactive (`statecode` 1).
+  Optionally sets a status reason; otherwise the table's default inactive status.
+
+**Set visible** and **Set required** are form actions that use a
+**Target column** to say which field they apply to (or **(form-level)**).
+**Block save** takes an optional **Target field**: set one and the block
+attaches to that field inline; leave it blank for a form-level block.
+**Show message** has a **Show as** choice instead: **Banner on the form**
+(save allowed) or **On a field** (holds the save while shown), which then
+asks for the **Field**. **Show message** and **Block save** carry a
+**Message**, and a **Severity** (Information, Warning, or Error); a message
+shown **On a field** has no Severity choice.
 
 > **What blocks a save is the action type, not the severity.** A **Block**
 > action blocks the operation and rolls back at any severity, **Warning**
 > included. A **Show Message** never blocks on the server, at any severity.
 >
-> On a form it is not that simple. A Show Message with a **Target field** is
+> On a form it is not that simple. A Show Message shown **On a field** is
 > shown as a notification on the control, and the platform renders control
 > notifications at Error only, so the platform's own validation stops the save
 > until the condition stops matching. That happens whatever severity you set.
-> A Show Message with no target field banners and does not block. See
+> A Show Message shown as a **Banner on the form** does not block. See
 > *Runtime Enforcement*.
 
 ## Dynamic message text
@@ -78,8 +83,10 @@ A **Block** or **Show Message** action's **Message** (and its per-language
 `{root.<column>}` for a column on the triggering record, or
 `{node:<node>.<column>}` for a column on a related table-config node. Tokens
 are rendered **at fire time**, from the record that actually matched. The
-message editor has an **Insert field** menu and a preview of the rendered
-token.
+message editor has an **Insert field** menu, and when the text has tokens
+the **Message** label's info tip previews how users will read it. Add a
+per-language version with **Add translation**, which lists the languages
+not yet translated.
 
 > If a token can't resolve (an unknown node, a malformed token, a related
 > record that no longer exists), the message **degrades to the raw,
@@ -87,29 +94,27 @@ token.
 > condition's comparison value fails fast instead (see *Comparison Value
 > Sources*).
 
-## The action inspector
+## The action panel
 
-Selecting an action opens its inspector, where you configure:
+Selecting an action opens its panel. A plain summary at the top says what
+the currently-configured action will do, for example "When **Credit check**
+is false, blocks the save with “…”." Below it you configure:
 
-- **Action type**: one of the eight types above.
-- **Active**: a toggle to enable or disable the action without deleting
-  it.
-- **Fires when**: the outcome tree described above.
-- **Target field**: as described above, required for Set Visible / Set
-  Required and optional for Show Message / Block.
-- **Value toggle**: for Set Visible / Set Required, the value to apply
-  when the action fires (on means visible, or required).
+- **Type**: one of the eight types above.
+- **Active**: a switch to enable or disable the action without deleting
+  it (it reads **Off** when disabled).
+- **Target column** / **Target field** / **Show as**: as described above.
+- **Visible** or **Required**: for Set visible / Set required, the value to
+  apply when the action fires (on means visible, or required).
 - **Message**, **Severity** (Information, Warning, or Error), and
   **Translations** (per-language overrides for the message text), for Show
-  Message and Block actions.
-
-A **WHAT HAPPENS** explainer in the inspector summarizes what the
-currently-configured action will do.
+  message and Block save actions.
+- **When**: the outcome tree described above, always last.
 
 ![Action editing panel "EDITING ACTION 1 · Block" with Action type (Block), Active toggle, Fires when (an outcome test), Target field, Message ("Order total exceeds the customer's credit limit."), Severity (Error), and a WHAT HAPPENS explainer.](../images/02-07-building-actions-01.png)
 
-Create Record and Update Record actions replace the Message/Severity
-fields with a field mapping. See *Field Mapping* for how to map target
+Create record and Update record actions replace the Message/Severity
+fields with a field mapping (**Columns to set**). See *Field Mapping* for how to map target
 columns to their values.
 
 ### When the record moves to another parent
@@ -117,7 +122,7 @@ columns to their values.
 A rule that runs on a record can update the record it points to, for example an opportunity's
 contact. When a save **changes** that lookup (the opportunity moves from Ana to Ben), the rule sees
 only the new contact. To keep the previous one up to date too, turn on **Also apply to the previous
-Contact when it changes** on the Update Record action. The rule then runs a second time for Ana in
+Contact when it changes** on the Update record action. The rule then runs a second time for Ana in
 the same save, and only the actions with this option on are applied to her. Blocks and messages
 apply only to the record being saved. A record that both the new and the previous parent lead to
 (two orders under the same customer, say) can only be updated by the new one's run; the previous
@@ -141,11 +146,11 @@ full for the rule's own traversal — it doesn't narrow what's queried from Data
 the fetched rows the action writes. See *Beta Limitations* for the size this puts on a set action.
 
 **Create per row.** Create Record's optional **For each row of** creates one record per filtered row
-of a collection. Map values from the row with the **Current row** source, or `{row.<column>}` in a
-text template; a lookup column can link to the row itself. There is no automatic duplicate check:
-guard with a "has none" Rows filter. **For each row of** only appears once the rule has at least one
-collection node in its table-config tree; on a rule with none, Create Record only ever creates one
-record.
+of a collection (or **(one record)** for a single record). Map values from the row with the
+**Current row** source, or `{row.<column>}` in a text template; a lookup column can link to the row
+itself. There is no automatic duplicate check: guard with a "has none" Rows filter. **For each row
+of** only appears once the rule has at least one collection node in its table-config tree; on a rule
+with none, Create Record only ever creates one record.
 
 **How writes are combined.** Every write of one record's evaluation is collected first. Two actions
 writing the same record **in the same evaluation context** (User or System) become one write (the

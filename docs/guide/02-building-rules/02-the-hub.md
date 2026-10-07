@@ -34,10 +34,10 @@ for what you land on.
 Above the list sit **New rule** (see *Creating a New Rule*), **Search rules**,
 and the **Table** and **Status** filters.
 
-While a release's data update is waiting to be applied, a banner appears above the list: *Update N ·
-title must be applied before rules can be edited.* **New rule**, **Duplicate** and **Delete** are
-hidden until it has been applied. A System Administrator or System Customizer sees **Apply now** in
-the banner; everyone else sees who to ask. See *Data Updates*.
+While a release's data update is waiting to be applied, a slim bar appears above the list: *Read-only
+until Update N is applied.*, followed by the update's title. **New rule**, **Duplicate** and **Delete**
+are hidden until it has been applied. A System Administrator or System Customizer sees **Apply now** in
+the bar; its info tip tells everyone else who to ask. See *Data Updates*.
 
 ## Table configurations tab
 

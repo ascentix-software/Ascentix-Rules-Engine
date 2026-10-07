@@ -90,7 +90,7 @@ describe("Deleting an outcome", () => {
     await deleteOutcome("High value");
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("These actions test it: Block save, Action 2, Action 3. Their tests of this outcome are removed.");
-    expect(dialog).toHaveTextContent("Block save, Action 3 will then never fire until you set their Fires when.");
+    expect(dialog).toHaveTextContent("Block save, Action 3 will then never fire until you set their When.");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
     expect(screen.getAllByText("Not set. This action never runs.")).toHaveLength(2);

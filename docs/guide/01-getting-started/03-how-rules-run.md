@@ -18,7 +18,7 @@ A plugin step runs synchronously as part of the database operation whenever a
 record on the rule's table is created, updated, or deleted.
 
 - **What triggers it:** a Create, Update, or Delete operation against the rule's
-  table, matching the rule's **On Create**, **On Update**, or **On Delete**
+  table, matching the rule's **On create**, **On update**, or **On delete**
   trigger.
 - **What actions it can apply:** the full server action set, including write and
   blocking actions: **Block**, **Create Record**, **Update Record**, **Delete
@@ -38,7 +38,7 @@ record on the rule's table is created, updated, or deleted.
 ## On form (client form library)
 
 - **What triggers it:** the form loading, or a field on the form changing, matching
-  the rule's **On Form** trigger.
+  the rule's **On form** trigger.
 - **What actions it can apply:** the client-facing action set (**Set Visible**,
   **Set Required**, and **Show Message**), applied live to the form. Any
   server-only actions (like Block or the write actions) attached to the same rule
@@ -66,22 +66,23 @@ integrations, admin tools, or testing a rule before publishing it.
   a fired **Block** is only reported, never thrown, and write actions are reported
   as a resolved "would write" description rather than executed.
 
-### Enforcing: Run now, Runs, and `asx_ApplyRules`
+### Enforcing: Apply to records, Runs, and `asx_ApplyRules`
 
 The **enforcing** on-demand path, for actually applying an On demand rule rather
-than previewing it: the Rule Builder and hub's **Run now** button, the **Runs**
+than previewing it: the **Apply to records** tab of the **Run** dialog (opened from
+the Rule Builder's **Run** menu or the hub's **Run now** button), the **Runs**
 dialog, and the `asx_ApplyRules` / `asx_ProcessRunPage` Custom APIs a script or
 flow can call directly. See *Running Rules On Demand* for the full picture.
 
-- **What triggers it:** **Run now** against one record, or a **Rule Run** the
-  rule's **Runs for** setting scopes to either one record at a time (**a record
-  it's given**) or **every record that passes the rule's execution conditions**
-  (**all records**, read a page at a time). A caller can also invoke
-  `asx_ApplyRules` directly against a single record.
+- **What triggers it:** a **Rule Run**, started with **Apply to records**, that
+  the rule's **Runs for** setting scopes to either the records you choose
+  (**Records it's given**) or **every record that matches the rule's Only if
+  conditions** (**All records that match “Only if”**, read a page at a time). A
+  caller can also invoke `asx_ApplyRules` directly against a single record.
 - **What actions it can apply:** the full server action set, like *On create /
   update / delete* below. `asx_ApplyRules` throws on a fired **Block**, applying no
   writes; otherwise every fired write action is applied inside the call's
-  transaction. In a **Rule Run** (what Run now starts), a record that fires a
+  transaction. In a **Rule Run** (what Apply to records starts), a record that fires a
   Block gets no writes and is counted Blocked rather than thrown, so the run goes
   on; the records of one page share a transaction, and a write that fails rolls
   the page back, is counted Failed, and the page is processed again without that

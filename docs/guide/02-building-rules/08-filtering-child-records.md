@@ -11,15 +11,17 @@ screenshots:
     caption: A completed filter in which the condition only evaluates child records where Line Amount is greater than 100.
     alt: 'The filter modal with a completed criterion: FILTER ON "(this record''s collection)", Match AND, and a row reading Line Amount (sample_lineamount) · Greater than · Literal · 100, plus Add, Add filter, and Cancel/Apply.'
   - file: images/02-08-filtering-child-records-03.png
-    caption: The "How many matching rows?" count-mode dropdown, reusing the same modes as a Row Count condition.
+    caption: The "How many matching rows?" count-mode dropdown, which sets the same minimum and maximum row counts as a Count rows condition.
     alt: The Row Count condition inspector with the "How many matching rows?" dropdown open, listing At least one (exists), None (does not exist), At least N, At most N, Exactly N, Between N and M, and Custom (min / max).
 ---
 
 # Filtering a Condition's Child Records
 
-When a condition targets a **child (collection) node**, the condition editor
-offers an **"Only consider records where…"** section. The condition evaluates
-only the child records that match the filter.
+When a condition targets a **child (collection) node**, the condition panel
+shows an **Only consider rows where** section (**Only count rows where** for a
+Count rows condition). It summarizes the filter in one line; its **Add
+filter** (or **Edit**) button opens the **"Only consider records where…"**
+dialog. The condition evaluates only the child records that match the filter.
 
 ## How filters work
 
@@ -28,7 +30,7 @@ Each filter is a **block that targets one specific node** and specifies an
 
 - **First filter targets the child node**: a new filter starts on the
   condition's own child node.
-- **Add more filters**: each additional filter can target the same child node,
+- **Add more filters**: each additional filter (**Add filter** in the dialog) can target the same child node,
   or an **ancestor node** to filter by that related record's columns.
 - **All filters must match**: a child record is evaluated only if it satisfies
   **all** filters you add. An ancestor filter acts as an additional constraint
@@ -38,28 +40,29 @@ Each filter is a **block that targets one specific node** and specifies an
 
 ## Supported operators
 
-A filter's criteria support the same comparison operators as Field Comparison
-conditions:
+A filter's criteria support the same comparison operators as Compare
+conditions, named as follows in the filter's operator dropdown:
 
 - **Equals**
-- **Not Equals**
-- **Greater Than**
-- **Greater Than Or Equal**
-- **Less Than**
-- **Less Than Or Equal**
+- **Not equals**
+- **Greater than**
+- **Greater or equal**
+- **Less than**
+- **Less or equal**
 - **Contains**
-- **Does Not Contain**
-- **Is Null**
-- **Is Not Null**
+- **Does not contain**
+- **Is null**
+- **Is not null**
 
 The editor only offers operators that make sense for the column's data type.
+Each group of criteria has a **Match** **All** / **Any** toggle.
 
 ## Comparison values
 
 Each criterion's comparison value can be:
 
 - **Literal**: a fixed value you type in.
-- **Field reference**: read from a related record's column through a
+- **From record**: read from a related record's column through a
   lookup-chain or single-record reference. For example, compare a line item's
   date against the order's due date.
 
@@ -69,7 +72,7 @@ days"). A date on the row itself is read from each row being filtered. If that d
 row, the row simply doesn't match. The same applies when the date comes from a related record that is missing or has no date. For a window such as "in the next 120 days", add two
 conditions: on or after now, and on or before now plus 120 days.
 
-A date comparison (Equals, Not Equals, and the before/after operators) with a literal date or
+A date comparison (Equals, Not equals, and the before/after operators) with a literal date or
 a date expression based on when the rule runs, or on a date of the rule's own record or a
 record it looks up, is applied in the Dataverse query. A date expression based on a date on the
 same row is applied after the rows are loaded.
@@ -80,7 +83,7 @@ Date columns come in three kinds. **User Local** dates are exact moments, compar
 **Date Only** dates are calendar dates: "on or after yesterday" means any time yesterday.
 **Time Zone Independent** dates are clock times with no time zone. To compare those two kinds
 with "when the rule runs", the rule needs to know which day and which clock time it is: set
-**Time zone for dates** in the rule's properties. The default is UTC, so a rule used in Eastern
+**Rule time zone** in the **Evaluation** section of the rule settings. The default is UTC, so a rule used in Eastern
 Canada moves to the next day at 8 pm (7 pm in winter) unless its time zone is set. The same
 setting reads a date without a time zone against a User Local column: "Created On on or after
 2026-09-01", or a Date Only anchor date, means midnight in the rule's time zone.
@@ -128,8 +131,8 @@ node that both hang off the same order node are related through that order.
 
 ### Count modes
 
-The **"How many matching rows?"** dropdown sets the count range, reusing the
-same modes as a Row Count condition:
+The **"How many matching rows?"** dropdown sets the count range, the same
+minimum and maximum a Count rows condition stores:
 
 - **At least one (exists)**: min 1, no upper bound.
 - **None (does not exist)**: max 0.
@@ -152,7 +155,7 @@ nesting**.
 ### Available in both surfaces
 
 "Has related rows…" appears wherever a filter builder does: a
-condition's **"Only consider records where…"** section (this page) and an
+condition's **"Only consider records where…"** dialog (this page) and an
 aggregate's **"Filter this aggregate…"** builder (see *Field Mapping* →
 *Filtering an aggregate*).
 

@@ -13,39 +13,45 @@ settings control when a rule fires.
 
 ## Triggers
 
-**Triggers** is a multi-select field on the rule, and a rule needs **at least one**
-selected. The available values are:
+**Triggers** is a multi-select field on the rule (in the **When it runs** section
+of the Rule Builder's rule settings), and a rule needs **at least one** selected.
+The available values are:
 
-- **On Create**
-- **On Form**
+- **On create**
+- **On form**
 - **On demand** (labelled **Manual** before this release; the stored value and the
   API trigger name are unchanged, and `Manual` is still accepted alongside
   `OnDemand`)
-- **On Update**
-- **On Delete**
+- **On update**
+- **On delete**
+
+The **New rule** dialog groups the same triggers under **Runs**: **On the form**
+(**While editing**), **When saved** (**Create**, **Update**, **Delete**), and **On
+demand**.
 
 See *How Rules Run* for what each trigger invokes and which actions apply under it.
 
 ## Runs for
 
-**Runs for** (`asx_ondemandscope`) only appears once **On demand** is ticked, and
-decides which records an On demand rule can be invoked against:
+**Runs for** (`asx_ondemandscope`) only appears once **On demand** is ticked (on
+the **On demand** card of the rule settings), and decides which records an On
+demand rule can be invoked against:
 
-- **A record it's given** (the default): **Run now** and `asx_ApplyRules` act on
-  one record you name, and a **Rule Run** started against the rule must be given
-  up to 250 record ids.
-- **All records that pass its execution conditions**: a **Rule Run** started
-  against the rule instead reads the whole table, a page at a time, applying the
-  rule to every record its execution conditions let through.
+- **Records it's given** (the default): **Apply to records** acts on the records
+  you add, `asx_ApplyRules` on one record you name, and a **Rule Run** started
+  against the rule must be given up to 250 record ids.
+- **All records that match “Only if”**: a **Rule Run** started against the rule
+  instead reads the whole table, a page at a time, applying the rule to every
+  record its **Only if** (execution) conditions let through.
 
-See *Running Rules On Demand* for the full Run now / Runs workflow this setting
+See *Running Rules On Demand* for the full Apply to records / Runs workflow this setting
 drives, and *Beta Limitations* for the page/record budgets a run works within.
 
 ## Trigger Columns
 
-When you select **On Update**, an additional optional setting appears:
-**Fire on change of these columns**, a multi-select listing the root table's
-columns.
+When you select **On update**, an additional optional setting appears:
+**Also run on update when these change**, a multi-select listing the root
+table's columns.
 
 By default (no columns selected) the rule's update firing is driven by the
 columns its **conditions** reference, so a rule only re-runs on update when
@@ -59,14 +65,14 @@ the rule's actions depend on a column its conditions don't reference:
 > **`sample_lineamount` as a trigger column** the rule never fires when a line
 > amount is edited and the total goes stale.
 
-Trigger columns only apply to **On Update**. Create and Delete triggers always
+Trigger columns only apply to **On update**. Create and Delete triggers always
 fire on the entire record regardless of what columns changed.
 
 ## Channels
 
 **Channels** is also a multi-select field, but it's optional, and it works the
 opposite way from Triggers: **leaving it empty means the rule applies to every
-channel**. The available values are:
+channel** (the field then reads **All channels**). The available values are:
 
 - **Standard** covers every origin that is not a portal: a person saving a
   model-driven form, the Web API, scripts and CLI tools, integrations,
@@ -87,7 +93,7 @@ A validation rule on `account` blocks a save without a credit limit approver whe
 the credit limit is large, and you want it enforced only on Power Pages
 submissions, not on internal users or the nightly integration.
 
-1. Set **Triggers** to **On Create** and **On Update**.
+1. Set **Triggers** to **On create** and **On update**.
 2. Set **Channels** to **Portal** only.
 3. The rule blocks a portal submission, but a save from the model-driven app or a
    write from the integration (both **Standard**) is not gated by this rule at all.

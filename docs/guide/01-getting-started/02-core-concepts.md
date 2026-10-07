@@ -33,13 +33,15 @@ tree is a **Condition**, which has a **Condition Type**:
 Each top-level validation group is an **outcome**: it has a required name, and it is
 either true (its conditions are met) or false. A rule can have several outcomes, such as
 "High value" and "At risk". Every outcome is evaluated. Actions test outcomes by name to
-decide when they fire. Execution groups are not outcomes; they gate the whole rule.
+decide when they fire. Execution groups (the Rule Builder's **Only if** band) are not
+outcomes; they gate the whole rule.
 
 ## Actions (THEN)
 
 The THEN side of a rule is one or more **Actions**. Each action has an **Action
 Type**: Set Visible, Set Required, Show Message, Block, Create Record, Update
-Record, or Delete Record. Each action has a **Fires when** condition: a small tree of
+Record, or Delete Record. Each action has a **Fires when** condition (the **When** section
+of the action's panel in the Rule Builder): a small tree of
 tests such as "High value is true" or "At risk is false", joined by ALL or ANY. A new
 action fires **Always, when the rule runs**; you narrow it by testing outcomes. A
 validation rule typically pairs a *Block* action with a test that its "valid" outcome is

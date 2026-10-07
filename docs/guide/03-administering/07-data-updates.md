@@ -15,16 +15,18 @@ its own: published rules keep enforcing the whole time.
 
 ## How you see one
 
-While an update is waiting, the Rule Builder shows a banner on the hub and in the editors:
+While an update is waiting, the Rule Builder shows a slim bar on the hub and in the editors,
+followed by the update's title:
 
-> Update N · title must be applied before rules can be edited.
+> Read-only until Update N is applied.
 
 ## Who can apply it
 
-A **System Administrator** or **System Customizer** sees an **Apply now** button in the banner. The
+A **System Administrator** or **System Customizer** sees an **Apply now** button in the bar. The
 shipped Rules Engine Author and Reader roles can't apply an update. See *Security Roles*.
 
-Everyone else sees the same banner with a note to ask an administrator. For them, until the update
+Everyone else sees the same bar without the button; its info tip says to ask a System
+Administrator or System Customizer. For them, until the update
 is applied:
 
 - The Rule Builder is **read-only**. Rules can be opened and viewed; the controls that edit them
@@ -39,7 +41,7 @@ is applied:
 2. **Keep the tab open.** The Rule Builder drives the update in steps of up to a minute each. The
    dialog shows how many items are converted and how many failed so far. It can take a few minutes.
 3. When it finishes, the dialog reports *N converted, N failed*. Choose **Close**. The page
-   reloads, the banner is gone and rules are editable again.
+   reloads, the bar is gone and rules are editable again.
 
 If you close the tab part way, nothing is lost: the update saves its position after every step.
 Open the Rule Builder and choose **Apply now** again to carry on from there.

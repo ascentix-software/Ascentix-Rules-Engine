@@ -9,7 +9,9 @@ slug: evaluation-context
 
 Every rule has an **Evaluation Context** setting that controls whose read
 access governs the business data a rule's conditions traverse: `User` (the
-default) or `System`.
+default) or `System`. In the Rule Builder it is **Run as**, in the
+**Evaluation** section of the rule settings: **The user who triggered it**
+(User) or **System**.
 
 ## What it governs
 

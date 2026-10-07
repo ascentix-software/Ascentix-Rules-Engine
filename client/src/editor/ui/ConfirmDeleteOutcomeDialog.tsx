@@ -24,7 +24,7 @@ export function ConfirmDeleteOutcomeDialog({ graph, outcomeId, onCancel, onConfi
         <Button appearance="primary" style={{ backgroundColor: color.danger }} onClick={onConfirm}>Delete</Button>
       </>}>
       <p style={{ margin: 0 }}>These actions test it: {users.join(", ")}. Their tests of this outcome are removed.</p>
-      {leftNotSet.length > 0 && <p style={{ margin: 0 }}>{leftNotSet.join(", ")} will then never fire until you set their Fires when.</p>}
+      {leftNotSet.length > 0 && <p style={{ margin: 0 }}>{leftNotSet.join(", ")} will then never fire until you set their When.</p>}
     </DialogShell>
   );
 }

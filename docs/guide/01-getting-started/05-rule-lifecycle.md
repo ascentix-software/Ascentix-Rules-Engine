@@ -24,6 +24,11 @@ Every rule has a status:
 - **Archived** is a retired status. An Archived rule is kept for history but is
   **never enforced**.
 
+In the Rule Builder, the status pill under the rule's name shows this: **Live · vN**
+for a published rule, **Draft** for one never published, **Archived**, and
+**Editing draft** next to the live pill while you work on a published rule's draft
+(see *Editor Layout*).
+
 ## Editing and publishing revisions
 
 Every rule also has an editable draft. Its status describes enforcement, not whether
@@ -40,18 +45,20 @@ The server uses the active revision for new evaluations.
 
 A rule can optionally carry an effective window:
 
-- **Effective From**: the rule is not enforced before this date/time.
-- **Effective To**: the rule is not enforced after this date/time.
+- **Effective From** (**Starts** in the **Active period** section of the Rule
+  Builder's rule settings): the rule is not enforced before this date/time.
+- **Effective To** (**Ends**): the rule is not enforced after this date/time.
 
 Editing these values changes the draft schedule. Publish to apply it to enforcement.
 
 Both are stored in **UTC**, and both are optional independently. Leaving a bound
-**null** leaves that side of the window open. A Published rule with no effective
+**null** leaves that side of the window open (the field shows **No start limit**
+or **No end limit**). A Published rule with no effective
 window set is enforced continuously, subject only to its Triggers and Channels.
 
 The Rule Builder edits an exact **date and time**, including seconds. Its
-**Schedule timezone** defaults to UTC; choose Local to display and enter values in
-your browser's timezone. Switching the display timezone preserves the scheduled
+**Show times in** toggle defaults to **UTC**; choose **Local** to display and enter
+values in your browser's timezone. Switching the display timezone preserves the scheduled
 instants. The summary shows when enforcement starts and ends.
 
 The end bound is inclusive and refers to that exact time, not the end of the
