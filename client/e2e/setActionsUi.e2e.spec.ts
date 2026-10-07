@@ -34,7 +34,7 @@ test("a set Update with a Rows filter reports its row counts in Test", async ({ 
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
     await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
-    await frame.getByRole("combobox", { name: "Action type" }).click();
+    await frame.getByRole("combobox", { name: "Type", exact: true }).click();
     await frame.getByRole("option", { name: CHOICE.actionType.updateRecord, exact: true }).click();
     await frame.getByRole("combobox", { name: "Target node" }).click();
     await frame.getByRole("option", { name: /_line \(each row\)$/ }).click();

@@ -111,7 +111,7 @@ async function openCalculationMapping(page: Page, appId: string, ruleName: strin
   await frame.getByRole("button", { name: "Add action" }).click();
   await frame.getByRole("button", { name: /^Edit action 1/ }).click();
 
-  const type = frame.getByRole("combobox", { name: "Action type" });
+  const type = frame.getByRole("combobox", { name: "Type", exact: true });
   await type.click();
   await frame.getByRole("option", { name: CHOICE.actionType.updateRecord, exact: true }).click();
 
@@ -244,8 +244,8 @@ test("a filtered aggregate authored in the Map columns dialog persists expressio
 
     const op = dlg.getByRole("combobox", { name: "Filter operator" });
     await op.click();
-    // NodeFilterBuilder uses its OWN operator labels (OP_LABEL), "Greater than", not the global
-    // choice's "Greater Than".
+    // NodeFilterBuilder uses its OWN operator labels (OP_LABEL), "Greater than", not the
+    // condition panel's phrase ("is more than").
     await frame.getByRole("option", { name: "Greater than", exact: true }).click();
 
     await dlg.getByRole("textbox", { name: "Filter value" }).fill("100");

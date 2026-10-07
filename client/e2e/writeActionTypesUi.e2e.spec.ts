@@ -35,7 +35,7 @@ const actionOf = async (ruleId: string) => {
 async function addActionOfType(frame: Awaited<ReturnType<typeof openRuleFromHub>>, label: string) {
   await frame.getByRole("button", { name: "Add action" }).click();
   await frame.getByRole("button", { name: /^Edit action 1/ }).click();
-  const type = frame.getByRole("combobox", { name: "Action type" });
+  const type = frame.getByRole("combobox", { name: "Type", exact: true });
   await type.click();
   await frame.getByRole("option", { name: label, exact: true }).click();
 }

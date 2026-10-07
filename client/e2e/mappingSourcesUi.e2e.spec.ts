@@ -116,7 +116,7 @@ async function openCreateRecordMapping(
   await frame.getByRole("button", { name: "Add action" }).click();
   await frame.getByRole("button", { name: /^Edit action 1/ }).click();
 
-  const type = frame.getByRole("combobox", { name: "Action type" });
+  const type = frame.getByRole("combobox", { name: "Type", exact: true });
   await type.click();
   await frame.getByRole("option", { name: CHOICE.actionType.createRecord, exact: true }).click();
 

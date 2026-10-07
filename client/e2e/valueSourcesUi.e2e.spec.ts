@@ -3,14 +3,17 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createRuleFixture } from "./devHelpers";
-import { openRuleFromHub, toolbar, pickFromCombobox, toast, unsavedCount } from "./editorHarness";
+import {
+  openRuleFromHub, toolbar, pickFromCombobox, toast, unsavedCount, pickValueSource, valueSourceTab,
+} from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
-// The rich value sources (FieldReference, Text template and Date calculation) authored through
-// the browser UI. The dev-layer ruleBehaviorDateTemplate/Traversal suites prove the ENGINE reads
-// these payloads; this proves the editor WRITES them. The two failure modes it pins are
-// kind-gated visibility (the Text-template option only exists for a text column, Date
-// calculation only for a datetime column, driven by live metadata, not a fixture) and the
+// The rich value sources (FieldReference, Text template and Date calculation; the condition
+// panel's "Compare with" tabs "another column", "a text template", "a date calculation")
+// authored through the browser UI. The dev-layer ruleBehaviorDateTemplate/Traversal suites prove
+// the ENGINE reads these payloads; this proves the editor WRITES them. The two failure modes it
+// pins are kind-gated visibility (the text-template tab only exists for a text column, the date
+// calculation tab only for a datetime column, driven by live metadata, not a fixture) and the
 // DateExprSpec JSON envelope the editor hand-rolls (conditionValue.dateExprToComparisonValue).
 
 test.beforeAll(async () => {
@@ -42,13 +45,11 @@ async function openTheCondition(page: Parameters<typeof openRuleFromHub>[0], app
   return frame;
 }
 
-const pickColumn = pickFromCombobox;
-
-async function pickValueSource(frame: Awaited<ReturnType<typeof openRuleFromHub>>, label: string) {
-  const box = frame.getByRole("combobox", { name: "Value source" });
-  await box.click();
-  await frame.getByRole("option", { name: label, exact: true }).click();
-}
+// The condition panel's pickers ("Column", "Other column") are sentence-mode ColumnPickers:
+// options read "Display · logical", and the names are matched exactly ("Column" is a substring
+// of "Other column").
+const pickColumn = (frame: Awaited<ReturnType<typeof openRuleFromHub>>, box: string, query: string, option: RegExp) =>
+  pickFromCombobox(frame, box, query, option, { exact: true });
 
 test("FieldReference value source: right-hand column persists and the literal Value box is gone", async ({ page }) => {
   const appId = await resolveAppId();
@@ -60,11 +61,11 @@ test("FieldReference value source: right-hand column persists and the literal Va
     await pickValueSource(frame, CHOICE.valueSource.fieldReference);
 
     // Literal editing is no longer offered once the source is a field reference.
-    await expect(frame.getByRole("textbox", { name: "Value" })).toHaveCount(0);
+    await expect(frame.getByRole("textbox", { name: "Value", exact: true })).toHaveCount(0);
 
-    // "(same record)" is the default right-hand node; only the column needs choosing. The
+    // "Same record" is the default right-hand record; only the column needs choosing. The
     // picker is compatibleWith-filtered, so a non-numeric column would not even be listed.
-    await pickColumn(frame, "Right-hand column", "credit", /\(creditlimit\)/);
+    await pickColumn(frame, "Other column", "credit", /· creditlimit$/);
 
     await expect(unsavedCount(frame)).toBeVisible();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
@@ -85,14 +86,12 @@ test("Text template value source: offered only for a text column, and Insert fie
   try {
     const frame = await openTheCondition(page, appId, fixture.ruleName);
 
-    // While the LHS is Money, "Text template" must NOT be offered (kind-gated option).
-    const source = frame.getByRole("combobox", { name: "Value source" });
-    await source.click();
-    await expect(frame.getByRole("option", { name: CHOICE.valueSource.template, exact: true })).toHaveCount(0);
-    await page.keyboard.press("Escape");
+    // While the LHS is Money, "a text template" must NOT be offered (kind-gated tab).
+    await expect(valueSourceTab(frame, CHOICE.valueSource.literal)).toBeVisible();
+    await expect(valueSourceTab(frame, CHOICE.valueSource.template)).toHaveCount(0);
 
-    // Re-point the LHS at a text column; the operator list re-filters and the option appears.
-    await pickColumn(frame, "Comparison column", "account name", /\(name\)/);
+    // Re-point the LHS at a text column; the operator list re-filters and the tab appears.
+    await pickColumn(frame, "Column", "account name", /· name$/);
     const operator = frame.getByRole("combobox", { name: "Operator" });
     await operator.click();
     await frame.getByRole("option", { name: CHOICE.operator.equals, exact: true }).click();
@@ -127,8 +126,8 @@ test("Date calculation value source: builds the DateExprSpec JSON envelope Core 
   try {
     const frame = await openTheCondition(page, appId, fixture.ruleName);
 
-    // Re-point the LHS at a datetime column so the "Date calculation" option unlocks.
-    await pickColumn(frame, "Comparison column", "last used", /\(lastusedincampaign\)/);
+    // Re-point the LHS at a datetime column so the "a date calculation" tab unlocks.
+    await pickColumn(frame, "Column", "last used", /· lastusedincampaign$/);
     const operator = frame.getByRole("combobox", { name: "Operator" });
     await operator.click();
     await frame.getByRole("option", { name: CHOICE.operator.lessThan, exact: true }).click();

@@ -36,10 +36,10 @@ async function openPickerOverInspector(page: Parameters<typeof openRuleFromHub>[
   const frame = await openRuleFromHub(page, appId, ruleName);
   await frame.getByRole("button", { name: "Add condition", exact: true }).click();
   await frame.getByRole("button", { name: /^Edit condition/ }).click();
-  const columnBox = frame.getByRole("combobox", { name: "Comparison column" });
+  const columnBox = frame.getByRole("combobox", { name: "Column", exact: true });
   await columnBox.click();
   await columnBox.pressSequentially("customerid", { delay: 30 });
-  await frame.getByRole("option", { name: /\(sample_customerid\)/ }).click();
+  await frame.getByRole("option", { name: /· sample_customerid$/ }).click();
   await frame.getByRole("button", { name: "Browse…" }).click();
   await frame.getByRole("checkbox").waitFor();
   return frame;

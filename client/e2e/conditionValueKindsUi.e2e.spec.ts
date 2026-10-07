@@ -5,7 +5,10 @@ import { ENTITY_SET, LOOKUP, BIND_NAV } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { configsVisible } from "../test-dev/ruleBehavior/settle";
 import { resolveAppId, createZzRootConfig, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, toolbar, pickFromCombobox, toast, unsavedCount } from "./editorHarness";
+import {
+  openRuleFromHub, toolbar, pickFromCombobox, toast, unsavedCount, pickOperator, pickConditionType,
+  pickValueSource, valueSourceTab, conditionRow,
+} from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // Condition literals and operator gating, authored against real org metadata in a browser, plus a
@@ -60,31 +63,28 @@ const byColumn = (rows: Record<string, unknown>[], col: string) => {
 };
 
 // Adds a condition to the (single) group and opens the NEWEST one. A freshly added condition has
-// no node and no column, so conditionParts leaves its aria-label as the bare "Edit condition"
-// (labels.ts:53), and .last() is what distinguishes it from the ones already configured, since
-// the tree renders group.conditions in creation order.
+// no column, so its row reads "Edit condition (no column)", and .last() is what distinguishes it
+// from the ones already configured, since the tree renders group.conditions in creation order.
 async function addConditionAndOpen(frame: FrameLocator) {
   await frame.getByRole("button", { name: "Add condition", exact: true }).click();
   await frame.getByRole("button", { name: /^Edit condition/ }).last().click();
 }
 
-async function bindNode(frame: FrameLocator, nodeName: string) {
-  const node = frame.getByRole("combobox", { name: "Table-config node", exact: true });
+// Binds the open condition to the ROOT node in the "On" dropdown, which only renders when the
+// data model has more than one node and names the root "This <table display name>" (the only
+// option starting "This "). On a root-only config there is no dropdown: a new condition is
+// already bound to the root, the only node.
+async function bindRootNode(frame: FrameLocator) {
+  const node = frame.getByRole("combobox", { name: "On", exact: true });
   await node.click();
-  await frame.getByRole("option", { name: nodeName, exact: true }).click();
+  await frame.getByRole("option", { name: /^This / }).click();
 }
 
-// Re-opens an already-configured condition from the tree. Its aria-label is
-// `Edit condition <node> <column>` (GraphTree.tsx:135). Operator and value are NOT part of it,
-// so this name is stable across the very kind changes this file drives.
-async function openCondition(frame: FrameLocator, node: string, column: string) {
-  await frame.getByRole("button", { name: `Edit condition ${node} ${column}`, exact: true }).click();
-}
-
-async function pickOperator(frame: FrameLocator, label: string) {
-  const box = frame.getByRole("combobox", { name: "Operator" });
-  await box.click();
-  await frame.getByRole("option", { name: label, exact: true }).click();
+// Re-opens an already-configured condition from the tree by its logical column (conditionRow).
+// The row's name carries the operator phrase, which this file changes; the column's logical
+// name does not change, so this locator is stable across the very kind changes this file drives.
+async function openCondition(frame: FrameLocator, column: string) {
+  await conditionRow(frame, column).click();
 }
 
 test("condition literals for Choice, Yes/No and Multi-select persist the option VALUE, never its label", async ({ page }) => {
@@ -99,14 +99,13 @@ test("condition literals for Choice, Yes/No and Multi-select persist the option 
     await frame.getByRole("button", { name: "Add group" }).first().click();
 
     // --- 1. Choice (Picklist) on sample_status: 1 Draft … 5 Cancelled ------------------------
+    // Root-only config: no "On" dropdown, and the new condition is already on the root node.
     await addConditionAndOpen(frame);
-    await bindNode(frame, CFG);
-    await pickFromCombobox(frame, "Comparison column", "status", /\(sample_status\)/);
+    await pickFromCombobox(frame, "Column", "status", /· sample_status$/, { exact: true });
     // A Choice column is EQUALITY-only (operatorSupport.ts:23), asserted head-on in the
-    // operator-gating case below. Here the point is just that Equals is reachable.
+    // operator-gating case below. Here the point is just that Equals ("is") is reachable.
     await pickOperator(frame, CHOICE.operator.equals);
-    // exact:true is load-bearing: role-name matching is substring based and the sibling combobox
-    // is labelled "Value source".
+    // exact:true is load-bearing: role-name matching is substring based.
     const statusValue = frame.getByRole("combobox", { name: "Value", exact: true });
     await statusValue.click();
     // OptionSetPicker renders "<label> (<value>)" so the option a human clicks names both halves,
@@ -115,8 +114,7 @@ test("condition literals for Choice, Yes/No and Multi-select persist the option 
 
     // --- 2. Boolean on sample_isexpedited, org labels Yes/No (create-schema.py add_bool) -------
     await addConditionAndOpen(frame);
-    await bindNode(frame, CFG);
-    await pickFromCombobox(frame, "Comparison column", "expedited", /\(sample_isexpedited\)/);
+    await pickFromCombobox(frame, "Column", "expedited", /· sample_isexpedited$/, { exact: true });
     await pickOperator(frame, CHOICE.operator.equals);
     const boolValue = frame.getByRole("combobox", { name: "Value", exact: true });
     await boolValue.click();
@@ -124,8 +122,7 @@ test("condition literals for Choice, Yes/No and Multi-select persist the option 
 
     // --- 3. Multi-select on sample_ordertags: 1 Gift, 2 Fragile, 3 Rush -----------------------
     await addConditionAndOpen(frame);
-    await bindNode(frame, CFG);
-    await pickFromCombobox(frame, "Comparison column", "ordertags", /\(sample_ordertags\)/);
+    await pickFromCombobox(frame, "Column", "ordertags", /· sample_ordertags$/, { exact: true });
     // multiselect is a TEXTUAL kind (operatorSupport.ts:20), so Contains is offered, and Contains
     // is the operator the engine's CSV containment path actually uses.
     await pickOperator(frame, CHOICE.operator.contains);
@@ -172,8 +169,7 @@ test("condition literals for Choice, Yes/No and Multi-select persist the option 
     // label, or every author who reopens the rule reads a bare integer and cannot tell which
     // option it is. This is the first time that resolver has run against real org metadata.
     const reloaded = await openRuleFromHub(page, appId, rule.ruleName);
-    const rowFor = (col: string) =>
-      reloaded.getByRole("button", { name: `Edit condition ${CFG} ${col}`, exact: true });
+    const rowFor = (col: string) => conditionRow(reloaded, col);
     await expect(rowFor("sample_status")).toContainText("Submitted");
     await expect(rowFor("sample_isexpedited")).toContainText("Yes");
     // resolvePicklistLabel (labels.ts:5-17) joins the CSV back with ", ".
@@ -195,17 +191,16 @@ test("changing the comparison column's KIND re-gates the operator list and clear
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
     await frame.getByRole("button", { name: "Add group" }).first().click();
-    await addConditionAndOpen(frame);
-    await bindNode(frame, CFG);
+    await addConditionAndOpen(frame); // root-only config: already bound to the root node
 
-    // --- TEXT column: the textual operator set, and Text template unlocked ------------------
-    await pickFromCombobox(frame, "Comparison column", "contactemail", /\(sample_contactemail\)/);
+    // --- TEXT column: the textual operator set, and "a text template" unlocked --------------
+    await pickFromCombobox(frame, "Column", "contactemail", /· sample_contactemail$/, { exact: true });
 
     const operator = frame.getByRole("combobox", { name: "Operator" });
     await operator.click();
     // allowedOperators("text") === TEXTUAL === [1,2,7,8,9,10]: Contains in, the four ordered
     // comparisons out. Asserting the ABSENCE is the half no spec has ever made: offering
-    // "Greater Than" on a text column is a rule that authors cleanly and fails at Validate.
+    // "is more than" on a text column is a rule that authors cleanly and fails at Validate.
     await expect(frame.getByRole("option", { name: CHOICE.operator.contains, exact: true })).toHaveCount(1);
     await expect(frame.getByRole("option", { name: CHOICE.operator.isNull, exact: true })).toHaveCount(1);
     await expect(frame.getByRole("option", { name: CHOICE.operator.greaterThan, exact: true }),
@@ -213,9 +208,7 @@ test("changing the comparison column's KIND re-gates the operator list and clear
     await expect(frame.getByRole("option", { name: CHOICE.operator.lessThanOrEqual, exact: true })).toHaveCount(0);
     await frame.getByRole("option", { name: CHOICE.operator.contains, exact: true }).click();
 
-    const source = frame.getByRole("combobox", { name: "Value source" });
-    await source.click();
-    await frame.getByRole("option", { name: CHOICE.valueSource.template, exact: true }).click();
+    await pickValueSource(frame, CHOICE.valueSource.template);
     await frame.getByPlaceholder("Text with {fields}: use Insert field").fill(TEMPLATE);
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
@@ -233,13 +226,14 @@ test("changing the comparison column's KIND re-gates the operator list and clear
     // A successful save CLOSES THE INSPECTOR: RuleEditorApp.tsx:166 resets selection to
     // { kind: "rule" } because the graph is re-read from the server and every id in the old
     // selection is stale. Every inspector control therefore has to be re-opened after each Save;
-    // without this the "Comparison column" combobox simply does not exist and the spec sits until
-    // its 3-minute timeout with "Rule properties" in the right-hand pane (measured).
-    await openCondition(frame, CFG, "sample_contactemail");
-    await pickFromCombobox(frame, "Comparison column", "ordertotal", /\(sample_ordertotal\)/);
+    // without this the "Column" combobox simply does not exist and the spec sits until its
+    // 3-minute timeout with the rule's settings in the right-hand pane (measured).
+    await openCondition(frame, "sample_contactemail");
+    await pickFromCombobox(frame, "Column", "ordertotal", /· sample_ordertotal$/, { exact: true });
 
     // (a) the operator the new kind cannot express is dropped from the control
-    // (ConditionInspector.tsx:234-236). Not "replaced" but cleared, so the author must choose again.
+    // (ConditionInspector's metadata effect, operatorStillValid). Not "replaced" but cleared, so
+    // the author must choose again.
     await expect(operator, "Contains must not survive a text -> number column change").not.toContainText(CHOICE.operator.contains);
     // (b) the list itself re-gates the other way: ordered in, textual out.
     await operator.click();
@@ -248,15 +242,14 @@ test("changing the comparison column's KIND re-gates the operator list and clear
       "Contains must not be offered for a Money column").toHaveCount(0);
     await page.keyboard.press("Escape");
 
-    // (c) the VALUE EDITOR swaps back: Text template is kind-gated off (:83-85) and the editor
-    // drops to Literal (:237-239), so the template textarea is gone and the plain Value box is
-    // back, empty, because the template payload was cleared with it.
+    // (c) the VALUE EDITOR swaps back: the "a text template" tab is kind-gated off
+    // (ValueSourceTabs) and the editor drops to "a value" (the metadata effect), so the template
+    // textarea is gone and the plain Value box is back, empty, because the template payload was
+    // cleared with it.
     await expect(frame.getByPlaceholder("Text with {fields}: use Insert field")).toHaveCount(0);
-    await expect(source).toContainText(CHOICE.valueSource.literal);
-    await source.click();
-    await expect(frame.getByRole("option", { name: CHOICE.valueSource.template, exact: true })).toHaveCount(0);
-    await page.keyboard.press("Escape");
-    await expect(frame.getByRole("textbox", { name: "Value" })).toHaveValue("");
+    await expect(valueSourceTab(frame, CHOICE.valueSource.literal)).toHaveAttribute("aria-selected", "true");
+    await expect(valueSourceTab(frame, CHOICE.valueSource.template)).toHaveCount(0);
+    await expect(frame.getByRole("textbox", { name: "Value", exact: true })).toHaveValue("");
 
     // Save with NOTHING re-picked. This is the whole point: whatever the UI shows, the row is what
     // the engine reads, and a stale operator/value that merely stopped rendering still fires.
@@ -272,7 +265,7 @@ test("changing the comparison column's KIND re-gates the operator list and clear
       "the template payload must not survive as a literal — '{root.sample_name}' compared against a Money column matches nothing").toBeNull();
 
     // --- Finish the rule so the gating is proven on a shape that is actually publishable -----
-    await openCondition(frame, CFG, "sample_ordertotal"); // the save above closed the inspector
+    await openCondition(frame, "sample_ordertotal"); // the save above closed the inspector
     await pickOperator(frame, CHOICE.operator.greaterThan);
     await frame.getByRole("textbox", { name: "Value" }).fill("250");
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
@@ -283,19 +276,17 @@ test("changing the comparison column's KIND re-gates the operator list and clear
     expect(c.asx_comparisonvalue).toBe("250");
 
     // --- The Expression condition's SEPARATE operator list (allowedOperatorsForExpression) ----
-    // Six numeric operators, no Contains and no Is Null: a different function from
+    // Six numeric operators, no "contains" and no "is empty": a different function from
     // allowedOperators(kind), asserted nowhere in a browser. This condition is deliberately never
     // saved; only the gating is under test.
     await addConditionAndOpen(frame);
-    const type = frame.getByRole("combobox", { name: "Condition type" });
-    await type.click();
-    await frame.getByRole("option", { name: CHOICE.conditionType.expression, exact: true }).click();
+    await pickConditionType(frame, CHOICE.conditionType.expression);
     const exprOperator = frame.getByRole("combobox", { name: "Operator" });
     await exprOperator.click();
     await expect(frame.getByRole("option")).toHaveCount(6);
     await expect(frame.getByRole("option", { name: CHOICE.operator.contains, exact: true })).toHaveCount(0);
     await expect(frame.getByRole("option", { name: CHOICE.operator.isNull, exact: true }),
-      "an expression always evaluates to a value or none — Is Null is not expressible").toHaveCount(0);
+      "an expression always evaluates to a value or none — is empty is not expressible").toHaveCount(0);
     await page.keyboard.press("Escape");
   } finally {
     await rule.cleanup();
@@ -305,15 +296,15 @@ test("changing the comparison column's KIND re-gates the operator list and clear
 
 // =================================================================================================
 // REGRESSION PIN. When the right-hand record is a related node on a DIFFERENT table, the
-// Right-hand COLUMN picker must offer THAT table's columns.
+// "Other column" picker must offer THAT table's columns.
 //
-//   ConditionInspector.tsx:220
+//   ConditionInspector.tsx (ConditionInspector)
 //     const tcTable = condition.tableConfigId
 //       ? tableConfigs[condition.tableConfigId]?.tableLogicalName ?? ruleTable
 //       : ruleTable;                       // <- the CONDITION'S OWN node
 //
-//   ConditionInspector.tsx:112-119   the "Right-hand node" Dropdown patches comparisonValueNodeId
-//   ConditionInspector.tsx:121-131   the "Right-hand column" ColumnPicker is handed a `table` prop
+//   ConditionInspector.tsx (ComparisonValueEditor)  the "Other column's record" Dropdown patches
+//     comparisonValueNodeId, and the "Other column" ColumnPicker is handed a `table` prop
 //
 // A picker that resolves its table from `tcTable` alone never consults comparisonValueNodeId: the
 // author points the right-hand side at, say, the Customer node and the column list below it still
@@ -321,7 +312,7 @@ test("changing the comparison column's KIND re-gates the operator list and clear
 // believing it is a Customer column. The rule saves, validates and publishes; at runtime the
 // engine reads that column off the Customer row, where it does not exist: a silently wrong
 // comparison, with nothing an author can see. The right-hand table must therefore be resolved from
-// comparisonValueNodeId, falling back to tcTable so "(same record)" keeps its behaviour, and
+// comparisonValueNodeId, falling back to tcTable so "Same record" keeps its behaviour, and
 // `compatibleWith={kind}` must STAY: a cross-table comparison still has to be type-compatible.
 // A regression that re-points the picker at the condition's own node fails here.
 //
@@ -355,37 +346,35 @@ test("a right-hand node on a DIFFERENT table offers THAT table's columns (regres
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
     await frame.getByRole("button", { name: "Add group" }).first().click();
     await addConditionAndOpen(frame);
-    await bindNode(frame, CFG); // the condition itself is on sample_order
+    await bindRootNode(frame); // the condition itself is on sample_order (root + lookup: "On" renders)
 
     // LHS is a Money column, so the RHS picker is compatibleWith="number" on either table.
-    await pickFromCombobox(frame, "Comparison column", "ordertotal", /\(sample_ordertotal\)/);
+    await pickFromCombobox(frame, "Column", "ordertotal", /· sample_ordertotal$/, { exact: true });
     await pickOperator(frame, CHOICE.operator.lessThanOrEqual);
 
-    const source = frame.getByRole("combobox", { name: "Value source" });
-    await source.click();
-    await frame.getByRole("option", { name: CHOICE.valueSource.fieldReference, exact: true }).click();
+    await pickValueSource(frame, CHOICE.valueSource.fieldReference);
 
-    const rhsNode = frame.getByRole("combobox", { name: "Right-hand node" });
-    await expect(rhsNode, "the default right-hand record is the triggering record itself").toContainText("(same record)");
+    const rhsNode = frame.getByRole("combobox", { name: "Other column's record", exact: true });
+    await expect(rhsNode, "the default right-hand record is the triggering record itself").toContainText("Same record");
     await rhsNode.click();
     await frame.getByRole("option", { name: `${CFG}_cust`, exact: true }).click();
     await expect(rhsNode).toContainText(`${CFG}_cust`);
 
     // Open the picker with an EMPTY query so it lists every compatible column of whichever table
     // it resolved: no typing, so a red here cannot be blamed on a filter miss.
-    const rhsColumn = frame.getByRole("combobox", { name: "Right-hand column" });
+    const rhsColumn = frame.getByRole("combobox", { name: "Other column", exact: true });
     await rhsColumn.click();
     await frame.getByRole("option").first().waitFor({ state: "visible", timeout: 30_000 });
 
     await expect(
-      frame.getByRole("option", { name: /\(sample_creditlimit\)/ }),
+      frame.getByRole("option", { name: /· sample_creditlimit$/ }),
       "the right-hand column picker must list the RIGHT-HAND NODE's table (sample_customer). "
-      + "ConditionInspector.tsx:126 passes tcTable — the CONDITION's own node — so it lists "
-      + "sample_order instead, and the author picks an Order column believing it is a Customer one.",
+      + "Passing tcTable — the CONDITION's own node — lists sample_order instead, and the "
+      + "author picks an Order column believing it is a Customer one.",
     ).toHaveCount(1, { timeout: 15_000 });
 
     await expect(
-      frame.getByRole("option", { name: /\(sample_ordertotal\)/ }),
+      frame.getByRole("option", { name: /· sample_ordertotal$/ }),
       "a column that exists only on the LEFT-hand table must not be offered as a right-hand column",
     ).toHaveCount(0);
   } finally {

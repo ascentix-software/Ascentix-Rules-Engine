@@ -34,7 +34,7 @@ test("UpdateRecord with a literal mapping via the Map columns dialog writes on t
     await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
 
-    const typeBox = frame.getByRole("combobox", { name: "Action type" });
+    const typeBox = frame.getByRole("combobox", { name: "Type", exact: true });
     await typeBox.click();
     await frame.getByRole("option", { name: /Update ?Record/i }).click();
 

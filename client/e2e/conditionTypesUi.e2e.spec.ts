@@ -3,12 +3,13 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createOrderConfigTree, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, toolbar, checkNoIssues, toast, unsavedCount } from "./editorHarness";
+import { openRuleFromHub, toolbar, checkNoIssues, toast, unsavedCount, pickConditionType } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
-// Authoring all four condition types in a real browser: the Condition-type dropdown swapping the
-// inspector's body, the count-mode dropdown's min/max seeding (countMode.applyCountMode), the
-// regex Pattern input, and the math-expression editor. The engine side of these types is proven
+// Authoring all four condition types in a real browser: the Condition type switch (Compare /
+// Count rows / Pattern / Calculation) swapping the panel's body, the Count rows editor's
+// "Count" dropdown (has at least / has at most / has between / has no) and its min/max seeding
+// (ConditionInspector CountRowsEditor), the Pattern input, and the math-expression editor. The engine side of these types is proven
 // live by the ruleBehavior suites. What runs here is the AUTHORING side, against real Fluent
 // dropdowns and live Dataverse metadata. Each case saves and reads the row back through the API.
 
@@ -45,13 +46,7 @@ async function addConditionAndOpen(frame: Awaited<ReturnType<typeof openRuleFrom
   await frame.getByRole("button", { name: /^Edit condition/ }).click();
 }
 
-async function pickConditionType(frame: Awaited<ReturnType<typeof openRuleFromHub>>, label: string) {
-  const box = frame.getByRole("combobox", { name: "Condition type" });
-  await box.click();
-  await frame.getByRole("option", { name: label, exact: true }).click();
-}
-
-test("RowCount authored in the UI: count mode 'At least one (exists)' seeds min=1/max=null", async ({ page }) => {
+test("RowCount authored in the UI: 'has at least 1' persists min=1/max=null", async ({ page }) => {
   const appId = await resolveAppId();
   const cfg = await createOrderConfigTree("condui_rc");
   const rule = await createRuleOnConfig({
@@ -61,19 +56,22 @@ test("RowCount authored in the UI: count mode 'At least one (exists)' seeds min=
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
     await addConditionAndOpen(frame);
 
-    // Bind the condition to the CHILD collection: RowCount over the root record is meaningless
-    // and the node-filter section only unlocks for a ChildTable node.
-    const node = frame.getByRole("combobox", { name: "Table-config node" });
+    await pickConditionType(frame, CHOICE.conditionType.rowCount);
+
+    // Bind the condition to the CHILD collection: RowCount over the root record is meaningless,
+    // and "Rows of" lists only the collection (ChildTable) nodes.
+    const node = frame.getByRole("combobox", { name: "Rows of", exact: true });
     await node.click();
     await frame.getByRole("option", { name: /_line$/ }).click();
 
-    await pickConditionType(frame, CHOICE.conditionType.rowCount);
-
-    // The friendly count-mode dropdown is the only way to set min/max in the UI.
-    const mode = frame.getByRole("combobox", { name: "Row count mode" });
+    // The Count dropdown plus its row-count inputs are the only way to set min/max in the UI.
+    // "has at least" is what a new condition reads, but nothing is stored until a count is
+    // typed: the old "At least one (exists)" is has at least + 1.
+    const mode = frame.getByRole("combobox", { name: "Count", exact: true });
     await expect(mode).toBeVisible();
     await mode.click();
-    await frame.getByRole("option", { name: "At least one (exists)" }).click();
+    await frame.getByRole("option", { name: "has at least", exact: true }).click();
+    await frame.getByRole("spinbutton", { name: "Minimum rows" }).fill("1");
 
     await expect(unsavedCount(frame)).toBeVisible();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
@@ -90,7 +88,7 @@ test("RowCount authored in the UI: count mode 'At least one (exists)' seeds min=
   }
 });
 
-test("RowCount 'Between N and M' authored in the UI persists both bounds", async ({ page }) => {
+test("RowCount 'has between' authored in the UI persists both bounds", async ({ page }) => {
   const appId = await resolveAppId();
   const cfg = await createOrderConfigTree("condui_rb");
   const rule = await createRuleOnConfig({
@@ -100,25 +98,25 @@ test("RowCount 'Between N and M' authored in the UI persists both bounds", async
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
     await addConditionAndOpen(frame);
 
-    const node = frame.getByRole("combobox", { name: "Table-config node" });
+    await pickConditionType(frame, CHOICE.conditionType.rowCount);
+    const node = frame.getByRole("combobox", { name: "Rows of", exact: true });
     await node.click();
     await frame.getByRole("option", { name: /_line$/ }).click();
-    await pickConditionType(frame, CHOICE.conditionType.rowCount);
 
-    const mode = frame.getByRole("combobox", { name: "Row count mode" });
+    const mode = frame.getByRole("combobox", { name: "Count", exact: true });
     await mode.click();
-    await frame.getByRole("option", { name: "Between N and M" }).click();
+    await frame.getByRole("option", { name: "has between", exact: true }).click();
 
-    // applyCountMode seeds min=1/max=2; overwrite both so the inputs themselves are proven.
-    // Maximum first is historical: before the CountModeFields fix, raising the minimum to the
-    // current maximum made min === max for one keystroke, deriveRowCountMode reported "exactly",
+    // "has between" seeds min=1/max=2; overwrite both so the inputs themselves are proven.
+    // Maximum first is historical: before the count-mode fix, raising the minimum to the
+    // current maximum made min === max for one keystroke, the derived mode reported "exactly",
     // and the two inputs collapsed into one, so this case had to avoid that ordering to test
     // anything else. The mode is now held in component state and no longer snaps, and the
-    // min-first ordering is asserted head-on by the last case in this file (green since the
-    // deploy that fixed it). The order here is therefore arbitrary; it is kept only so this case
-    // keeps exercising both inputs independently of that one.
-    await frame.getByRole("spinbutton", { name: "Maximum" }).fill("5");
-    await frame.getByRole("spinbutton", { name: "Minimum" }).fill("2");
+    // min-first ordering is asserted head-on by the last case in this file. The order here is
+    // therefore arbitrary; it is kept only so this case keeps exercising both inputs
+    // independently of that one.
+    await frame.getByRole("spinbutton", { name: "Maximum rows" }).fill("5");
+    await frame.getByRole("spinbutton", { name: "Minimum rows" }).fill("2");
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
@@ -145,13 +143,13 @@ test("RegexMatch authored in the UI persists the column and the pattern", async 
     await addConditionAndOpen(frame);
     await pickConditionType(frame, CHOICE.conditionType.regexMatch);
 
-    // RegexMatch swaps the FieldComparison body for a plain "Column" picker + Pattern input.
-    const column = frame.getByRole("combobox", { name: "Column" });
+    // Pattern swaps the Compare body for a "Column" picker, "matches", and a Pattern input.
+    const column = frame.getByRole("combobox", { name: "Column", exact: true });
     await column.click();
     await column.pressSequentially("postal", { delay: 30 });
-    await frame.getByRole("option", { name: /\(sample_shippingpostalcode\)/ }).click();
+    await frame.getByRole("option", { name: /· sample_shippingpostalcode$/ }).click();
 
-    await frame.getByRole("textbox", { name: "Pattern (regex)" }).fill(PATTERN);
+    await frame.getByRole("textbox", { name: "Pattern", exact: true }).fill(PATTERN);
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
@@ -220,20 +218,17 @@ test("Expression authored in the UI: Insert aggregate builds a sum() token that 
 });
 
 // ---------------------------------------------------------------------------------------------
-// REGRESSION PIN. Deriving the row-count mode from the STORED pair on every render
-// (countMode.deriveRowCountMode) makes "Between N and M" unstable while it is being typed: a
-// Minimum that transiently equals the Maximum satisfies `min === max`, the dropdown snaps to
-// "Exactly N", collapsing the Minimum/Maximum pair into a single "Count" box and discarding the
-// range the user was halfway through entering. applyCountMode's `atLeast` branch guards the
-// neighbouring overlap the same way: it seeds >= 2 precisely so "At least 1" cannot collapse
-// into "At least one (exists)".
+// REGRESSION PIN. Deriving the row-count mode from the STORED pair on every render makes
+// "has between" unstable while it is being typed: a minimum that transiently equals the maximum
+// satisfies `min === max`, the mode snaps to a single-count shape, collapsing the Minimum rows /
+// Maximum rows pair into one input and discarding the range the user was halfway through
+// entering. Between with equal bounds is also how "exactly N" is expressed now, so it must hold.
 //
-// CountModeFields holds the chosen mode in component state and only re-derives it when the
-// stored pair arrives from OUTSIDE the component (selecting a different condition), and
-// canExpress() breaks the exactly/between overlap deriveRowCountMode cannot resolve. Unit-pinned
-// by test/editor/rowCountMode.dom.test.tsx. This case pins the same behaviour against real
-// Fluent controls, so a regression that re-derives the mode mid-edit fails here.
-test("RowCount 'Between N and M' keeps both inputs while the minimum is typed up to the maximum", async ({ page }) => {
+// CountRowsEditor (ConditionInspector.tsx) holds the chosen Count op in component state and
+// only re-derives it when the stored pair arrives from OUTSIDE the component (selecting a
+// different condition), keeping "between" while both bounds are set. This case pins that
+// against real Fluent controls, so a regression that re-derives the mode mid-edit fails here.
+test("RowCount 'has between' keeps both inputs while the minimum is typed up to the maximum", async ({ page }) => {
   const appId = await resolveAppId();
   const cfg = await createOrderConfigTree("condui_rbx");
   const rule = await createRuleOnConfig({
@@ -242,22 +237,22 @@ test("RowCount 'Between N and M' keeps both inputs while the minimum is typed up
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
     await addConditionAndOpen(frame);
-    const node = frame.getByRole("combobox", { name: "Table-config node" });
+    await pickConditionType(frame, CHOICE.conditionType.rowCount);
+    const node = frame.getByRole("combobox", { name: "Rows of", exact: true });
     await node.click();
     await frame.getByRole("option", { name: /_line$/ }).click();
-    await pickConditionType(frame, CHOICE.conditionType.rowCount);
 
-    const mode = frame.getByRole("combobox", { name: "Row count mode" });
+    const mode = frame.getByRole("combobox", { name: "Count", exact: true });
     await mode.click();
-    await frame.getByRole("option", { name: "Between N and M" }).click();
+    await frame.getByRole("option", { name: "has between", exact: true }).click();
 
     // Seeded min=1/max=2. Raise the minimum to 2: the user's next keystroke would be the
-    // maximum. The editor must STAY in "Between N and M" and keep both inputs mounted.
-    await frame.getByRole("spinbutton", { name: "Minimum" }).fill("2");
-    await expect(mode).toContainText("Between N and M");
-    await expect(frame.getByRole("spinbutton", { name: "Maximum" })).toBeVisible();
+    // maximum. The editor must STAY in "has between" and keep both inputs mounted.
+    await frame.getByRole("spinbutton", { name: "Minimum rows" }).fill("2");
+    await expect(mode).toContainText("has between");
+    await expect(frame.getByRole("spinbutton", { name: "Maximum rows" })).toBeVisible();
 
-    await frame.getByRole("spinbutton", { name: "Maximum" }).fill("5");
+    await frame.getByRole("spinbutton", { name: "Maximum rows" }).fill("5");
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 

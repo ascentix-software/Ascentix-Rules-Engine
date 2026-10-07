@@ -3,15 +3,15 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createRuleFixture, deleteRuleCascade, readFiresWhen, outcomesOf } from "./devHelpers";
-import { openRuleFromHub, toolbar, toast, unsavedCount } from "./editorHarness";
+import { openRuleFromHub, toolbar, toast, unsavedCount, whenSection } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The THEN band's own row controls, driven in a real browser: Move up / Move down (which rewrite
-// asx_order for the whole list), Delete action, the Active switch, Fires when, and Severity. Those
+// asx_order for the whole list), Delete action, the Active switch, When, and Severity. Those
 // are exactly the fields that decide whether a published rule fires and how hard, so a silent
 // regression there is a shipped enforcement bug. The second test authors an action translation
-// through the Translations dropdown. Oracle: the persisted asx_order / asx_severity
-// / asx_isactive, the action's Fires when tree (asx_actionconditiongroup / asx_actionconditiontest),
+// through the Translations "Add translation" menu. Oracle: the persisted asx_order / asx_severity
+// / asx_isactive, the action's When tree (asx_actionconditiongroup / asx_actionconditiontest),
 // and the asx_localizedmessage child row, on the records the UI wrote.
 
 test.beforeAll(async () => {
@@ -31,7 +31,7 @@ const actionsOf = async (ruleId: string) => {
   return r.entities as Record<string, unknown>[];
 };
 
-test("action row controls: severity, Fires when, Active off, reorder and delete all persist", async ({ page }) => {
+test("action row controls: severity, When, Active off, reorder and delete all persist", async ({ page }) => {
   const appId = await resolveAppId();
   // Bare rule (no action): the UI authors both actions from scratch.
   const fixture = await createRuleFixture({ namePrefix: "ZZ_RB_actui", withAction: false, validate: false });
@@ -52,14 +52,14 @@ test("action row controls: severity, Fires when, Active off, reorder and delete 
     await frame.getByRole("option", { name: CHOICE.severity.warning, exact: true }).click();
 
     // A new action fires Always; narrow it to "Outcome 1 is false" (the old On No Match).
-    await frame.getByRole("button", { name: "+ Add test" }).click();
+    await whenSection(frame).getByRole("button", { name: "Add test", exact: true }).click();
     await frame.getByRole("combobox", { name: "Result" }).click();
     await frame.getByRole("option", { name: "is false", exact: true }).click();
 
     // --- Action 2: Block, and deactivated ---------------------------------------------------
     await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 2/ }).click();
-    const type = frame.getByRole("combobox", { name: "Action type" });
+    const type = frame.getByRole("combobox", { name: "Type", exact: true });
     await type.click();
     await frame.getByRole("option", { name: CHOICE.actionType.block, exact: true }).click();
     await frame.getByRole("textbox", { name: "Block message" }).fill("ZZ_RB second action");
@@ -76,7 +76,7 @@ test("action row controls: severity, Fires when, Active off, reorder and delete 
     expect(rows[1].asx_actiontype).toBe(4); // Block
     expect(rows[1].asx_isactive).toBe(false);
 
-    // Fires when: action 1 is a root ALL holding one test, "the outcome is false"; action 2 was
+    // When: action 1 is a root ALL holding one test, "the outcome is false"; action 2 was
     // never narrowed, so it is an empty root ALL (Always).
     const [outcome] = await outcomesOf(fixture.ruleId);
     expect(outcome, "the editor persisted no outcome").toBeTruthy();
@@ -137,16 +137,13 @@ test("localized message authored in the UI persists as an asx_localizedmessage c
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
 
-    // "Translations (fallback = message above)", a placeholder-only Dropdown adds a row.
-    // The add-language Dropdown's accessible name is its Field LABEL, not its placeholder
-    // (Fluent associates Field label → control): "+ add language" is only the visible text.
-    const addLang = frame.getByRole("combobox", { name: "Translations (fallback = message above)" });
-    await addLang.click();
-    await frame.getByRole("option", { name: /French \(1036\)/ }).click();
-
-    // The new row's input is the only textbox that follows the French label.
-    const row = frame.getByText("French (1036)").locator("xpath=..");
-    await row.getByRole("textbox").fill("ZZ_RB message en français");
+    // Translations: "Add translation" opens a menu of languages (the LCID is the item's secondary
+    // text, so the name starts with the language). Each translation row then names its own
+    // controls with the language: a "French message" textarea and a "Remove French" button.
+    await frame.getByRole("button", { name: "Add translation", exact: true }).click();
+    await frame.getByRole("menuitem", { name: /^French/ }).click();
+    await expect(frame.getByRole("button", { name: "Remove French", exact: true })).toBeVisible();
+    await frame.getByRole("textbox", { name: "French message", exact: true }).fill("ZZ_RB message en français");
 
     await expect(unsavedCount(frame)).toBeVisible();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();

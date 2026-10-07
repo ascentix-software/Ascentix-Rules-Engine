@@ -48,7 +48,7 @@ test("Also apply to the previous switch: visible and saved only while the target
     await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
 
-    const typeBox = frame.getByRole("combobox", { name: "Action type" });
+    const typeBox = frame.getByRole("combobox", { name: "Type", exact: true });
     await typeBox.click();
     await frame.getByRole("option", { name: CHOICE.actionType.updateRecord, exact: true }).click();
 

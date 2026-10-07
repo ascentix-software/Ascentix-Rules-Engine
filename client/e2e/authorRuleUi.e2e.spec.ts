@@ -29,14 +29,17 @@ test("author a condition and action fully in the UI, then save → validate → 
 
     // Column FIRST: the operator list is kind-filtered and only settles once the
     // column's metadata resolves (ConditionInspector.visibleOperators).
-    const columnBox = frame.getByRole("combobox", { name: "Comparison column" });
+    // The condition panel's column picker reads its options as "Display · logical".
+    const columnBox = frame.getByRole("combobox", { name: "Column", exact: true });
     await columnBox.click();
     await columnBox.pressSequentially("revenue", { delay: 30 });
-    await frame.getByRole("option", { name: /\(revenue\)/ }).click();
+    await frame.getByRole("option", { name: /· revenue$/ }).click();
 
+    // Operators are phrases ("is at least" = GreaterThanOrEqual); exact, because "is" is a
+    // substring of most of them.
     const operatorBox = frame.getByRole("combobox", { name: "Operator" });
     await operatorBox.click();
-    await frame.getByRole("option", { name: /Greater.*[Ee]qual|GreaterThanOrEqual/ }).first().click();
+    await frame.getByRole("option", { name: "is at least", exact: true }).click();
 
     // Literal value (default source): revenue is Money, so a plain numeric input.
     await frame.getByRole("textbox", { name: "Value" }).fill("1000");

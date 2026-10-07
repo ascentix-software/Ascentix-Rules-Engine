@@ -5,8 +5,8 @@ import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createRuleFixture, deleteRuleCascade } from "./devHelpers";
 import { openRuleFromHub, toolbar, toast } from "./editorHarness";
 
-// The WHEN bands' own structure, built through the editor UI: the validation band, the And/Or
-// toggle, subgroup nesting, and the delete affordances. Those four decide, respectively, whether
+// The WHEN bands' own structure, built through the editor UI: the validation band, the All/Any
+// toggle (And/Or), subgroup nesting, and the delete affordances. Those four decide, respectively, whether
 // a rule gates execution or reports a violation, how its conditions combine, how deep the tree
 // goes, and whether removing a node actually deletes the row rather than orphaning it.
 //
@@ -46,18 +46,19 @@ test("validation band, Or operator, and a nested subgroup all persist", async ({
   try {
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
 
-    // The validation band is the Outcomes band ("+ Add outcome"): a top-level group in it is an
+    // The validation band is the Outcomes band ("Add outcome"): a top-level group in it is an
     // outcome, and its rows must persist asx_isexecutioncondition false.
     await frame.getByRole("button", { name: "Add outcome" }).first().click();
 
     // The new outcome is auto-selected? Not necessarily. Open it explicitly: a top-level validation
-    // group reads "Edit outcome <name>" and its name field is "Outcome name".
+    // group reads "Edit outcome <name>" and its panel's name field is "Name" (required for an
+    // outcome, so its label may carry the required marker).
     await frame.getByRole("button", { name: /^Edit outcome/ }).click();
-    await frame.getByRole("textbox", { name: "Outcome name" }).fill("ZZ_RB_grpui_outer");
+    await frame.getByRole("textbox", { name: /^Name\s*\*?$/ }).fill("ZZ_RB_grpui_outer");
 
-    const op = frame.getByRole("combobox", { name: "Logical operator" });
-    await op.click();
-    await frame.getByRole("option", { name: "Or", exact: true }).click();
+    // And/Or is the "True when it matches" All / Any toggle: Any is Or.
+    await frame.getByRole("radiogroup", { name: "True when it matches" })
+      .getByRole("radio", { name: "Any", exact: true }).click();
 
     // Nest a subgroup under it via the group's "Add subgroup" link.
     await frame.getByRole("button", { name: "Add subgroup", exact: true }).click();

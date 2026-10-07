@@ -184,6 +184,62 @@ export async function openSettingsSection(frame: FrameLocator, title: string): P
   if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
 }
 
+// A condition row in the tree. Its accessible name is the sentence "Edit condition <node tag>
+// <column display name> <operator phrase>" (GraphTree ConditionRow), built from LIVE column
+// labels, so a spec that knows only the logical column finds the row by the column span's
+// title, which is the logical name.
+export function conditionRow(frame: FrameLocator, logicalColumn: string): Locator {
+  return frame.getByRole("button", { name: /^Edit condition/ })
+    .filter({ has: frame.locator(`[title="${logicalColumn}"]`) });
+}
+
+// ---- Inspector panels ---------------------------------------------------------------
+// The condition panel's mode switch: a radiogroup "Condition type" whose radios are the editor's
+// own words ("Compare", "Count rows", "Pattern", "Calculation"; see CHOICE.conditionType).
+export async function pickConditionType(frame: FrameLocator, label: string): Promise<void> {
+  await frame.getByRole("radiogroup", { name: "Condition type" })
+    .getByRole("radio", { name: label, exact: true }).click();
+}
+
+// The condition's "Operator" dropdown. Its options are phrases ("is", "is not", "is more than",
+// …; see CHOICE.operator), and "is" is a substring of most of them, so always exact.
+export async function pickOperator(frame: FrameLocator, phrase: string): Promise<void> {
+  await frame.getByRole("combobox", { name: "Operator" }).click();
+  await frame.getByRole("option", { name: phrase, exact: true }).click();
+}
+
+// The comparison's "Compare with" tabs ("a value", "another column", "a date calculation",
+// "a text template"; see CHOICE.valueSource).
+export function valueSourceTab(frame: FrameLocator, label: string): Locator {
+  return frame.getByRole("tablist", { name: "Compare with" }).getByRole("tab", { name: label, exact: true });
+}
+export async function pickValueSource(frame: FrameLocator, label: string): Promise<void> {
+  await valueSourceTab(frame, label).click();
+}
+
+// The condition panel's collapsed "More" section holds the Condition name. Its header button is
+// named "More" plus, while collapsed, its summary ("Name: automatic" / "Name: <name>"); the
+// pattern keeps it clear of "More actions", "More run options" and the "More info: …" tips.
+// Open state persists per tab session (sessionStorage asx.inspector.condition-more), so only
+// click when it isn't already open.
+export async function openConditionMore(frame: FrameLocator): Promise<void> {
+  const header = frame.getByRole("button", { name: /^More(\s*Name:.*)?$/ });
+  if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
+}
+export function conditionNameBox(frame: FrameLocator): Locator {
+  return frame.getByRole("textbox", { name: "Condition name" });
+}
+export async function setConditionName(frame: FrameLocator, name: string): Promise<void> {
+  await openConditionMore(frame);
+  await conditionNameBox(frame).fill(name);
+}
+
+// The action panel's "When" section (FiresWhenEditor). Scope its "Add group" through here: the
+// tree's Only if band header has an "Add group" button too.
+export function whenSection(frame: FrameLocator): Locator {
+  return frame.getByRole("group", { name: "When", exact: true });
+}
+
 // Save from the header, then wait for the Saved toast.
 export async function saveRule(frame: FrameLocator): Promise<void> {
   await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();

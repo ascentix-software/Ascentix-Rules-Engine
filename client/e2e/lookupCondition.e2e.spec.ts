@@ -34,14 +34,15 @@ test("lookup condition via the record picker persists the GUID and re-resolves t
     await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
-    const columnBox = frame.getByRole("combobox", { name: "Comparison column" });
+    const columnBox = frame.getByRole("combobox", { name: "Column", exact: true });
     await columnBox.click();
     await columnBox.pressSequentially("customerid", { delay: 30 });
-    await frame.getByRole("option", { name: /\(sample_customerid\)/ }).click();
+    await frame.getByRole("option", { name: /· sample_customerid$/ }).click();
 
     const operatorBox = frame.getByRole("combobox", { name: "Operator" });
     await operatorBox.click();
-    await frame.getByRole("option", { name: /^Equals$|^Equal$/ }).first().click();
+    // Operators are phrases now ("is" = Equals); exact, because "is" is a substring of most.
+    await frame.getByRole("option", { name: "is", exact: true }).click();
 
     // Browse → RecordPickerDialog (single-target lookup: no target-table dropdown).
     await frame.getByRole("button", { name: "Browse…" }).click();
