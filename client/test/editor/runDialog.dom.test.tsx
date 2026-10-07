@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { renderWithFluent, makeGraph, makeAction } from "./domFixtures";
 import type { WebApiPort, BatchApi } from "../../src/editor/webapi";
-import type { DryRunResult } from "../../src/editor/runs/dryRunFormat";
+import type { DryRunAction, DryRunResult } from "../../src/editor/runs/dryRunFormat";
 
 vi.mock("../../src/editor/runs/runDriver", () => ({
   startRun: vi.fn(),
@@ -68,8 +68,8 @@ const result: DryRunResult = {
   ],
 } as DryRunResult;
 
-async function preview(dryRun: Api["dryRun"]) {
-  renderWithFluent(<RunDialog open api={fakeApi({ dryRun })} rule={rule()} onClose={vi.fn()} onViewRuns={vi.fn()} />);
+async function preview(dryRun: Api["dryRun"], r: RunDialogRule = rule()) {
+  renderWithFluent(<RunDialog open api={fakeApi({ dryRun })} rule={r} onClose={vi.fn()} onViewRuns={vi.fn()} />);
   const dialog = screen.getByRole("dialog", { name: "Run Credit check" });
   expect(within(dialog).getByRole("button", { name: "Run preview" })).toBeDisabled();
   // The results region is mounted (and empty) before the first run, so that run is announced.
@@ -146,6 +146,49 @@ describe("RunDialog · Preview", () => {
     renderWithFluent(<RunDialog open api={fakeApi()} rule={rule({ canApply: false })} initialTab="apply" onClose={vi.fn()} onViewRuns={vi.fn()} />);
     expect(screen.getByRole("tab", { name: "Preview on a record" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Apply to records" })).toBeNull();
+  });
+});
+
+describe("RunDialog · Preview of form actions", () => {
+  const fieldMsg = makeAction({ id: "m1", actionType: "ShowMessage", message: "Low probability", targetColumn: "closeprobability" });
+  const banner = makeAction({ id: "m2", actionType: "ShowMessage", message: "Check the deal", targetColumn: null });
+  const formRule = (triggers: number[]) => {
+    const g = makeGraph({ actions: [fieldMsg, banner] });
+    g.rule.triggers = triggers;
+    return rule({ live: g });
+  };
+  const fired = (over: Partial<DryRunAction>): DryRunAction =>
+    ({ ruleId: "r1", actionType: "ShowMessage", message: null, targetTable: null, value: null, ...over });
+
+  it("On form: a field message holds the save, and each message shows its text and where", async () => {
+    const dryRun = vi.fn(async () => ({ isValid: true, changeSet: null, outcomes: [], actions: [
+      fired({ message: "Low probability", targetColumn: "closeprobability", severity: "Warning" }),
+      fired({ message: "Check the deal", targetColumn: null, severity: "Information" }),
+    ] }) as DryRunResult);
+    const { region } = await preview(dryRun, formRule([2]));
+    expect(dryRun).toHaveBeenCalledWith("account", "g1", "OnForm");
+    expect(within(region).getByText("Save would be held")).toBeInTheDocument();
+    expect(within(region).getByText(/1 field message holds the save until it clears\. Shows 2 messages on the form\./)).toBeInTheDocument();
+    expect(within(region).getByText("“Low probability” · on closeprobability · warning")).toBeInTheDocument();
+    expect(within(region).getByText("“Check the deal” · as a banner · information")).toBeInTheDocument();
+  });
+
+  it("On form: banner messages only, so the save goes through and says how many show", async () => {
+    const dryRun = vi.fn(async () => ({ isValid: true, changeSet: null, outcomes: [], actions: [
+      fired({ message: "Check the deal", targetColumn: null, severity: "Information" }),
+    ] }) as DryRunResult);
+    const { region } = await preview(dryRun, formRule([2]));
+    expect(within(region).getByText("Save would go through")).toBeInTheDocument();
+    expect(within(region).getByText("Shows 1 message on the form.")).toBeInTheDocument();
+  });
+
+  it("as if Updated: form messages are reported Form only, and nothing happens", async () => {
+    const dryRun = vi.fn(async () => ({ isValid: true, changeSet: null, outcomes: [], actions: [
+      fired({ message: "Low probability", targetColumn: "closeprobability", severity: "Warning" }),
+    ] }) as DryRunResult);
+    const { region } = await preview(dryRun, formRule([4, 2]));
+    expect(within(region).getByText("Nothing would happen")).toBeInTheDocument();
+    expect(within(within(region).getByRole("list", { name: "Actions" })).getAllByRole("listitem")[0]).toHaveTextContent("Form only");
   });
 });
 

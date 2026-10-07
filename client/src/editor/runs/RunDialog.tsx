@@ -3,7 +3,7 @@ import {
   Button, Combobox, Option, Dropdown, Field, TabList, Tab, Link, Tag, TagGroup,
 } from "@fluentui/react-components";
 import {
-  Beaker16Regular, Play16Regular, Search16Regular, Prohibited20Regular, CheckmarkCircle20Regular,
+  Beaker16Regular, Play16Regular, Search16Regular, Prohibited20Regular, CheckmarkCircle20Regular, Warning20Regular,
   Info20Regular, Checkmark16Regular, Dismiss16Regular, ChevronDown16Regular, ChevronRight16Regular,
 } from "@fluentui/react-icons";
 import type { WebApiPort, BatchApi } from "../webapi";
@@ -21,6 +21,8 @@ import { RecordPickerDialog } from "../ui/pickers/RecordPickerDialog";
 import { MultiRecordPickerDialog } from "../ui/pickers/MultiRecordPickerDialog";
 import { describeFiredAction, describeWrite, summarizeChangeSet, triggerName, type DryRunAction, type DryRunResult } from "./dryRunFormat";
 import { startRun } from "./runDriver";
+import { actionRunsOn } from "../model/actionTriggers";
+import type { ActionTypeLabel } from "../model/types";
 import { useRunProgress, RunProgressBody } from "./RunProgress";
 
 const GIVEN_RECORDS = 1;
@@ -75,10 +77,16 @@ export function matchFired(actions: ActionNode[], fired: DryRunAction[]): (DryRu
   });
 }
 
-function Verdict({ tone, icon, title, children }: { tone: "danger" | "action" | "neutral"; icon: React.ReactNode; title: string; children: React.ReactNode }) {
-  const bg = tone === "danger" ? color.dangerTint : tone === "action" ? color.actionTint : color.fill;
-  const line = tone === "danger" ? color.danger : tone === "action" ? color.action : color.line;
-  const fg = tone === "danger" ? color.danger : tone === "action" ? color.action : color.inkMuted;
+type VerdictTone = "danger" | "warn" | "action" | "neutral";
+const VERDICT: Record<VerdictTone, { bg: string; line: string; fg: string }> = {
+  danger: { bg: color.dangerTint, line: color.danger, fg: color.danger },
+  warn: { bg: color.warnTint, line: color.warn, fg: color.warnInk },
+  action: { bg: color.actionTint, line: color.action, fg: color.action },
+  neutral: { bg: color.fill, line: color.line, fg: color.inkMuted },
+};
+
+function Verdict({ tone, icon, title, children }: { tone: VerdictTone; icon: React.ReactNode; title: string; children: React.ReactNode }) {
+  const { bg, line, fg } = VERDICT[tone];
   return (
     <div style={{ display: "flex", gap: 10, alignItems: "flex-start", background: bg, border: `1px solid ${line}`, borderRadius: 8, padding: "12px 14px" }}>
       <span aria-hidden style={{ color: fg, display: "inline-flex" }}>{icon}</span>
@@ -90,9 +98,31 @@ function Verdict({ tone, icon, title, children }: { tone: "danger" | "action" | 
   );
 }
 
-function PreviewResults({ result, rule, graph }: { result: DryRunResult; rule: RunDialogRule; graph: RuleGraph }) {
+const FORM_ACTIONS = new Set(["ShowMessage", "SetVisible", "SetRequired"]);
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+/** What a fired form action does, in words: the message and where it shows, or the field change. */
+function firedDetail(f: DryRunAction, field: (logical: string) => string): string | null {
+  const where = f.targetColumn ? `on ${field(f.targetColumn)}` : "as a banner";
+  switch (f.actionType) {
+    case "ShowMessage":
+      return [f.message ? `“${f.message}”` : null, where, f.severity?.toLowerCase()].filter(Boolean).join(" · ");
+    case "Block":
+      return f.message ? `“${f.message}”` : null;
+    case "SetVisible":
+      return `${f.value ? "Shows" : "Hides"} ${f.targetColumn ? field(f.targetColumn) : "the form-level target"}`;
+    case "SetRequired":
+      return `Makes ${f.targetColumn ? field(f.targetColumn) : "the form-level target"} ${f.value ? "required" : "optional"}`;
+    default:
+      return null;
+  }
+}
+
+function PreviewResults({ result, trigger, rule, graph }: { result: DryRunResult; trigger: number; rule: RunDialogRule; graph: RuleGraph }) {
   const [open, setOpen] = React.useState<Record<number, boolean>>({});
   const [showOthers, setShowOthers] = React.useState(false);
+  const columns = useColumnLabels([rule.table]);
+  const field = (logical: string) => columns.label(rule.table, logical) ?? logical;
   const mineOf = (r: { ruleId: string }) => r.ruleId.toLowerCase() === rule.id.toLowerCase();
   const mine = result.actions.filter(mineOf);
   const others = result.actions.filter((a) => !mineOf(a));
@@ -105,18 +135,36 @@ function PreviewResults({ result, rule, graph }: { result: DryRunResult; rule: R
   const outcomes = result.outcomes.filter(mineOf);
   const outcomesId = React.useId();
   const rowsId = React.useId();
+  // The engine reports every fired action whatever the trigger; only some have an effect under it
+  // (a form message does nothing on a server save).
+  const runsHere = (type: string) => actionRunsOn(type as ActionTypeLabel, [trigger]);
+  const effective = mine.filter((a) => runsHere(a.actionType));
+  const onForm = trigger === 2;
+  const messages = effective.filter((a) => a.actionType === "ShowMessage");
+  // A message on a field holds the form's save until it clears (applier.ts).
+  const held = onForm ? messages.filter((a) => !!a.targetColumn) : [];
+  const fieldChanges = effective.filter((a) => a.actionType === "SetVisible" || a.actionType === "SetRequired");
+  const body = [
+    messages.length ? `${onForm ? "Shows" : "Returns"} ${plural(messages.length, "message")}${onForm ? " on the form" : ""}.` : null,
+    fieldChanges.length ? `Changes ${plural(fieldChanges.length, "field")} on the form.` : null,
+    onForm ? null : writes > 0 && cs ? summarizeChangeSet(cs) : "Nothing would be written.",
+  ].filter(Boolean).join(" ");
   return (
     <>
       {blocked ? (
         <Verdict tone="danger" icon={<Prohibited20Regular />} title="Save would be blocked">
           {block?.message ? `“${block.message}”. ` : ""}Nothing would be written.{block && !mineOf(block) ? " From another rule." : ""}
         </Verdict>
-      ) : mine.length === 0 ? (
-        <Verdict tone="neutral" icon={<Info20Regular />} title="Nothing would happen">No action of this rule fired.</Verdict>
-      ) : (
-        <Verdict tone="action" icon={<CheckmarkCircle20Regular />} title="Save would go through">
-          {writes > 0 && cs ? summarizeChangeSet(cs) : "Nothing would be written."}
+      ) : effective.length === 0 ? (
+        <Verdict tone="neutral" icon={<Info20Regular />} title="Nothing would happen">
+          {mine.length === 0 ? "No action of this rule fired." : "Only actions that don't run on this trigger fired."}
         </Verdict>
+      ) : held.length > 0 ? (
+        <Verdict tone="warn" icon={<Warning20Regular />} title="Save would be held">
+          {`${plural(held.length, "field message")} ${held.length === 1 ? "holds" : "hold"} the save until ${held.length === 1 ? "it clears" : "they clear"}. `}{body}
+        </Verdict>
+      ) : (
+        <Verdict tone="action" icon={<CheckmarkCircle20Regular />} title="Save would go through">{body}</Verdict>
       )}
 
       {outcomes.length > 0 && (
@@ -141,7 +189,9 @@ function PreviewResults({ result, rule, graph }: { result: DryRunResult; rule: R
         {graph.actions.map((a, i) => {
           const fired = matched[i];
           const skipped = !!fired && blocked && WRITES.has(a.actionType ?? "");
+          const notHere = !!fired && !runsHere(fired.actionType);
           const rows = fired?.writes ?? (fired?.write ? [fired.write] : []);
+          const detail = fired && !skipped && !notHere ? firedDetail(fired, field) : null;
           return (
             <div role="listitem" key={a.id} style={{ borderTop: i ? `1px solid ${color.line}` : undefined }}>
               <div style={{ display: "grid", gridTemplateColumns: "20px minmax(0,1fr) auto", gap: 8, alignItems: "center", padding: "8px 12px", fontSize: 13 }}>
@@ -159,9 +209,14 @@ function PreviewResults({ result, rule, graph }: { result: DryRunResult; rule: R
                   )}
                 </span>
                 <span style={{ fontSize: 12, color: color.inkMuted, whiteSpace: "nowrap" }}>
-                  {!fired ? "Didn't fire" : skipped ? "Skipped, blocked" : <Pill tone={actionEffect(a).tone}>Fired</Pill>}
+                  {!fired ? "Didn't fire" : skipped ? "Skipped, blocked"
+                    : notHere ? (FORM_ACTIONS.has(fired.actionType) ? "Form only" : "Not on the form")
+                    : <Pill tone={actionEffect(a).tone}>Fired</Pill>}
                 </span>
               </div>
+              {detail && (
+                <div style={{ margin: "-4px 12px 8px 40px", fontSize: 12.5, color: color.ink, overflowWrap: "anywhere" }}>{detail}</div>
+              )}
               {fired && open[i] && rows.length > 0 && (
                 <ul id={`${rowsId}-${i}`} style={{ margin: "0 12px 8px 40px", paddingLeft: 18, fontSize: 12.5, color: color.inkMuted }}>
                   {rows.map((w, j) => <li key={j}>{describeWrite(w)}</li>)}
@@ -229,14 +284,14 @@ function usePreviewTab({ rule, api, version, setVersion, draftAvailable }: {
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [result, setResult] = React.useState<DryRunResult | null>(null);
+  const [result, setResult] = React.useState<{ result: DryRunResult; trigger: number } | null>(null);
   React.useEffect(() => { if (!triggers.includes(trigger)) setTrigger(triggers[0]); }, [triggers.join(",")]);
   const run = async () => {
     if (!record) return;
     const call = version === "draft" ? api.dryRunDraft : api.dryRun;
     if (!call) return;
     setRunning(true); setError(null);
-    try { setResult(await call(rule.table, record.id, triggerName(trigger))); }
+    try { setResult({ result: await call(rule.table, record.id, triggerName(trigger)), trigger }); }
     catch (e) { setError(formatError(e)); }
     finally { setRunning(false); }
   };
@@ -265,7 +320,7 @@ function usePreviewTab({ rule, api, version, setVersion, draftAvailable }: {
         {error && <Callout intent="danger">{error}</Callout>}
         {/* Mounted from the start, so the first result is announced as it arrives. */}
         <div aria-live="polite" data-testid="test-results" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {result && <PreviewResults result={result} rule={rule} graph={graph} />}
+          {result && <PreviewResults result={result.result} trigger={result.trigger} rule={rule} graph={graph} />}
         </div>
         {/* Inside the dialog's tree so Fluent nests it (see runNowPickerNesting.dom.test.tsx). */}
         <RecordPickerDialog open={pickerOpen} table={rule.table}
