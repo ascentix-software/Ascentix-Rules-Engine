@@ -195,6 +195,7 @@ export function ruleEditorInspectorContent(
       },
       body: a ? (
         <ActionInspector action={a} ruleTable={graph.rule.tableLogicalName} tableConfigs={graph.tableConfigs} outcomes={outcomesOf(graph)}
+          triggers={graph.rule.triggers}
           onPatch={(p) => h.onPatchAction(a.id, p)}
           onAddTranslation={(lc) => h.onAddTranslation(a.id, lc)}
           onUpdateTranslation={(tid, msg) => h.onUpdateTranslation(a.id, tid, msg)}

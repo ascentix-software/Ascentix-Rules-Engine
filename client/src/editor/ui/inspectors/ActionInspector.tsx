@@ -21,6 +21,7 @@ import { Callout, InfoField, InfoTip, LabelWithInfo } from "../primitives";
 import { tokens } from "@fluentui/react-components";
 import { useColumnLabels } from "../useColumnLabels";
 import { FiresWhenEditor } from "./FiresWhenEditor";
+import { actionRunsOn, missingTriggerShort } from "../../model/actionTriggers";
 
 const ACTION_TYPES: ActionTypeLabel[] = [
   "SetVisible", "SetRequired", "ShowMessage", "Block", "CreateRecord", "UpdateRecord", "DeleteRecord", "DeactivateRecord",
@@ -123,9 +124,11 @@ function ActionSummary({ action, outcomes, ruleTable, tableConfigs }: {
 }
 
 export function ActionInspector({
-  action, ruleTable, tableConfigs, outcomes, onPatch, onAddTranslation, onUpdateTranslation, onRemoveTranslation,
+  action, ruleTable, tableConfigs, outcomes, triggers = [], onPatch, onAddTranslation, onUpdateTranslation, onRemoveTranslation,
 }: {
   action: ActionNode; ruleTable: string; tableConfigs: Record<string, TableConfigRef>; outcomes: ConditionGroupNode[];
+  /** The rule's triggers: types that do nothing under them are offered disabled, with the reason. */
+  triggers?: number[];
   onPatch(patch: Partial<ActionNode>): void;
   onAddTranslation(languageCode: number): void;
   onUpdateTranslation(translationId: string, message: string): void;
@@ -159,9 +162,20 @@ export function ActionInspector({
             selectedOptions={action.actionType ? [action.actionType] : []}
             onOptionSelect={(_e, d) => d.optionValue && onPatch({ actionType: d.optionValue as ActionTypeLabel })}
           >
-            {ACTION_TYPES.map((x) => (
-              <Option key={x} value={x}>{actionVerb({ ...action, actionType: x })}</Option>
-            ))}
+            {ACTION_TYPES.map((x) => {
+              const verb = actionVerb({ ...action, actionType: x });
+              const runs = actionRunsOn(x, triggers);
+              return (
+                <Option key={x} value={x} text={verb} disabled={!runs && x !== t}>
+                  {runs ? verb : (
+                    <span style={{ display: "flex", justifyContent: "space-between", gap: 12, width: "100%" }}>
+                      <span>{verb}</span>
+                      <span style={{ fontSize: 12, color: color.inkMuted }}>{missingTriggerShort(x)}</span>
+                    </span>
+                  )}
+                </Option>
+              );
+            })}
           </Dropdown>
         </InfoField>
         <Switch label={action.isActive ?? true ? "Active" : "Off"} aria-label="Active"

@@ -7,6 +7,7 @@ import type { RuleGraph, ConditionNode, ConditionGroupNode, ActionNode } from ".
 import { parseFieldMapping, validateRows } from "./model/fieldMapping";
 import { parseMathExpr } from "./model/mathExpr";
 import { isLeafComplete, isGroupEmpty, type NodeFilterGroupModel, type NodeFilterLeaf } from "./model/nodeFilter";
+import { actionRunsOn, missingTriggerHint } from "./model/actionTriggers";
 
 export interface HintIssue {
   /** Hint code, always prefixed with HINT_. */
@@ -15,6 +16,8 @@ export interface HintIssue {
   message: string;
   /** The id of the node (ConditionNode or ActionNode) that has the issue. */
   nodeId: string;
+  /** Defaults to Error (blocks publishing). */
+  severity?: "Warning";
 }
 
 // Operators that do not require a comparison value (mirrors C# ComparisonOperator.IsNull/IsNotNull).
@@ -38,6 +41,11 @@ export function hintIssues(graph: RuleGraph): HintIssue[] {
   }
   for (const a of graph.actions) {
     collectActionHints(a, issues);
+    // An active action whose type does nothing under the rule's triggers (a form message on an
+    // update-only rule) never runs. A warning: it doesn't break the rule, it's just dead.
+    if ((a.isActive ?? true) && a.actionType && !actionRunsOn(a.actionType, graph.rule.triggers)) {
+      issues.push({ code: "HINT_ACTION_NEVER_RUNS", message: missingTriggerHint(a.actionType), nodeId: a.id, severity: "Warning" });
+    }
   }
   for (const node of Object.values(graph.tableConfigs)) {
     if (node.tableConfigType === "LookupTable" && !node.lookupTargetIdAttribute) {
