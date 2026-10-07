@@ -3,6 +3,9 @@
 export interface DryRunWrite { operation: string; targetTable: string | null; targetId: string | null; values?: Record<string, unknown>; }
 export interface DryRunAction {
   ruleId: string; actionType: string; message: string | null; targetTable: string | null;
+  /** Form actions: the field (null for a banner or a form-level change), SetVisible/SetRequired's
+   *  value, and a message's severity ("Information" / "Warning" / "Error"). */
+  targetColumn?: string | null; value?: boolean | null; severity?: string | null;
   write?: DryRunWrite; writes?: DryRunWrite[]; writeCount?: number; unchangedCount?: number; previousOf?: string;
 }
 export interface ChangeSetSummary { creates: number; updates: number; deletes: number; unchanged: number; }

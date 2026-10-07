@@ -5,6 +5,7 @@ import type {
 import { newTempId } from "./ids";
 import { always, firesWhenAfterOutcomeDelete } from "./firesWhen";
 import { isOutcome, nextOutcomeName } from "./outcomes";
+import { defaultActionType } from "./actionTriggers";
 import {
   updateGroup as treeUpdateGroup, removeGroup as treeRemoveGroup, insertGroup,
   updateCondition as treeUpdateCondition, removeCondition as treeRemoveCondition, insertCondition,
@@ -22,8 +23,6 @@ export function patchRule(g: RuleGraph, patch: Partial<RuleHeader>): RuleGraph {
 function renumber(actions: ActionNode[]): ActionNode[] {
   return actions.map((a, i) => ({ ...a, order: i + 1 }));
 }
-
-const DEFAULT_ACTION_TYPE: ActionTypeLabel = "ShowMessage";
 
 /** SetVisible / SetRequired carry a two-state boolean (asx_valuebool); every other type ignores it. */
 function usesValueBool(t: ActionTypeLabel | null): boolean {
@@ -44,7 +43,8 @@ function withValueBoolForType(a: ActionNode): ActionNode {
 export function addAction(graph: RuleGraph): RuleGraph {
   const next: ActionNode = withValueBoolForType({
     id: newTempId(), name: "", order: graph.actions.length + 1,
-    actionType: DEFAULT_ACTION_TYPE, firesWhen: always(),
+    // A type that does something under the rule's triggers.
+    actionType: defaultActionType(graph.rule.triggers), firesWhen: always(),
     targetColumn: null, targetTable: null, targetNodeId: null,
     message: null, fieldMapping: null,
     value: null, applyInverseWhenNotFired: null, severity: null, isActive: true,

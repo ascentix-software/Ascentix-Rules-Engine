@@ -118,8 +118,14 @@ export async function openRuleFromHub(page: Page, appId: string, ruleName: strin
   // it resolves to the row itself (role="button", onClick navigates to the rule), not the nested
   // config-nav button.
   await hubRow(frame, ruleName).click();
-  await expect(frame.getByRole("button", { name: "Rename rule" })).toBeVisible({ timeout: 30_000 });
+  await editorReady(frame);
   return frame;
+}
+
+// The rule editor has loaded. The lifecycle status pill shows in every state; Rename rule
+// doesn't (a live rule with no draft open is read-only, so it has no Rename).
+export async function editorReady(frame: FrameLocator): Promise<void> {
+  await expect(frame.getByTestId("lifecycle-status")).toBeVisible({ timeout: 30_000 });
 }
 
 export async function openConfigFromHub(page: Page, appId: string, cfgName: string): Promise<FrameLocator> {

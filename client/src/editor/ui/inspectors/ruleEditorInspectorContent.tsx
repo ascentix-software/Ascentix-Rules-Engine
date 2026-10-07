@@ -187,7 +187,7 @@ export function ruleEditorInspectorContent(
     return {
       header: {
         eyebrow: idx ? `Action ${idx}` : "Action", title: a ? actionVerb(a) : "(action)",
-        icon: <ActionIcon actionType={a?.actionType ?? null} />,
+        icon: <ActionIcon actionType={a?.actionType ?? null} severity={a?.severity} />,
         menu: a ? menuFor("action", a.id, "action", h.onMoveAction ? [
           { label: "Move up", onClick: () => h.onMoveAction!(a.id, -1), disabled: idx <= 1 },
           { label: "Move down", onClick: () => h.onMoveAction!(a.id, 1), disabled: idx >= graph.actions.length },
@@ -195,6 +195,7 @@ export function ruleEditorInspectorContent(
       },
       body: a ? (
         <ActionInspector action={a} ruleTable={graph.rule.tableLogicalName} tableConfigs={graph.tableConfigs} outcomes={outcomesOf(graph)}
+          triggers={graph.rule.triggers}
           onPatch={(p) => h.onPatchAction(a.id, p)}
           onAddTranslation={(lc) => h.onAddTranslation(a.id, lc)}
           onUpdateTranslation={(tid, msg) => h.onUpdateTranslation(a.id, tid, msg)}

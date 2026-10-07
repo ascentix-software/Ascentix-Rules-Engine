@@ -125,7 +125,7 @@ export function buildIssues(
     if (serverTargets.has(h.nodeId)) return;
     const kind = kindOfHint(h.nodeId);
     out.push({
-      id: `h${n}`, severity: "Error", code: h.code, message: h.message,
+      id: `h${n}`, severity: h.severity ?? "Error", code: h.code, message: h.message,
       target: { kind, id: h.nodeId }, path: loc.path(kind, h.nodeId), stale: false, source: "client",
     });
   });

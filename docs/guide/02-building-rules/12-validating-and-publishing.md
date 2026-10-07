@@ -147,8 +147,11 @@ preview**. It reports what would fire — the same report-only, nothing-is-saved
 you're looking at. See *Custom APIs* → `asx_RunRules` for the underlying report shape, including
 the `ChangeSet` summary the preview renders for set actions.
 
-The result opens with a verdict: **Save would go through** (with a summary of what would be
-written), **Save would be blocked**, or **Nothing would happen** (no action of this rule fired).
+The result opens with a verdict: **Save would go through** (with how many messages and field
+changes the form would show, or a summary of what would be written), **Save would be held**
+(**As if** **On form** only: a message on a field holds the form's save until it clears),
+**Save would be blocked**, or **Nothing would happen** (no action of this rule fired, or only
+actions that don't run on that trigger did).
 When a Block fires on the record, from this rule or another rule on the same record, the verdict is
 **Save would be blocked**, with the Block's message and "Nothing would be written.", and this
 rule's write actions show **Skipped, blocked**.
@@ -156,6 +159,9 @@ rule's write actions show **Skipped, blocked**.
 Below the verdict, **OUTCOMES** lists this rule's outcomes, each with a tick or cross icon (true
 or false). The values are those of the normal run; a rule held back by its **Only if** conditions
 reports none. Then every action of the rule is listed in rule order, marked **Fired**, **Didn't
-fire**, or **Skipped, blocked**; a fired write action expands to show the rows it would write. If
+fire**, **Skipped, blocked**, **Form only** (a message or field change when previewing a save) or
+**Not on the form** (a write when previewing **On form**). A fired message shows its text, where it
+appears (on a field, or as a banner) and its severity; a fired field change says what it does (for
+example "Makes Budget required"); a fired write action expands to show the rows it would write. If
 other rules fired too, a line such as "2 other rules also fired on this record." lets you show
 them.

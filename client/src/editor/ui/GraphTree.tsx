@@ -327,7 +327,7 @@ function ActionRow({ a, index, count, ctx, labelForTree }: {
         border: `1px solid ${selected ? color.brandLine : color.line}`,
       }}>
       <span style={{ fontSize: 12, fontWeight: 700, color: color.inkMuted }}>{index + 1}</span>
-      <ActionIcon actionType={a.actionType} />
+      <ActionIcon actionType={a.actionType} severity={a.severity} />
       <span style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 6 }}>
         <IssueIcon issues={actionIssues} onOpen={handlers.onOpenIssue} />
         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
