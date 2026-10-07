@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { AppProvider } from "../../src/editor/ui/AppProvider";
 import { MetadataProvider } from "../../src/editor/ui/useMetadata";
 import { RecordSearchProvider } from "../../src/editor/ui/useRecordSearch";
@@ -267,6 +267,25 @@ describe("RuleEditorApp Schedule, loading", () => {
 
     await waitFor(() => expect(screen.getByRole("switch")).toBeInTheDocument());
     expect(screen.getByRole("switch")).toBeChecked();
+  });
+
+  it("shows no schedule controls until the schedule has loaded, so an early edit can't be overwritten by the load", async () => {
+    let finishLoad!: (value: RuleSchedule | null) => void;
+    vi.mocked(loadRuleSchedule).mockImplementationOnce(() => new Promise((resolve) => { finishLoad = resolve; }));
+    renderApp({ getClientUrl: () => CLIENT_URL });
+    await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalledTimes(1));
+
+    // Still loading: a note, and no switch to click.
+    expect(screen.getByText("Loading schedule…")).toBeInTheDocument();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+
+    // The load lands (no schedule yet): the switch appears, Off, and an edit now sticks.
+    await act(async () => { finishLoad(null); });
+    const sw = await screen.findByRole("switch");
+    expect(sw).not.toBeChecked();
+    fireEvent.click(sw);
+    expect(screen.getByRole("switch")).toBeChecked();
+    expect(screen.queryByText("Loading schedule…")).not.toBeInTheDocument();
   });
 
   it("re-qualifying in the same session doesn't reload and overwrite unsaved schedule edits", async () => {

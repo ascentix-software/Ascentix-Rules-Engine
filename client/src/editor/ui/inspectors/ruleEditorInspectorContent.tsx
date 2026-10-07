@@ -41,6 +41,8 @@ export interface ScheduleInspectorProps {
   scheduleUnavailable?: boolean;
   /** The schedule couldn't be read for any other reason: a note with a retry, not controls. */
   scheduleLoadError?: boolean;
+  /** A schedule load is in flight: a note, no controls. */
+  scheduleLoading?: boolean;
   onRetrySchedule?(): void;
 }
 
@@ -108,6 +110,7 @@ export function ruleEditorInspectorContent(
       scheduleDisabled={schedule?.scheduleDisabled}
       scheduleUnavailable={schedule?.scheduleUnavailable}
       scheduleLoadError={schedule?.scheduleLoadError}
+      scheduleLoading={schedule?.scheduleLoading}
       onRetrySchedule={schedule?.onRetrySchedule} />,
   };
 }

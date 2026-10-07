@@ -14,9 +14,10 @@ function formatLocal(iso: string | null): string {
 
 export const SCHEDULE_UNAVAILABLE_NOTE = "You don't have access to rule schedules. Ask an administrator.";
 export const SCHEDULE_LOAD_ERROR_NOTE = "Could not load the schedule.";
+export const SCHEDULE_LOADING_NOTE = "Loading schedule…";
 
 export function ScheduleSection({
-  schedule, onPatch, ruleTimeZone, evaluationContext, onOpenRuns, unavailable, loadError, onRetry,
+  schedule, onPatch, ruleTimeZone, evaluationContext, onOpenRuns, unavailable, loadError, loading, onRetry,
 }: {
   schedule: RuleSchedule | null;
   onPatch(patch: Partial<RuleSchedule>): void;
@@ -28,8 +29,18 @@ export function ScheduleSection({
   /** The schedule couldn't be read for any other reason (network, server error, ...): a note with
    *  a retry, no controls. */
   loadError?: boolean;
+  /** The schedule is still loading: a note, no controls (an edit made now would be overwritten
+   *  when the load lands). */
+  loading?: boolean;
   onRetry?(): void;
 }) {
+  if (loading) {
+    return (
+      <Field label="Schedule">
+        <Text size={200}>{SCHEDULE_LOADING_NOTE}</Text>
+      </Field>
+    );
+  }
   if (unavailable) {
     return (
       <Field label="Schedule">

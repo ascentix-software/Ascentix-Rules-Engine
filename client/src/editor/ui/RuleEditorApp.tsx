@@ -137,10 +137,12 @@ export function RuleEditorApp({
   // what's persisted; schedule is the working draft the Schedule section edits.
   const [scheduleSnapshot, setScheduleSnapshot] = React.useState<RuleSchedule | null>(null);
   const [schedule, setSchedule] = React.useState<RuleSchedule | null>(null);
-  // "denied" (no Rule Schedule privilege) shows the access note; "error" (any other failure, e.g.
-  // a network or server error) shows "Could not load the schedule." with a Try again. Either way
-  // the section has no controls and the editor never sends schedule ops until a load succeeds.
-  const [scheduleStatus, setScheduleStatus] = React.useState<"ok" | "denied" | "error">("ok");
+  // "loading" (a load is in flight) shows "Loading schedule…": no controls, so an edit can't be
+  // made and then overwritten when the load lands. "denied" (no Rule Schedule privilege) shows the
+  // access note; "error" (any other failure, e.g. a network or server error) shows "Could not load
+  // the schedule." with a Try again. In all three the section has no controls and the editor never
+  // sends schedule ops until a load succeeds.
+  const [scheduleStatus, setScheduleStatus] = React.useState<"ok" | "loading" | "denied" | "error">("ok");
   // The scheduleRuleId a load has already been run for, so re-qualifying (leaving and returning to
   // On demand + All records in the same session) doesn't reload and overwrite unsaved schedule
   // edits — only the first qualification per rule id loads automatically; see the load effect below.
@@ -215,6 +217,7 @@ export function RuleEditorApp({
     if (!scheduleAppliesNow) return;
     if (loadedScheduleRuleIdRef.current === scheduleRuleId) return;
     let live = true;
+    setScheduleStatus("loading");
     (async () => {
       // Marked loaded only once a result lands: a load abandoned mid-flight (the rule stopped
       // qualifying before it returned) must not stop the next qualification from loading.
@@ -235,6 +238,7 @@ export function RuleEditorApp({
   // scheduled has no section to refresh; the load effect reads it if it starts qualifying.
   async function reloadSchedule(rule: RuleHeader) {
     if (!scheduleApplies(rule)) return;
+    setScheduleStatus("loading");
     try {
       const loaded = await loadRuleSchedule(api, scheduleRuleId);
       setScheduleSnapshot(loaded);
@@ -527,6 +531,7 @@ export function RuleEditorApp({
     ruleFieldsDisabled: !editable, scheduleDisabled: !scheduleEditable,
     scheduleUnavailable: scheduleStatus === "denied",
     scheduleLoadError: scheduleStatus === "error",
+    scheduleLoading: scheduleStatus === "loading",
     onRetrySchedule: () => reloadSchedule(working.rule),
   });
   const inspectorBody = <fieldset disabled={!editable && !rulePanel} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
