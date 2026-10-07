@@ -21,6 +21,8 @@ export const useEditorStyles = makeStyles({
   fieldHelp: { fontSize: "11.5px", color: color.inkMuted, display: "flex", gap: "5px" },
   // The focus ring is brand, not a zone accent: it means "focused", not "execution".
   focusRing: { ":focus-visible": { outline: `2px solid ${color.brand}`, outlineOffset: "2px" } },
+  // Tree rows draw the ring inside their own 6px corners.
+  insetFocusRing: { ":focus-visible": { outline: `2px solid ${color.brand}`, outlineOffset: "-2px", borderRadius: "6px" } },
 });
 
 // depth -> alternating card tint (still used by nested group fallback)

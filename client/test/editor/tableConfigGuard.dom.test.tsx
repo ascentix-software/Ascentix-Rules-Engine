@@ -55,7 +55,7 @@ async function dirtyViaRename() {
   const input = screen.getByRole("textbox");
   fireEvent.change(input, { target: { value: "Changed" } });
   fireEvent.keyDown(input, { key: "Enter" });
-  await screen.findByText("Unsaved changes");
+  await screen.findByText(/1 unsaved change/);
 }
 
 beforeEach(() => { navigateMock.mockClear(); });
@@ -68,7 +68,7 @@ describe("TableConfigApp unsaved-changes guard", () => {
     expect(await screen.findByText("Discard unsaved changes?")).toBeInTheDocument();
     expect(navigateMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    expect(screen.getByText(/1 unsaved change/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Table configurations" }));
     await screen.findByText("Discard unsaved changes?");

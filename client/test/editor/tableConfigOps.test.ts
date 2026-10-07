@@ -123,7 +123,7 @@ describe("canDeleteConfigNode", () => {
   it("blocks a node that a rule uses, with a usage reason", () => {
     const r = canDeleteConfigNode(graph([ROOTN, child]), "c1", new Set(["c1"]));
     expect(r.ok).toBe(false);
-    expect(r.reason).toMatch(/in use by a rule/i);
+    expect(r.reason).toMatch(/^Can't delete: used by/);
   });
   it("allows a free leaf that no rule uses", () => {
     expect(canDeleteConfigNode(graph([ROOTN, child]), "c1", new Set()).ok).toBe(true);

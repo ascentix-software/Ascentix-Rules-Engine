@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { RuleEditorApp } from "./ui/RuleEditorApp";
+import { TableConfigApp } from "./ui/TableConfigApp";
 import { MetadataProvider } from "./ui/useMetadata";
 import { RecordSearchProvider } from "./ui/useRecordSearch";
 import { SystemChoicesProvider } from "./ui/useSystemChoices";
@@ -25,13 +26,24 @@ const OPP_COLUMNS: ColumnMeta[] = [
 ];
 
 const metaStub: MetadataService = {
-  tables: async () => [],
+  tables: async () => [
+    { logicalName: "opportunity", displayName: "Opportunity", entitySetName: "opportunities", primaryNameAttribute: "name", primaryIdAttribute: "opportunityid", isCustom: false },
+    { logicalName: "account", displayName: "Account", entitySetName: "accounts", primaryNameAttribute: "name", primaryIdAttribute: "accountid", isCustom: false },
+    { logicalName: "contact", displayName: "Contact", entitySetName: "contacts", primaryNameAttribute: "fullname", primaryIdAttribute: "contactid", isCustom: false },
+    { logicalName: "opportunityproduct", displayName: "Opportunity Product", entitySetName: "opportunityproducts", primaryNameAttribute: "productname", primaryIdAttribute: "opportunityproductid", isCustom: false },
+  ],
   columns: async () => OPP_COLUMNS,
   optionSet: async () => [],
   globalOptionSet: async () => [],
   lookupTargets: async () => [],
   booleanLabels: async () => ({ trueLabel: "Yes", falseLabel: "No" }),
-  relationships: async () => ({ manyToOne: [], oneToMany: [] }),
+  relationships: async () => ({
+    manyToOne: [
+      { schemaName: "opp_contact", referencingAttribute: "parentcontactid", referencedEntity: "contact" },
+      { schemaName: "opp_account", referencingAttribute: "parentaccountid", referencedEntity: "account" },
+    ],
+    oneToMany: [{ schemaName: "opp_lines", referencingEntity: "opportunityproduct", referencingAttribute: "opportunityid" }],
+  }),
   views: async () => [],
 };
 const recordStub: RecordSearchService = {
@@ -136,8 +148,34 @@ if (state !== "new") {
   if (state === "draft") SAMPLE.rule.activeRuleId = "live";
 }
 
+const TC_GRAPH: RuleGraph = {
+  rule: { ...SAMPLE.rule, id: "__config-editor__", name: "", rootTableConfigId: "root" },
+  executionGroups: [], validationGroups: [], actions: [],
+  tableConfigs: {
+    root: SAMPLE.tableConfigs.root,
+    acct: { id: "acct", name: "Account", tableLogicalName: "account", tableConfigType: "LookupTable", parentTableConfigId: "root", lookupColumnLogicalName: "parentaccountid", childLinkField: null, lookupTargetIdAttribute: "accountid" },
+    pc: { id: "pc", name: "Primary Contact", tableLogicalName: "contact", tableConfigType: "LookupTable", parentTableConfigId: "acct", lookupColumnLogicalName: "primarycontactid", childLinkField: null, lookupTargetIdAttribute: "contactid" },
+    lines: { id: "lines", name: "Opportunity Lines", tableLogicalName: "opportunityproduct", tableConfigType: "ChildTable", parentTableConfigId: "root", lookupColumnLogicalName: null, childLinkField: "opportunityid", lookupTargetIdAttribute: null },
+  },
+};
+const TC_USAGE = {
+  rulesUsingCount: 3, usedNodeIds: new Set(["lines"]),
+  rules: [
+    { id: "r1", name: "High-value deal guardrails", statusCode: 753840000, refs: [{ nodeId: "lines", conditions: 1, actions: 0 }] },
+    { id: "r2", name: "Line discount cap", statusCode: 753840000, refs: [{ nodeId: "lines", conditions: 2, actions: 1 }] },
+    { id: "r3", name: "Weekly stale-deal sweep", statusCode: 1, refs: [{ nodeId: "pc", conditions: 1, actions: 0 }] },
+  ],
+};
+
 const host = document.getElementById("root");
-if (host) {
+if (host && new URLSearchParams(location.search).get("view") === "tableconfig") {
+  createRoot(host).render(
+    <MetadataProvider service={metaStub}>
+      <TableConfigApp initialGraph={TC_GRAPH} initialUsage={TC_USAGE} api={apiStub}
+        reload={async () => ({ graph: TC_GRAPH, usage: TC_USAGE })} />
+    </MetadataProvider>,
+  );
+} else if (host) {
   createRoot(host).render(
     <MetadataProvider service={metaStub}>
       <RecordSearchProvider service={recordStub}>

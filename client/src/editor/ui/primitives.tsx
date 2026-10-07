@@ -389,7 +389,7 @@ export const NodeTypeTag: React.FC<{ type: string | null; fixed?: boolean }> = (
     <span style={{
       fontSize: 10, fontWeight: 800, letterSpacing: ".05em", padding: "1px 6px", borderRadius: 4,
       background: t.bg, color: t.fg, whiteSpace: "nowrap", flex: "none",
-      ...(fixed ? { width: 62, textAlign: "center", boxSizing: "border-box", display: "inline-block" } : {}),
+      ...(fixed ? { width: 74, textAlign: "center", boxSizing: "border-box", display: "inline-block" } : {}),
     }}>
       {t.label}
     </span>

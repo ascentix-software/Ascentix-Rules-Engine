@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { TableConfigApp } from "../../src/editor/ui/TableConfigApp";
 import { TableConfigTree } from "../../src/editor/ui/TableConfigTree";
 import { MetadataProvider } from "../../src/editor/ui/useMetadata";
@@ -113,14 +113,12 @@ describe("TableConfigApp responsive layout", () => {
 
   it("shows config properties at rest and full node editing on selection", () => {
     renderAppWithChild();
-    // Resting content (selection.kind === "rule"): config-level info, not an empty dash.
-    expect(screen.getByTestId("inspector-heading")).toHaveTextContent(/configuration/i);
+    // Resting content (nothing selected): what to do next, not an empty dash.
+    expect(screen.getByText("Select a table to edit it")).toBeInTheDocument();
     // Select the child node in the tree; the panel switches to the full node editor.
     fireEvent.click(screen.getByText("Child"));
     expect(screen.getByTestId("inspector-heading")).toHaveTextContent("Child");
-    // Full-fidelity content: the delete affordance exists (the old shared branch dropped it).
-    // Scope to the inspector panel itself: the tree row also renders its own (icon-only)
-    // delete button for the same node, which would otherwise collide on an unscoped query.
+    // Full-fidelity content: the delete affordance exists. Scope to the inspector panel itself.
     const panel = screen.getByTestId("inspector-heading").parentElement!.parentElement!;
     expect(within(panel).getByRole("button", { name: /delete/i })).toBeInTheDocument();
   });
@@ -138,38 +136,52 @@ describe("TableConfigApp responsive layout", () => {
           />
         </MetadataProvider>,
       );
-      const childRow = Array.from(container.querySelectorAll<HTMLElement>("div")).find(
-        (d) => d.textContent?.includes("Child") && d.style.marginLeft !== "",
+      const childRow = Array.from(container.querySelectorAll<HTMLElement>("[role=treeitem]")).find(
+        (d) => d.getAttribute("aria-level") === "2",
       );
       expect(childRow).toBeTruthy();
-      expect(childRow!.style.marginLeft).toBe("12px");
+      expect(childRow!.style.paddingLeft).toBe("22px"); // 10px row padding + 12px per level
     });
   });
 
-  it("announces the shared-scope warning and renders SHARED as an amber Pill", () => {
+  it("is an ARIA tree: levels, a single tabbable row, and arrow keys move focus", async () => {
+    const graph = makeGraphWithChild();
+    const onSelectNode = vi.fn();
+    render(
+      <MetadataProvider service={metaStub}>
+        <TableConfigTree graph={graph} selection={null}
+          handlers={{ onSelectNode, onAddNode: vi.fn(), onDeleteNode: vi.fn() }} usedNodeIds={new Set()} />
+      </MetadataProvider>,
+    );
+    const rows = screen.getAllByRole("treeitem");
+    expect(rows.map((r) => r.getAttribute("aria-level"))).toEqual(["1", "2"]);
+    expect(rows.map((r) => r.getAttribute("tabindex"))).toEqual(["0", "-1"]);
+    expect(rows[0]).toHaveAttribute("aria-expanded", "true");
+    rows[0].focus();
+    fireEvent.keyDown(rows[0], { key: "ArrowDown" });
+    expect(rows[1]).toHaveFocus();
+    fireEvent.keyDown(rows[1], { key: "Enter" });
+    expect(onSelectNode).toHaveBeenCalledWith(rows[1].getAttribute("data-node-id"));
+    fireEvent.keyDown(rows[1], { key: "ArrowLeft" });
+    expect(rows[0]).toHaveFocus();
+    fireEvent.keyDown(rows[0], { key: "ArrowLeft" });
+    expect(screen.getAllByRole("treeitem")).toHaveLength(1);
+    expect(rows[0]).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("drops the permanent shared-scope warning for a neutral Used by chip", () => {
     renderApp();
-    const warning = screen.getByRole("alert");
-    expect(warning).toHaveTextContent(/shared by .* rules/i);
-    const shared = screen.getByText("SHARED");
-    expect(shared.style.backgroundColor).toBe("rgb(253, 246, 227)"); // warnTint: Pill, amber
-  });
-
-  it("narrow: the Properties button opens the overlay with config info", async () => {
-    await withNarrowViewport(async () => {
-      renderApp();
-      fireEvent.click(screen.getByRole("button", { name: "Properties" }));
-      await waitFor(() => expect(screen.getByTestId("inspector-heading")).toHaveTextContent(/configuration/i));
-    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("SHARED")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Used by 2 rules/ })).toBeInTheDocument();
   });
 
   it("explains why an in-use node can't be deleted, visibly (not just a tooltip)", () => {
     renderAppWithUsedChild();
     fireEvent.click(screen.getByText("Child"));
     expect(screen.getByTestId("inspector-heading")).toHaveTextContent("Child");
-    // Scope to the inspector panel: the page also carries an unrelated shared-scope
-    // warning (role="alert"), which would otherwise collide with an unscoped query.
     const panel = screen.getByTestId("inspector-heading").parentElement!.parentElement!;
-    expect(within(panel).getByText(/in use/i)).toBeInTheDocument();
+    expect(within(panel).getAllByText(/^Can't delete: used by/).length).toBeGreaterThan(0);
     expect(within(panel).queryByRole("alert")).toBeNull();
   });
 });

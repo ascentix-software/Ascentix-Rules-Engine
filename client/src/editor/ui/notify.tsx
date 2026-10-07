@@ -41,7 +41,7 @@ const InkToast: React.FC<{ text: string; icon?: boolean; action?: { label: strin
         </span>
       }
     >
-      <span style={{ fontSize: 13.5, color: tokens.colorNeutralForegroundInverted }}>{text}</span>
+      <span style={{ fontSize: 13.5, fontWeight: 400, color: tokens.colorNeutralForegroundInverted }}>{text}</span>
     </ToastTitle>
   </Toast>
 );
