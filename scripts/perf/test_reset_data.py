@@ -34,6 +34,14 @@ class _FakeDv(types.ModuleType):
     def delete(self, path):
         raise AssertionError("not used")
 
+    class DataverseError(Exception):
+        def __init__(self, method, path, status, message):
+            super().__init__(message)
+            self.method, self.path, self.status, self.message = method, path, status, message
+
+    def request(self, method, path, payload=None, **kw):
+        return self.on_request(method, path)
+
 
 fake = _FakeDv()
 sys.modules["_dv"] = fake
@@ -80,6 +88,41 @@ def test_a_reset_forgets_the_kept_data_before_deleting_anything():
     finally:
         rd.datastate.clear, rd.delete_rules, rd.delete_data_table = saved
     assert order[0] == "clear" and order.count("clear") == 1 and "rules" in order
+
+
+def _run_delete_rules(pages, on_request):
+    saved_get, saved_hook = rd.get, getattr(fake, "on_request", None)
+    queue = list(pages)
+    rd.get = lambda path: {"value": queue.pop(0) if queue else []}
+    fake.on_request = on_request
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            rd.delete_rules()
+    finally:
+        rd.get, fake.on_request = saved_get, saved_hook
+
+
+def test_a_rule_already_gone_counts_as_deleted():
+    # Deleting a published rule also deletes its working draft, so a draft listed on the same page
+    # is gone by the time its own DELETE arrives (seen live 2026-10-07: 400 "... Does Not Exist").
+    deleted = []
+    def on_request(method, path):
+        if "draft" in path:
+            raise fake.DataverseError(method, path, 400, "Entity 'asx_rule' With Id = draft Does Not Exist")
+        deleted.append(path)
+        return None, None
+    _run_delete_rules([[{"asx_ruleid": "live"}, {"asx_ruleid": "draft"}]], on_request)
+    assert deleted == ["asx_rules(live)"]
+
+
+def test_any_other_rule_delete_failure_still_stops_the_reset():
+    def on_request(method, path):
+        raise fake.DataverseError(method, path, 403, "Principal user is missing prvDeleteasx_Rule privilege")
+    try:
+        _run_delete_rules([[{"asx_ruleid": "live"}]], on_request)
+        assert False, "expected SystemExit"
+    except SystemExit as e:
+        assert "403" in str(e) and "asx_rules(live)" in str(e)
 
 
 if __name__ == "__main__":
