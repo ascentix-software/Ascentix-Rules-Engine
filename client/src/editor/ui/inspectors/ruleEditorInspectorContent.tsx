@@ -3,14 +3,15 @@ import { Text } from "@fluentui/react-components";
 import type {
   RuleGraph, Selection, RuleHeader, ConditionGroupNode, ConditionNode, ActionNode,
 } from "../../model/types";
-import type { ApiIssue } from "../../webapi";
+import type { Issue } from "../useIssues";
+import { ErrorCircle16Regular, Warning16Regular } from "@fluentui/react-icons";
 import { flattenGroups, flattenConditions } from "../../model/tree";
 import { ConditionGroupInspector } from "./ConditionGroupInspector";
 import { ConditionInspector } from "./ConditionInspector";
 import { ActionInspector } from "./ActionInspector";
 import { outcomesOf, isOutcome, outcomeDisplayName } from "../../model/outcomes";
 import { RuleInspector } from "./RuleInspector";
-import { ActionIcon, Callout } from "../primitives";
+import { ActionIcon } from "../primitives";
 import type { InspectorHeader } from "../InspectorShell";
 import { color } from "../tokens";
 import type { RuleSchedule } from "../../schedule/scheduleModel";
@@ -115,23 +116,29 @@ export function ruleEditorInspectorContent(
   };
 }
 
-/** Validation issues, rendered in the design system's announced surface. */
-export function IssueCallout({ issues }: { issues: ApiIssue[] }) {
+/**
+ * The selected item's issues, compact: one row per issue (icon + message) on the
+ * severity tint. No code and no field suffix; the drawer carries those. Announced
+ * (role="alert") so a newly selected invalid item is read out.
+ */
+export function IssueCallout({ issues }: { issues: Pick<Issue, "severity" | "message">[] }) {
   if (!issues.length) return null;
-  // Warnings alone don't stop a publish, so they read as a warning, not an error.
-  const intent = issues.some((x) => x.severity === "Error") ? "danger" : "warning";
   return (
-    <div style={{ marginBottom: 14 }}>
-      <Callout intent={intent} title="Validation issues">
-        <ul style={{ margin: 0, paddingLeft: 16 }}>
-          {issues.map((issue, i) => (
-            <li key={i} style={{ fontSize: 12.5, color: issue.severity === "Error" ? color.danger : color.warnInk, marginBottom: 3 }}>
-              <strong>[{issue.code}]</strong> {issue.message}
-              {issue.target.field ? <span style={{ color: color.inkMuted }}> — field: {issue.target.field}</span> : null}
-            </li>
-          ))}
-        </ul>
-      </Callout>
+    <div role="alert" style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+      {issues.map((issue, i) => {
+        const error = issue.severity === "Error";
+        return (
+          <div key={i} style={{
+            display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 10px", borderRadius: 6,
+            background: error ? color.dangerTint : color.warnTint, fontSize: 13, color: color.ink,
+          }}>
+            <span aria-hidden style={{ display: "inline-flex", paddingTop: 1, color: error ? color.danger : color.warnInk }}>
+              {error ? <ErrorCircle16Regular /> : <Warning16Regular />}
+            </span>
+            <span>{issue.message}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

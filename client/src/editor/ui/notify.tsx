@@ -2,7 +2,7 @@ import * as React from "react";
 import {
   Toaster, Toast, ToastTitle, ToastTrigger, Button, Link, useToastController, tokens,
 } from "@fluentui/react-components";
-import { Dismiss20Regular } from "@fluentui/react-icons";
+import { Dismiss20Regular, CheckmarkCircle20Regular } from "@fluentui/react-icons";
 import { color } from "./tokens";
 
 /** The one toaster id. AppProvider mounts the Toaster; useNotify dispatches to it. */
@@ -13,8 +13,8 @@ export const NotifyToaster: React.FC = () => (
   <Toaster toasterId={TOASTER_ID} position="bottom" timeout={5000} pauseOnHover limit={3} />
 );
 
-const InkToast: React.FC<{ text: string; action?: { label: string; onClick(): void } }> = ({ text, action }) => (
-  <Toast
+const InkToast: React.FC<{ text: string; icon?: boolean; action?: { label: string; onClick(): void } }> = ({ text, icon, action }) => (
+  <Toast data-testid="toast"
     appearance="inverted"
     style={{
       background: color.ink, color: tokens.colorNeutralForegroundInverted, borderRadius: 8,
@@ -23,7 +23,7 @@ const InkToast: React.FC<{ text: string; action?: { label: string; onClick(): vo
     }}
   >
     <ToastTitle
-      media={null}
+      media={icon ? <CheckmarkCircle20Regular style={{ color: tokens.colorNeutralForegroundInverted }} /> : null}
       action={
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           {action && (
@@ -59,12 +59,12 @@ export interface Notify {
 export function useNotify(): Notify {
   const { dispatchToast } = useToastController(TOASTER_ID);
   return React.useMemo<Notify>(() => {
-    const show = (text: string, action?: { label: string; onClick(): void }) =>
-      dispatchToast(<InkToast text={text} action={action} />, { intent: "info" });
+    const show = (text: string, icon: boolean, action?: { label: string; onClick(): void }) =>
+      dispatchToast(<InkToast text={text} icon={icon} action={action} />, { intent: "info" });
     return {
-      success: (text, action) => show(text, action),
-      undo: (text, onUndo) => show(text, { label: "Undo", onClick: onUndo }),
-      info: (text) => show(text),
+      success: (text, action) => show(text, true, action),
+      undo: (text, onUndo) => show(text, false, { label: "Undo", onClick: onUndo }),
+      info: (text) => show(text, true),
     };
   }, [dispatchToast]);
 }

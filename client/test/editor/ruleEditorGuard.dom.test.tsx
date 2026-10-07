@@ -56,7 +56,7 @@ async function dirtyViaRename() {
   const nameInput = screen.getByLabelText(/rule name/i);
   fireEvent.change(nameInput, { target: { value: "Changed" } });
   fireEvent.keyDown(nameInput, { key: "Enter" });
-  await screen.findByText("Unsaved changes");
+  await screen.findByText("1 unsaved change");
 }
 
 beforeEach(() => { navigateMock.mockClear(); });
@@ -77,7 +77,7 @@ describe("RuleEditorApp unsaved-changes guard", () => {
     expect(navigateMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(navigateMock).not.toHaveBeenCalled();
-    expect(screen.getByText("Unsaved changes")).toBeInTheDocument(); // edits kept
+    expect(screen.getByText("1 unsaved change")).toBeInTheDocument(); // edits kept
   });
 
   it("dirty: Discard proceeds with the navigation", async () => {

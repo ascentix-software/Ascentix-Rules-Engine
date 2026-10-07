@@ -3,7 +3,7 @@ import { createDevApi, deleteDevRecord } from "../test-dev/devApi";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { resolveAppId, createZzRootConfig } from "./devHelpers";
-import { openHub, openRuleFromHub, toolbar, hubRow } from "./editorHarness";
+import { openHub, openRuleFromHub, hubRow, runMenu } from "./editorHarness";
 
 // Run now (RunNowDialog / RunProgress), driven for real against DEV: a Published On demand
 // rule's "All records that pass its execution conditions" run (started from the Rule Builder
@@ -70,7 +70,7 @@ test("Run now, all records: the dialog lists the execution condition, Start runs
     }
 
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await toolbar(frame).getByRole("button", { name: "Run now", exact: true }).click();
+    await runMenu(frame, /Apply to records/);
 
     const dialog = frame.getByRole("dialog");
     await expect(dialog).toBeVisible({ timeout: 30_000 }); // onOpenRunNow loads the published graph first

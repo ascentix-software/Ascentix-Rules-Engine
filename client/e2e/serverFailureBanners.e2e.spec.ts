@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET } from "../src/editor/load/odata";
 import { resolveAppId, createRuleFixture } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, toolbar, checkNoIssues, toast, unsavedCount, publishRule } from "./editorHarness";
 
 // The generic 5xx save/publish failure banners, driven against the real editor bundle. Those
 // paths are also unit-tested in jsdom against a fake api object; the distance between the two is
@@ -48,7 +48,7 @@ test("a 5xx on save shows the failure banner and KEEPS the edit dirty and recove
     const nameBox = frame.getByRole("textbox", { name: "Rule name" });
     await nameBox.fill(editedName);
     await nameBox.press("Enter");
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
 
@@ -60,7 +60,7 @@ test("a 5xx on save shows the failure banner and KEEPS the edit dirty and recove
 
     // The work survived: still dirty, still showing the typed name. This is the assertion the
     // jsdom test cannot make and the one the user actually cares about.
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     // .first(): the rule name renders in the breadcrumb, the title-actions row AND the inspector
     // heading, so a bare getByText is a strict-mode violation rather than an assertion.
     await expect(frame.getByText(editedName).first()).toBeVisible();
@@ -77,7 +77,7 @@ test("a 5xx on save shows the failure banner and KEEPS the edit dirty and recove
     // editor wedged (busy stuck, button disabled) would pass every assertion above.
     await page.unroute("**/api/data/**/$batch");
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const after = await api.retrieveMultipleRecords(
       ENTITY_SET.rule,
@@ -95,9 +95,8 @@ test("a 5xx on publish shows the failure banner and the rule stays Draft", async
   try {
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
 
-    // Validate on a clean rule round-trips without saving, so Publish becomes enabled.
-    await toolbar(frame).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
-    await expect(frame.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
+    // Check for issues on a clean rule round-trips without saving.
+    await checkNoIssues(frame);
 
     // Fail ONLY the publish PATCH (webapi.ts publishRule). Matching on method keeps the
     // editor's own GET reloads of the same URL alive.
@@ -108,9 +107,11 @@ test("a 5xx on publish shows the failure banner and the rule stays Draft", async
       await route.fulfill(FIVE_HUNDRED);
     });
 
-    await toolbar(frame).getByRole("button", { name: "Publish", exact: true }).click();
+    await toolbar(frame).getByRole("button", { name: "Publish…", exact: true }).click();
+    await frame.getByRole("dialog").getByRole("button", { name: /^Publish v\d+$/ }).click({ timeout: 30_000 });
 
-    await expect(frame.getByText(/Publish failed:/)).toBeVisible({ timeout: 30_000 });
+    // Errors are never toasts: the save-failure callout stays under the header.
+    await expect(frame.getByTestId("save-error")).toContainText(/Publish failed:/, { timeout: 30_000 });
     await expect(frame.getByText(/\[object Object\]/)).toHaveCount(0);
     expect(injected).toBeGreaterThan(0);
 
@@ -123,12 +124,11 @@ test("a 5xx on publish shows the failure banner and the rule stays Draft", async
       `?$filter=asx_ruleid eq ${fixture.ruleId}&$select=statuscode`,
     );
     expect(r.entities[0].statuscode).toBe(1); // Draft
-    await expect(frame.getByText("Draft", { exact: true })).toBeVisible();
+    await expect(frame.getByTestId("lifecycle-status").getByText("Not live", { exact: true })).toBeVisible();
 
     // RECOVERY: publishing again after the server recovers must work.
     await page.unroute("**/api/data/**/asx_rules(*");
-    await toolbar(frame).getByRole("button", { name: "Publish", exact: true }).click();
-    await expect(frame.getByText("Rule published successfully.")).toBeVisible({ timeout: 30_000 });
+    await publishRule(frame);
   } finally {
     await fixture.cleanup();
   }

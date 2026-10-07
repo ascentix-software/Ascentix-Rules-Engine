@@ -133,7 +133,7 @@ export async function openConfigFromHub(page: Page, appId: string, cfgName: stri
   return frame;
 }
 
-// The header command bar (Save / Reload / Validate / Publish). ALWAYS go through this rather
+// The header command bar (Undo/Redo · issues · Run · Save · Publish… · ⋯). ALWAYS go through this rather
 // than a frame-wide getByRole("button", { name: "Save", exact: true }): the GraphTree's action rows are
 // themselves role="button" and their accessible name is derived from their contents, so a rule
 // carrying a Block action produces a row named "Edit action 2: Block save", which a frame-wide
@@ -143,17 +143,53 @@ export function toolbar(frame: FrameLocator): Locator {
   return frame.getByTestId("title-actions-row");
 }
 
-// The proven Save → Validate → Publish sequence (banner strings from RuleEditorApp).
-export async function saveValidatePublish(frame: FrameLocator): Promise<void> {
+// A toast (bottom-centre, 5s). Success feedback lives here, never in an inline banner.
+export function toast(frame: FrameLocator, text: string | RegExp): Locator {
+  return frame.getByTestId("toast").filter({ hasText: text });
+}
+
+// The rule editor's unsaved-change count under the title ("1 unsaved change", "4 unsaved changes").
+export function unsavedCount(frame: FrameLocator): Locator {
+  return frame.getByTestId("lifecycle-status").getByText(/^\d+ unsaved changes?$/);
+}
+
+// An item of the header's ⋯ menu ("Review changes", "Check for issues", "View published",
+// "Restore published to draft…", "Reload from server", "Unpublish…").
+export async function headerMenu(frame: FrameLocator, item: string | RegExp): Promise<void> {
+  await toolbar(frame).getByRole("button", { name: "More actions" }).click();
+  await frame.getByRole("menuitem", { name: item }).click();
+}
+
+// An item of the Run split button's menu ("Preview on a record…", "Apply to records…", "View runs").
+export async function runMenu(frame: FrameLocator, item: string | RegExp): Promise<void> {
+  await toolbar(frame).getByRole("button", { name: "More run options" }).click();
+  await frame.getByRole("menuitem", { name: item }).click();
+}
+
+// Save from the header, then wait for the Saved toast.
+export async function saveRule(frame: FrameLocator): Promise<void> {
   await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-  await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
-  await toolbar(frame).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
-  await expect(frame.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
-  // exact: true, because role-name matching is SUBSTRING based, and the toolbar also carries
-  // an "Unpublish" button, so a bare "Publish" is a strict-mode violation. Same trap as the
-  // hubRow and action-row notes above; adding a button re-triggered it three specs away.
-  await toolbar(frame).getByRole("button", { name: "Publish", exact: true }).click();
-  await expect(frame.getByText("Rule published successfully.")).toBeVisible({ timeout: 30_000 });
+  await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+}
+
+// ⋯ › Check for issues (saves first when dirty), expecting a clean result.
+export async function checkNoIssues(frame: FrameLocator): Promise<void> {
+  await headerMenu(frame, "Check for issues");
+  await expect(toast(frame, "No issues found")).toBeVisible({ timeout: 30_000 });
+}
+
+// Publish… saves any edits, runs the server check, and opens the confirm; Publish vN publishes.
+export async function publishRule(frame: FrameLocator): Promise<void> {
+  await toolbar(frame).getByRole("button", { name: "Publish…", exact: true }).click();
+  const dialog = frame.getByRole("dialog");
+  await dialog.getByRole("button", { name: /^Publish v\d+$/ }).click({ timeout: 30_000 });
+  await expect(toast(frame, /^v\d+ is live/)).toBeVisible({ timeout: 30_000 });
+}
+
+// The proven Save → Publish… sequence.
+export async function saveValidatePublish(frame: FrameLocator): Promise<void> {
+  await saveRule(frame);
+  await publishRule(frame);
 }
 
 // Pick an option from one of the editor's freeform metadata Comboboxes (ColumnPicker /

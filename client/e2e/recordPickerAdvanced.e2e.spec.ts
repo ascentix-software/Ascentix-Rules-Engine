@@ -4,7 +4,7 @@ import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { ensureTableConfig, authorRule } from "../test-dev/ruleBehavior/authoring";
 import { resolveAppId } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, toolbar, toast } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The record picker's saved-VIEW dropdown and its "Advanced filter" RecordFilterBuilder.
@@ -107,7 +107,7 @@ test("record picker: a saved view plus an Advanced filter narrows the grid, and 
     await picker.getByRole("button", { name: "Select", exact: true }).click();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     // The KEEP guid landed, not the DROP one.
     const conds = await api.retrieveMultipleRecords(

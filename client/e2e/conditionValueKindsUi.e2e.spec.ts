@@ -5,7 +5,7 @@ import { ENTITY_SET, LOOKUP, BIND_NAV } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { configsVisible } from "../test-dev/ruleBehavior/settle";
 import { resolveAppId, createZzRootConfig, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, toolbar, pickFromCombobox } from "./editorHarness";
+import { openRuleFromHub, toolbar, pickFromCombobox, toast, unsavedCount } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // Condition literals and operator gating, authored against real org metadata in a browser, plus a
@@ -141,9 +141,9 @@ test("condition literals for Choice, Yes/No and Multi-select persist the option 
     await frame.getByRole("menuitemcheckbox", { name: "Rush (3)", exact: true }).click();
     await page.keyboard.press("Escape"); // a multiselect Combobox stays open between picks
 
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const rows = await conditionsOf(rule.ruleId);
     expect(rows.length).toBe(3);
@@ -219,7 +219,7 @@ test("changing the comparison column's KIND re-gates the operator list and clear
     await frame.getByPlaceholder("Text with {fields}: use Insert field").fill(TEMPLATE);
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     // The stale state is now PERSISTED. Without this the next save proves nothing: a bind that was
     // never written is indistinguishable from one that was correctly cleared.
@@ -261,7 +261,7 @@ test("changing the comparison column's KIND re-gates the operator list and clear
     // Save with NOTHING re-picked. This is the whole point: whatever the UI shows, the row is what
     // the engine reads, and a stale operator/value that merely stopped rendering still fires.
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     [c] = await conditionsOf(rule.ruleId);
     expect(c.asx_comparisoncolumn).toBe("sample_ordertotal");
@@ -276,7 +276,7 @@ test("changing the comparison column's KIND re-gates the operator list and clear
     await pickOperator(frame, CHOICE.operator.greaterThan);
     await frame.getByRole("textbox", { name: "Value" }).fill("250");
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     [c] = await conditionsOf(rule.ruleId);
     expect(c.asx_comparisonoperator).toBe(3); // GreaterThan

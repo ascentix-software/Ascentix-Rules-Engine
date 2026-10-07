@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createRuleFixture, deleteRuleCascade } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, toolbar, toast } from "./editorHarness";
 
 // The WHEN bands' own structure, built through the editor UI: the validation band, the And/Or
 // toggle, subgroup nesting, and the delete affordances. Those four decide, respectively, whether
@@ -63,7 +63,7 @@ test("validation band, Or operator, and a nested subgroup all persist", async ({
     await frame.getByRole("button", { name: "Subgroup" }).click();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const groups = await groupsOf(fixture.ruleId);
     expect(groups.length).toBe(2);
@@ -96,13 +96,13 @@ test("deleting a condition and a group removes the rows, not just the tree nodes
     // Delete the condition (row-level trash button), then save.
     await frame.getByRole("button", { name: "Delete condition" }).click();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
     expect(await conditionCount(before[0].asx_conditiongroupid as string)).toBe(0);
 
     // Now delete the (empty) group and save again.
     await frame.getByRole("button", { name: "Delete group" }).click();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
     expect(await groupsOf(fixture.ruleId)).toEqual([]);
 
     // The band falls back to its empty-state call to action.

@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createRuleFixture } from "./devHelpers";
-import { openRuleFromHub } from "./editorHarness";
+import { openRuleFromHub, toast, unsavedCount } from "./editorHarness";
 
 // The rule inspector's triggers / trigger-columns / effective-window edits determine WHEN
 // rules fire. This drives them through the real UI → $batch → server encoding round-trip
@@ -39,9 +39,9 @@ test("triggers, trigger columns, and effective-from edited in the inspector pers
     // Effective from is an exact UTC date and time by default.
     await frame.getByLabel("Effective from", { exact: true }).fill("2026-01-01T17:30");
 
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     await frame.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const api = createDevApi();
     const r = await api.retrieveMultipleRecords(

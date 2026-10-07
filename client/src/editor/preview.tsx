@@ -35,7 +35,23 @@ const recordStub: RecordSearchService = {
   resolveName: async () => null,
   queryByFetchXml: async () => [],
 };
-const apiStub = {} as EditorApi;
+// ?state=new (never published) | live (live, no draft) | draft (default: a draft of live v3)
+const state = new URLSearchParams(location.search).get("state") ?? "draft";
+const apiStub = {
+  getClientUrl: () => location.origin,
+  executeBatch: async () => ({ httpStatus: 200, text: "" }),
+  fetchJson: async () => ({ value: [] }),
+  retrieveRecord: async () => ({}),
+  retrieveMultipleRecords: async () => ({ entities: [] }),
+  validateRule: async () => ({
+    isValid: true,
+    issues: [{ severity: "Warning", code: "OUTCOME_UNUSED", message: "No active action tests this outcome.", target: { kind: "Group", id: "g-val" } }],
+  }),
+  publishRule: async () => {},
+  unpublishRule: async () => {},
+  openRuleDraft: async () => "draft",
+  dryRun: async () => ({ isValid: true, actions: [], outcomes: [], changeSet: [] }),
+} as unknown as EditorApi;
 
 // --- sample graph: "High-value deal guardrails" --------------------------
 const SAMPLE: RuleGraph = {
@@ -105,6 +121,16 @@ const SAMPLE: RuleGraph = {
       severity: null, isActive: true, localizedMessages: [] },
   ],
 };
+
+if (state !== "new") {
+  SAMPLE.rule.publishedVersion = 3;
+  SAMPLE.rule.publishedRevisionId = "rev3";
+  SAMPLE.rule.statusCode = 753840000;
+  SAMPLE.rule.publishedOn = "2026-10-02T09:00:00Z";
+  SAMPLE.rule.publishedBy = "Dana Whitfield";
+  SAMPLE.rule.triggers = [1, 4, 3];
+  if (state === "draft") SAMPLE.rule.activeRuleId = "live";
+}
 
 const host = document.getElementById("root");
 if (host) {

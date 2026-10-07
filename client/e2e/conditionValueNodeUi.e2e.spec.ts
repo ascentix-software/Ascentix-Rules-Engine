@@ -5,7 +5,7 @@ import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { configsVisible } from "../test-dev/ruleBehavior/settle";
 import { resolveAppId, createZzRootConfig, deleteRuleCascade } from "./devHelpers";
-import { openRuleFromHub, toolbar, pickFromCombobox } from "./editorHarness";
+import { openRuleFromHub, toolbar, pickFromCombobox, checkNoIssues, toast, unsavedCount } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // A condition's RIGHT-HAND SIDE pointed at a related node and saved from a real browser, so that
@@ -134,9 +134,9 @@ test("a condition authored in the editor with a related right-hand node persists
     // Same table on both sides, so this column is real on the RHS node too. See the header note.
     await pickFromCombobox(frame, "Right-hand column", "creditlimit", /\(sample_creditlimit\)/);
 
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const c = await conditionOf(rule.ruleId);
     expect(c.asx_comparisonvaluesource).toBe(2); // FieldReference
@@ -154,8 +154,7 @@ test("a condition authored in the editor with a related right-hand node persists
     await expect(reloaded.getByRole("combobox", { name: "Right-hand node" })).toContainText(`${NAME}_parent`);
     await expect(reloaded.getByRole("combobox", { name: "Right-hand column" })).toHaveValue(/\(sample_creditlimit\)/);
 
-    await toolbar(reloaded).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
-    await expect(reloaded.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
+    await checkNoIssues(reloaded);
   } finally {
     await deleteRuleCascade(rule.ruleId); // the UI-created condition isn't tracked by the fixture
     await rule.cleanup().catch(() => {});
@@ -196,9 +195,9 @@ test("re-pointing an already-persisted condition at a related node emits the bin
     await rhsNode.click();
     await frame.getByRole("option", { name: `${NAME}_parent`, exact: true }).click();
 
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const after = await conditionOf(rule.ruleId);
     expect(sameGuid(after[LOOKUP.comparisonValueNode], cfg.parentId), "the update branch (save/diff.ts:655) must PATCH asx_ComparisonValueNode; a null here means the editor reported 'Saved.' over a change it never sent").toBe(true);

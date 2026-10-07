@@ -37,6 +37,13 @@ function rename(name: string) {
   fireEvent.keyDown(field, { key: "Enter" });
 }
 
+const toolbar = () => within(screen.getByTestId("title-actions-row"));
+
+async function menu(item: string | RegExp) {
+  fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: item }));
+}
+
 function stored(snapshot: RuleGraph, working: RuleGraph) {
   sessionStorage.setItem(recoveryKey(scope, snapshot.rule.id), JSON.stringify({ version: 1, snapshot, working }));
 }
@@ -47,8 +54,11 @@ describe("authoring lifecycle and recovery", () => {
     const draft = clone(graph); draft.rule.id = "draft"; draft.rule.activeRuleId = graph.rule.id;
     const openRuleDraft = vi.fn(async () => "draft");
     const { api } = mount(graph, { openRuleDraft }, vi.fn(async () => draft));
-    expect(screen.getByRole("button", { name: "Rename rule" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Unpublish" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Rename rule" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await screen.findByRole("menuitem", { name: /Reload from server/ });
+    expect(screen.queryByRole("menuitem", { name: /Unpublish/ })).toBeNull();
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Edit rule" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Rename rule" })).toBeEnabled());
     expect(openRuleDraft).toHaveBeenCalledWith(graph.rule.id);
@@ -60,27 +70,27 @@ describe("authoring lifecycle and recovery", () => {
     graph.rule.publishedRevisionId = "revision-1"; graph.rule.publishedVersion = 1;
     mount(graph, { readPublishedRule: vi.fn(async () => publishedDefinition) });
     rename("Unsaved draft");
-    fireEvent.click(screen.getByRole("button", { name: "View published" }));
-    await screen.findByText("Viewing the published revision — read-only");
-    expect(screen.getByRole("button", { name: "Rename rule" })).toBeDisabled();
+    await menu("View published");
+    await screen.findByText("Viewing live v1");
+    expect(screen.queryByRole("button", { name: "Rename rule" })).toBeNull();
     expect(screen.getAllByText("Frozen version").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Back to draft" }));
     expect(screen.getByRole("button", { name: "Rename rule" })).toBeEnabled();
     expect(screen.getAllByText("Unsaved draft").length).toBeGreaterThan(0);
-    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
   });
 
   it("restoring a draft is explicit without a stale-version veto", async () => {
     const graph = makeGraph(); graph.rule.statusCode = PUBLISHED; graph.rule.publishedRevisionId = "revision-1";
-    graph.rule.activeRuleId = "active-rule";
+    graph.rule.activeRuleId = "active-rule"; graph.rule.publishedVersion = 2;
     graph.rule.etag = 'W/"42"';
     const restoreRuleDraft = vi.fn(async () => {});
     const { api } = mount(graph, { restoreRuleDraft });
     rename("Will be discarded");
-    fireEvent.click(screen.getByRole("button", { name: "Restore published to draft" }));
+    await menu("Restore published to draft…");
     expect(restoreRuleDraft).not.toHaveBeenCalled();
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Restore draft" }));
-    await screen.findByText(/Draft restored from the published revision/);
+    await screen.findByText("Draft restored from v2");
     expect(restoreRuleDraft).toHaveBeenCalledWith("r1");
     expect(api.unpublishRule).not.toHaveBeenCalled();
   });
@@ -91,18 +101,19 @@ describe("authoring lifecycle and recovery", () => {
     const draft = clone(opened); draft.rule.name = "Revised draft";
     const openRuleDraft = vi.fn(async () => opened.rule.id);
     const { api } = mount(graph, { openRuleDraft }, vi.fn().mockResolvedValueOnce(opened).mockResolvedValueOnce(draft));
-    expect(screen.getByRole("button", { name: "Rename rule" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Rename rule" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete action" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Edit rule" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Rename rule" })).toBeEnabled());
     expect(openRuleDraft).toHaveBeenCalledWith("r1");
-    expect(screen.getByRole("button", { name: "Rename rule" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Delete action" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
+    // Publish… is never disabled in a draft state: it saves and checks first.
+    expect(screen.getByRole("button", { name: "Publish…" })).toBeEnabled();
     rename("Revised draft");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await screen.findByText("Saved.");
+    fireEvent.click(toolbar().getByRole("button", { name: "Save" }));
+    await screen.findByText("Saved");
     expect(JSON.stringify(vi.mocked(api.executeBatch).mock.calls)).toContain("draft-id");
-    expect(screen.getByText("Published")).toBeInTheDocument();
+    expect(screen.getByText(/Live · v/)).toBeInTheDocument();
     expect(api.unpublishRule).not.toHaveBeenCalled();
     expect(api.publishRule).not.toHaveBeenCalled();
   });
@@ -112,9 +123,9 @@ describe("authoring lifecycle and recovery", () => {
     mount(makeGraph({ executionGroups: [makeGroup({ name: "Parent", groups: [nested] })] }));
     fireEvent.click(screen.getAllByRole("button", { name: "Delete group" })[0]);
     expect(screen.queryByRole("button", { name: "Edit group Nested" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    fireEvent.click(toolbar().getByRole("button", { name: "Undo" }));
     expect(screen.getByRole("button", { name: "Edit group Nested" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Redo" }));
+    fireEvent.click(toolbar().getByRole("button", { name: "Redo" }));
     expect(screen.queryByRole("button", { name: "Edit group Nested" })).toBeNull();
   });
 
@@ -125,16 +136,16 @@ describe("authoring lifecycle and recovery", () => {
     const published = clone(saved); published.rule.statusCode = PUBLISHED;
     const { api } = mount(graph, {}, vi.fn().mockResolvedValueOnce(saved).mockResolvedValueOnce(published));
     rename("Validated draft");
-    expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Save & validate" }));
-    await screen.findByText(/Validation passed/);
+    // Publish… saves, checks, then asks.
+    fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
+    const dialog = within(await screen.findByRole("dialog"));
     expect(api.executeBatch).toHaveBeenCalledOnce();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    await screen.findByText("Rule published successfully.");
+    expect(api.validateRule).toHaveBeenCalledWith("r1");
+    expect(dialog.getByText("No errors")).toBeInTheDocument();
+    fireEvent.click(dialog.getByRole("button", { name: "Publish v1" }));
+    await screen.findByText("v1 is live");
     expect(api.publishRule).toHaveBeenCalledWith("r1");
     expect(screen.getByRole("button", { name: "Rename rule" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
   });
 
   it("keeps edits available to review and copy after a failed save", async () => {
@@ -142,11 +153,14 @@ describe("authoring lifecycle and recovery", () => {
       httpStatus: 200, text: 'HTTP/1.1 403 Forbidden\n{"error":{"message":"Write permission denied"}}',
     })) });
     rename("My pending change");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await screen.findByText(/Save failed: Write permission denied/);
+    fireEvent.click(toolbar().getByRole("button", { name: "Save" }));
+    const failure = await screen.findByTestId("save-error");
+    expect(failure).toHaveTextContent("Couldn't save.");
+    expect(failure).toHaveTextContent("Write permission denied");
+    expect(within(failure).getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(reload).not.toHaveBeenCalled();
     expect(screen.getAllByText("My pending change").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "Review changes" }));
+    await menu(/Review changes/);
     expect((await screen.findByLabelText("Pending changes") as HTMLTextAreaElement).value).toContain("My pending change");
   });
 
@@ -159,8 +173,8 @@ describe("authoring lifecycle and recovery", () => {
     first.unmount();
     resetTempIds();
     mount();
-    expect(screen.getByRole("button", { name: "Rename rule" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Restore edits" }));
+    expect(screen.queryByRole("button", { name: "Rename rule" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
     fireEvent.click(screen.getByRole("button", { name: "+ Action" }));
     await waitFor(() => {
       const recovered = JSON.parse(sessionStorage.getItem(key)!);
@@ -175,13 +189,13 @@ describe("authoring lifecycle and recovery", () => {
     const draft = clone(graph); draft.rule.statusCode = 1; draft.rule.etag = 'W/"2"';
     const reload = vi.fn().mockResolvedValueOnce(draft);
     const { api } = mount(graph, {}, reload);
-    fireEvent.click(screen.getByRole("button", { name: "Restore edits" }));
-    fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await menu("Unpublish…");
     expect(await screen.findByText(/Unpublishing does not save or discard them/)).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Unpublish" }));
-    await screen.findByText(/Your unsaved edits are preserved/);
+    await screen.findByText(/is no longer enforced/);
     expect(screen.getAllByText("Retained edit").length).toBeGreaterThan(0);
-    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
     expect(api.executeBatch).not.toHaveBeenCalled();
     const recovery = JSON.parse(sessionStorage.getItem(recoveryKey(scope, "r1"))!);
     expect(recovery.snapshot.rule.etag).toBe('W/"2"');
@@ -195,11 +209,11 @@ describe("authoring lifecycle and recovery", () => {
     const current = clone(baseline); current.rule.statusCode = PUBLISHED; current.rule.etag = 'W/"2"';
     const draft = clone(current); draft.rule.statusCode = 1; draft.rule.etag = 'W/"3"';
     mount(current, {}, vi.fn().mockResolvedValueOnce(draft));
-    fireEvent.click(screen.getByRole("button", { name: "Restore edits" }));
-    fireEvent.click(screen.getByRole("button", { name: "Unpublish" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await menu("Unpublish…");
     const dialog = within(await screen.findByRole("dialog"));
     fireEvent.click(dialog.getByRole("button", { name: "Unpublish" }));
-    await screen.findByText(/Your unsaved edits are preserved/);
+    await screen.findByText(/is no longer enforced/);
     const recovery = JSON.parse(sessionStorage.getItem(recoveryKey(scope, "r1"))!);
     expect(recovery.snapshot.rule.etag).toBe('W/"3"');
     expect(recovery.working.rule.name).toBe("Older edit");

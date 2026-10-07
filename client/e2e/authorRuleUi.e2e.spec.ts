@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { createDevApi, updateDevRecord } from "../test-dev/devApi";
 import { ENTITY_SET } from "../src/editor/load/odata";
 import { resolveAppId, createRuleFixture, deleteRuleCascade } from "./devHelpers";
-import { openRuleFromHub, saveValidatePublish } from "./editorHarness";
+import { openRuleFromHub, saveValidatePublish, toast, unsavedCount, toolbar } from "./editorHarness";
 
 // Authoring a rule's graph in the browser: real Fluent pickers against live metadata plus the
 // $batch create path for NEW child rows (not just a rename PATCH), the validation-FAILURE
@@ -46,9 +46,9 @@ test("author a condition and action fully in the UI, then save → validate → 
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     await frame.getByRole("textbox", { name: "Show-message message" }).fill("ZZ_RB ui-authored message");
 
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     await saveValidatePublish(frame);
-    await expect(frame.getByText("Published", { exact: true })).toBeVisible();
+    await expect(frame.getByTestId("lifecycle-status").getByText("Live · v1", { exact: true })).toBeVisible();
   } finally {
     // The UI created group/condition/action rows the fixture never tracked.
     await deleteRuleCascade(fixture.ruleId);
@@ -57,21 +57,25 @@ test("author a condition and action fully in the UI, then save → validate → 
   }
 });
 
-test("validation failure: issues panel renders and Publish stays disabled", async ({ page }) => {
+test("validation failure: Publish… is blocked and lists the errors in the issues drawer", async ({ page }) => {
   const appId = await resolveAppId();
   const fixture = await createRuleFixture({ withCondition: "incomplete", withAction: false, validate: false });
   try {
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
 
-    // Not dirty, so Validate round-trips immediately (no implicit save).
-    await frame.getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
-    await expect(frame.getByText(/Validation found \d+ issues?\./)).toBeVisible({ timeout: 30_000 });
+    // Not dirty, so Publish… checks immediately (no implicit save), and the errors block it.
+    await toolbar(frame).getByRole("button", { name: "Publish…", exact: true }).click();
+    const blocked = frame.getByRole("dialog");
+    await expect(blocked.getByRole("heading", { name: /^Fix \d+ errors? to publish$/ })).toBeVisible({ timeout: 30_000 });
+    await expect(blocked.getByRole("button", { name: /^Publish v/ })).toHaveCount(0);
 
-    // The always-mounted live region lists the issues.
-    const panel = frame.getByRole("status");
-    await expect(panel).toContainText(/\[[A-Z_]+\]/); // at least one [CODE] entry
-
-    await expect(frame.getByRole("button", { name: "Publish", exact: true })).toBeDisabled();
+    // Open issues: the drawer lists each error with its code.
+    await blocked.getByRole("button", { name: "Open issues" }).click();
+    const drawer = frame.getByRole("dialog", { name: "Issues" });
+    await expect(drawer.getByText(/^Must fix to publish · \d+$/)).toBeVisible();
+    await expect(drawer.getByText(/^[A-Z_]+$/).first()).toBeVisible();
+    // The status region announced the check.
+    await expect(frame.getByTestId("issues-status")).toContainText(/\d+ errors?, \d+ warnings?/);
   } finally {
     await fixture.cleanup();
   }
@@ -92,10 +96,10 @@ test("the browser save wins after another author changes the same field", async 
     const nameBox = frame.getByRole("textbox", { name: "Rule name" });
     await nameBox.fill(`${fixture.ruleName} (ui)`);
     await nameBox.press("Enter");
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     await frame.getByRole("button", { name: "Save", exact: true }).click();
 
-    await expect(frame.getByText("Saved.", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     // Read back the persisted value, independently of the success banner.
     const api = createDevApi();

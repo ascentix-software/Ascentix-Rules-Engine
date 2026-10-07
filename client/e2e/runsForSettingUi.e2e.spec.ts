@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createZzRootConfig, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, toolbar, headerMenu, toast } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The "Runs for" field (RuleInspector.tsx): hidden unless the On demand trigger is ticked,
@@ -39,9 +39,9 @@ test("Runs for: hidden without On demand, defaults to 'A record it's given', and
     await expect(runsFor).toHaveText("All records that pass its execution conditions");
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
-    await toolbar(frame).getByRole("button", { name: "Reload", exact: true }).click();
+    await headerMenu(frame, /Reload from server/);
     await expect(frame.getByRole("combobox", { name: "Runs for" })).toHaveText("All records that pass its execution conditions");
 
     // Untick On demand: the field disappears (the chosen scope stays local, unsaved).
@@ -53,7 +53,7 @@ test("Runs for: hidden without On demand, defaults to 'A record it's given', and
     await expect(frame.getByRole("combobox", { name: "Runs for" })).toHaveCount(0);
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const r = await api.retrieveMultipleRecords(
       ENTITY_SET.rule, `?$filter=asx_ruleid eq ${rule.ruleId}&$select=asx_ondemandscope`,

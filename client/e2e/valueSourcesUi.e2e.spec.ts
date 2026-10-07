@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createRuleFixture } from "./devHelpers";
-import { openRuleFromHub, toolbar, pickFromCombobox } from "./editorHarness";
+import { openRuleFromHub, toolbar, pickFromCombobox, toast, unsavedCount } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The rich value sources (FieldReference, Text template and Date calculation) authored through
@@ -66,9 +66,9 @@ test("FieldReference value source: right-hand column persists and the literal Va
     // picker is compatibleWith-filtered, so a non-numeric column would not even be listed.
     await pickColumn(frame, "Right-hand column", "credit", /\(creditlimit\)/);
 
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const c = await conditionOf(fixture.ruleId);
     expect(c.asx_comparisonvaluesource).toBe(2); // FieldReference
@@ -111,7 +111,7 @@ test("Text template value source: offered only for a text column, and Insert fie
     await expect(template).toHaveValue("ACME {root.accountnumber}");
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const c = await conditionOf(fixture.ruleId);
     expect(c.asx_comparisonvaluesource).toBe(3); // Template
@@ -151,7 +151,7 @@ test("Date calculation value source: builds the DateExprSpec JSON envelope Core 
     await frame.getByRole("option", { name: "Days" }).click();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const c = await conditionOf(fixture.ruleId);
     expect(c.asx_comparisonvaluesource).toBe(4); // DateExpression

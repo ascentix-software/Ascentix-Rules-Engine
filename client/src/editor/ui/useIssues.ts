@@ -17,6 +17,8 @@ export interface Issue {
   path: string;
   /** True once the graph changed after the server check that produced it. */
   stale: boolean;
+  /** server = the last validateRule check; client = a live hint from validation.ts. */
+  source: "server" | "client";
 }
 
 /** A server check, kept (not cleared) when the graph changes; useIssues marks it stale. */
@@ -112,6 +114,7 @@ export function buildIssues(
     out.push({
       id: `s${n}`, severity: i.severity === "Error" ? "Error" : "Warning", code: i.code, message: i.message,
       target: { kind, id, field: i.target.field }, path: loc.path(kind, id, i.target.field), stale: opts.stale,
+      source: "server",
     });
   });
   const kindOfHint = (id: string): IssueTargetKind => {
@@ -123,7 +126,7 @@ export function buildIssues(
     const kind = kindOfHint(h.nodeId);
     out.push({
       id: `h${n}`, severity: "Error", code: h.code, message: h.message,
-      target: { kind, id: h.nodeId }, path: loc.path(kind, h.nodeId), stale: false,
+      target: { kind, id: h.nodeId }, path: loc.path(kind, h.nodeId), stale: false, source: "client",
     });
   });
   for (const e of opts.extra ?? []) out.push(e);

@@ -2,7 +2,8 @@ import * as React from "react";
 import { Button, Text, Spinner } from "@fluentui/react-components";
 import { BranchFork16Regular, Delete16Regular, ArrowUp16Regular, ArrowDown16Regular } from "@fluentui/react-icons";
 import type { RuleGraph, ConditionGroupNode, Selection, ConditionNode, TableConfigRef, ActionTypeLabel } from "../model/types";
-import type { ApiIssue } from "../webapi";
+import type { Issue } from "./useIssues";
+import { IssueIcon } from "./issues/IssueIcon";
 import { conditionParts, actionEffect, actionVerb, actionDetail, firesWhenSummary } from "./labels";
 import { outcomesOf } from "../model/outcomes";
 import { NodeTag, OperatorPill, ValueText, LogicalBadge, GroupCard, ActionIcon, Pill } from "./primitives";
@@ -14,30 +15,6 @@ import { ZONES, type Zone, color } from "./tokens";
 import { useEditorStyles } from "./styles";
 import { activateOnKey } from "./keyboard";
 
-/** Small inline indicator for validation issues on a node row. */
-function IssueIndicator({ issues }: { issues: ApiIssue[] }) {
-  if (!issues.length) return null;
-  const hasError = issues.some((x) => x.severity === "Error");
-  const fg = hasError ? color.danger : color.warnInk;
-  const bg = hasError ? color.dangerTint : color.warnTint;
-  return (
-    <span style={{
-      display: "inline-flex", flexDirection: "column", gap: 2,
-      marginLeft: 6, flexShrink: 0,
-    }}>
-      {issues.map((issue, i) => (
-        <span key={i} style={{
-          fontSize: 11, fontWeight: 600, color: fg, background: bg,
-          borderRadius: 5, padding: "1px 7px", whiteSpace: "nowrap",
-        }}>
-          [{issue.code}] {issue.message}
-          {issue.target.field ? <span style={{ fontWeight: 400, color: fg }}> — {issue.target.field}</span> : null}
-        </span>
-      ))}
-    </span>
-  );
-}
-
 export interface GraphTreeHandlers {
   onSelect(sel: Selection): void;
   onAddGroup(bucket: "execution" | "validation", parentGroupId: string | null): void;
@@ -48,6 +25,8 @@ export interface GraphTreeHandlers {
   onDeleteAction(id: string): void;
   onMoveAction(id: string, dir: -1 | 1): void;
   onAddOutcome(): void;
+  /** Opens the issues drawer at this issue. */
+  onOpenIssue?(issue: Issue): void;
 }
 
 function isSelected(sel: Selection, kind: string, id?: string): boolean {
@@ -80,11 +59,12 @@ function ConditionRow({ c, tcs, ruleTable }: { c: ConditionNode; tcs: Record<str
 }
 
 function GroupNode({
-  group, bucket, graph, selection, handlers, depth, ruleTable, issuesByTargetId,
+  group, bucket, graph, selection, handlers, depth, ruleTable, issuesByTargetId, readOnly,
 }: {
   group: ConditionGroupNode; bucket: "execution" | "validation";
   graph: RuleGraph; selection: Selection; handlers: GraphTreeHandlers; depth: number; ruleTable: string;
-  issuesByTargetId?: Map<string, ApiIssue[]>;
+  issuesByTargetId?: Map<string, Issue[]>;
+  readOnly?: boolean;
 }) {
   const z = ZONES[bucket];
   const compact = depth > 0;
@@ -105,7 +85,7 @@ function GroupNode({
   const outcome = bucket === "validation" && depth === 0;
   const outcomeName = group.name.trim() === "" ? "(unnamed)" : group.name;
   const header = (
-    <div role="button" tabIndex={0}
+    <div role="button" tabIndex={0} data-select-id={group.id}
       aria-pressed={isSelected(selection, "group", group.id)}
       aria-label={outcome ? `Edit outcome ${outcomeName}` : `Edit group ${group.name || "(group)"}`}
       style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", cursor: "pointer" }}
@@ -115,12 +95,12 @@ function GroupNode({
       <Text weight="semibold" style={{ fontSize: compact ? 12 : 14, color: compact ? color.inkMuted : color.ink }}>
         {outcome ? `Outcome · ${outcomeName}` : group.name || "(group)"}
       </Text>
-      {groupIssues.length > 0 && <IssueIndicator issues={groupIssues} />}
-      <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+      <IssueIcon issues={groupIssues} onOpen={handlers.onOpenIssue} />
+      {!readOnly && <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
         {chip(() => handlers.onAddCondition(group.id), <span style={{ fontSize: 13 }}>+</span>, "Condition")}
         {chip(() => handlers.onAddGroup(bucket, group.id), <BranchFork16Regular />, "Subgroup")}
         {chip(() => handlers.onDeleteGroup(group.id), <Delete16Regular />, outcome ? "Delete outcome" : "Delete group", true)}
-      </span>
+      </span>}
     </div>
   );
   return (
@@ -131,7 +111,7 @@ function GroupNode({
           const condIssues = issuesByTargetId?.get(c.id) ?? [];
           const cp = conditionParts(c, graph.tableConfigs);
           return (
-            <div key={c.id} role="button" tabIndex={0}
+            <div key={c.id} role="button" tabIndex={0} data-select-id={c.id}
               aria-pressed={sel}
               aria-label={`Edit condition ${cp.node ? cp.node + " " : ""}${cp.field ?? ""}`.trim()}
               onClick={() => handlers.onSelect({ kind: "condition", id: c.id })}
@@ -140,16 +120,16 @@ function GroupNode({
                 cursor: "pointer", background: sel ? z.selTint : (compact ? "transparent" : z.rowTint),
                 border: sel ? `1px solid ${z.selBorder}` : "1px solid transparent",
                 flexWrap: "wrap" }}>
+              <IssueIcon issues={condIssues} onOpen={handlers.onOpenIssue} />
               <ConditionRow c={c} tcs={graph.tableConfigs} ruleTable={ruleTable} />
-              {condIssues.length > 0 && <IssueIndicator issues={condIssues} />}
-              <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete condition" title="Delete condition"
+              {!readOnly && <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete condition" title="Delete condition"
                 style={{ marginLeft: "auto", color: color.inkDisabled }}
-                onClick={(e) => { e.stopPropagation(); handlers.onDeleteCondition(c.id); }} />
+                onClick={(e) => { e.stopPropagation(); handlers.onDeleteCondition(c.id); }} />}
             </div>
           );
         })}
         {group.groups.map((g) => (
-          <GroupNode key={g.id} group={g} bucket={bucket} graph={graph} selection={selection} handlers={handlers} depth={depth + 1} ruleTable={ruleTable} issuesByTargetId={issuesByTargetId} />
+          <GroupNode key={g.id} group={g} bucket={bucket} graph={graph} selection={selection} handlers={handlers} depth={depth + 1} ruleTable={ruleTable} issuesByTargetId={issuesByTargetId} readOnly={readOnly} />
         ))}
       </div>
     </GroupCard>
@@ -168,9 +148,9 @@ function BandAddButton({ zone, label, onClick }: { zone: Zone; label: string; on
   );
 }
 
-function Band({ zone, title, addLabel, onAdd, empty, emptyCta, children }: {
+function Band({ zone, title, addLabel, onAdd, empty, emptyCta, children, readOnly }: {
   zone: Zone; title: string; addLabel: string; onAdd(): void;
-  empty: boolean; emptyCta: string; children: React.ReactNode;
+  empty: boolean; emptyCta: string; children: React.ReactNode; readOnly?: boolean;
 }) {
   const z = ZONES[zone];
   const styles = useEditorStyles();
@@ -187,16 +167,18 @@ function Band({ zone, title, addLabel, onAdd, empty, emptyCta, children }: {
           <span style={{ fontSize: 14.5, fontWeight: 700, color: z.color }}>{title}</span>
           <span style={{ fontSize: 12, color: z.subtitleColor }}>{z.subtitle}</span>
         </div>
-        <BandAddButton zone={zone} label={addLabel} onClick={onAdd} />
+        {!readOnly && <BandAddButton zone={zone} label={addLabel} onClick={onAdd} />}
       </div>
       <div style={{ padding: "14px 18px" }}>
         {empty ? (
           <div style={{ border: `1px dashed ${color.line}`, borderRadius: 8, padding: 14, textAlign: "center",
             color: color.inkMuted, fontSize: 13 }}>
-            <button type="button" className={styles.focusRing} onClick={onAdd}
-              style={{ background: "none", border: "none", color: z.color, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
-              {emptyCta}
-            </button>
+            {readOnly ? "None" : (
+              <button type="button" className={styles.focusRing} onClick={onAdd}
+                style={{ background: "none", border: "none", color: z.color, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                {emptyCta}
+              </button>
+            )}
           </div>
         ) : children}
       </div>
@@ -204,11 +186,12 @@ function Band({ zone, title, addLabel, onAdd, empty, emptyCta, children }: {
   );
 }
 
-function ActionRow({ a, index, count, graph, selection, handlers, labelForTree, issuesByTargetId }: {
+function ActionRow({ a, index, count, graph, selection, handlers, labelForTree, issuesByTargetId, readOnly }: {
   a: import("../model/types").ActionNode; index: number; count: number;
   graph: RuleGraph; selection: Selection; handlers: GraphTreeHandlers;
   labelForTree: (choice: string, value: number | null, fallback: string) => string;
-  issuesByTargetId?: Map<string, ApiIssue[]>;
+  issuesByTargetId?: Map<string, Issue[]>;
+  readOnly?: boolean;
 }) {
   const eff = actionEffect(a);
   const sel = isSelected(selection, "action", a.id);
@@ -220,7 +203,7 @@ function ActionRow({ a, index, count, graph, selection, handlers, labelForTree, 
   const actionIssues = issuesByTargetId?.get(a.id) ?? [];
   const firesWhen = firesWhenSummary(a.firesWhen, outcomesOf(graph));
   return (
-    <div role="button" tabIndex={0}
+    <div role="button" tabIndex={0} data-select-id={a.id}
       aria-pressed={sel}
       aria-label={`Edit action ${index + 1}: ${verb}`}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
@@ -243,8 +226,8 @@ function ActionRow({ a, index, count, graph, selection, handlers, labelForTree, 
           <Pill tone={eff.tone}>{eff.label}</Pill>
         </span>
       )}
-      {actionIssues.length > 0 && <IssueIndicator issues={actionIssues} />}
-      <span onFocus={() => setFocusWithin(true)} onBlur={() => setFocusWithin(false)}
+      <IssueIcon issues={actionIssues} onOpen={handlers.onOpenIssue} />
+      {!readOnly && <span onFocus={() => setFocusWithin(true)} onBlur={() => setFocusWithin(false)}
         style={{ marginLeft: eff.label ? 8 : "auto", display: "flex", gap: 2, opacity: hover || sel || focusWithin ? 1 : 0 }}>
         <Button size="small" appearance="subtle" icon={<ArrowUp16Regular />} aria-label="Move up" title="Move up"
           disabled={index === 0} onClick={(e) => { e.stopPropagation(); handlers.onMoveAction(a.id, -1); }} />
@@ -252,43 +235,45 @@ function ActionRow({ a, index, count, graph, selection, handlers, labelForTree, 
           disabled={index === count - 1} onClick={(e) => { e.stopPropagation(); handlers.onMoveAction(a.id, 1); }} />
         <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete action" title="Delete action"
           style={{ color: color.danger }} onClick={(e) => { e.stopPropagation(); handlers.onDeleteAction(a.id); }} />
-      </span>
+      </span>}
     </div>
   );
 }
 
 export function GraphTree({
-  graph, selection, handlers, issuesByTargetId,
+  graph, selection, handlers, issuesByTargetId, readOnly,
 }: {
   graph: RuleGraph; selection: Selection; handlers: GraphTreeHandlers;
-  issuesByTargetId?: Map<string, ApiIssue[]>;
+  issuesByTargetId?: Map<string, Issue[]>;
+  /** Live / published views: add, delete and move controls are not rendered. */
+  readOnly?: boolean;
 }) {
   const labelForTree = useChoiceLabel();
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <Band zone="execution" title="WHEN · Execution conditions" addLabel="+ Group"
         onAdd={() => handlers.onAddGroup("execution", null)}
-        empty={graph.executionGroups.length === 0} emptyCta="+ Add group">
+        empty={graph.executionGroups.length === 0} emptyCta="+ Add group" readOnly={readOnly}>
         {graph.executionGroups.map((g) => (
-          <GroupNode key={g.id} group={g} bucket="execution" graph={graph} selection={selection} handlers={handlers} depth={0} ruleTable={graph.rule.tableLogicalName} issuesByTargetId={issuesByTargetId} />
+          <GroupNode key={g.id} group={g} bucket="execution" graph={graph} selection={selection} handlers={handlers} depth={0} ruleTable={graph.rule.tableLogicalName} issuesByTargetId={issuesByTargetId} readOnly={readOnly} />
         ))}
       </Band>
 
       <Band zone="validation" title="WHEN · Outcomes" addLabel="+ Add outcome"
         onAdd={() => handlers.onAddOutcome()}
-        empty={graph.validationGroups.length === 0} emptyCta="+ Add outcome">
+        empty={graph.validationGroups.length === 0} emptyCta="+ Add outcome" readOnly={readOnly}>
         {graph.validationGroups.map((g) => (
-          <GroupNode key={g.id} group={g} bucket="validation" graph={graph} selection={selection} handlers={handlers} depth={0} ruleTable={graph.rule.tableLogicalName} issuesByTargetId={issuesByTargetId} />
+          <GroupNode key={g.id} group={g} bucket="validation" graph={graph} selection={selection} handlers={handlers} depth={0} ruleTable={graph.rule.tableLogicalName} issuesByTargetId={issuesByTargetId} readOnly={readOnly} />
         ))}
       </Band>
 
       <Band zone="action" title="THEN · Actions" addLabel="+ Action"
         onAdd={() => handlers.onAddAction()}
-        empty={graph.actions.length === 0} emptyCta="+ Add action">
+        empty={graph.actions.length === 0} emptyCta="+ Add action" readOnly={readOnly}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {graph.actions.map((a, i) => (
             <ActionRow key={a.id} a={a} index={i} count={graph.actions.length}
-              graph={graph} selection={selection} handlers={handlers} labelForTree={labelForTree} issuesByTargetId={issuesByTargetId} />
+              graph={graph} selection={selection} handlers={handlers} labelForTree={labelForTree} issuesByTargetId={issuesByTargetId} readOnly={readOnly} />
           ))}
         </div>
       </Band>

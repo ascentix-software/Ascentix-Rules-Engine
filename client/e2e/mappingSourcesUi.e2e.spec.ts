@@ -6,7 +6,7 @@ import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { configsVisible } from "../test-dev/ruleBehavior/settle";
 import { resolveAppId, createOrderConfigTree, deleteRuleCascade } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, toolbar, checkNoIssues, toast } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // Three halves of FieldMappingDialog that a fixture DOM cannot reach: the `ref` source, the `node`
@@ -191,7 +191,7 @@ test("the ref source links the created row to a config node and persists { sourc
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const action = await actionOf(rule.ruleId);
     expect(action.asx_actiontype).toBe(5); // CreateRecord
@@ -220,8 +220,7 @@ test("the ref source links the created row to a config node and persists { sourc
 
     // Last, so a failure here is unambiguous: the payload persisted and round-tripped, and it is
     // the SERVER validator that rejected it.
-    await toolbar(reloaded).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
-    await expect(reloaded.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
+    await checkNoIssues(reloaded);
   } finally {
     await deleteRuleCascade(rule.ruleId); // the UI-created action isn't tracked by the fixture
     await rule.cleanup().catch(() => {});
@@ -267,7 +266,7 @@ test("the node source copies a related record's column and persists { source: no
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const mapping = JSON.parse(String((await actionOf(rule.ruleId)).asx_fieldmapping)) as MappingEntry[];
     expect(mapping.length).toBe(1);
@@ -287,8 +286,7 @@ test("the node source copies a related record's column and persists { source: no
     await expect(reloaded.getByRole("combobox", { name: /^Column for/ })).toHaveValue(/\(sample_creditlimit\)/);
 
     await mapDialog(reloaded).getByRole("button", { name: "Cancel", exact: true }).click();
-    await toolbar(reloaded).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
-    await expect(reloaded.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
+    await checkNoIssues(reloaded);
   } finally {
     await deleteRuleCascade(rule.ruleId);
     await rule.cleanup().catch(() => {});
@@ -350,7 +348,7 @@ test("an incomplete mapping row blocks Apply with an inline error, and completin
     await expect(mapDialog(frame), "with every row complete Apply must close the dialog").toBeHidden();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     // BOTH rows persisted, in list order. This is the half that proves the refusal cost nothing:
     // the valid row typed before the block is still there, unmodified.

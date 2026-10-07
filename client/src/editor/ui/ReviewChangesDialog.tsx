@@ -42,20 +42,22 @@ export function describeChanges(snapshot: RuleGraph, working: RuleGraph): string
   }).join("\n\n") || "No pending changes.";
 }
 
-export function ReviewChangesDialog({ open, snapshot, working, onClose }: {
+export function ReviewChangesDialog({ open, snapshot, working, onClose, title = "Review pending changes", text: given }: {
   open: boolean; snapshot: RuleGraph; working: RuleGraph; onClose(): void;
+  /** Overrides for a different comparison (e.g. changes since the live version). */
+  title?: string; text?: string;
 }) {
   const [status, setStatus] = React.useState("");
-  const text = describeChanges(snapshot, working);
+  const text = given ?? describeChanges(snapshot, working);
   React.useEffect(() => setStatus(""), [open, text]);
   async function copy() {
     try { await navigator.clipboard.writeText(text); setStatus("Changes copied."); }
     catch { setStatus("Select the text below and copy it with your keyboard."); }
   }
   return (
-    <DialogShell open={open} title="Review pending changes" onClose={onClose}
+    <DialogShell open={open} title={title} onClose={onClose}
       actions={<><Button onClick={copy}>Copy changes</Button><Button appearance="primary" onClick={onClose}>Close</Button></>}>
-      <p style={{ margin: 0 }}>These changes are relative to the version you loaded. Copy them before reloading if you want to preserve them for later.</p>
+      {given === undefined && <p style={{ margin: 0 }}>These changes are relative to the version you loaded. Copy them before reloading if you want to preserve them for later.</p>}
       <Textarea aria-label="Pending changes" readOnly value={text} rows={12} resize="vertical" style={{ width: "100%" }} />
       <div role="status">{status}</div>
     </DialogShell>

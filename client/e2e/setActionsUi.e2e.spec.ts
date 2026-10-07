@@ -4,7 +4,7 @@ import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { createOrderLine } from "../test-dev/ruleBehavior/subjects";
 import { resolveAppId, createOrderConfigTree } from "./devHelpers";
-import { openRuleFromHub, saveValidatePublish } from "./editorHarness";
+import { openRuleFromHub, saveValidatePublish, toolbar } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // Author a set action with a Rows filter in the Rule Builder, publish, and see the dry-run counts in Test.
@@ -58,7 +58,8 @@ test("a set Update with a Rows filter reports its row counts in Test", async ({ 
 
     await saveValidatePublish(frame);
 
-    await frame.getByRole("button", { name: "Test", exact: true }).click();
+    // The Run split button's main action opens the preview (dry run) dialog.
+    await toolbar(frame).getByRole("button", { name: "Run", exact: true }).click();
     const test = frame.getByRole("dialog", { name: "Test on a record" });
     await test.getByRole("button", { name: "Choose record…" }).click();
     const picker = frame.getByRole("dialog").last();

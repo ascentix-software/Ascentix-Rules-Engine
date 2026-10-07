@@ -4,7 +4,7 @@ import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { ensureTableConfig, authorRule } from "../test-dev/ruleBehavior/authoring";
 import { resolveAppId } from "./devHelpers";
-import { openRuleFromHub } from "./editorHarness";
+import { openRuleFromHub, toast, headerMenu } from "./editorHarness";
 
 // A lookup-valued condition ("Customer equals THIS record") through the
 // real LookupPicker → RecordPickerDialog against live data: quick-find search, GUID
@@ -51,7 +51,7 @@ test("lookup condition via the record picker persists the GUID and re-resolves t
     await picker.getByRole("button", { name: "Select", exact: true }).click();
 
     await frame.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     // Persisted: the condition's literal comparison value carries the record's GUID.
     const conds = await api.retrieveMultipleRecords(
@@ -62,7 +62,7 @@ test("lookup condition via the record picker persists the GUID and re-resolves t
     expect(conds.entities.length).toBeGreaterThanOrEqual(1);
 
     // Reload: the tree re-resolves the GUID back to the display name.
-    await frame.getByRole("button", { name: "Reload" }).click();
+    await headerMenu(frame, /Reload from server/);
     await expect(frame.getByText(customerName).first()).toBeVisible({ timeout: 30_000 });
   } finally {
     // The UI-authored condition hangs off the fixture group: fixture cleanup deletes the

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { AppProvider } from "../../src/editor/ui/AppProvider";
 import { MetadataProvider } from "../../src/editor/ui/useMetadata";
 import { RecordSearchProvider } from "../../src/editor/ui/useRecordSearch";
@@ -88,6 +88,13 @@ function turnOnDailyAt(time: string) {
   fireEvent.change(screen.getByLabelText("Time of day"), { target: { value: time } });
 }
 
+const saveButton = () => within(screen.getByTestId("title-actions-row")).queryByRole("button", { name: "Save" });
+
+async function menuItem(name: string | RegExp) {
+  fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name }));
+}
+
 beforeEach(() => {
   vi.mocked(loadRuleSchedule).mockReset();
   vi.mocked(loadRuleSchedule).mockResolvedValue(null);
@@ -120,11 +127,12 @@ describe("RuleEditorApp Schedule, with a draft open on a published rule", () => 
     renderApp({ getClientUrl: () => CLIENT_URL, executeBatch });
     await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalledWith(expect.anything(), ACTIVE_ID));
 
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(saveButton()).toBeNull();
+    expect(screen.getByText("Saved")).toBeInTheDocument();
     turnOnDailyAt("02:00");
-    expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled();
+    expect(saveButton()).toBeEnabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(saveButton()!);
     await waitFor(() => expect(executeBatch).toHaveBeenCalledTimes(1));
 
     const body = executeBatch.mock.calls[0][1] as string;
@@ -134,24 +142,29 @@ describe("RuleEditorApp Schedule, with a draft open on a published rule", () => 
     expect(body).toContain('"asx_on":true');
   });
 
-  it("blocks Save, showing the message, while the schedule is On and invalid", async () => {
-    renderApp({ getClientUrl: () => CLIENT_URL });
+  it("keeps Save enabled while the schedule is invalid, but sends nothing and opens the issues drawer", async () => {
+    const executeBatch = vi.fn(async (_boundary: string, _body: string) => ({ httpStatus: 200, text: "" }));
+    renderApp({ getClientUrl: () => CLIENT_URL, executeBatch });
     await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("switch")); // On, Daily, no time yet
     expect(screen.getByText("Choose a time of day for a daily, weekly or monthly schedule.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save & validate" })).toBeDisabled();
+    expect(saveButton()).toBeEnabled();
+    fireEvent.click(saveButton()!);
+    const drawer = await screen.findByRole("dialog", { name: "Issues" });
+    expect(within(drawer).getByText("Schedule")).toBeInTheDocument();
+    expect(executeBatch).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText("Time of day"), { target: { value: "02:00" } });
-    expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled();
+    fireEvent.click(saveButton()!);
+    await waitFor(() => expect(executeBatch).toHaveBeenCalledTimes(1));
   });
 
   it("Reload also reloads the schedule", async () => {
     renderApp({ getClientUrl: () => CLIENT_URL });
     await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+    await menuItem(/Reload from server/);
     await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalledTimes(2));
   });
 
@@ -163,27 +176,27 @@ describe("RuleEditorApp Schedule, with a draft open on a published rule", () => 
     const reload = async () => current;
     renderApp({ getClientUrl: () => CLIENT_URL, executeBatch }, draftGraph(), reload);
     await waitFor(() => expect(screen.getByRole("switch")).toBeChecked());
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(saveButton()).toBeNull();
 
     fireEvent.click(screen.getByRole("combobox", { name: "Runs for" }));
     fireEvent.click(await screen.findByText("A record it's given"));
     // Stopped qualifying now: the turn-off is a pending change.
-    expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled();
+    expect(saveButton()).toBeEnabled();
 
     current = { ...draftGraph(), rule: { ...draftGraph().rule, onDemandScope: 1 } };
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(saveButton()!);
     await waitFor(() => expect(executeBatch).toHaveBeenCalledTimes(1));
     expect(executeBatch.mock.calls[0][1]).toContain('"asx_on":false');
 
     // Saved: the rule didn't qualify when it was loaded back, so nothing is pending any more.
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
-    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+    await waitFor(() => expect(saveButton()).toBeNull());
+    expect(screen.queryByText(/unsaved change/)).not.toBeInTheDocument();
   });
 });
 
 describe("RuleEditorApp Schedule, on a published rule without a draft", () => {
   it("keeps the Schedule section editable while the rule's fields stay read-only", async () => {
-    renderApp({ getClientUrl: () => CLIENT_URL }, publishedGraph());
+    renderApp({ getClientUrl: () => CLIENT_URL, openRuleDraft: vi.fn() }, publishedGraph());
     await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalledWith(expect.anything(), ACTIVE_ID));
 
     expect(screen.getByRole("button", { name: "Edit rule" })).toBeInTheDocument();
@@ -197,11 +210,12 @@ describe("RuleEditorApp Schedule, on a published rule without a draft", () => {
     renderApp({ getClientUrl: () => CLIENT_URL, executeBatch }, publishedGraph());
     await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalledWith(expect.anything(), ACTIVE_ID));
 
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    // A live rule without a draft shows Save only to send schedule edits.
+    expect(saveButton()).toBeNull();
     turnOnDailyAt("02:00");
-    expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled();
+    expect(saveButton()).toBeEnabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(saveButton()!);
     await waitFor(() => expect(executeBatch).toHaveBeenCalledTimes(1));
 
     const body = executeBatch.mock.calls[0][1] as string;
@@ -209,7 +223,7 @@ describe("RuleEditorApp Schedule, on a published rule without a draft", () => {
     expect(body).toMatch(/POST https:\/\/org\.crm\.dynamics\.com\/api\/data\/v9\.2\/asx_ruleschedules HTTP\/1\.1/);
     expect(body).toContain(`"asx_Rule@odata.bind":"${CLIENT_URL}/api/data/v9.2/asx_rules(${ACTIVE_ID})"`);
     expect(body).not.toContain("PATCH ");
-    await waitFor(() => expect(screen.getByText("Saved.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Saved")).toBeInTheDocument());
   });
 });
 
@@ -218,7 +232,7 @@ describe("RuleEditorApp Schedule, loading", () => {
     const graph = draftGraph();
     graph.rule.onDemandScope = 1;
     renderApp({ getClientUrl: () => CLIENT_URL }, graph);
-    await screen.findByRole("button", { name: "Save" });
+    await screen.findByRole("button", { name: "More actions" });
     await new Promise((r) => setTimeout(r, 0));
     expect(loadRuleSchedule).not.toHaveBeenCalled();
   });
@@ -263,7 +277,7 @@ describe("RuleEditorApp Schedule, loading", () => {
     expect(await screen.findByText("You don't have access to rule schedules. Ask an administrator.")).toBeInTheDocument();
 
     vi.mocked(loadRuleSchedule).mockResolvedValueOnce(onSchedule());
-    fireEvent.click(screen.getByRole("button", { name: "Reload" }));
+    await menuItem(/Reload from server/);
 
     await waitFor(() => expect(screen.getByRole("switch")).toBeInTheDocument());
     expect(screen.getByRole("switch")).toBeChecked();
@@ -333,8 +347,8 @@ describe("RuleEditorApp Schedule, loading", () => {
   });
 });
 
-describe("RuleEditorApp Schedule, blocking Save from another panel", () => {
-  it("shows why Save is blocked next to the button even while a condition (not the rule panel) is selected", async () => {
+describe("RuleEditorApp Schedule, an invalid schedule from another panel", () => {
+  it("counts the schedule error in the header, and Save goes to it, even while a condition is selected", async () => {
     renderApp({ getClientUrl: () => CLIENT_URL }, draftGraphWithCondition());
     await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalled());
 
@@ -345,8 +359,12 @@ describe("RuleEditorApp Schedule, blocking Save from another panel", () => {
     // The Schedule section (and its own message) is gone now that a condition is selected...
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
     expect(screen.queryByText("Choose a time of day for a daily, weekly or monthly schedule.")).not.toBeInTheDocument();
-    // ...but the reason Save is disabled is still visible next to it.
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    expect(screen.getByText("Fix the schedule before saving: Choose a time of day for a daily, weekly or monthly schedule.")).toBeInTheDocument();
+    // ...but the header still counts it, and Save takes you there instead of saving.
+    expect(screen.getByRole("button", { name: /^Issues: 1 error/ })).toBeInTheDocument();
+    fireEvent.click(saveButton()!);
+    const drawer = await screen.findByRole("dialog", { name: "Issues" });
+    expect(within(drawer).getByText("Choose a time of day for a daily, weekly or monthly schedule.")).toBeInTheDocument();
+    // Go to field reselects the rule panel, where the Schedule section lives.
+    await waitFor(() => expect(screen.getByRole("switch")).toBeInTheDocument());
   });
 });

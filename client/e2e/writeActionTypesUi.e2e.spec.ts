@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createOrderConfigTree, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, toolbar, toast } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // CreateRecord and DeleteRecord authored end-to-end in the browser: CreateRecord's TablePicker
@@ -90,7 +90,7 @@ test("CreateRecord authored in the UI: target table plus literal and from-this-r
     await frame.getByRole("button", { name: "Apply", exact: true }).click();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const action = await actionOf(rule.ruleId);
     expect(action.asx_actiontype).toBe(5); // CreateRecord
@@ -127,7 +127,7 @@ test("DeleteRecord authored in the UI: only single-cardinality nodes are offered
     await frame.getByRole("option", { name: /ZZ_RB_wtui_dr/ }).first().click();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const action = await actionOf(rule.ruleId);
     expect(action.asx_actiontype).toBe(7); // DeleteRecord

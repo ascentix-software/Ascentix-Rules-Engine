@@ -18,7 +18,8 @@ vi.mock("../../src/editor/ui/pickers/MultiRecordPickerDialog", () => ({
 }));
 
 import { startRun, driveRun, cancelRun } from "../../src/editor/runs/runDriver";
-import { canRunNow, RunNowDialog } from "../../src/editor/runs/RunNowDialog";
+import { RunNowDialog } from "../../src/editor/runs/RunNowDialog";
+import { canApply } from "../../src/editor/ui/header/lifecycle";
 
 function fakeApi(): WebApiPort & Pick<BatchApi, "getClientUrl"> {
   return {
@@ -34,14 +35,12 @@ function fakeApi(): WebApiPort & Pick<BatchApi, "getClientUrl"> {
   };
 }
 
-describe("canRunNow", () => {
-  it("is true only for Published plus the On demand trigger (3)", () => {
-    expect(canRunNow(753840000, [3])).toBe(true);
-    expect(canRunNow(753840000, [1, 3])).toBe(true);
-    expect(canRunNow(753840000, [1])).toBe(false);
-    expect(canRunNow(1, [3])).toBe(false);
-    expect(canRunNow(2, [3])).toBe(false);
-    expect(canRunNow(null, [3])).toBe(false);
+describe("canApply", () => {
+  it("is true only for a live rule whose published triggers include On demand (3)", () => {
+    expect(canApply(true, [3])).toBe(true);
+    expect(canApply(true, [1, 3])).toBe(true);
+    expect(canApply(true, [1])).toBe(false);
+    expect(canApply(false, [3])).toBe(false);
   });
 });
 

@@ -4,7 +4,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createOrderConfigTree, createRuleOnConfig, readFiresWhen, outcomesOf } from "./devHelpers";
-import { openRuleFromHub, saveValidatePublish } from "./editorHarness";
+import { openRuleFromHub, saveValidatePublish, unsavedCount } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 import { saveOrderViaForm, awaitBlockArmed } from "./formSaveOracle";
 
@@ -119,9 +119,9 @@ test("a Block rule authored entirely in the editor stops a real form save, and a
     await frame.getByRole("combobox", { name: "Result" }).click();
     await frame.getByRole("option", { name: "is false", exact: true }).click();
 
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     await saveValidatePublish(frame);
-    await expect(frame.getByText("Published", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(frame.getByTestId("lifecycle-status").getByText(/^Live · v\d+$/)).toBeVisible({ timeout: 30_000 });
 
     // What the editor actually wrote. Asserted BEFORE the save probes so a failure below can be
     // read as "the plugin did not enforce" rather than "the editor wrote the wrong row".
@@ -261,7 +261,7 @@ test("editing a published rule in the UI and re-publishing changes what the plug
     await expect(frame2.getByRole("button", { name: "Rename rule" })).toBeEnabled();
     await frame2.getByRole("button", { name: /^Edit condition/ }).click();
     await frame2.getByRole("textbox", { name: "Value" }).fill("200");
-    await expect(frame2.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame2)).toBeVisible();
     await saveValidatePublish(frame2);
 
     // The SAME record that was blocked a moment ago must now save: 150 <= 200 matches, so the

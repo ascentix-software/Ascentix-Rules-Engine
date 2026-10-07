@@ -4,7 +4,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createOrderConfigTree, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, toolbar, pickFromMenu } from "./editorHarness";
+import { openRuleFromHub, toolbar, pickFromMenu, toast } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The Insert-aggregate menu, exercised in a real browser: `avg`, `min`, `max` and `count` are
@@ -129,7 +129,7 @@ test("Expression: avg, min and max authored from the Insert-aggregate menu survi
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const [c] = await conditionsOf(rule.ruleId);
     expect(c.asx_conditiontype).toBe(4); // Expression
@@ -174,7 +174,7 @@ test("Expression: Count authored from the Insert-aggregate menu takes a collecti
     await frame.getByRole("textbox", { name: "Value" }).fill("2");
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const [c] = await conditionsOf(rule.ruleId);
     expect(c.asx_conditiontype).toBe(4);

@@ -5,7 +5,6 @@ import { AppProvider } from "../../src/editor/ui/AppProvider";
 import { MetadataProvider } from "../../src/editor/ui/useMetadata";
 import type { MetadataService } from "../../src/editor/metadata";
 import { ruleEditorInspectorContent, IssueCallout } from "../../src/editor/ui/inspectors/ruleEditorInspectorContent";
-import type { ApiIssue } from "../../src/editor/webapi";
 
 const handlers = {
   onPatchRule: vi.fn(), onPatchGroup: vi.fn(), onPatchCondition: vi.fn(), onPatchAction: vi.fn(),
@@ -57,30 +56,25 @@ describe("ruleEditorInspectorContent", () => {
 });
 
 describe("IssueCallout", () => {
-  const issue: ApiIssue = {
-    code: "X1", message: "Broken thing", severity: "Error",
+  const issue = {
+    code: "X1", message: "Broken thing", severity: "Error" as const,
     target: { kind: "condition", id: "c1", field: "col" },
-  } as ApiIssue;
+  };
 
-  it("renders issues inside an announced danger Callout", () => {
+  it("renders each issue compactly inside an announced region, without code or field", () => {
     renderWithFluent(<IssueCallout issues={[issue]} />);
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("Broken thing");
-    expect(alert).toHaveTextContent("[X1]");
-    expect(screen.getByText("Validation issues")).toBeInTheDocument();
+    expect(alert).not.toHaveTextContent("X1");
+    expect(alert).not.toHaveTextContent("col");
   });
 
-  it("uses the danger intent when any issue is an error, and the warning intent for warnings only", () => {
-    const warning = { ...issue, code: "W1", message: "Just a warning", severity: "Warning" } as ApiIssue;
-    const titleColor = () => screen.getByText("Validation issues").style.color;
-
-    const mixed = renderWithFluent(<IssueCallout issues={[warning, issue]} />);
-    expect(titleColor()).toBe("rgb(200, 55, 45)"); // color.danger
-    mixed.unmount();
-
-    renderWithFluent(<IssueCallout issues={[warning]} />);
-    expect(titleColor()).toBe("rgb(138, 90, 0)"); // color.warnInk
-    expect(screen.getByRole("alert")).toHaveTextContent("Just a warning");
+  it("tints errors danger and warnings warn", () => {
+    const warning = { ...issue, code: "W1", message: "Just a warning", severity: "Warning" as const };
+    renderWithFluent(<IssueCallout issues={[warning, issue]} />);
+    const row = (text: string) => screen.getByText(text).parentElement!;
+    expect(row("Broken thing").style.backgroundColor).toBe("rgb(253, 238, 239)"); // color.dangerTint
+    expect(row("Just a warning").style.backgroundColor).toBe("rgb(253, 246, 227)"); // color.warnTint
   });
 
   it("renders nothing for an empty list", () => {

@@ -5,7 +5,7 @@ import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { resolveAppId, createOrderConfigTree, deleteRuleCascade } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, toolbar, checkNoIssues, toast } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The Aggregates chip row and AggregateFilterDialog, driven in a real browser. Both surfaces only
@@ -263,7 +263,7 @@ test("a filtered aggregate authored in the Map columns dialog persists expressio
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const action = await actionOf(rule.ruleId);
     expect(action.asx_actiontype).toBe(6); // UpdateRecord
@@ -312,8 +312,7 @@ test("a filtered aggregate authored in the Map columns dialog persists expressio
 
     // Last, because a failure here is then unambiguous: everything persisted and round-tripped,
     // and the SERVER validator is what rejected the filtered-aggregate mapping.
-    await toolbar(reloaded).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
-    await expect(reloaded.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
+    await checkNoIssues(reloaded);
   } finally {
     await deleteRuleCascade(rule.ruleId); // the UI-created action isn't tracked by the fixture
     await rule.cleanup().catch(() => {});
@@ -384,7 +383,7 @@ test("the Aggregates chip row rewrites the aggregate in place, including across 
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const mapping = JSON.parse(String((await actionOf(rule.ruleId)).asx_fieldmapping)) as MappingEntry[];
     expect(mapping.length).toBe(1);

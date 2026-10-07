@@ -360,3 +360,33 @@ export const InfoField: React.FC<FieldProps & { info?: string }> = ({ info, labe
     />
   );
 };
+
+/**
+ * A slim bar for blocking states (data update, recovery) and the inline save
+ * failure. Danger bars are announced (role="alert"); warn bars are context.
+ */
+export const NoticeBar: React.FC<{
+  tone: "warn" | "danger";
+  icon: React.ReactNode;
+  lead?: React.ReactNode;
+  children?: React.ReactNode;
+  actions?: React.ReactNode;
+  testId?: string;
+}> = ({ tone, icon, lead, children, actions, testId }) => {
+  const danger = tone === "danger";
+  return (
+    <div data-testid={testId} {...(danger ? { role: "alert" as const } : {})} style={{
+      display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+      background: danger ? color.dangerTint : color.warnTint,
+      border: `1px solid ${danger ? color.danger : color.warn}`, borderRadius: 8,
+      padding: danger ? "10px 12px 10px 14px" : "8px 12px 8px 14px",
+    }}>
+      <span aria-hidden style={{ display: "inline-flex", color: danger ? color.danger : color.warnInk, flex: "none" }}>{icon}</span>
+      <span style={{ fontSize: 13.5, color: color.ink, minWidth: 0, flex: "1 1 240px", display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+        {lead && <b>{lead}</b>}
+        {children}
+      </span>
+      {actions && <span style={{ display: "inline-flex", gap: 8, marginLeft: "auto", flex: "none" }}>{actions}</span>}
+    </div>
+  );
+};

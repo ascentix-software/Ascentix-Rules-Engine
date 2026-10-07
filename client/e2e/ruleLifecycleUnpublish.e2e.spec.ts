@@ -4,7 +4,7 @@ import { ENTITY_SET } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { ensureTableConfig, authorRule } from "../test-dev/ruleBehavior/authoring";
 import { resolveAppId } from "./devHelpers";
-import { openRuleFromHub } from "./editorHarness";
+import { openRuleFromHub, headerMenu } from "./editorHarness";
 import {
   saveOrderViaForm, saveOrderExpectingRelease, awaitBlockArmed, awaitBlockReleased,
 } from "./formSaveOracle";
@@ -98,13 +98,15 @@ test("a rule unpublished behind the editor's back shows Draft in the UI after re
   });
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await expect(frame.getByText("Published", { exact: true })).toBeVisible({ timeout: 30_000 });
+    const status = frame.getByTestId("lifecycle-status");
+    await expect(status.getByText(/^Live · v\d+$/)).toBeVisible({ timeout: 30_000 });
 
     await updateDevRecord(ENTITY_SET.rule, rule.ruleId, { statuscode: DRAFT });
 
-    await frame.getByTestId("title-actions-row").getByRole("button", { name: "Reload" }).click();
-    await expect(frame.getByText("Draft", { exact: true })).toBeVisible({ timeout: 30_000 });
-    await expect(frame.getByText("Published", { exact: true })).toHaveCount(0);
+    // Unpublished, but it still has its published revision: "Not live · vN", never "Live".
+    await headerMenu(frame, /Reload from server/);
+    await expect(status.getByText(/^Not live · v\d+$/)).toBeVisible({ timeout: 30_000 });
+    await expect(status.getByText(/^Live · v\d+$/)).toHaveCount(0);
   } finally {
     await rule.cleanup();
     await tc.cleanup();

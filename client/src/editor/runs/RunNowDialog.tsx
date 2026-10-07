@@ -14,12 +14,6 @@ import { formatError } from "../ui/errors";
 const GIVEN_RECORDS = 1;
 const MAX_GIVEN_RECORDS = 250;
 
-/** True when an On demand run can be started for this rule right now:
- *  Published (753840000) and the On demand trigger (3) is ticked. */
-export function canRunNow(statusCode: number | null, triggers: number[]): boolean {
-  return statusCode === 753840000 && triggers.includes(3);
-}
-
 export interface RunNowRule {
   id: string;
   name: string;

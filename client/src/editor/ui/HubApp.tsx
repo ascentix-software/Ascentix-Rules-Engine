@@ -27,7 +27,8 @@ import { activateOnKey } from "./keyboard";
 import { formatError } from "./errors";
 import { useDataUpdates } from "../dataUpdates/DataUpdateContext";
 import { DataUpdateBanner } from "../dataUpdates/DataUpdateBanner";
-import { canRunNow, RunNowDialog, type RunNowRule } from "../runs/RunNowDialog";
+import { RunNowDialog, type RunNowRule } from "../runs/RunNowDialog";
+import { canApply, PUBLISHED } from "./header/lifecycle";
 import { RunsDialog } from "../runs/RunsDialog";
 import { executionConditionNames } from "../runs/runsData";
 
@@ -170,7 +171,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   // The hub only carries a RuleListItem (name/table/scope); the execution condition
   // names shown in the dialog must describe what actually runs — the PUBLISHED definition,
   // not a draft — so load it the same way "View published" does in the Rule Builder
-  // (loadPublishedGraph). Run now is only offered when the rule is Published (canRunNow),
+  // (loadPublishedGraph). Run now is only offered when the rule is Published (canApply),
   // so a published revision should always be there; fall back to loadRuleEditorGraph's
   // graph (draft or published, best effort) if the published load fails, and to a plain
   // placeholder if that fails too — the run can still be started either way.
@@ -337,7 +338,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                     { label: "Modified", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{modified(r.modifiedOn, r.modifiedBy)}</span> },
                     { label: "", node: (
                       <span style={{ display: "flex", gap: 2, justifyContent: stacked ? "flex-start" : "flex-end" }} onClick={(e) => e.stopPropagation()}>
-                        {canRunNow(r.statusCode, r.triggers) && (
+                        {canApply(r.statusCode === PUBLISHED, r.triggers) && (
                           <Button size="small" appearance="subtle" icon={<Play16Regular />} aria-label="Run now" title="Run now"
                             disabled={busy || loadingRunNowId === r.id} onClick={() => onRunNow(r)} />
                         )}
