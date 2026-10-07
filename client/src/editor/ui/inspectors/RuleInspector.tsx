@@ -17,7 +17,7 @@ const plainFieldset: React.CSSProperties = {
  *  Schedule section alone, which stays editable on a published rule without a draft. */
 export function RuleInspector({
   rule, onPatch, schedule, onPatchSchedule, ruleTimeZone, onOpenRuns, disabled, scheduleDisabled,
-  scheduleUnavailable, scheduleLoadError, onRetrySchedule,
+  scheduleUnavailable, scheduleLoadError, scheduleLoading, onRetrySchedule,
 }: {
   rule: RuleHeader; onPatch(patch: Partial<RuleHeader>): void;
   schedule?: RuleSchedule | null;
@@ -28,6 +28,7 @@ export function RuleInspector({
   scheduleDisabled?: boolean;
   scheduleUnavailable?: boolean;
   scheduleLoadError?: boolean;
+  scheduleLoading?: boolean;
   onRetrySchedule?(): void;
 }) {
   const toggleIn = (list: number[], v: number): number[] =>
@@ -121,6 +122,7 @@ export function RuleInspector({
             onOpenRuns={onOpenRuns ?? (() => {})}
             unavailable={scheduleUnavailable}
             loadError={scheduleLoadError}
+            loading={scheduleLoading}
             onRetry={onRetrySchedule}
           />
         </fieldset>
