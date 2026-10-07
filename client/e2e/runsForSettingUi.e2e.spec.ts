@@ -3,8 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createZzRootConfig, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, toolbar, headerMenu, toast } from "./editorHarness";
-import { CHOICE } from "./liveLabels";
+import { openRuleFromHub, toolbar, headerMenu, toast, addTrigger, removeTrigger } from "./editorHarness";
 
 // The "Runs for" field (RuleInspector.tsx): hidden unless the On demand trigger is ticked,
 // defaults to "A record it's given", and — per model/enums.ts's ON_DEMAND_SCOPE comment and
@@ -22,35 +21,30 @@ test("Runs for: hidden without On demand, defaults to 'A record it's given', and
   const rule = await createRuleOnConfig({ namePrefix: `rfs_${stamp}`, table: "account", rootConfigId: root.id, triggers: "1" });
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    const runsFor = frame.getByRole("combobox", { name: "Runs for" });
+    // Runs for lives in the On demand card, which only exists while On demand is a trigger.
+    const runsFor = frame.getByRole("radiogroup", { name: "Runs for" });
+    const given = frame.getByRole("radio", { name: "Records it's given" });
+    const all = frame.getByRole("radio", { name: "All records that match “Only if”" });
     await expect(runsFor).toHaveCount(0);
 
-    const triggers = frame.getByRole("combobox", { name: "Triggers (at least one)" });
-    await triggers.click();
-    await frame.getByRole("menuitemcheckbox", { name: CHOICE.trigger.manual })
-      .or(frame.getByRole("option", { name: CHOICE.trigger.manual })).first().click();
-    await page.keyboard.press("Escape"); // close the multiselect popover
+    await addTrigger(frame, "On demand");
 
     await expect(runsFor).toBeVisible();
-    await expect(runsFor).toHaveText("A record it's given"); // default
+    await expect(given).toBeChecked(); // default
 
-    await runsFor.click();
-    await frame.getByRole("option", { name: "All records that pass its execution conditions", exact: true }).click();
-    await expect(runsFor).toHaveText("All records that pass its execution conditions");
+    await all.check();
+    await expect(all).toBeChecked();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     await headerMenu(frame, /Reload from server/);
-    await expect(frame.getByRole("combobox", { name: "Runs for" })).toHaveText("All records that pass its execution conditions");
+    await expect(all).toBeChecked();
 
-    // Untick On demand: the field disappears (the chosen scope stays local, unsaved).
-    await triggers.click();
-    await frame.getByRole("menuitemcheckbox", { name: CHOICE.trigger.manual })
-      .or(frame.getByRole("option", { name: CHOICE.trigger.manual })).first().click();
-    await page.keyboard.press("Escape");
+    // Remove On demand: the card disappears (the chosen scope stays local, unsaved).
+    await removeTrigger(frame, "On demand");
 
-    await expect(frame.getByRole("combobox", { name: "Runs for" })).toHaveCount(0);
+    await expect(runsFor).toHaveCount(0);
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });

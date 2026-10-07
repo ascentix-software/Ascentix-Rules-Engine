@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createRuleFixture } from "./devHelpers";
-import { openRuleFromHub, toast, unsavedCount } from "./editorHarness";
+import { openRuleFromHub, toast, unsavedCount, addTrigger, openSettingsSection } from "./editorHarness";
 
 // The rule inspector's triggers / trigger-columns / effective-window edits determine WHEN
 // rules fire. This drives them through the real UI → $batch → server encoding round-trip
@@ -17,27 +17,24 @@ test("triggers, trigger columns, and effective-from edited in the inspector pers
   const fixture = await createRuleFixture({ namePrefix: "ZZ_RB_rinsp" }); // account, Manual only
   try {
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
-    // Default selection is the rule itself: the docked inspector already shows
-    // "Rule properties" at the default (wide) viewport.
+    // Default selection is the rule itself: the docked inspector already shows the Rule
+    // settings at the default (wide) viewport, with When it runs open.
 
-    // Add the On Update trigger (multiselect keeps Manual too). Fluent's multiselect
-    // Dropdown popup exposes menu/menuitemcheckbox roles, not listbox/option (verified
-    // via live snapshot). Accept either.
-    const triggers = frame.getByRole("combobox", { name: "Triggers (at least one)" });
-    await triggers.click();
-    await frame.getByRole("menuitemcheckbox", { name: "On Update" })
-      .or(frame.getByRole("option", { name: "On Update" })).first().click();
-    await page.keyboard.press("Escape"); // close the multiselect popover
+    // Add the On update trigger (the tag picker keeps On demand too).
+    await addTrigger(frame, "On update");
 
-    // One trigger column via the live-metadata MultiColumnPicker.
-    const cols = frame.getByRole("combobox", { name: "Fire on change of these columns" });
+    // "Also run on update when these change" appears once On update is a trigger: pick one
+    // column (options show the display name, with the logical name as secondary text).
+    const cols = frame.getByRole("combobox", { name: "Also run on update when these change" });
     await cols.click();
-    await frame.getByRole("menuitemcheckbox", { name: /\(name\)$/ })
-      .or(frame.getByRole("option", { name: /\(name\)$/ })).first().click();
-    await page.keyboard.press("Escape");
+    await frame.getByRole("option", { name: /\bname$/ }).first().click();
+    await cols.press("Escape");
 
-    // Effective from is an exact UTC date and time by default.
-    await frame.getByLabel("Effective from", { exact: true }).fill("2026-01-01T17:30");
+    // Starts (Active period) is an exact UTC date and time by default.
+    await openSettingsSection(frame, "Active period");
+    const starts = frame.getByLabel("Starts", { exact: true });
+    await starts.click(); // becomes a datetime input on focus
+    await starts.fill("2026-01-01T17:30");
 
     await expect(unsavedCount(frame)).toBeVisible();
     await frame.getByRole("button", { name: "Save", exact: true }).click();

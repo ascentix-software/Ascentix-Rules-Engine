@@ -37,7 +37,7 @@ describe("NewRuleDialog", () => {
     expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
 
     // Each trigger checkbox must have its own distinct accessible name (WCAG 4.1.2).
-    for (const name of ["On Create", "On Form", "On demand", "On Update", "On Delete"]) {
+    for (const name of ["On create", "On form", "On demand", "On update", "On delete"]) {
       expect(screen.getByRole("checkbox", { name })).toBeInTheDocument();
     }
   });
@@ -51,7 +51,7 @@ describe("NewRuleDialog", () => {
     );
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "My Rule" } });
-    fireEvent.click(triggerCheckbox("On Create"));
+    fireEvent.click(triggerCheckbox("On create"));
     fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "My Config" } });
 
     const combo = await screen.findByRole("combobox");
@@ -70,7 +70,7 @@ describe("NewRuleDialog", () => {
     );
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "My Rule" } });
-    fireEvent.click(triggerCheckbox("On Create"));
+    fireEvent.click(triggerCheckbox("On create"));
     fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "My Config" } });
 
     const combo = await screen.findByRole("combobox");
@@ -110,7 +110,7 @@ describe("NewRuleDialog", () => {
     );
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "My Rule" } });
-    fireEvent.click(triggerCheckbox("On Update"));
+    fireEvent.click(triggerCheckbox("On update"));
 
     const combo = await screen.findByRole("combobox");
     fireEvent.click(combo);

@@ -39,7 +39,7 @@ function renderApp(graph: RuleGraph) {
 
 // Shell-level focus contracts (heading focus, Escape, restore) live in
 // inspectorShell.dom.test.tsx. This file pins the Rule Editor WIRING:
-// narrow -> overlay opens on selection and via the Properties button.
+// narrow -> overlay opens on selection and via the Rule settings strip.
 describe("Rule Editor inspector wiring (narrow = overlay)", () => {
   const graph = makeGraph({ executionGroups: [makeGroup({ id: "g1", name: "My group" })] });
 
@@ -51,10 +51,10 @@ describe("Rule Editor inspector wiring (narrow = overlay)", () => {
     });
   });
 
-  it("opens the overlay with rule properties from the Properties button", async () => {
+  it("opens the overlay with the rule settings from the settings strip", async () => {
     await withNarrowViewport(async () => {
       renderApp(graph);
-      fireEvent.click(screen.getByRole("button", { name: "Properties" }));
+      fireEvent.click(screen.getByTestId("rule-settings-strip"));
       await waitFor(() => expect(screen.getByTestId("inspector-heading")).toHaveTextContent(graph.rule.name));
     });
   });

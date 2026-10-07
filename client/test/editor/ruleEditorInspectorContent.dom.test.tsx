@@ -24,14 +24,15 @@ const meta: MetadataService = {
 };
 
 describe("ruleEditorInspectorContent", () => {
-  it("maps kind=rule to the rule properties (the absorbed strip)", () => {
+  it("maps kind=rule to the rule settings", () => {
     const graph = makeGraph({});
     const { header, body } = ruleEditorInspectorContent(graph, { kind: "rule" }, handlers);
-    expect(header.eyebrow).toBe("Rule properties");
+    expect(header.eyebrow).toBe("Rule settings");
     expect(header.title).toBe(graph.rule.name);
     render(<AppProvider><MetadataProvider service={meta}>{body}</MetadataProvider></AppProvider>);
-    // RuleInspector's stable landmark: the disabled Table field.
-    expect(screen.getByDisplayValue(graph.rule.tableLogicalName)).toBeInTheDocument();
+    // RuleInspector's stable landmark: the When it runs section with the read-only table.
+    expect(screen.getByRole("button", { name: /When it runs/ })).toBeInTheDocument();
+    expect(screen.getByText(/set when created/)).toBeInTheDocument();
   });
 
   it("maps kind=group to the group inspector", () => {

@@ -92,11 +92,11 @@ test("the five never-authored count modes each persist the min/max pair their se
 
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: "+ Add group" }).first().click();
+    await frame.getByRole("button", { name: "Add group" }).first().click();
 
     for (const c of CASES) {
       const condName = `ZZ_RB_cm_${c.key}`;
-      await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+      await frame.getByRole("button", { name: "Add condition", exact: true }).click();
       // A RowCount condition's aria-label carries only its node (labels.ts:50 leaves `field` null),
       // so all five rows end up identically named. The one just added is picked with .last(), and
       // the persisted rows are told apart by the name typed below instead.

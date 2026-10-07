@@ -18,6 +18,10 @@ const OPP_COLUMNS: ColumnMeta[] = [
   { logicalName: "estimatedclosedate", displayName: "Est. Close Date", attributeType: "DateTime", isValidForCreate: true, isValidForUpdate: true, isValidForRead: true, isCustom: false },
   { logicalName: "budgetamount", displayName: "Budget Amount", attributeType: "Money", isValidForCreate: true, isValidForUpdate: true, isValidForRead: true, isCustom: false },
   { logicalName: "closeprobability", displayName: "Probability", attributeType: "Integer", isValidForCreate: true, isValidForUpdate: true, isValidForRead: true, isCustom: false },
+  { logicalName: "estimatedvalue", displayName: "Est. Revenue", attributeType: "Money", isValidForCreate: true, isValidForUpdate: true, isValidForRead: true, isCustom: false },
+  { logicalName: "statecode", displayName: "Status", attributeType: "State", isValidForCreate: false, isValidForUpdate: true, isValidForRead: true, isCustom: false },
+  { logicalName: "ownerid", displayName: "Approver", attributeType: "Owner", isValidForCreate: true, isValidForUpdate: true, isValidForRead: true, isCustom: false },
+  { logicalName: "salesstage", displayName: "Sales Stage", attributeType: "Picklist", isValidForCreate: true, isValidForUpdate: true, isValidForRead: true, isCustom: false },
 ];
 
 const metaStub: MetadataService = {
@@ -73,7 +77,7 @@ const SAMPLE: RuleGraph = {
         comparisonValue: "100000", comparisonValueColumn: null, comparisonValueNodeId: null,
         minExpectedRows: null, maxExpectedRows: null },
       { id: "c2", name: "", tableConfigId: "root", conditionType: "FieldComparison",
-        comparisonColumn: "statecode", comparisonOperator: 0, valueSource: 1,
+        comparisonColumn: "statecode", comparisonOperator: 1, valueSource: 1,
         comparisonValue: "Open", comparisonValueColumn: null, comparisonValueNodeId: null,
         minExpectedRows: null, maxExpectedRows: null },
     ],
@@ -83,7 +87,7 @@ const SAMPLE: RuleGraph = {
     isExecutionCondition: false,
     conditions: [
       { id: "c3", name: "", tableConfigId: "root", conditionType: "FieldComparison",
-        comparisonColumn: "ownerid", comparisonOperator: 12, valueSource: 1,
+        comparisonColumn: "ownerid", comparisonOperator: 9, valueSource: 1,
         comparisonValue: null, comparisonValueColumn: null, comparisonValueNodeId: null,
         minExpectedRows: null, maxExpectedRows: null },
       { id: "c4", name: "", tableConfigId: "root", conditionType: "FieldComparison",
@@ -96,7 +100,7 @@ const SAMPLE: RuleGraph = {
       isExecutionCondition: false, groups: [],
       conditions: [
         { id: "c5", name: "", tableConfigId: "root", conditionType: "FieldComparison",
-          comparisonColumn: "salesstage", comparisonOperator: 0, valueSource: 1,
+          comparisonColumn: "salesstage", comparisonOperator: 1, valueSource: 1,
           comparisonValue: "Propose", comparisonValueColumn: null, comparisonValueNodeId: null,
           minExpectedRows: null, maxExpectedRows: null },
       ],

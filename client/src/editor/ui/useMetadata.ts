@@ -12,3 +12,8 @@ export function useMetadataService(): MetadataService {
   if (!svc) throw new Error("MetadataProvider is missing");
   return svc;
 }
+
+/** The metadata service when one is provided; null otherwise (display-only lookups fall back). */
+export function useOptionalMetadataService(): MetadataService | null {
+  return React.useContext(MetadataContext);
+}

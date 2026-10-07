@@ -73,14 +73,14 @@ test("a Block rule authored entirely in the editor stops a real form save, and a
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
 
     // ---- Author the condition: sample_ordertotal <= 100 --------------------------------
-    // The VALIDATION band, not the execution one. GraphTree renders "WHEN · Execution
-    // conditions" first and "WHEN · Validation conditions" second (GraphTree.tsx:262-276), so
+    // The OUTCOMES band, not the Only if one. GraphTree renders "Only if" first and
+    // "Outcomes" second, so
     // `.first()` (which is what authorRuleUi.e2e uses) puts the condition in the EXECUTION
     // band, where it gates whether the rule runs at all rather than deciding a match. A Block
     // rule authored that way silently stops enforcing: measured here, the
     // violating save went straight through because the execution condition was false for it.
-    await frame.getByRole("button", { name: "+ Add outcome" }).first().click();
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    await frame.getByRole("button", { name: "Add outcome" }).first().click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
     // Bind the condition to the ROOT node FIRST. A new condition starts with
@@ -107,7 +107,7 @@ test("a Block rule authored entirely in the editor stops a real form save, and a
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
 
     // ---- Author the action: Block, fires when the outcome is false ---------------------
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     const type = frame.getByRole("combobox", { name: "Action type" });
     await type.click();
@@ -208,14 +208,14 @@ test("editing a published rule in the UI and re-publishing changes what the plug
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
 
     // Author + publish a threshold of 100, exactly as above.
-    // The VALIDATION band, not the execution one. GraphTree renders "WHEN · Execution
-    // conditions" first and "WHEN · Validation conditions" second (GraphTree.tsx:262-276), so
+    // The OUTCOMES band, not the Only if one. GraphTree renders "Only if" first and
+    // "Outcomes" second, so
     // `.first()` (which is what authorRuleUi.e2e uses) puts the condition in the EXECUTION
     // band, where it gates whether the rule runs at all rather than deciding a match. A Block
     // rule authored that way silently stops enforcing: measured here, the
     // violating save went straight through because the execution condition was false for it.
-    await frame.getByRole("button", { name: "+ Add outcome" }).first().click();
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    await frame.getByRole("button", { name: "Add outcome" }).first().click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
     // Bind the condition to the ROOT node FIRST. A new condition starts with
     // tableConfigId: null (model/reducer.ts newCondition) and nothing defaults it, so skipping
@@ -234,7 +234,7 @@ test("editing a published rule in the UI and re-publishing changes what the plug
     await operatorBox.click();
     await frame.getByRole("option", { name: CHOICE.operator.lessThanOrEqual, exact: true }).click();
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     const type = frame.getByRole("combobox", { name: "Action type" });
     await type.click();

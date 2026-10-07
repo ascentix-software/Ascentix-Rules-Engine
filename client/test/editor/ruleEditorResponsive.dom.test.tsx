@@ -106,7 +106,7 @@ describe("RuleEditorApp responsive title row", () => {
     }) as unknown as typeof window.matchMedia;
     try {
       renderApp(); // starts narrow: no query has been flipped to matches: true yet
-      fireEvent.click(screen.getByRole("button", { name: "Properties" }));
+      fireEvent.click(screen.getByTestId("rule-settings-strip"));
       await screen.findByTestId("inspector-heading");
 
       // Cross to wide: the docked panel takes over and panelOpen should clear.

@@ -283,14 +283,18 @@ export function actionVerb(a: ActionNode, labelFor: (token: string) => string = 
   return ACTION_VERB[a.actionType] ?? labelFor(a.actionType);
 }
 
-export function actionDetail(a: ActionNode, tcs: Record<string, TableConfigRef>): string {
+export function actionDetail(
+  a: ActionNode, tcs: Record<string, TableConfigRef>,
+  columnLabel?: (table: string | null, logical: string) => string | undefined, ruleTable: string | null = null,
+): string {
   const dash = (s: string | null | undefined) => (s && s.trim() ? `— ${s.trim()}` : "");
+  const col = (logical: string | null) => (logical ? columnLabel?.(ruleTable, logical) || logical : null);
   switch (a.actionType) {
     case "SetVisible":
     case "SetRequired":
-      return dash(a.targetColumn);
+      return dash(col(a.targetColumn));
     case "ShowMessage":
-      return a.targetColumn ? `— on ${a.targetColumn}` : dash(a.message);
+      return a.targetColumn ? `— on ${col(a.targetColumn)}` : dash(a.message);
     case "Block":
       return dash(a.message);
     case "CreateRecord":
@@ -305,9 +309,9 @@ export function actionDetail(a: ActionNode, tcs: Record<string, TableConfigRef>)
 }
 
 const SEVERITY_WORD: Record<number, string> = { 1: "notice", 2: "warning", 3: "error" };
-/** The Fires when tree as one sentence: "When High Value AND (At Risk OR NOT Critical Case)". */
+/** The Fires when tree as one sentence: "When High Value and (At Risk or Critical Case is false)". */
 export function firesWhenSummary(tree: FiresWhenGroup | null, outcomes: ConditionGroupNode[]): string {
-  if (!tree) return "Not set: this action never fires.";
+  if (!tree) return "Not set. This action never runs.";
   if (isAlways(tree)) return "Always, when the rule runs";
   const nameOf = (id: string | null) => {
     const o = outcomes.find((x) => x.id === id);
@@ -316,10 +320,10 @@ export function firesWhenSummary(tree: FiresWhenGroup | null, outcomes: Conditio
   const render = (g: FiresWhenGroup): string => {
     if (g.tests.length === 0 && g.groups.length === 0) return "empty group";
     const parts = [
-      ...g.tests.map((t) => `${t.expected ? "" : "NOT "}${nameOf(t.outcomeId)}`),
+      ...g.tests.map((t) => `${nameOf(t.outcomeId)}${t.expected ? "" : " is false"}`),
       ...g.groups.map((c) => `(${render(c)})`),
     ];
-    return parts.join(g.op === "any" ? " OR " : " AND ");
+    return parts.join(g.op === "any" ? " or " : " and ");
   };
   return `When ${render(tree)}`;
 }

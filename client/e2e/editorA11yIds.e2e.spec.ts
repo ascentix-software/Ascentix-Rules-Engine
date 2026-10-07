@@ -34,7 +34,7 @@ test.describe.configure({ timeout: 180_000 });
 // the state in which the collision was measured (many Field-wrapped controls mounted at once).
 async function openPickerOverInspector(page: Parameters<typeof openRuleFromHub>[0], appId: string, ruleName: string) {
   const frame = await openRuleFromHub(page, appId, ruleName);
-  await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+  await frame.getByRole("button", { name: "Add condition", exact: true }).click();
   await frame.getByRole("button", { name: /^Edit condition/ }).click();
   const columnBox = frame.getByRole("combobox", { name: "Comparison column" });
   await columnBox.click();

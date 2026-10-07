@@ -65,8 +65,8 @@ async function openExpressionCondition(page: Parameters<typeof openRuleFromHub>[
   // .first() is the EXECUTION band's empty-state CTA. That band gates whether the rule runs
   // rather than deciding a match, which matters for a Block rule but not here, where the oracle
   // is the persisted expression. conditionTypesUi's Expression case uses the same band.
-  await frame.getByRole("button", { name: "+ Add group" }).first().click();
-  await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+  await frame.getByRole("button", { name: "Add group" }).first().click();
+  await frame.getByRole("button", { name: "Add condition", exact: true }).click();
   await frame.getByRole("button", { name: /^Edit condition/ }).click();
   const type = frame.getByRole("combobox", { name: "Condition type" });
   await type.click();

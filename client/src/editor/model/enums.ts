@@ -56,8 +56,10 @@ export function tableConfigTypeValue(label: TableConfigTypeLabel): number {
 }
 
 // Values mirror docs/Schema.md §1 global choices.
+// Sentence case everywhere in the editor (the org's choice labels are Title Case); the stored
+// values never change.
 const TRIGGER: Record<number, string> = {
-  1: "On Create", 2: "On Form", 3: "On demand", 4: "On Update", 5: "On Delete",
+  1: "On create", 2: "On form", 3: "On demand", 4: "On update", 5: "On delete",
 };
 export const ON_DEMAND = 3;
 // asx_ondemandscope: which records an On demand run processes. Hidden (and saved as the

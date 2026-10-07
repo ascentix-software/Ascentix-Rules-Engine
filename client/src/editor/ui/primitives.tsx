@@ -17,22 +17,9 @@ export const NodeTag: React.FC<{ children: React.ReactNode }> = ({ children }) =
   const s = useEditorStyles();
   return <span className={s.nodeTag}>{children}</span>;
 };
-export const OperatorPill: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const s = useEditorStyles();
-  return <span className={s.operatorPill}>{children}</span>;
-};
 export const ValueText: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const s = useEditorStyles();
   return <span className={s.valueText}>{children}</span>;
-};
-
-export const LogicalBadge: React.FC<{ operator: "And" | "Or" }> = ({ operator }) => {
-  const s = useEditorStyles();
-  return (
-    <span className={`${s.badge} ${operator === "And" ? s.andBadge : s.orBadge}`}>
-      {operator === "And" ? "ALL · AND" : "ANY · OR"}
-    </span>
-  );
 };
 
 export const TitleActionsRow: React.FC<{
@@ -49,26 +36,24 @@ export const TitleActionsRow: React.FC<{
   </div>
 );
 
+/**
+ * A condition group. Top level: a 10px card with a header row. Nested: no card, just an
+ * indented hairline rail, so depth reads without stacking borders. Neutral on purpose: the
+ * zone colour lives on the band, not on every group.
+ */
 export const GroupCard: React.FC<{
-  zone: "execution" | "validation"; nested: boolean; header: React.ReactNode; children?: React.ReactNode;
-}> = ({ zone, nested, header, children }) => {
-  const s = useEditorStyles();
-  const accent = zone === "execution" ? color.execution : color.validation;
-  const style: React.CSSProperties = nested
-    ? { border: `1px solid ${color.line}`, borderLeft: `4px solid ${color.brandLine}`, borderRadius: 16,
-        background: color.canvas, margin: "10px 0 4px 14px", padding: "8px 12px" }
-    : { border: `1px solid ${color.line}`, borderLeft: `4px solid ${accent}`, borderRadius: 16,
-        background: color.surface, marginTop: 10 };
-  return (
-    <div className={s.groupCard} style={style}>
-      <div className={s.groupHeader}
-        style={nested ? undefined : { padding: "10px 14px 8px", borderBottom: `1px solid ${color.line}` }}>
-        {header}
-      </div>
-      {children}
-    </div>
-  );
-};
+  nested: boolean; header: React.ReactNode; children?: React.ReactNode;
+}> = ({ nested, header, children }) => nested ? (
+  <div style={{ margin: "4px 0 2px 10px", paddingLeft: 14, borderLeft: `2px solid ${color.line}` }}>
+    <div style={{ padding: "2px 0" }}>{header}</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 4 }}>{children}</div>
+  </div>
+) : (
+  <div style={{ border: `1px solid ${color.line}`, borderRadius: 10, background: color.surface }}>
+    <div style={{ padding: "9px 12px", borderBottom: `1px solid ${color.line}` }}>{header}</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "6px 8px 8px" }}>{children}</div>
+  </div>
+);
 
 export const ACTION_CHIP: Record<ActionTypeLabel, { bg: string; fg: string }> = {
   Block: { bg: color.dangerTint, fg: color.danger },
@@ -388,5 +373,25 @@ export const NoticeBar: React.FC<{
       </span>
       {actions && <span style={{ display: "inline-flex", gap: 8, marginLeft: "auto", flex: "none" }}>{actions}</span>}
     </div>
+  );
+};
+
+const NODE_TYPE: Record<string, { label: string; bg: string; fg: string }> = {
+  RootTable: { label: "ROOT", bg: color.brandTint, fg: color.brandInk },
+  LookupTable: { label: "LOOKS UP", bg: color.fill, fg: color.inkMuted },
+  ChildTable: { label: "HAS MANY", bg: color.validationTint, fg: color.validation },
+};
+
+/** ROOT / LOOKS UP / HAS MANY, for data-model trees. `fixed` gives every tag the same width. */
+export const NodeTypeTag: React.FC<{ type: string | null; fixed?: boolean }> = ({ type, fixed }) => {
+  const t = NODE_TYPE[type ?? "RootTable"] ?? NODE_TYPE.RootTable;
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 800, letterSpacing: ".05em", padding: "1px 6px", borderRadius: 4,
+      background: t.bg, color: t.fg, whiteSpace: "nowrap", flex: "none",
+      ...(fixed ? { width: 62, textAlign: "center", boxSizing: "border-box", display: "inline-block" } : {}),
+    }}>
+      {t.label}
+    </span>
   );
 };

@@ -64,7 +64,7 @@ const byColumn = (rows: Record<string, unknown>[], col: string) => {
 // (labels.ts:53), and .last() is what distinguishes it from the ones already configured, since
 // the tree renders group.conditions in creation order.
 async function addConditionAndOpen(frame: FrameLocator) {
-  await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+  await frame.getByRole("button", { name: "Add condition", exact: true }).click();
   await frame.getByRole("button", { name: /^Edit condition/ }).last().click();
 }
 
@@ -96,7 +96,7 @@ test("condition literals for Choice, Yes/No and Multi-select persist the option 
   });
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: "+ Add group" }).first().click();
+    await frame.getByRole("button", { name: "Add group" }).first().click();
 
     // --- 1. Choice (Picklist) on sample_status: 1 Draft … 5 Cancelled ------------------------
     await addConditionAndOpen(frame);
@@ -194,7 +194,7 @@ test("changing the comparison column's KIND re-gates the operator list and clear
   const TEMPLATE = "ZZ_RB {root.sample_name}";
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: "+ Add group" }).first().click();
+    await frame.getByRole("button", { name: "Add group" }).first().click();
     await addConditionAndOpen(frame);
     await bindNode(frame, CFG);
 
@@ -353,7 +353,7 @@ test("a right-hand node on a DIFFERENT table offers THAT table's columns (regres
   });
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: "+ Add group" }).first().click();
+    await frame.getByRole("button", { name: "Add group" }).first().click();
     await addConditionAndOpen(frame);
     await bindNode(frame, CFG); // the condition itself is on sample_order
 

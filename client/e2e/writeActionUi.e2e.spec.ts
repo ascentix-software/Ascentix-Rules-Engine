@@ -31,7 +31,7 @@ test("UpdateRecord with a literal mapping via the Map columns dialog writes on t
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
 
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
 
     const typeBox = frame.getByRole("combobox", { name: "Action type" });

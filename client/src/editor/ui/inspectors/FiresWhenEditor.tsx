@@ -104,7 +104,7 @@ function GroupEditor({ group, outcomes, root, position, onChange, onRemove }: {
   if (root) return <div>{head}{body}</div>;
   return (
     <div role="group" aria-label={`Subgroup ${position ?? 1}`}>
-      <GroupCard zone="validation" nested header={head}>{body}</GroupCard>
+      <GroupCard nested header={head}>{body}</GroupCard>
     </div>
   );
 }

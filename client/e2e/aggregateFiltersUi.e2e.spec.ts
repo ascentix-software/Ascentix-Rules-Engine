@@ -108,7 +108,7 @@ async function skeleton(name: string) {
 // (kindOf, :558-562), so simply reaching this point proves the gating ran against real metadata.
 async function openCalculationMapping(page: Page, appId: string, ruleName: string, cfgName: string) {
   const frame = await openRuleFromHub(page, appId, ruleName);
-  await frame.getByRole("button", { name: "+ Add action" }).click();
+  await frame.getByRole("button", { name: "Add action" }).click();
   await frame.getByRole("button", { name: /^Edit action 1/ }).click();
 
   const type = frame.getByRole("combobox", { name: "Action type" });

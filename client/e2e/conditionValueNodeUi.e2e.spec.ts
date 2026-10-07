@@ -105,7 +105,7 @@ test("a condition authored in the editor with a related right-hand node persists
   });
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
     // Bind the node FIRST: a new condition starts with tableConfigId: null, and nothing defaults

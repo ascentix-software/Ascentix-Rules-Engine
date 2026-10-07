@@ -118,10 +118,11 @@ describe("authoring lifecycle and recovery", () => {
     expect(api.publishRule).not.toHaveBeenCalled();
   });
 
-  it("undo restores a deleted subtree and redo removes it again", () => {
+  it("undo restores a deleted subtree and redo removes it again", async () => {
     const nested = makeGroup({ id: "nested", name: "Nested", parentGroupId: "g1" });
     mount(makeGraph({ executionGroups: [makeGroup({ name: "Parent", groups: [nested] })] }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Delete group" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Parent" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete group" }));
     expect(screen.queryByRole("button", { name: "Edit group Nested" })).toBeNull();
     fireEvent.click(toolbar().getByRole("button", { name: "Undo" }));
     expect(screen.getByRole("button", { name: "Edit group Nested" })).toBeInTheDocument();
@@ -167,7 +168,7 @@ describe("authoring lifecycle and recovery", () => {
   it("offers recovery after remount and reserves recovered temporary ids", async () => {
     resetTempIds();
     const first = mount();
-    fireEvent.click(screen.getByRole("button", { name: "+ Action" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Add action" })[0]);
     const key = recoveryKey(scope, "r1");
     await waitFor(() => expect(sessionStorage.getItem(key)).toContain("new-1"));
     first.unmount();
@@ -175,7 +176,7 @@ describe("authoring lifecycle and recovery", () => {
     mount();
     expect(screen.queryByRole("button", { name: "Rename rule" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
-    fireEvent.click(screen.getByRole("button", { name: "+ Action" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Add action" })[0]);
     await waitFor(() => {
       const recovered = JSON.parse(sessionStorage.getItem(key)!);
       expect(recovered.working.actions.map((a: { id: string }) => a.id)).toEqual(["new-1", "new-3"]); // each action also takes a temp id for its Fires when tree

@@ -113,7 +113,7 @@ async function openCreateRecordMapping(
   page: Page, appId: string, ruleName: string, targetTable: string,
 ): Promise<FrameLocator> {
   const frame = await openRuleFromHub(page, appId, ruleName);
-  await frame.getByRole("button", { name: "+ Add action" }).click();
+  await frame.getByRole("button", { name: "Add action" }).click();
   await frame.getByRole("button", { name: /^Edit action 1/ }).click();
 
   const type = frame.getByRole("combobox", { name: "Action type" });

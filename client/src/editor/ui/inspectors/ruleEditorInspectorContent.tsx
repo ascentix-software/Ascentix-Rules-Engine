@@ -102,7 +102,7 @@ export function ruleEditorInspectorContent(
   }
   // kind === "rule" (there is no "node" branch: Rule Editor never emits one)
   return {
-    header: { eyebrow: "Rule properties", title: graph.rule.name },
+    header: { eyebrow: "Rule settings", title: graph.rule.name },
     body: <RuleInspector rule={graph.rule} onPatch={h.onPatchRule}
       schedule={schedule?.schedule ?? null}
       onPatchSchedule={schedule?.onPatchSchedule}

@@ -31,7 +31,7 @@ test("lookup condition via the record picker persists the GUID and re-resolves t
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
 
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
     const columnBox = frame.getByRole("combobox", { name: "Comparison column" });

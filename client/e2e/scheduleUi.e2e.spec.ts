@@ -59,9 +59,7 @@ test("Schedule: set Daily at 02:00, verify via the API, reload, and see it in th
     const editRule = toolbar(frame).getByRole("button", { name: "Edit rule", exact: true });
     await expect(editRule).toBeVisible();
 
-    // The Switch is doubly-labelled (its own "On"/"Off" text plus the surrounding Field's
-    // "Schedule" — see ScheduleSection.tsx), so match loosely on "Schedule" rather than the
-    // current toggle state.
+    // The On demand card's Schedule switch is named "Schedule on" (ScheduleSection.tsx).
     await expect(frame.getByRole("switch", { name: /Schedule/ })).toBeEnabled();
     await frame.getByRole("switch", { name: /Schedule/ }).click();
 
@@ -87,12 +85,12 @@ test("Schedule: set Daily at 02:00, verify via the API, reload, and see it in th
     expect(row.asx_timeofday).toBe("02:00");
     expect(row.asx_nextrunon).toBeTruthy();
 
-    // Reload: the section shows the saved values and a "Next run" line.
+    // Reload: the card shows the saved values and a "Next" line in its footer.
     await headerMenu(frame, /Reload from server/);
     await expect(frame.getByRole("switch", { name: /Schedule/ })).toBeChecked();
     await expect(frame.getByRole("combobox", { name: "Pattern" })).toHaveText("Daily");
     await expect(frame.getByLabel("Time of day")).toHaveValue("02:00");
-    await expect(frame.getByText("Next run", { exact: true })).toBeVisible();
+    await expect(frame.getByTestId("on-demand-card").getByText(/^Next/)).toBeVisible();
 
     // Open the hub: the rule row shows the clock icon (an aria-labelled "Scheduled: …" tooltip
     // trigger — Tooltip's relationship="label" sets aria-label directly since the content is a

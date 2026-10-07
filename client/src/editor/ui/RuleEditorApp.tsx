@@ -14,10 +14,11 @@ import { flattenGroups, flattenConditions } from "../model/tree";
 import {
   patchRule, addAction, updateAction, deleteAction, moveAction,
   addGroup, updateGroup, deleteGroup, addCondition, updateCondition, deleteCondition,
-  addTranslation, updateTranslation, removeTranslation, addOutcome,
+  addTranslation, updateTranslation, removeTranslation, addOutcome, duplicateCondition, duplicateGroup,
 } from "../model/reducer";
-import { flattenForDisplay } from "../model/tableConfigOps";
-import { NodeTag, NoticeBar, InfoTip } from "./primitives";
+import { NoticeBar, InfoTip } from "./primitives";
+import { RuleSettingsStrip, DataModelChip } from "./RuleSettingsStrip";
+import { ENTITY, LOOKUP } from "../load/odata";
 import { Breadcrumb } from "./Breadcrumb";
 import { navigate } from "./router";
 import { useUnsavedGuard } from "./useUnsavedGuard";
@@ -29,10 +30,6 @@ import { saveRuleGraph, type SaveResult } from "../save/index";
 import { GraphTree, type GraphTreeHandlers } from "./GraphTree";
 import { InspectorShell } from "./InspectorShell";
 import { ruleEditorInspectorContent, IssueCallout } from "./inspectors/ruleEditorInspectorContent";
-import { triggerLabel, channelLabel } from "../model/enums";
-import { useChoiceLabel } from "./useSystemChoices";
-import { SYSTEM_CHOICE } from "./choiceLabels";
-import { useEditorStyles } from "./styles";
 import { useIsWide } from "./useIsWide";
 import { color } from "./tokens";
 import { useEditHistory } from "./useEditHistory";
@@ -71,19 +68,6 @@ function nextIds() {
   boundaryCounter += 1;
   const stamp = `${boundaryCounter}_${Date.now()}`;
   return { batchId: `b${stamp}`, changesetId: `c${stamp}` };
-}
-
-function PropCell({ label, value, bold, first }: { label: string; value: string; bold?: boolean; first?: boolean }) {
-  return (
-    <span style={{
-      display: "flex", flexDirection: "column", gap: 1,
-      padding: first ? "0 22px 0 0" : "0 22px",
-      borderLeft: first ? undefined : `1px solid ${color.line}`,
-    }}>
-      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: color.inkMuted }}>{label}</span>
-      <span style={{ fontSize: 13, color: color.ink, fontWeight: bold ? 600 : 400 }}>{value}</span>
-    </span>
-  );
 }
 
 function findGroupById(graph: RuleGraph, id: string): ConditionGroupNode | undefined {
@@ -177,8 +161,6 @@ export function RuleEditorApp({
   // edits — only the first qualification per rule id loads automatically; see the load effect below.
   const loadedScheduleRuleIdRef = React.useRef<string | null>(null);
 
-  const labelFor = useChoiceLabel();
-  const styles = useEditorStyles();
   const wide = useIsWide(1000);
   React.useEffect(() => { if (wide) setPanelOpen(false); }, [wide]);
   const titleStacked = !useIsWide(720);
@@ -368,6 +350,15 @@ export function RuleEditorApp({
       notify.undo("Action deleted", () => history.undo());
     },
     onMoveAction: (id, dir) => setWorking((g) => moveAction(g, id, dir)),
+    onDuplicateCondition: (id) => setWorking((g) => recon(duplicateCondition(g, id))),
+    onDuplicateGroup: (id) => setWorking((g) => recon(duplicateGroup(g, id))),
+    onSetGroupMatch: (id, op) => setWorking((g) => recon(updateGroup(g, id, { logicalOperator: op }))),
+    onRenameGroup: (id) => {
+      setSelection({ kind: "group", id });
+      if (!wide) setPanelOpen(true);
+      // The name is the inspector's first field once the group's panel renders.
+      requestAnimationFrame(() => document.querySelector<HTMLInputElement>("[data-testid=inspector-body] input")?.focus());
+    },
     onOpenIssue: openIssue,
   };
 
@@ -577,6 +568,19 @@ export function RuleEditorApp({
     })();
     return () => { live = false; };
   }, [api, activeRuleId, publishedRevisionId, published]);
+  // "shared by {k} rules" in the data-model popover: active rules whose root is this model.
+  const rootConfigId = working.rule.rootTableConfigId;
+  const [sharedBy, setSharedBy] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    setSharedBy(null);
+    if (!rootConfigId || !api.retrieveMultipleRecords) return;
+    let live = true;
+    api.retrieveMultipleRecords(ENTITY.rule,
+      `?$select=asx_ruleid&$filter=${LOOKUP.ruleOfTableConfig} eq ${rootConfigId} and _asx_draftof_value eq null`)
+      .then((r) => { if (live) setSharedBy(r.entities.length); })
+      .catch(() => { /* leave the count out */ });
+    return () => { live = false; };
+  }, [api, rootConfigId]);
   const liveGraph = publishedGraph ?? publishedView ?? (activeRuleId ? null : working);
   const runNowTriggers = liveGraph?.rule.triggers ?? working.rule.triggers;
 
@@ -772,38 +776,13 @@ export function RuleEditorApp({
         }
       >
         <div style={{ padding: "0 24px 24px" }}>
-          {/* Properties strip */}
-          <div style={{
-            marginTop: 16, background: color.canvas, border: `1px solid ${color.line}`, borderRadius: 8,
-            padding: "10px 16px", display: "flex", alignItems: "center", flexWrap: "wrap", rowGap: 6,
-          }}>
-            <PropCell first label="Table" bold value={displayed.rule.tableLogicalName} />
-            <PropCell label="Triggers" value={displayed.rule.triggers.length
-              ? displayed.rule.triggers.map((t) => labelFor(SYSTEM_CHOICE.triggers, t, triggerLabel(t))).join(", ") : "—"} />
-            <PropCell label="Channels" value={displayed.rule.channels.length
-              ? displayed.rule.channels.map((c) => labelFor(SYSTEM_CHOICE.channel, c, channelLabel(c))).join(", ") : "All"} />
-            {!wide && (
-              <Button appearance="secondary" size="small" style={{ marginLeft: "auto" }}
-                onClick={() => setPanelOpen(true)}>
-                Properties
-              </Button>
-            )}
+          <div style={{ marginTop: 16, display: "flex", alignItems: "stretch", gap: 10, flexWrap: "wrap" }}>
+            <RuleSettingsStrip graph={displayed} schedule={schedule}
+              editing={wide ? rulePanel : panelOpen}
+              onOpen={() => { setSelection({ kind: "rule" }); if (!wide) setPanelOpen(true); }} />
+            <DataModelChip graph={displayed} sharedBy={sharedBy} editDisabled={!!publishedView}
+              onEdit={() => confirmNavigate(() => navigate("tableconfig", working.rule.rootTableConfigId!))} />
           </div>
-          {displayed.rule.rootTableConfigId && flattenForDisplay(displayed.tableConfigs, displayed.rule.rootTableConfigId).length > 0 && (
-            <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: color.inkMuted }}>Data map</span>
-              {flattenForDisplay(displayed.tableConfigs, displayed.rule.rootTableConfigId).map(({ node }, i, arr) => (
-                <span key={node.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <NodeTag>{node.name}</NodeTag>
-                  {i < arr.length - 1 && <span style={{ color: color.line }}>▸</span>}
-                </span>
-              ))}
-              <button type="button" disabled={!!publishedView} className={styles.focusRing} onClick={() => confirmNavigate(() => navigate("tableconfig", working.rule.rootTableConfigId!))}
-                style={{ marginLeft: 6, background: "none", border: "none", padding: 0, cursor: "pointer", color: color.brandInk, fontWeight: 600, fontSize: 12.5 }}>
-                Edit data model →
-              </button>
-            </div>
-          )}
           {guardDialog}
           <ConfirmUnpublishDialog
             open={unpublishOpen}

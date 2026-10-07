@@ -166,6 +166,24 @@ export async function runMenu(frame: FrameLocator, item: string | RegExp): Promi
   await frame.getByRole("menuitem", { name: item }).click();
 }
 
+// Rule settings › When it runs › Triggers is a tag picker: picking an option adds it, clicking a
+// selected tag removes it. Labels are the editor's own sentence case ("On update", "On demand").
+export async function addTrigger(frame: FrameLocator, label: string): Promise<void> {
+  await frame.getByRole("combobox", { name: "Triggers", exact: true }).click();
+  await frame.getByRole("option", { name: label, exact: true }).click();
+  await frame.getByRole("combobox", { name: "Triggers", exact: true }).press("Escape");
+}
+export async function removeTrigger(frame: FrameLocator, label: string): Promise<void> {
+  await frame.getByRole("listbox", { name: "Selected triggers" })
+    .getByRole("option", { name: new RegExp(`^${label}`) }).click();
+}
+
+// Opens a collapsed Rule settings section ("Active period", "Evaluation") if it isn't open yet.
+export async function openSettingsSection(frame: FrameLocator, title: string): Promise<void> {
+  const header = frame.getByRole("button", { name: new RegExp(`^${title}`) });
+  if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
+}
+
 // Save from the header, then wait for the Saved toast.
 export async function saveRule(frame: FrameLocator): Promise<void> {
   await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();

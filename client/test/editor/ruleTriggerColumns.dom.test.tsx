@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
 import { AppProvider } from "../../src/editor/ui/AppProvider";
 import { MetadataProvider } from "../../src/editor/ui/useMetadata";
 import { RecordSearchProvider } from "../../src/editor/ui/useRecordSearch";
@@ -30,7 +30,7 @@ function sample(): RuleGraph {
   return {
     rule: {
       id: "r1", name: "Sample rule", tableLogicalName: "opportunity", statusCode: 1,
-      etag: null, triggers: [1], channels: [], effectiveFrom: null, effectiveTo: null,
+      etag: null, triggers: [1, 4], channels: [], effectiveFrom: null, effectiveTo: null,
       evaluationContext: null, rootTableConfigId: "root", triggerColumns: [],
     },
     tableConfigs: {
@@ -59,18 +59,18 @@ function renderApp(graph: RuleGraph) {
   );
 }
 
-describe("Rule properties — trigger columns", () => {
-  it("renders the 'Fire on change of these columns' multi-select in the docked panel", async () => {
+describe("Rule settings — Also run on update when these change", () => {
+  it("renders the update-columns picker in the docked panel when On update is a trigger", async () => {
     renderApp(sample());
-    expect(await screen.findByRole("combobox", { name: "Fire on change of these columns" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Also run on update when these change" })).toBeInTheDocument();
   });
 
-  it("patches triggerColumns when a column is selected", async () => {
+  it("patches triggerColumns when a column is picked, and shows it as a tag", async () => {
     renderApp(sample());
-    const combo = await screen.findByRole("combobox", { name: "Fire on change of these columns" });
+    const combo = await screen.findByRole("combobox", { name: "Also run on update when these change" });
     fireEvent.click(combo);
-    // Fluent's multiselect Combobox renders Option as role="menuitemcheckbox" (not "option").
-    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: /^Est\. Revenue/ }));
-    expect(await screen.findByText("estimatedvalue")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("option", { name: /^Est\. Revenue/ }));
+    const tags = await screen.findByRole("listbox", { name: "Selected also run on update when these change" });
+    await waitFor(() => expect(within(tags).getByRole("option", { name: /^Est\. Revenue/ })).toBeInTheDocument());
   });
 });

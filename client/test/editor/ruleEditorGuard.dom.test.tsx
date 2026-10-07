@@ -89,10 +89,11 @@ describe("RuleEditorApp unsaved-changes guard", () => {
     expect(navigateMock).toHaveBeenCalledWith("hub", undefined);
   });
 
-  it("dirty: 'Edit data model →' is guarded and Discard navigates to the tableconfig", async () => {
+  it("dirty: Edit data model (in the data-model chip) is guarded and Discard navigates to the tableconfig", async () => {
     renderApp();
     await dirtyViaRename();
-    fireEvent.click(screen.getByRole("button", { name: "Edit data model →" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Data model:/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit data model" }));
     await screen.findByText("Discard unsaved changes?");
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(navigateMock).toHaveBeenCalledWith("tableconfig", "root");

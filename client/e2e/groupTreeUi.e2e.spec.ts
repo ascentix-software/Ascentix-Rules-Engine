@@ -48,7 +48,7 @@ test("validation band, Or operator, and a nested subgroup all persist", async ({
 
     // The validation band is the Outcomes band ("+ Add outcome"): a top-level group in it is an
     // outcome, and its rows must persist asx_isexecutioncondition false.
-    await frame.getByRole("button", { name: "+ Add outcome" }).first().click();
+    await frame.getByRole("button", { name: "Add outcome" }).first().click();
 
     // The new outcome is auto-selected? Not necessarily. Open it explicitly: a top-level validation
     // group reads "Edit outcome <name>" and its name field is "Outcome name".
@@ -59,8 +59,8 @@ test("validation band, Or operator, and a nested subgroup all persist", async ({
     await op.click();
     await frame.getByRole("option", { name: "Or", exact: true }).click();
 
-    // Nest a subgroup under it via the group header's "Subgroup" chip.
-    await frame.getByRole("button", { name: "Subgroup" }).click();
+    // Nest a subgroup under it via the group's "Add subgroup" link.
+    await frame.getByRole("button", { name: "Add subgroup", exact: true }).click();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
@@ -94,19 +94,22 @@ test("deleting a condition and a group removes the rows, not just the tree nodes
     expect(await conditionCount(before[0].asx_conditiongroupid as string)).toBe(1);
 
     // Delete the condition (row-level trash button), then save.
+    // Row actions reveal on hover/focus-within.
+    await frame.getByRole("button", { name: /^Edit condition/ }).hover();
     await frame.getByRole("button", { name: "Delete condition" }).click();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
     expect(await conditionCount(before[0].asx_conditiongroupid as string)).toBe(0);
 
-    // Now delete the (empty) group and save again.
-    await frame.getByRole("button", { name: "Delete group" }).click();
+    // Now delete the (empty) group from its ⋯ menu and save again.
+    await frame.getByRole("button", { name: /^More actions for / }).click();
+    await frame.getByRole("menuitem", { name: "Delete group" }).click();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
     await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
     expect(await groupsOf(fixture.ruleId)).toEqual([]);
 
-    // The band falls back to its empty-state call to action.
-    await expect(frame.getByRole("button", { name: "+ Add group" }).first()).toBeVisible();
+    // The band falls back to its empty state.
+    await expect(frame.getByText(/^No groups yet/)).toBeVisible();
   } finally {
     await deleteRuleCascade(fixture.ruleId);
     await fixture.cleanup();

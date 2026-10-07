@@ -4,7 +4,7 @@ import { AppProvider } from "../../src/editor/ui/AppProvider";
 import { MetadataProvider } from "../../src/editor/ui/useMetadata";
 import { RecordSearchProvider } from "../../src/editor/ui/useRecordSearch";
 import { SystemChoicesProvider } from "../../src/editor/ui/useSystemChoices";
-import { makeGraph, makeGroup, makeAction } from "./domFixtures";
+import { makeGraph, makeGroup, makeAction, fullText } from "./domFixtures";
 import { RuleEditorApp } from "../../src/editor/ui/RuleEditorApp";
 import type { MetadataService } from "../../src/editor/metadata";
 import type { RecordSearchService } from "../../src/editor/records";
@@ -43,9 +43,9 @@ const tests = (...ids: string[]): FiresWhenGroup => ({
   tests: ids.map((outcomeId, i) => ({ id: `t${i}`, outcomeId, expected: true })),
 });
 
-function deleteOutcome(name: string) {
-  const card = screen.getByRole("button", { name: `Edit outcome ${name}` });
-  fireEvent.click(within(card).getByRole("button", { name: "Delete outcome" }));
+async function deleteOutcome(name: string) {
+  fireEvent.click(screen.getByRole("button", { name: `More actions for ${name}` }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Delete outcome" }));
 }
 
 describe("Deleting an outcome", () => {
@@ -54,7 +54,7 @@ describe("Deleting an outcome", () => {
       validationGroups: [outcome("o1", "High value"), outcome("o2", "At risk")],
       actions: [makeAction({ id: "a1", name: "Block save", firesWhen: tests("o1", "o2") })],
     }));
-    deleteOutcome("High value");
+    await deleteOutcome("High value");
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Delete outcome High value?")).toBeInTheDocument();
     expect(dialog).toHaveTextContent("These actions test it: Block save. Their tests of this outcome are removed.");
@@ -63,7 +63,7 @@ describe("Deleting an outcome", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("button", { name: "Edit outcome High value" })).toBeInTheDocument();
-    expect(screen.getByText("When High value AND At risk")).toBeInTheDocument();
+    expect(screen.getByText(fullText("When High value and At risk"))).toBeInTheDocument();
   });
 
   it("Delete removes the outcome and the action's test of it", async () => {
@@ -71,11 +71,11 @@ describe("Deleting an outcome", () => {
       validationGroups: [outcome("o1", "High value"), outcome("o2", "At risk")],
       actions: [makeAction({ id: "a1", name: "Block save", firesWhen: tests("o1", "o2") })],
     }));
-    deleteOutcome("High value");
+    await deleteOutcome("High value");
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit outcome High value" })).toBeNull();
-    expect(screen.getByText("When At risk")).toBeInTheDocument();
+    expect(screen.getByText(fullText("When At risk"))).toBeInTheDocument();
   });
 
   it("warns that actions left with nothing to test will never fire, and leaves them Not set", async () => {
@@ -87,14 +87,14 @@ describe("Deleting an outcome", () => {
         makeAction({ id: "a3", name: "", order: 3, firesWhen: tests("o1") }),
       ],
     }));
-    deleteOutcome("High value");
+    await deleteOutcome("High value");
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toHaveTextContent("These actions test it: Block save, Action 2, Action 3. Their tests of this outcome are removed.");
     expect(dialog).toHaveTextContent("Block save, Action 3 will then never fire until you set their Fires when.");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
-    expect(screen.getAllByText("Not set: this action never fires.")).toHaveLength(2);
-    expect(screen.getByText("When At risk")).toBeInTheDocument();
+    expect(screen.getAllByText("Not set. This action never runs.")).toHaveLength(2);
+    expect(screen.getByText(fullText("When At risk"))).toBeInTheDocument();
   });
 
   it("names an unnamed outcome (unnamed outcome) in the confirmation", async () => {
@@ -102,20 +102,19 @@ describe("Deleting an outcome", () => {
       validationGroups: [outcome("o1", "")],
       actions: [makeAction({ id: "a1", name: "Block save", firesWhen: tests("o1") })],
     }));
-    // The card already says "Outcome ·", so its own label keeps the short "(unnamed)".
-    deleteOutcome("(unnamed)");
+    await deleteOutcome("(unnamed outcome)");
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Delete outcome (unnamed outcome)?")).toBeInTheDocument();
   });
 
-  it("deletes an outcome no action tests without asking", () => {
+  it("deletes an outcome no action tests without asking", async () => {
     renderApp(makeGraph({
       validationGroups: [outcome("o1", "High value"), outcome("o2", "At risk")],
       actions: [makeAction({ id: "a1", name: "Block save", firesWhen: tests("o2") })],
     }));
-    deleteOutcome("High value");
+    await deleteOutcome("High value");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit outcome High value" })).toBeNull();
-    expect(screen.getByText("When At risk")).toBeInTheDocument();
+    expect(screen.getByText(fullText("When At risk"))).toBeInTheDocument();
   });
 });

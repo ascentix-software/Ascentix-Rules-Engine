@@ -43,7 +43,7 @@ test("record picker: a saved view plus an Advanced filter narrows the grid, and 
   });
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
     const columnBox = frame.getByRole("combobox", { name: "Comparison column" });
@@ -147,7 +147,7 @@ test("record picker: a filter matching nothing shows the empty state and leaves 
   });
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
     const columnBox = frame.getByRole("combobox", { name: "Comparison column" });

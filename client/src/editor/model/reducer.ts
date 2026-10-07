@@ -243,3 +243,67 @@ export function renameNode(graph: RuleGraph, id: string, name: string): RuleGrap
 export function setRoot(graph: RuleGraph, nodeId: string): RuleGraph {
   return { ...graph, rule: { ...graph.rule, rootTableConfigId: nodeId } };
 }
+
+/**
+ * A deep copy with a new temp id for every entity (`id` keys) and no row etags, so the
+ * save diff creates it. References (node, outcome, column ids under other keys) are kept.
+ */
+function withFreshIds<T>(value: T): T {
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== "object") return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v)) {
+      if (k === "etag") continue;
+      out[k] = k === "id" && typeof x === "string" ? newTempId() : walk(x);
+    }
+    return out;
+  };
+  return walk(value) as T;
+}
+
+function reparent(g: ConditionGroupNode, parentGroupId: string | null): ConditionGroupNode {
+  return { ...g, parentGroupId, groups: g.groups.map((c) => reparent(c, g.id)) };
+}
+
+function insertAfter<T extends { id: string }>(list: T[], id: string, item: T): T[] | null {
+  const i = list.findIndex((x) => x.id === id);
+  return i < 0 ? null : [...list.slice(0, i + 1), item, ...list.slice(i + 1)];
+}
+
+/** A copy of a condition, with a new temp id, inserted right after the original. */
+export function duplicateCondition(graph: RuleGraph, id: string): RuleGraph {
+  const walk = (forest: ConditionGroupNode[]): ConditionGroupNode[] => forest.map((g) => {
+    const original = g.conditions.find((c) => c.id === id);
+    const conditions = original ? insertAfter(g.conditions, id, withFreshIds(original))! : g.conditions;
+    return { ...g, conditions, groups: walk(g.groups) };
+  });
+  return editForests(graph, walk);
+}
+
+/**
+ * A copy of a group and everything in it, inserted right after the original. A copied outcome
+ * gets a unique name (" (copy)", " (copy 2)", …) since actions test outcomes by name.
+ */
+export function duplicateGroup(graph: RuleGraph, id: string): RuleGraph {
+  const names = new Set(graph.validationGroups.map((g) => g.name));
+  const uniqueName = (name: string) => {
+    let n = `${name} (copy)`;
+    for (let i = 2; names.has(n); i++) n = `${name} (copy ${i})`;
+    return n;
+  };
+  const copyOf = (g: ConditionGroupNode, outcome: boolean) => {
+    const fresh = reparent(withFreshIds(g), g.parentGroupId);
+    return outcome ? { ...fresh, name: uniqueName(g.name) } : fresh;
+  };
+  const walk = (forest: ConditionGroupNode[], top: boolean, outcomes: boolean): ConditionGroupNode[] => {
+    const original = forest.find((g) => g.id === id);
+    if (original) return insertAfter(forest, id, copyOf(original, top && outcomes))!;
+    return forest.map((g) => ({ ...g, groups: walk(g.groups, false, outcomes) }));
+  };
+  return {
+    ...graph,
+    executionGroups: walk(graph.executionGroups, true, false),
+    validationGroups: walk(graph.validationGroups, true, true),
+  };
+}

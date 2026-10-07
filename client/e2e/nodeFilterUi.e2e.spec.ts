@@ -53,8 +53,8 @@ async function filterTreeOf(ruleId: string) {
 // editor unlocks the node-filter section (ChildTable node + a filterable condition type).
 async function openFilterableCondition(page: Parameters<typeof openRuleFromHub>[0], appId: string, ruleName: string) {
   const frame = await openRuleFromHub(page, appId, ruleName);
-  await frame.getByRole("button", { name: "+ Add group" }).first().click();
-  await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+  await frame.getByRole("button", { name: "Add group" }).first().click();
+  await frame.getByRole("button", { name: "Add condition", exact: true }).click();
   await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
   const node = frame.getByRole("combobox", { name: "Table-config node" });
@@ -137,7 +137,7 @@ test("node filter authored in the UI persists a criterion row the engine can rea
     expect(c.asx_comparisonvaluesource).toBe(1); // Literal
 
     // The authored shape must still be publishable.
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     await frame.getByRole("textbox", { name: "Show-message message" }).fill("ZZ_RB filtered row count");
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();

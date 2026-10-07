@@ -40,8 +40,8 @@ const conditionsOf = async (ruleId: string) => {
 
 // Adds an execution group + one condition and opens that condition's inspector.
 async function addConditionAndOpen(frame: Awaited<ReturnType<typeof openRuleFromHub>>) {
-  await frame.getByRole("button", { name: "+ Add group" }).first().click();
-  await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+  await frame.getByRole("button", { name: "Add group" }).first().click();
+  await frame.getByRole("button", { name: "Add condition", exact: true }).click();
   await frame.getByRole("button", { name: /^Edit condition/ }).click();
 }
 
@@ -206,7 +206,7 @@ test("Expression authored in the UI: Insert aggregate builds a sum() token that 
     // The authored shape must be publishable, not merely storable. A rule with no action is
     // rejected by the validator (STRUCT_NO_ACTIONS), so give it one: the point of the check is
     // that the aggregate EXPRESSION validates, not that a bare rule does.
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     await frame.getByRole("textbox", { name: "Show-message message" }).fill("ZZ_RB aggregate condition fired");
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();

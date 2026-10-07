@@ -14,16 +14,16 @@ describe("effective window precision and timezone", () => {
     const rule = { ...makeGraph().rule, effectiveTo: "2026-09-30T23:59:42.125Z" };
     const patch = vi.fn();
     renderWithFluent(<EffectiveWindowFields rule={rule} onPatch={patch} />);
-    expect(screen.getByLabelText("Effective to")).toHaveValue("2026-09-30T23:59:42.125");
-    fireEvent.change(screen.getByLabelText("Schedule timezone"), { target: { value: "local" } });
+    expect(screen.getByLabelText("Ends")).toHaveValue("2026-09-30T23:59:42.125");
+    fireEvent.click(screen.getByRole("radio", { name: "Local" }));
     expect(patch).not.toHaveBeenCalled();
-    expect(dateTimeIso((screen.getByLabelText("Effective to") as HTMLInputElement).value, "local")).toBe(rule.effectiveTo);
+    expect(dateTimeIso((screen.getByLabelText("Ends") as HTMLInputElement).value, "local")).toBe(rule.effectiveTo);
   });
 
   it("clearing an endpoint removes only that bound", () => {
     const patch = vi.fn();
     renderWithFluent(<EffectiveWindowFields rule={{ ...makeGraph().rule, effectiveTo: "2026-09-30T23:59:00Z" }} onPatch={patch} />);
-    fireEvent.change(screen.getByLabelText("Effective to"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Ends"), { target: { value: "" } });
     expect(patch).toHaveBeenCalledWith({ effectiveTo: null });
   });
 

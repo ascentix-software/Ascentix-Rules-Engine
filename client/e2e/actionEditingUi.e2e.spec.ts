@@ -40,10 +40,10 @@ test("action row controls: severity, Fires when, Active off, reorder and delete 
 
     // The fixture is bare, so the rule has no outcome yet: add one for the action to test. The
     // band's header button and its empty-state call to action share the name, hence first().
-    await frame.getByRole("button", { name: "+ Add outcome" }).first().click();
+    await frame.getByRole("button", { name: "Add outcome" }).first().click();
 
     // --- Action 1: ShowMessage (the reducer default), Warning, fires when the outcome is false
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     await frame.getByRole("textbox", { name: "Show-message message" }).fill("ZZ_RB first action");
 
@@ -57,7 +57,7 @@ test("action row controls: severity, Fires when, Active off, reorder and delete 
     await frame.getByRole("option", { name: "is false", exact: true }).click();
 
     // --- Action 2: Block, and deactivated ---------------------------------------------------
-    await frame.getByRole("button", { name: "+ Action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 2/ }).click();
     const type = frame.getByRole("combobox", { name: "Action type" });
     await type.click();
@@ -98,6 +98,8 @@ test("action row controls: severity, Fires when, Active off, reorder and delete 
     // what a user does, and Playwright's actionability check needs the same.
     const secondRow = frame.getByRole("button", { name: /^Edit action 2/ });
     await secondRow.hover();
+    // Row actions reveal on hover/focus-within.
+    await secondRow.hover();
     await secondRow.getByRole("button", { name: "Move up" }).click();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
@@ -110,6 +112,7 @@ test("action row controls: severity, Fires when, Active off, reorder and delete 
 
     // --- Delete the now-first action --------------------------------------------------------
     const topRow = frame.getByRole("button", { name: /^Edit action 1/ });
+    await topRow.hover();
     await topRow.hover();
     await topRow.getByRole("button", { name: "Delete action" }).click();
 

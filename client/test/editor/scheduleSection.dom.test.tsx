@@ -30,13 +30,15 @@ function mountSection(over: Partial<RuleSchedule> = {}, onPatch = vi.fn(), onOpe
 describe("RuleInspector — Schedule section visibility", () => {
   it("is hidden unless the rule is On demand + Runs for = All records", () => {
     mountInspector({ triggers: [3], onDemandScope: 1 });
-    expect(screen.queryByText("Schedule")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Schedule" })).not.toBeInTheDocument();
+    cleanup();
 
     mountInspector({ triggers: [1], onDemandScope: 2 });
-    expect(screen.queryByText("Schedule")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Schedule" })).not.toBeInTheDocument();
+    cleanup();
 
     mountInspector({ triggers: [3], onDemandScope: 2 });
-    expect(screen.getByText("Schedule")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Schedule" })).toBeInTheDocument();
   });
 });
 
@@ -45,7 +47,7 @@ describe("ScheduleSection", () => {
     mountSection({ pattern: 1, every: 15 });
     expect(screen.getByRole("combobox", { name: "Every" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Time of day")).not.toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Days of week" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Days of week" })).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Day of month" })).not.toBeInTheDocument();
   });
 
@@ -56,15 +58,19 @@ describe("ScheduleSection", () => {
     expect(options.map((o) => o.textContent)).toEqual(["15 minutes", "30 minutes", "45 minutes"]);
   });
 
-  it("shows Time of day for Daily/Weekly/Monthly, plus Days of week for Weekly and Day of month for Monthly", () => {
+  it("shows Time of day for Daily/Weekly/Monthly, plus day toggles for Weekly and Day of month for Monthly", () => {
     mountSection({ pattern: 3, timeOfDay: "09:00" });
     expect(screen.getByLabelText("Time of day")).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Days of week" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Days of week" })).not.toBeInTheDocument();
     cleanup();
 
-    mountSection({ pattern: 4, timeOfDay: "09:00", days: [1] });
+    const { onPatch } = mountSection({ pattern: 4, timeOfDay: "09:00", days: [1] });
     expect(screen.getByLabelText("Time of day")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Days of week" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Days of week" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Monday" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Thursday" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Thursday" }));
+    expect(onPatch).toHaveBeenCalledWith({ days: [1, 4] });
     cleanup();
 
     mountSection({ pattern: 5, timeOfDay: "09:00", dayOfMonth: 15 });
@@ -72,22 +78,15 @@ describe("ScheduleSection", () => {
     expect(screen.getByRole("combobox", { name: "Day of month" })).toBeInTheDocument();
   });
 
-  it("shows a hint naming the rule's time zone", () => {
-    renderWithFluent(
-      <ScheduleSection schedule={{ ...emptySchedule(), on: true, pattern: 3, timeOfDay: "09:00" }}
-        onPatch={vi.fn()} ruleTimeZone="Eastern Standard Time" evaluationContext={null} onOpenRuns={vi.fn()} />,
-    );
-    expect(screen.getByText(/Runs within 15 minutes of the scheduled time, in \(GMT-05:00\) Eastern Time \(US & Canada\)\./))
-      .toBeInTheDocument();
-  });
-
-  it("shows the User-context note only when evaluationContext is User (1)", () => {
+  it("explains timing, and the scheduler's account unless the rule runs as System, behind an info icon", () => {
     const schedule: RuleSchedule = { ...emptySchedule(), on: true, pattern: 3, timeOfDay: "09:00" };
+    const tip = () => screen.getByText(/^Runs within 15 minutes of the scheduled time, in the rule time zone/);
     renderWithFluent(<ScheduleSection schedule={schedule} onPatch={vi.fn()} ruleTimeZone={null} evaluationContext={2} onOpenRuns={vi.fn()} />);
-    expect(screen.queryByText("Scheduled runs use the scheduler's account.")).not.toBeInTheDocument();
+    expect(tip().textContent).not.toContain("scheduler's account");
+    cleanup();
 
     renderWithFluent(<ScheduleSection schedule={schedule} onPatch={vi.fn()} ruleTimeZone={null} evaluationContext={1} onOpenRuns={vi.fn()} />);
-    expect(screen.getByText("Scheduled runs use the scheduler's account.")).toBeInTheDocument();
+    expect(tip().textContent).toContain("as the scheduler's account");
   });
 
   it("shows a client-side validation message only when On", () => {
@@ -114,16 +113,14 @@ describe("ScheduleSection", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("shows Next run and Last run, and opens Runs when clicked", () => {
+  it("shows Next and Last as text, and View runs opens Runs", () => {
     const { onOpenRuns } = mountSection({
-      nextRunOn: "2026-10-01T09:00:00Z", lastRunOn: "2026-09-24T09:00:00Z", lastOutcome: 1,
+      nextRunOn: "2026-10-08T06:00:00Z", lastRunOn: "2026-10-05T06:00:00Z", lastOutcome: 1,
     });
-    const nextRunText = new Date("2026-10-01T09:00:00Z").toLocaleString();
-    const lastRunText = new Date("2026-09-24T09:00:00Z").toLocaleString();
-    fireEvent.click(screen.getByText(nextRunText));
+    expect(screen.getByText("Thu 8 Oct, 06:00 UTC")).toBeInTheDocument();
+    expect(screen.getByText("Mon 5 Oct, 06:00 UTC")).toBeInTheDocument();
+    expect(screen.getByText(/Started a run/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "View runs" }));
     expect(onOpenRuns).toHaveBeenCalledTimes(1);
-    expect(screen.getByText(`${lastRunText} — Started a run`)).toBeInTheDocument();
-    fireEvent.click(screen.getByText(`${lastRunText} — Started a run`));
-    expect(onOpenRuns).toHaveBeenCalledTimes(2);
   });
 });

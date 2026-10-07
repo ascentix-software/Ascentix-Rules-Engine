@@ -18,13 +18,13 @@ test("author a condition and action fully in the UI, then save → validate → 
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
 
     // Add an execution group (both bands are empty; execution renders first).
-    await frame.getByRole("button", { name: "+ Add group" }).first().click();
+    await frame.getByRole("button", { name: "Add group" }).first().click();
 
     // Add a condition via the group-header chip, then open its inspector row.
     // The chip's accessible name concatenates an icon span and the label: the live
     // a11y tree computes "+ Condition" (space included, verified via Playwright
     // snapshot), so match both spellings.
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
     // Column FIRST: the operator list is kind-filtered and only settles once the
@@ -42,7 +42,7 @@ test("author a condition and action fully in the UI, then save → validate → 
     await frame.getByRole("textbox", { name: "Value" }).fill("1000");
 
     // Add a ShowMessage action (the reducer's default type) and give it a message.
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     await frame.getByRole("textbox", { name: "Show-message message" }).fill("ZZ_RB ui-authored message");
 

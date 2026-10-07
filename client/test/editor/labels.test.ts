@@ -171,18 +171,18 @@ describe("firesWhenSummary", () => {
     applyInverseWhenNotFired: null, severity: null, isActive: true, localizedMessages: [], ...p,
   });
   it("null never fires", () => {
-    expect(firesWhenSummary(null, outcomes)).toBe("Not set: this action never fires.");
+    expect(firesWhenSummary(null, outcomes)).toBe("Not set. This action never runs.");
   });
   it("an empty ALL is Always", () => {
     expect(firesWhenSummary({ id: "r", op: "all", tests: [], groups: [] }, outcomes)).toBe("Always, when the rule runs");
   });
-  it("renders nested trees with NOT for expected false", () => {
+  it("renders nested trees, reading expected false as is false", () => {
     const tree: FiresWhenGroup = {
       id: "r", op: "all", tests: [{ id: "1", outcomeId: "hv", expected: true }],
       groups: [{ id: "g", op: "any", groups: [], tests: [
         { id: "2", outcomeId: "ar", expected: true }, { id: "3", outcomeId: "cc", expected: false }] }],
     };
-    expect(firesWhenSummary(tree, outcomes)).toBe("When High Value AND (At Risk OR NOT Critical Case)");
+    expect(firesWhenSummary(tree, outcomes)).toBe("When High Value and (At Risk or Critical Case is false)");
   });
   it("shows a renamed outcome by its new name", () => {
     const tree: FiresWhenGroup = { id: "r", op: "all", groups: [], tests: [{ id: "1", outcomeId: "hv", expected: true }] };
@@ -191,7 +191,7 @@ describe("firesWhenSummary", () => {
   it("names a missing outcome", () => {
     const tree: FiresWhenGroup = { id: "r", op: "all", groups: [], tests: [
       { id: "1", outcomeId: "gone", expected: true }, { id: "2", outcomeId: null, expected: false }] };
-    expect(firesWhenSummary(tree, outcomes)).toBe("When (missing outcome) AND NOT (missing outcome)");
+    expect(firesWhenSummary(tree, outcomes)).toBe("When (missing outcome) and (missing outcome) is false");
   });
   it("actionWhatHappens starts with the summary and never says conditions match", () => {
     const a = act({ firesWhen: { id: "r", op: "all", groups: [], tests: [{ id: "1", outcomeId: "hv", expected: true }] } });
@@ -204,16 +204,16 @@ describe("firesWhenSummary", () => {
     expect(actionWhatHappens(a, outcomes).startsWith("Always, when the rule runs")).toBe(true);
   });
   it("actionWhatHappens for a null tree is only the not-set sentence", () => {
-    expect(actionWhatHappens(act({ firesWhen: null }), outcomes)).toBe("Not set: this action never fires.");
+    expect(actionWhatHappens(act({ firesWhen: null }), outcomes)).toBe("Not set. This action never runs.");
   });
   it("shows a blank-named outcome as unnamed, distinct from a missing one", () => {
     const tree: FiresWhenGroup = { id: "r", op: "all", groups: [], tests: [
       { id: "1", outcomeId: "blank", expected: true }, { id: "2", outcomeId: "gone", expected: true }] };
-    expect(firesWhenSummary(tree, [og("blank", "")])).toBe("When (unnamed outcome) AND (missing outcome)");
+    expect(firesWhenSummary(tree, [og("blank", "")])).toBe("When (unnamed outcome) and (missing outcome)");
   });
   it("renders an empty nested group as (empty group)", () => {
     const tree: FiresWhenGroup = { id: "r", op: "all", tests: [{ id: "1", outcomeId: "hv", expected: true }],
       groups: [{ id: "g", op: "any", tests: [], groups: [] }] };
-    expect(firesWhenSummary(tree, outcomes)).toBe("When High Value AND (empty group)");
+    expect(firesWhenSummary(tree, outcomes)).toBe("When High Value and (empty group)");
   });
 });

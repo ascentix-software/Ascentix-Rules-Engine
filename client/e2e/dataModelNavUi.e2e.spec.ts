@@ -13,7 +13,7 @@ import { openHub, openConfigFromHub, openRuleFromHub, hubRow, toolbar } from "./
 //    a different code path from the CHILD one tableConfigEditor.e2e drives: manyToOne
 //    relationships, persisting asx_lookupcolumnlogicalname + asx_lookuptargetidattribute rather
 //    than asx_childlinkfield.
-//  - The rule editor's "Edit data model →" link and the hub row's "uses <config>" link, the
+//  - The rule editor's data-model chip ("Edit data model" in its popover) and the hub row's "uses <config>" link, the
 //    two ways an author crosses from a rule to its tree.
 //  - Duplicating a configuration from the hub, and whether the copy brings the node tree with it.
 
@@ -89,8 +89,9 @@ test("rule → data model: 'Edit data model' and the hub's 'uses' link both open
   try {
     // (a) From inside the rule editor.
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await expect(frame.getByText("Data map")).toBeVisible();
-    await frame.getByRole("button", { name: "Edit data model →" }).click();
+    // The data-model chip opens the model's tree; its footer links to the editor.
+    await frame.getByRole("button", { name: /^Data model:/ }).click();
+    await frame.getByRole("button", { name: "Edit data model", exact: true }).click();
     await expect(frame.getByRole("button", { name: "Rename configuration" })).toBeVisible({ timeout: 30_000 });
 
     // (b) From the hub row's "uses <config>" link, which must NOT also open the rule.

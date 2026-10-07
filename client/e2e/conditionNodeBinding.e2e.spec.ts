@@ -68,8 +68,8 @@ test("a condition authored without touching the node dropdown is caught before i
     // The VALIDATION band (GraphTree.tsx:262-276 renders execution first, validation second).
     // `.first()` would author into the EXECUTION band, which gates whether the rule runs rather
     // than deciding a match, so the Outcomes band's "+ Add outcome" is the one that decides a match here.
-    await frame.getByRole("button", { name: "+ Add outcome" }).first().click();
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    await frame.getByRole("button", { name: "Add outcome" }).first().click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
     const columnBox = frame.getByRole("combobox", { name: "Comparison column" });
     await columnBox.click();
@@ -81,7 +81,7 @@ test("a condition authored without touching the node dropdown is caught before i
     await frame.getByRole("option", { name: CHOICE.operator.lessThanOrEqual, exact: true }).click();
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
 
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     const type = frame.getByRole("combobox", { name: "Action type" });
     await type.click();

@@ -178,8 +178,7 @@ describe("RuleEditorApp Schedule, with a draft open on a published rule", () => 
     await waitFor(() => expect(screen.getByRole("switch")).toBeChecked());
     expect(saveButton()).toBeNull();
 
-    fireEvent.click(screen.getByRole("combobox", { name: "Runs for" }));
-    fireEvent.click(await screen.findByText("A record it's given"));
+    fireEvent.click(screen.getByRole("radio", { name: "Records it's given" }));
     // Stopped qualifying now: the turn-off is a pending change.
     expect(saveButton()).toBeEnabled();
 
@@ -201,8 +200,8 @@ describe("RuleEditorApp Schedule, on a published rule without a draft", () => {
 
     expect(screen.getByRole("button", { name: "Edit rule" })).toBeInTheDocument();
     expect(screen.getByRole("switch")).not.toBeDisabled();
-    expect(screen.getByRole("combobox", { name: "Triggers (at least one)" })).toBeDisabled();
-    expect(screen.getByRole("combobox", { name: "Runs for" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Triggers" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "Records it's given" })).toBeDisabled();
   });
 
   it("enables Save after a schedule change and sends only the schedule op", async () => {
@@ -313,13 +312,11 @@ describe("RuleEditorApp Schedule, loading", () => {
     expect(screen.getByLabelText("Time of day")).toHaveValue("05:30");
 
     // Move the rule out of On demand + All records...
-    fireEvent.click(screen.getByRole("combobox", { name: "Runs for" }));
-    fireEvent.click(await screen.findByText("A record it's given"));
+    fireEvent.click(screen.getByRole("radio", { name: "Records it's given" }));
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
 
     // ...and back in, in the same editing session.
-    fireEvent.click(screen.getByRole("combobox", { name: "Runs for" }));
-    fireEvent.click(await screen.findByText("All records that pass its execution conditions"));
+    fireEvent.click(screen.getByRole("radio", { name: "All records that match “Only if”" }));
 
     // The unsaved edit survived, and the schedule was never reloaded a second time.
     expect(screen.getByLabelText("Time of day")).toHaveValue("05:30");
@@ -335,13 +332,11 @@ describe("RuleEditorApp Schedule, loading", () => {
     await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalledTimes(1));
 
     // Leave On demand + All records while the first load is still in flight, then let it land.
-    fireEvent.click(screen.getByRole("combobox", { name: "Runs for" }));
-    fireEvent.click(await screen.findByText("A record it's given"));
+    fireEvent.click(screen.getByRole("radio", { name: "Records it's given" }));
     finishFirst(onSchedule());
 
     // Back in: the abandoned load didn't count, so the schedule is read again and shown.
-    fireEvent.click(screen.getByRole("combobox", { name: "Runs for" }));
-    fireEvent.click(await screen.findByText("All records that pass its execution conditions"));
+    fireEvent.click(screen.getByRole("radio", { name: "All records that match “Only if”" }));
     await waitFor(() => expect(loadRuleSchedule).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getByRole("switch")).toBeChecked());
   });
