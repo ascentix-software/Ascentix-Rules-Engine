@@ -1,5 +1,6 @@
 import type * as React from "react";
-import { Dropdown, Option, Input, Field, Badge } from "@fluentui/react-components";
+import { Dropdown, Option, Input, Badge } from "@fluentui/react-components";
+import { InfoField } from "../primitives";
 import type { RuleHeader } from "../../model/types";
 import { TRIGGER_OPTIONS, CHANNEL_OPTIONS, EVALUATION_CONTEXT_OPTIONS, ON_DEMAND_SCOPE_OPTIONS, ON_DEMAND, triggerLabel, channelLabel } from "../../model/enums";
 import { TIME_ZONE_OPTIONS, UTC_OPTION, timeZoneLabel } from "../../model/timeZones";
@@ -37,24 +38,24 @@ export function RuleInspector({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <fieldset disabled={!!disabled} style={plainFieldset}>
-        <Field label="Table (set at creation)">
+        <InfoField label="Table (set at creation)">
           <Input value={rule.tableLogicalName} disabled />
-        </Field>
+        </InfoField>
 
-        <Field label="Triggers (at least one)">
+        <InfoField label="Triggers (at least one)">
           <Dropdown multiselect
             selectedOptions={rule.triggers.map(String)}
             value={rule.triggers.map(triggerLabel).join(", ")}
             onOptionSelect={(_e, d) => onPatch({ triggers: toggleIn(rule.triggers, Number(d.optionValue)) })}>
             {TRIGGER_OPTIONS.map((o) => <Option key={o.value} value={String(o.value)}>{o.label}</Option>)}
           </Dropdown>
-        </Field>
+        </InfoField>
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {rule.triggers.map((t) => <Badge key={t} appearance="tint">{triggerLabel(t)}</Badge>)}
         </div>
 
         {rule.triggers.includes(ON_DEMAND) && (
-          <Field label="Runs for" hint="Which records the rule runs for when it's started on demand.">
+          <InfoField label="Runs for" info="Which records the rule runs for when it's started on demand.">
             <Dropdown
               value={ON_DEMAND_SCOPE_OPTIONS.find((o) => o.value === (rule.onDemandScope ?? 1))?.label}
               selectedOptions={[String(rule.onDemandScope ?? 1)]}
@@ -62,19 +63,19 @@ export function RuleInspector({
             >
               {ON_DEMAND_SCOPE_OPTIONS.map((o) => <Option key={o.value} value={String(o.value)}>{o.label}</Option>)}
             </Dropdown>
-          </Field>
+          </InfoField>
         )}
 
-        <Field label="Channels (none = all)">
+        <InfoField label="Channels (none = all)">
           <Dropdown multiselect
             selectedOptions={rule.channels.map(String)}
             value={rule.channels.length ? rule.channels.map(channelLabel).join(", ") : "All"}
             onOptionSelect={(_e, d) => onPatch({ channels: toggleIn(rule.channels, Number(d.optionValue)) })}>
             {CHANNEL_OPTIONS.map((o) => <Option key={o.value} value={String(o.value)}>{o.label}</Option>)}
           </Dropdown>
-        </Field>
+        </InfoField>
 
-        <Field label="Fire on change of these columns" hint="Applies only when the OnUpdate trigger is selected.">
+        <InfoField label="Fire on change of these columns" info="Applies only when the OnUpdate trigger is selected.">
           <MultiColumnPicker
             table={rule.tableLogicalName}
             context="update"
@@ -82,24 +83,24 @@ export function RuleInspector({
             onChange={(triggerColumns) => onPatch({ triggerColumns })}
             ariaLabel="Fire on change of these columns"
           />
-        </Field>
+        </InfoField>
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {rule.triggerColumns.map((c) => <Badge key={c} appearance="tint">{c}</Badge>)}
         </div>
 
         <EffectiveWindowFields rule={rule} onPatch={onPatch} />
 
-        <Field label="Evaluation context">
+        <InfoField label="Evaluation context">
           <Dropdown
             value={EVALUATION_CONTEXT_OPTIONS.find((o) => o.value === (rule.evaluationContext ?? 1))?.label ?? "User"}
             selectedOptions={[String(rule.evaluationContext ?? 1)]}
             onOptionSelect={(_e, d) => onPatch({ evaluationContext: Number(d.optionValue) })}>
             {EVALUATION_CONTEXT_OPTIONS.map((o) => <Option key={o.value} value={String(o.value)}>{o.label}</Option>)}
           </Dropdown>
-        </Field>
+        </InfoField>
 
-        <Field label="Time zone for dates"
-          hint="Decides which day it is when a Date Only or Time Zone Independent column is compared. User Local dates are exact instants; a date without a time zone compared with one (such as 2026-09-01, or a Date Only anchor) is read in this zone.">
+        <InfoField label="Time zone for dates"
+          info="Decides which day it is when a Date Only or Time Zone Independent column is compared. User Local dates are exact instants; a date without a time zone compared with one (such as 2026-09-01, or a Date Only anchor) is read in this zone.">
           <Dropdown
             value={timeZoneLabel(rule.evaluationTimeZone)}
             selectedOptions={[rule.evaluationTimeZone || UTC_OPTION]}
@@ -109,7 +110,7 @@ export function RuleInspector({
               <Option value={rule.evaluationTimeZone}>{rule.evaluationTimeZone}</Option>
             )}
           </Dropdown>
-        </Field>
+        </InfoField>
       </fieldset>
 
       {scheduleApplies(rule) && (

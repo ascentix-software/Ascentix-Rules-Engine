@@ -1,9 +1,9 @@
-import { Field, Input, Text, Button } from "@fluentui/react-components";
+import { Input, Text, Button } from "@fluentui/react-components";
 import { Delete16Regular } from "@fluentui/react-icons";
 import type { TableConfigRef } from "../../model/types";
 import { pathToNode } from "../../model/tableConfigOps";
 import { AddRelated } from "../TableConfigTree";
-import { Callout } from "../primitives";
+import { Callout, InfoField } from "../primitives";
 import { color } from "../tokens";
 
 export function TableConfigNodeInspector({
@@ -24,11 +24,11 @@ export function TableConfigNodeInspector({
   const path = nodes ? pathToNode(nodes, node.id).map((n) => n.name).join(" ▸ ") : "";
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <Field label="Node name" hint="Shown in condition & action pickers across every rule using this tree.">
+      <InfoField label="Node name" info="Shown in condition and action pickers in every rule that uses this model.">
         <Input value={node.name} readOnly={!onRename} onChange={(_e, d) => onRename?.(d.value)} />
-      </Field>
-      <Field label="Table"><Input value={node.tableLogicalName} readOnly style={{ background: color.canvas }} /></Field>
-      <Field label="Relationship"><Text size={200}>{detail}</Text></Field>
+      </InfoField>
+      <InfoField label="Table"><Input value={node.tableLogicalName} readOnly style={{ background: color.canvas }} /></InfoField>
+      <InfoField label="Relationship"><Text size={200}>{detail}</Text></InfoField>
 
       {path && (
         <div style={{ background: color.brandTint, borderLeft: `3px solid ${color.brand}`, borderRadius: "0 6px 6px 0", padding: "10px 12px" }}>

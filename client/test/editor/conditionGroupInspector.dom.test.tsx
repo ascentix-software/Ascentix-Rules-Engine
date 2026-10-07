@@ -69,14 +69,14 @@ describe("ConditionGroupInspector for an outcome", () => {
     validationGroups: [makeGroup({ id: "o1", name, isExecutionCondition: false, groups: [nested] })],
   });
 
-  it("labels the name Outcome name, required, with the by-name hint", () => {
+  it("labels the name Outcome name, required, with the by-name info tip", () => {
     const { body, header } = ruleEditorInspectorContent(graph(), { kind: "group", id: "o1" }, handlers());
     renderWithFluent(<>{body}</>);
     const input = screen.getByRole("textbox", { name: /Outcome name/ });
     expect(input).toHaveValue("High value");
     expect(input).toBeRequired();
     expect(input).not.toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText("Actions test this outcome by name.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More info: Outcome name" })).toBeInTheDocument();
     expect(screen.queryByText("Group name")).toBeNull();
     expect(header.eyebrow).toBe("Editing outcome");
     expect(header.title).toBe("High value");

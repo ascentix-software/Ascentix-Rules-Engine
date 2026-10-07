@@ -20,6 +20,7 @@ export const color = {
   brandInk: "#4a44c9",     // links, eyebrows, text-on-light (7.09:1)
   brandTint: "#edecfb",    // chips, info callout bg
   brandLine: "#dcd9f6",
+  brandOnInk: "#b0b3f4",   // link text on the ink toast (brandRamp[120])
   canvas: "#f5f6fb",
   surface: "#ffffff",
   fill: "#f3f2fc",
@@ -71,6 +72,7 @@ export const roles = {
     success: "successTint",
     danger: "dangerTint",
     warnInk: "warnTint",
+    brandOnInk: "ink",
   },
   /** Fills that convey state (buttons, accents, dots). WCAG 1.4.11, >= 3:1 on surface. */
   uiFill: ["brand", "warn", "execution", "validation", "action", "success", "danger"],

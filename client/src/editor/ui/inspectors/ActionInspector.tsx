@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Dropdown, Option, Field, Input, Switch, Textarea, Button } from "@fluentui/react-components";
+import { Dropdown, Option, Input, Switch, Textarea, Button } from "@fluentui/react-components";
 import type { ActionNode, ActionTypeLabel, ConditionGroupNode, TableConfigRef } from "../../model/types";
 import { isSingleCardinality, previousParentLookup } from "../../model/tableConfigOps";
 import { isCollectionNode, isSetAction, targetsNode } from "../../model/setActions";
@@ -14,7 +14,7 @@ import { InsertFieldMenu, useFieldLabelFor } from "../InsertFieldMenu";
 import { insertAt, friendlyTemplate } from "../../model/templateTokens";
 import { color } from "../tokens";
 import { OutsideField } from "../fieldScope";
-import { Callout } from "../primitives";
+import { Callout, InfoField } from "../primitives";
 import { FiresWhenEditor } from "./FiresWhenEditor";
 
 const ACTION_TYPES: ActionTypeLabel[] = [
@@ -113,7 +113,7 @@ export function ActionInspector({
   const nodeName = (id: string) => (isCollectionNode(tableConfigs, id) ? `${tableConfigs[id]?.name ?? id} (each row)` : tableConfigs[id]?.name ?? id);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <Field label="Action type">
+      <InfoField label="Action type">
         <Dropdown
           value={action.actionType ? labelFor(SYSTEM_CHOICE.actionType, actionTypeValue(action.actionType), action.actionType) : ""}
           selectedOptions={action.actionType ? [action.actionType] : []}
@@ -123,50 +123,50 @@ export function ActionInspector({
             <Option key={x} value={x}>{labelFor(SYSTEM_CHOICE.actionType, actionTypeValue(x), x)}</Option>
           ))}
         </Dropdown>
-      </Field>
+      </InfoField>
 
-      <Field label="Active">
+      <InfoField label="Active">
         <Switch checked={action.isActive ?? true} onChange={(_e, d) => onPatch({ isActive: d.checked })} />
-      </Field>
+      </InfoField>
 
-      <Field label="Fires when">
+      <InfoField label="Fires when">
         <FiresWhenEditor value={action.firesWhen} outcomes={outcomes} onChange={(firesWhen) => onPatch({ firesWhen })} />
-      </Field>
+      </InfoField>
       {action.firesWhenWarning && <Callout intent="warning">{action.firesWhenWarning}</Callout>}
 
       {(t === "SetVisible" || t === "SetRequired") && (
         <>
-          <Field label="Target column">
+          <InfoField label="Target column">
             <ColumnPicker table={ruleTable} context="update" value={action.targetColumn}
               allowEmpty emptyLabel="(form-level)" onChange={(v) => onPatch({ targetColumn: v || null })} />
-          </Field>
-          <Field label={t === "SetVisible" ? "Visible" : "Required"}>
+          </InfoField>
+          <InfoField label={t === "SetVisible" ? "Visible" : "Required"}>
             <Switch checked={!!action.value} onChange={(_e, d) => onPatch({ value: d.checked })} />
-          </Field>
+          </InfoField>
         </>
       )}
 
       {t === "Block" && (
         <>
-          <Field label="Target field (optional)"
-            hint="Set a field → inline error on it (blocks save). Blank → form-level block.">
+          <InfoField label="Target field (optional)"
+            info="Pick a field to show the error on it. Leave blank for a form-level block.">
             <ColumnPicker table={ruleTable} context="read" value={action.targetColumn}
               allowEmpty emptyLabel="(form-level)" onChange={(v) => onPatch({ targetColumn: v || null })} />
-          </Field>
-          <Field label="Message" hint="Block prevents the record from being saved (server-enforced).">
+          </InfoField>
+          <InfoField label="Message" info="Block prevents the record from being saved (server-enforced).">
             <MessageEditor value={action.message ?? ""} ruleTable={ruleTable} tableConfigs={tableConfigs}
               ariaLabel="Block message" onChange={(v) => onPatch({ message: v || null })} />
-          </Field>
+          </InfoField>
         </>
       )}
 
       {t === "ShowMessage" && (
         <>
-          <Field label="Target field (optional)"
-            hint="Set a field → inline message on it. Blank → banner at the top of the form.">
+          <InfoField label="Target field (optional)"
+            info="Set a field → inline message on it. Blank → banner at the top of the form.">
             <ColumnPicker table={ruleTable} context="read" value={action.targetColumn}
               allowEmpty emptyLabel="(form banner)" onChange={(v) => onPatch({ targetColumn: v || null })} />
-          </Field>
+          </InfoField>
           {/* Model-driven forms only render an inline message on a column at the ERROR
               notification level, and that level also blocks the save (pinned by
               e2e formBlockClientSide T4/T5). So "message on a column"
@@ -182,15 +182,15 @@ export function ActionInspector({
               appears as a banner at the top of the form.
             </Callout>
           )}
-          <Field label="Message">
+          <InfoField label="Message">
             <MessageEditor value={action.message ?? ""} ruleTable={ruleTable} tableConfigs={tableConfigs}
               ariaLabel="Show-message message" onChange={(v) => onPatch({ message: v || null })} />
-          </Field>
+          </InfoField>
         </>
       )}
 
       {(t === "ShowMessage" || t === "Block") && (
-        <Field label="Severity">
+        <InfoField label="Severity">
           <Dropdown
             value={action.severity ? labelFor(SYSTEM_CHOICE.severity, action.severity, SEVERITIES.find((s) => s.value === action.severity)?.label ?? "") : ""}
             selectedOptions={action.severity ? [String(action.severity)] : []}
@@ -199,11 +199,11 @@ export function ActionInspector({
               <Option key={s.value} value={String(s.value)}>{labelFor(SYSTEM_CHOICE.severity, s.value, s.label)}</Option>
             ))}
           </Dropdown>
-        </Field>
+        </InfoField>
       )}
 
       {(t === "ShowMessage" || t === "Block") && (
-        <Field label="Translations (fallback = message above)">
+        <InfoField label="Translations (fallback = message above)">
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {/* One Input per language: they are a repeated group, not the one control this
                 Field labels, so they must not all claim its generated id (see fieldScope.tsx).
@@ -223,17 +223,17 @@ export function ActionInspector({
                 .map((l) => <Option key={l.code} value={String(l.code)}>{l.label}</Option>)}
             </Dropdown>
           </div>
-        </Field>
+        </InfoField>
       )}
 
       {t === "CreateRecord" && (
         <>
-          <Field label="Target table">
+          <InfoField label="Target table">
             <TablePicker value={action.targetTable} onChange={(v) => onPatch({ targetTable: v })} />
-          </Field>
+          </InfoField>
           {/* Hidden on a rule with no collection node: "(one record)" is the only possibility. */}
           {collections.length > 0 && (
-            <Field label="For each row of" hint="Optional. One record per row of this collection.">
+            <InfoField label="For each row of" info="Optional. One record per row of this collection.">
               <Dropdown aria-label="For each row of"
                 value={createPerRow ? tableConfigs[createPerRow]?.name ?? createPerRow : "(one record)"}
                 selectedOptions={[createPerRow ?? ""]}
@@ -241,9 +241,9 @@ export function ActionInspector({
                 <Option value="">(one record)</Option>
                 {collections.map((tc) => <Option key={tc.id} value={tc.id}>{tc.name}</Option>)}
               </Dropdown>
-            </Field>
+            </InfoField>
           )}
-          <Field label="Columns to set">
+          <InfoField label="Columns to set">
             <FieldMappingControl
               fieldMapping={action.fieldMapping}
               targetTable={action.targetTable}
@@ -254,12 +254,12 @@ export function ActionInspector({
               missingTargetHint="Choose a target table first"
               onChange={(json) => onPatch({ fieldMapping: json })}
             />
-          </Field>
+          </InfoField>
         </>
       )}
 
       {targetsNode(t) && (
-        <Field label="Target node">
+        <InfoField label="Target node">
           <Dropdown
             value={action.targetNodeId ? nodeName(action.targetNodeId) : ""}
             selectedOptions={action.targetNodeId ? [action.targetNodeId] : []}
@@ -268,16 +268,16 @@ export function ActionInspector({
             {tcList.filter((tc) => isSingleCardinality(tableConfigs, tc.id) || isCollectionNode(tableConfigs, tc.id))
               .map((tc) => <Option key={tc.id} value={tc.id}>{nodeName(tc.id)}</Option>)}
           </Dropdown>
-        </Field>
+        </InfoField>
       )}
       {setAction && (
-        <Field label="Rows">
+        <InfoField label="Rows">
           <RowFilterControl action={action} tableConfigs={tableConfigs} tcList={tcList}
             onChange={(rowFilter) => onPatch({ rowFilter })} />
-        </Field>
+        </InfoField>
       )}
       {t === "UpdateRecord" && (
-        <Field label="Columns to set">
+        <InfoField label="Columns to set">
           <FieldMappingControl
             fieldMapping={action.fieldMapping}
             targetTable={action.targetNodeId ? tableConfigs[action.targetNodeId]?.tableLogicalName ?? null : null}
@@ -288,10 +288,10 @@ export function ActionInspector({
             missingTargetHint="Choose a target node first"
             onChange={(json) => onPatch({ fieldMapping: json })}
           />
-        </Field>
+        </InfoField>
       )}
       {t === "DeactivateRecord" && (
-        <Field label="Status reason (optional)" hint="Blank uses the table's default inactive status.">
+        <InfoField label="Status reason (optional)" info="Blank uses the table's default inactive status.">
           <FieldMappingControl
             fieldMapping={action.fieldMapping}
             targetTable={action.targetNodeId ? tableConfigs[action.targetNodeId]?.tableLogicalName ?? null : null}
@@ -299,7 +299,7 @@ export function ActionInspector({
             title={`Status reason — ${action.targetNodeId ? tableConfigs[action.targetNodeId]?.name ?? "" : ""}`}
             missingTargetHint="Choose a target node first"
             onChange={(json) => onPatch({ fieldMapping: json })} />
-        </Field>
+        </InfoField>
       )}
       {(() => {
         // Shown only while the action is eligible (Update Record, targeting a node reached
@@ -309,10 +309,10 @@ export function ActionInspector({
         const lookup = t === "UpdateRecord" ? previousParentLookup(tableConfigs, action.targetNodeId) : null;
         if (!lookup) return null;
         return (
-          <Field label={`Also apply to the previous ${lookup.name} when it changes`}
-            hint={`When the save points ${lookup.name} at a different record, also apply this action to the one it pointed to before.`}>
+          <InfoField label={`Also apply to the previous ${lookup.name} when it changes`}
+            info={`When the save points ${lookup.name} at a different record, also apply this action to the one it pointed to before.`}>
             <Switch checked={!!action.applyToPrevious} onChange={(_e, d) => onPatch({ applyToPrevious: d.checked })} />
-          </Field>
+          </InfoField>
         );
       })()}
 
@@ -322,7 +322,7 @@ export function ActionInspector({
         // must clear the 4.5:1 text floor, not just the 3:1 UI-fill floor, hence the *Ink
         // variants (warnInk, brandInk) rather than warn/brand for the blue and amber cases.
         const accent = eff.kind === "block" ? { bar: color.brandInk, bg: color.brandTint }
-          : eff.kind === "warn" ? { bar: color.warnInk, bg: color.warnTint }
+          : eff.kind === "hold" ? { bar: color.warnInk, bg: color.warnTint }
           : eff.kind === "write" ? { bar: color.success, bg: color.successTint }
           : { bar: color.brandInk, bg: color.brandTint };
         return (

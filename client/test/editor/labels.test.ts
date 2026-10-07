@@ -51,18 +51,22 @@ describe("actionEffect", () => {
     targetTable: null, targetNodeId: null, message: null, fieldMapping: null, value: null,
     applyInverseWhenNotFired: null, severity: null, isActive: true, localizedMessages: [], ...p,
   });
-  it("classifies block, warning and notice", () => {
-    expect(actionEffect(act({ actionType: "Block" }))).toEqual({ kind: "block", label: "Blocks save" });
-    expect(actionEffect(act({ actionType: "ShowMessage", severity: 2 })))
-      .toEqual({ kind: "warn", label: "Warning · won't block" });
-    expect(actionEffect(act({ actionType: "ShowMessage", severity: 1 })))
-      .toEqual({ kind: "info", label: "Notice · won't block" });
+  it("labels block and banner messages, whatever the severity", () => {
+    expect(actionEffect(act({ actionType: "Block" }))).toEqual({ kind: "block", label: "Blocks save", tone: "danger" });
+    for (const severity of [1, 2, 3]) {
+      expect(actionEffect(act({ actionType: "ShowMessage", severity })))
+        .toEqual({ kind: "message", label: "Form message", tone: "info" });
+    }
   });
-  it("classifies write actions", () => {
-    expect(actionEffect(act({ actionType: "CreateRecord" })).kind).toBe("write");
+  it("gives form and write actions a pill too", () => {
+    expect(actionEffect(act({ actionType: "SetVisible" }))).toEqual({ kind: "form", label: "Form change", tone: "neutral" });
+    expect(actionEffect(act({ actionType: "SetRequired" })).label).toBe("Form change");
+    for (const t of ["CreateRecord", "UpdateRecord", "DeleteRecord", "DeactivateRecord"] as const) {
+      expect(actionEffect(act({ actionType: t }))).toEqual({ kind: "write", label: "Writes data", tone: "write" });
+    }
   });
-  it.each([1, 2, 3])("marks a field message as form-blocking at severity %i", (severity) => {
-    expect(actionEffect(act({ targetColumn: "name", severity }))).toEqual({ kind: "block", label: "Blocks form save" });
+  it.each([1, 2, 3])("marks a field message as holding the form save at severity %i", (severity) => {
+    expect(actionEffect(act({ targetColumn: "name", severity }))).toEqual({ kind: "hold", label: "Holds form save", tone: "warn" });
     expect(actionWhatHappens(act({ targetColumn: "name", severity }), [])).toContain("regardless of severity");
     expect(actionWhatHappens(act({ severity }), [])).toContain("save still allowed");
   });

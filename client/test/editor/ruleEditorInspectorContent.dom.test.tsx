@@ -85,6 +85,7 @@ describe("IssueCallout", () => {
 
   it("renders nothing for an empty list", () => {
     const { container } = renderWithFluent(<IssueCallout issues={[]} />);
-    expect(container.firstChild?.firstChild ?? null).toBeNull();
+    expect(container.textContent).toBe("");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

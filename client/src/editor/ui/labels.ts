@@ -61,6 +61,101 @@ export function conditionSummary(c: ConditionNode, tcs: Record<string, TableConf
   return [p.node ? `[${p.node}]` : null, p.field, p.operator, p.value].filter(Boolean).join(" ");
 }
 
+/** Plain-language operator phrases for the tree's condition sentences. */
+export const OPERATOR_PHRASE: Record<number, string> = {
+  1: "is", 2: "is not", 3: "is more than", 4: "is at least", 5: "is less than", 6: "is at most",
+  7: "contains", 8: "doesn't contain", 9: "is empty", 10: "has a value",
+};
+
+export interface ConditionSentence {
+  /** The node name, only when the condition reads a node other than the root. */
+  nodeTag?: string;
+  field: string;
+  fieldLogical: string;
+  op: string;
+  value?: string;
+}
+
+export interface SentenceMeta {
+  rootNodeId: string | null;
+  /** Column display name; undefined while metadata loads or when the lookup fails. */
+  columnLabel?(table: string | null, logical: string): string | undefined;
+  /** Column attributeType (Money, Integer, …); undefined when unknown. */
+  columnType?(table: string | null, logical: string): string | undefined;
+  /** A resolved label for a literal choice/lookup/boolean value. */
+  valueText?: string | null;
+  currencySymbol?: string | null;
+}
+
+const NUMERIC_TYPES = new Set(["Integer", "BigInt", "Decimal", "Double", "Money"]);
+
+function groupDigits(raw: string): string {
+  const n = Number(raw);
+  if (raw.trim() === "" || !Number.isFinite(n)) return raw;
+  return n.toLocaleString(undefined, { maximumFractionDigits: 10 });
+}
+
+function rowsWord(n: number): string { return n === 1 ? "row" : "rows"; }
+
+export function rowCountPhrase(lo: number | null, hi: number | null): { op: string; value?: string } {
+  if (lo === 0 && hi === 0) return { op: "has no rows" };
+  if (lo != null && hi != null) return { op: "has between", value: `${lo} and ${hi} ${rowsWord(hi)}` };
+  if (lo != null) return { op: "has at least", value: `${lo} ${rowsWord(lo)}` };
+  if (hi != null) return { op: "has at most", value: `${hi} ${rowsWord(hi)}` };
+  return { op: "has any number of rows" };
+}
+
+/**
+ * A condition as a readable sentence: "Est. Revenue is at least $100,000". Display only;
+ * the saved auto-name still comes from deriveConditionName.
+ */
+export function conditionSentence(
+  c: ConditionNode, tcs: Record<string, TableConfigRef>, meta: SentenceMeta,
+): ConditionSentence {
+  const tableOf = (id: string | null) => (id ? tcs[id]?.tableLogicalName ?? null : null);
+  const table = tableOf(c.tableConfigId);
+  const nodeTag = c.tableConfigId && c.tableConfigId !== meta.rootNodeId
+    ? tcs[c.tableConfigId]?.name ?? undefined : undefined;
+  const display = (t: string | null, logical: string) => meta.columnLabel?.(t, logical) || logical;
+  switch (c.conditionType) {
+    case "FieldComparison": {
+      const logical = c.comparisonColumn ?? "";
+      const op = c.comparisonOperator != null ? OPERATOR_PHRASE[c.comparisonOperator] ?? "" : "";
+      let value: string | undefined;
+      if (c.comparisonOperator !== 9 && c.comparisonOperator !== 10) {
+        if (c.valueSource === 2) {
+          const col = c.comparisonValueColumn;
+          value = `${nodeName(c.comparisonValueNodeId, tcs)} · ${col ? display(tableOf(c.comparisonValueNodeId), col) : "?"}`;
+        } else if (c.comparisonValue != null && c.comparisonValue !== "") {
+          const type = logical ? meta.columnType?.(table, logical) : undefined;
+          if (meta.valueText) value = meta.valueText;
+          else if (type && NUMERIC_TYPES.has(type) && (c.valueSource ?? 1) === 1) {
+            const grouped = groupDigits(c.comparisonValue);
+            value = type === "Money" && meta.currencySymbol ? `${meta.currencySymbol}${grouped}` : grouped;
+          } else value = c.comparisonValue;
+        }
+      }
+      return { nodeTag, field: logical ? display(table, logical) : "(no column)", fieldLogical: logical, op, value };
+    }
+    case "RegexMatch": {
+      const logical = c.comparisonColumn ?? "";
+      return { nodeTag, field: logical ? display(table, logical) : "(no column)", fieldLogical: logical,
+        op: "matches", value: `/${c.comparisonValue ?? ""}/` };
+    }
+    case "RowCount": {
+      const name = nodeName(c.tableConfigId, tcs);
+      return { field: name, fieldLogical: table ?? "", ...rowCountPhrase(c.minExpectedRows, c.maxExpectedRows) };
+    }
+    case "Expression": {
+      const op = c.comparisonOperator != null ? OPERATOR_PHRASE[c.comparisonOperator] ?? "" : "";
+      return { nodeTag, field: c.expression || "(no calculation)", fieldLogical: c.expression ?? "", op,
+        value: c.comparisonValue ?? undefined };
+    }
+    default:
+      return { nodeTag, field: c.name || "(unconfigured)", fieldLogical: "", op: "" };
+  }
+}
+
 // Operator phrases for derived names: deterministic, independent of system choices.
 const OP_PHRASE: Record<number, string> = {
   1: "=", 2: "≠", 3: ">", 4: "≥", 5: "<", 6: "≤",
@@ -135,26 +230,27 @@ export function deriveGroupName(
   return capName(parts.join(joiner));
 }
 
-export type ActionEffectKind = "block" | "warn" | "info" | "form" | "write";
+export type ActionEffectKind = "block" | "hold" | "message" | "form" | "write";
+export type EffectTone = "danger" | "warn" | "info" | "neutral" | "write";
 export function messageBlocksForm(a: ActionNode): boolean {
   return a.actionType === "ShowMessage" && !!a.targetColumn;
 }
 
-export function actionEffect(a: ActionNode): { kind: ActionEffectKind; label: string } {
+/** The one action-effect vocabulary: every configured action gets a label and a pill tone. */
+export function actionEffect(a: ActionNode): { kind: ActionEffectKind; label: string; tone: EffectTone } {
   switch (a.actionType) {
-    case "Block": return { kind: "block", label: "Blocks save" };
+    case "Block": return { kind: "block", label: "Blocks save", tone: "danger" };
     case "ShowMessage":
-      if (messageBlocksForm(a)) return { kind: "block", label: "Blocks form save" };
-      return a.severity === 3
-        ? { kind: "warn", label: "Error · won't block" }
-        : a.severity === 2
-        ? { kind: "warn", label: "Warning · won't block" }
-        : { kind: "info", label: "Notice · won't block" };
+      return messageBlocksForm(a)
+        ? { kind: "hold", label: "Holds form save", tone: "warn" }
+        : { kind: "message", label: "Form message", tone: "info" };
+    case "SetVisible":
+    case "SetRequired": return { kind: "form", label: "Form change", tone: "neutral" };
     case "CreateRecord":
     case "UpdateRecord":
     case "DeleteRecord":
-    case "DeactivateRecord": return { kind: "write", label: "Server" };
-    default: return { kind: "form", label: "" };
+    case "DeactivateRecord": return { kind: "write", label: "Writes data", tone: "write" };
+    default: return { kind: "form", label: "", tone: "neutral" };
   }
 }
 

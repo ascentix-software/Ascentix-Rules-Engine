@@ -1,5 +1,6 @@
 import * as React from "react";
-import { Field, Input, Select } from "@fluentui/react-components";
+import { Input, Select } from "@fluentui/react-components";
+import { InfoField } from "../primitives";
 import type { RuleHeader } from "../../model/types";
 
 export function dateTimeInput(iso: string | null, zone: "utc" | "local"): string {
@@ -26,21 +27,21 @@ export function EffectiveWindowFields({ rule, onPatch }: {
   }) : null;
   const invalid = !!rule.effectiveFrom && !!rule.effectiveTo && Date.parse(rule.effectiveTo) < Date.parse(rule.effectiveFrom);
   return <>
-    <Field label="Schedule timezone" hint="Changing the display timezone keeps the scheduled instants unchanged.">
+    <InfoField label="Schedule timezone" info="Changing the display timezone keeps the scheduled instants unchanged.">
       <Select value={zone} onChange={(_e, d) => setZone(d.value as "utc" | "local")}>
         <option value="utc">UTC</option><option value="local">Local ({localZone})</option>
       </Select>
-    </Field>
-    <Field label="Effective from" hint={`Date and time in ${zone === "utc" ? "UTC" : localZone}. Blank means no start limit.`}>
+    </InfoField>
+    <InfoField label="Effective from" info={`Date and time in ${zone === "utc" ? "UTC" : localZone}. Blank means no start limit.`}>
       <Input type="datetime-local" step="0.001" value={dateTimeInput(rule.effectiveFrom, zone)}
         onChange={(_e, d) => onPatch({ effectiveFrom: dateTimeIso(d.value, zone) })} />
-    </Field>
-    <Field label="Effective to" validationState={invalid ? "error" : "none"}
+    </InfoField>
+    <InfoField label="Effective to" validationState={invalid ? "error" : "none"}
       validationMessage={invalid ? "The end must be at or after the start." : undefined}
-      hint="Enforcement ends at this exact time, including the boundary; it does not extend to the end of the day.">
+      info="Enforcement ends at this exact time, including the boundary; it does not extend to the end of the day.">
       <Input type="datetime-local" step="0.001" value={dateTimeInput(rule.effectiveTo, zone)}
         onChange={(_e, d) => onPatch({ effectiveTo: dateTimeIso(d.value, zone) })} />
-    </Field>
+    </InfoField>
     <p style={{ fontSize: 12, margin: 0 }}>
       {rule.effectiveFrom ? `Starts ${format(rule.effectiveFrom)}` : "No start limit"}; {rule.effectiveTo ? `ends ${format(rule.effectiveTo)}` : "no end limit"} ({zone === "utc" ? "UTC" : localZone}).
     </p>

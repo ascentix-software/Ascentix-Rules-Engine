@@ -1,11 +1,12 @@
 import * as React from "react";
-import { Tooltip } from "@fluentui/react-components";
+import { Button, Tooltip, tokens, Field as FluentField, type FieldProps } from "@fluentui/react-components";
 import {
   Info16Regular, Prohibited16Regular, Warning16Regular, Eye16Regular,
   Important16Regular, Add16Regular, Edit16Regular, Delete16Regular, CircleOff16Regular,
 } from "@fluentui/react-icons";
-import type { ActionTypeLabel } from "../model/types";
+import type { ActionTypeLabel, ActionNode } from "../model/types";
 import { statusReasonLabel } from "../model/enums";
+import { actionEffect } from "./labels";
 import { useEditorStyles } from "./styles";
 import { color } from "./tokens";
 
@@ -105,10 +106,29 @@ export const StatusBadge: React.FC<{ statusCode: number | null }> = ({ statusCod
   <Pill tone={statusTone(statusCode)}>{statusReasonLabel(statusCode)}</Pill>
 );
 
-export const InfoTip: React.FC<{ text: string }> = ({ text }) => (
-  <Tooltip content={text} relationship="label">
-    <Info16Regular style={{ color: color.inkMuted, cursor: "help" }} />
+/**
+ * Help text behind an icon. A real (transparent) button so keyboard users can
+ * focus it and read the tooltip; Esc closes it (Fluent Tooltip).
+ */
+export const InfoTip: React.FC<{ text: string; label?: string; tint?: string }> = ({ text, label, tint }) => (
+  <Tooltip content={text} relationship="description" withArrow>
+    <Button
+      appearance="transparent" size="small" icon={<Info16Regular />}
+      aria-label={label ? `More info: ${label}` : "More info"}
+      onClick={(e) => e.preventDefault()}
+      style={{ minWidth: "auto", width: 20, height: 20, padding: 0, color: tint ?? color.inkMuted, verticalAlign: "middle" }}
+    />
   </Tooltip>
+);
+
+/** A label with its InfoTip inline after it (4px gap). Use for Fluent Field's label slot too. */
+export const LabelWithInfo: React.FC<{ label: React.ReactNode; info?: string; required?: boolean; infoLabel?: string }> = ({
+  label, info, required, infoLabel,
+}) => (
+  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+    <span>{label}{required ? <span style={{ color: color.danger }}> *</span> : null}</span>
+    {info ? <InfoTip text={info} label={infoLabel ?? (typeof label === "string" ? label : undefined)} /> : null}
+  </span>
 );
 
 /**
@@ -210,17 +230,133 @@ export const Callout: React.FC<{
 };
 
 /**
- * The one field wrapper: the design system's label + control + hint block.
- * (The hand-rolled per-file field wrappers it replaced are all retired.)
+ * The one field wrapper: the design system's label + control block. Explanatory
+ * text goes behind `info` (an InfoTip); `hint` is for validation errors only.
  */
 export const Field: React.FC<{
-  label: string; hint?: string; required?: boolean; children: React.ReactNode;
-}> = ({ label, hint, required, children }) => (
+  label: string; info?: string; hint?: string; required?: boolean; children: React.ReactNode;
+}> = ({ label, info, hint, required, children }) => (
   <div style={{ marginBottom: 11, display: "flex", flexDirection: "column", gap: 3 }}>
     <span style={{ fontSize: 12.5, fontWeight: 600, color: color.ink }}>
-      {label}{required ? <span style={{ color: color.danger }}> *</span> : null}
+      <LabelWithInfo label={label} info={info} required={required} />
     </span>
     {children}
-    {hint ? <span style={{ fontSize: 11.5, color: color.inkMuted }}>{hint}</span> : null}
+    {hint ? <span role="alert" style={{ fontSize: 11.5, color: color.danger }}>{hint}</span> : null}
   </div>
 );
+
+export interface SegmentOption<T extends string> { value: T; label: React.ReactNode; ariaLabel?: string; }
+
+/**
+ * A segmented single-choice toggle (radiogroup). Arrow keys move and select;
+ * one segment is tabbable. MatchToggle, the condition mode switch, UTC/Local and
+ * the Run dialog's Version toggle are all this control.
+ */
+export function SegmentedToggle<T extends string>({
+  options, value, onChange, ariaLabel, fullWidth, disabled,
+}: {
+  options: SegmentOption<T>[]; value: T | null; onChange(v: T): void; ariaLabel: string;
+  fullWidth?: boolean; disabled?: boolean;
+}) {
+  const refs = React.useRef<(HTMLButtonElement | null)[]>([]);
+  const selectedIdx = Math.max(0, options.findIndex((o) => o.value === value));
+  const move = (i: number) => {
+    const n = (i + options.length) % options.length;
+    onChange(options[n].value);
+    refs.current[n]?.focus();
+  };
+  return (
+    <div role="radiogroup" aria-label={ariaLabel} aria-disabled={disabled || undefined} style={{
+      display: fullWidth ? "grid" : "inline-flex",
+      gridTemplateColumns: fullWidth ? `repeat(${options.length}, minmax(0,1fr))` : undefined,
+      border: `1px solid ${tokens.colorNeutralStroke1}`, borderRadius: 4, overflow: "hidden",
+      background: color.surface, flex: "none",
+    }}>
+      {options.map((o, i) => {
+        const on = o.value === value;
+        return (
+          <button
+            key={o.value} type="button" role="radio" aria-checked={on}
+            aria-label={o.ariaLabel} disabled={disabled}
+            ref={(el) => { refs.current[i] = el; }}
+            tabIndex={i === selectedIdx ? 0 : -1}
+            onClick={() => onChange(o.value)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); move(i + 1); }
+              if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); move(i - 1); }
+            }}
+            style={{
+              height: 24, padding: "3px 12px", fontSize: 12, lineHeight: "16px", fontFamily: "inherit",
+              border: 0, borderLeft: i === 0 ? 0 : `1px solid ${tokens.colorNeutralStroke1}`,
+              background: on ? color.brand : "transparent",
+              color: on ? tokens.colorNeutralForegroundOnBrand : color.ink,
+              fontWeight: on ? 600 : 400, cursor: disabled ? "default" : "pointer",
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export type MatchValue = "all" | "any";
+export const toMatch = (op: "And" | "Or" | null | undefined): MatchValue => (op === "Or" ? "any" : "all");
+export const fromMatch = (m: MatchValue): "And" | "Or" => (m === "any" ? "Or" : "And");
+
+/**
+ * All / Any. Edit mode is a 2-segment toggle; display mode is the tree's
+ * neutral "Match all" badge (no zone colour on purpose).
+ */
+export const MatchToggle: React.FC<
+  | { mode?: "edit"; value: MatchValue; onChange(v: MatchValue): void; ariaLabel: string; disabled?: boolean }
+  | { mode: "display"; value: MatchValue }
+> = (props) => {
+  if (props.mode === "display") {
+    return (
+      <span style={{
+        fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6,
+        background: color.fill, color: color.ink, whiteSpace: "nowrap", flex: "none",
+      }}>
+        {props.value === "any" ? "Match any" : "Match all"}
+      </span>
+    );
+  }
+  return (
+    <SegmentedToggle<MatchValue>
+      ariaLabel={props.ariaLabel} value={props.value} onChange={props.onChange} disabled={props.disabled}
+      options={[{ value: "all", label: "All" }, { value: "any", label: "Any" }]}
+    />
+  );
+};
+
+/** The action effect pill: every configured action gets one (Blocks save, Writes data, …). */
+export const EffectPill: React.FC<{ action: ActionNode }> = ({ action }) => {
+  const eff = actionEffect(action);
+  if (!eff.label) return null;
+  return <Pill tone={eff.tone}>{eff.label}</Pill>;
+};
+
+/**
+ * Fluent's Field with an `info` InfoTip after the label. The tip renders OUTSIDE
+ * the <label> element, so it never joins the control's accessible name.
+ */
+export const InfoField: React.FC<FieldProps & { info?: string }> = ({ info, label, ...rest }) => {
+  if (!info || label == null) return <FluentField label={label} {...rest} />;
+  const text = typeof label === "string" ? label : undefined;
+  return (
+    <FluentField
+      {...rest}
+      label={{
+        children: (Component: React.ElementType, props: Record<string, unknown>) => (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <Component {...props}>{label as React.ReactNode}{props.children as React.ReactNode}</Component>
+            <InfoTip text={info} label={text} />
+          </span>
+        ),
+      } as FieldProps["label"]}
+    />
+  );
+};

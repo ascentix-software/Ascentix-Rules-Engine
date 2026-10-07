@@ -3,9 +3,9 @@ import { Button, Text, Spinner } from "@fluentui/react-components";
 import { BranchFork16Regular, Delete16Regular, ArrowUp16Regular, ArrowDown16Regular } from "@fluentui/react-icons";
 import type { RuleGraph, ConditionGroupNode, Selection, ConditionNode, TableConfigRef, ActionTypeLabel } from "../model/types";
 import type { ApiIssue } from "../webapi";
-import { conditionParts, actionEffect, actionVerb, actionDetail, firesWhenSummary, type ActionEffectKind } from "./labels";
+import { conditionParts, actionEffect, actionVerb, actionDetail, firesWhenSummary } from "./labels";
 import { outcomesOf } from "../model/outcomes";
-import { NodeTag, OperatorPill, ValueText, LogicalBadge, GroupCard, ActionIcon, Pill, type PillTone } from "./primitives";
+import { NodeTag, OperatorPill, ValueText, LogicalBadge, GroupCard, ActionIcon, Pill } from "./primitives";
 import { useChoiceLabel } from "./useSystemChoices";
 import { SYSTEM_CHOICE } from "./choiceLabels";
 import { comparisonOperatorLabel, actionTypeValue } from "../model/enums";
@@ -13,10 +13,6 @@ import { useResolvedConditionValue } from "./useResolvedConditionValue";
 import { ZONES, type Zone, color } from "./tokens";
 import { useEditorStyles } from "./styles";
 import { activateOnKey } from "./keyboard";
-
-const EFFECT_TONE: Record<ActionEffectKind, PillTone> = {
-  block: "danger", warn: "warn", info: "info", write: "write", form: "neutral", // form never renders (label is empty)
-};
 
 /** Small inline indicator for validation issues on a node row. */
 function IssueIndicator({ issues }: { issues: ApiIssue[] }) {
@@ -244,7 +240,7 @@ function ActionRow({ a, index, count, graph, selection, handlers, labelForTree, 
       </span>
       {eff.label && (
         <span style={{ marginLeft: "auto" }}>
-          <Pill tone={EFFECT_TONE[eff.kind]}>{eff.label}</Pill>
+          <Pill tone={eff.tone}>{eff.label}</Pill>
         </span>
       )}
       {actionIssues.length > 0 && <IssueIndicator issues={actionIssues} />}

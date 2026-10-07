@@ -1,5 +1,6 @@
 import * as React from "react";
-import { Button, Dialog, DialogSurface, DialogBody, DialogTitle, DialogContent, DialogActions, Textarea } from "@fluentui/react-components";
+import { Button, Textarea } from "@fluentui/react-components";
+import { DialogShell } from "./DialogShell";
 import type { FiresWhenGroup, RuleGraph } from "../model/types";
 import { diffRuleGraph } from "../save/diff";
 import { ENTITY } from "../load/odata";
@@ -51,15 +52,12 @@ export function ReviewChangesDialog({ open, snapshot, working, onClose }: {
     try { await navigator.clipboard.writeText(text); setStatus("Changes copied."); }
     catch { setStatus("Select the text below and copy it with your keyboard."); }
   }
-  return <Dialog open={open} onOpenChange={(_e, d) => { if (!d.open) onClose(); }}>
-    <DialogSurface><DialogBody>
-      <DialogTitle>Review pending changes</DialogTitle>
-      <DialogContent>
-        <p>These changes are relative to the version you loaded. Copy them before reloading if you want to preserve them for later.</p>
-        <Textarea aria-label="Pending changes" readOnly value={text} rows={12} resize="vertical" style={{ width: "100%" }} />
-        <div role="status">{status}</div>
-      </DialogContent>
-      <DialogActions><Button onClick={copy}>Copy changes</Button><Button appearance="primary" onClick={onClose}>Close</Button></DialogActions>
-    </DialogBody></DialogSurface>
-  </Dialog>;
+  return (
+    <DialogShell open={open} title="Review pending changes" onClose={onClose}
+      actions={<><Button onClick={copy}>Copy changes</Button><Button appearance="primary" onClick={onClose}>Close</Button></>}>
+      <p style={{ margin: 0 }}>These changes are relative to the version you loaded. Copy them before reloading if you want to preserve them for later.</p>
+      <Textarea aria-label="Pending changes" readOnly value={text} rows={12} resize="vertical" style={{ width: "100%" }} />
+      <div role="status">{status}</div>
+    </DialogShell>
+  );
 }
