@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { createDevApi, deleteDevRecord } from "./devApi";
-import { BIND_NAV, ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
+import { BIND_NAV, ENTITY, ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { readDevEnv } from "./devEnv";
 import { authorRule } from "./ruleBehavior/authoring";
+import { loadRuleGraph } from "../src/editor/load/index";
 
 // Round-trips every @odata.bind nav prop in BIND_NAV against live DEV: create a
 // child record binding the nav prop to a parent, read back the lookup's
@@ -275,6 +276,32 @@ describe("BIND_NAV @odata.bind round-trips against DEV", () => {
     const testRows = await api.retrieveMultipleRecords(ENTITY_SET.actionConditionTest,
       `?$filter=_asx_actionconditiongroup_value eq ${groupOfAction}&$select=_asx_outcome_value`);
     expect(String(testRows.entities[0]._asx_outcome_value).toLowerCase()).toBe(groupId.toLowerCase());
+  });
+
+  it("the editor loads a Fires-when tree in one request (LOOKUP.acgRule filter, NAV.actionConditionGroupTests expand)", async () => {
+    const actionId = await makeAction("firesWhenLoad_action");
+    const root = await api.retrieveMultipleRecords(ENTITY_SET.actionConditionGroup,
+      `?$filter=_asx_ruleaction_value eq ${actionId}&$select=asx_actionconditiongroupid`);
+    const rootId = root.entities[0].asx_actionconditiongroupid as string;
+    const testId = await api.createRecord(ENTITY_SET.actionConditionTest, {
+      [`${BIND_NAV.actionConditionTestGroup}@odata.bind`]: `/${ENTITY_SET.actionConditionGroup}(${rootId})`,
+      [`${BIND_NAV.actionConditionTestOutcome}@odata.bind`]: `/${ENTITY_SET.group}(${groupId})`,
+      asx_expected: false, asx_order: 1,
+    });
+    created.push({ set: ENTITY_SET.actionConditionTest, id: testId });
+    // The editor's port takes logical names (Xrm.WebApi); the dev API takes entity set names.
+    const toSet = (logical: string) => {
+      const key = (Object.keys(ENTITY) as (keyof typeof ENTITY)[]).find((k) => ENTITY[k] === logical);
+      return key && key in ENTITY_SET ? ENTITY_SET[key as keyof typeof ENTITY_SET] : logical;
+    };
+    const port = { ...api,
+      retrieveRecord: (e: string, id: string, o?: string) => api.retrieveRecord(toSet(e), id, o),
+      retrieveMultipleRecords: (e: string, o?: string) => api.retrieveMultipleRecords(toSet(e), o) };
+    const graph = await loadRuleGraph(port as typeof api, ruleId);
+    const loaded = graph.actions.find((a) => a.id.toLowerCase() === actionId.toLowerCase());
+    expect(loaded?.firesWhen?.id.toLowerCase()).toBe(rootId.toLowerCase());
+    expect(loaded?.firesWhen?.tests.map((t) => [t.id.toLowerCase(), t.outcomeId?.toLowerCase(), t.expected]))
+      .toEqual([[testId.toLowerCase(), groupId.toLowerCase(), false]]);
   });
 
   it("localizedMessageAction binds a localized message to its parent action", async () => {
