@@ -1,8 +1,8 @@
 import * as React from "react";
-import { Dropdown, Option, Input, Spinner, Combobox, Checkbox, Button } from "@fluentui/react-components";
+import { Dropdown, Option, Input, Spinner, Combobox, Checkbox, Button, tokens } from "@fluentui/react-components";
 import { useMetadataService } from "../useMetadata";
 import { filterColumns, filterTables } from "../columnFilters";
-import { columnKind, type ColumnKind } from "../columnKind";
+import { columnKind, columnTypeLabel, type ColumnKind } from "../columnKind";
 import { parseCsvValues, serializeCsvValues } from "../valueFormat";
 import {
   columnsForContext, type ColumnContext, type ColumnMeta, type OptionMeta, type TableMeta,
@@ -58,6 +58,7 @@ export function TablePicker({ value, onChange }: { value: string | null; onChang
 
 export function ColumnPicker({
   table, context, value, onChange, allowEmpty, emptyLabel = "(form-level)", compatibleWith, excludeColumns, onlyColumns, ariaLabel,
+  sentence,
 }: {
   table: string | null; context: ColumnContext; value: string | null;
   onChange(v: string): void; allowEmpty?: boolean; emptyLabel?: string;
@@ -66,6 +67,8 @@ export function ColumnPicker({
   /** Offer only these columns (e.g. Deactivate's status reason). */
   onlyColumns?: string[];
   ariaLabel?: string;
+  /** Condition sentences: shows the display name with its type after it; options read "Display · logical". */
+  sentence?: boolean;
 }) {
   const svc = useMetadataService();
   const [cols, setCols] = React.useState<ColumnMeta[] | null>(null);
@@ -88,8 +91,10 @@ export function ColumnPicker({
 
   const inContext = columnsForContext(cols, context).filter((c) => !onlyColumns || onlyColumns.includes(c.logicalName));
   const selected = inContext.find((c) => c.logicalName === value) ?? null;
-  const selectedText = selected ? `${selected.displayName} (${selected.logicalName})` : value ?? "";
+  const optionText = (c: ColumnMeta) => (sentence ? `${c.displayName} · ${c.logicalName}` : `${c.displayName} (${c.logicalName})`);
+  const selectedText = selected ? (sentence ? selected.displayName : optionText(selected)) : value ?? "";
   const displayValue = open ? query : selectedText;
+  const typeText = sentence && selected && !open ? columnTypeLabel(selected.attributeType) : "";
   const matches = filterColumns(inContext, {
     query: open ? query : "",
     customOnly,
@@ -97,7 +102,7 @@ export function ColumnPicker({
     exclude: excludeColumns,
   });
 
-  return (
+  const combo = (
     <Combobox
       freeform
       aria-label={ariaLabel}
@@ -119,11 +124,24 @@ export function ColumnPicker({
       </div>
       {allowEmpty && <Option value="" text={emptyLabel}>{emptyLabel}</Option>}
       {matches.map((c) => (
-        <Option key={c.logicalName} value={c.logicalName} text={`${c.displayName} (${c.logicalName})`}>
-          {`${c.displayName} (${c.logicalName})`}
+        <Option key={c.logicalName} value={c.logicalName} text={optionText(c)}>
+          {optionText(c)}
         </Option>
       ))}
     </Combobox>
+  );
+  if (!typeText) return combo;
+  // The type sits after the name, inside the control's frame (decorative: the name is the value).
+  return (
+    <div style={{ position: "relative", width: "100%" }}>
+      {combo}
+      <span aria-hidden style={{
+        position: "absolute", right: 34, top: "50%", transform: "translateY(-50%)", pointerEvents: "none",
+        fontSize: 12, color: tokens.colorNeutralForeground3,
+      }}>
+        {typeText}
+      </span>
+    </div>
   );
 }
 

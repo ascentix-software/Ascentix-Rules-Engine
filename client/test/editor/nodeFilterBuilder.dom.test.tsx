@@ -1,6 +1,6 @@
 import * as React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 // A generous async-query timeout for heavy DOM tests is configured globally in test/setup.dom.ts.
 import { col, fakeMetadata, renderWithMeta } from "./metaFixtures";
 import { ConditionInspector } from "../../src/editor/ui/inspectors/ConditionInspector";
@@ -48,16 +48,17 @@ function Harness({ initial, onPatch }: { initial: ConditionNode; onPatch(p: Part
   );
 }
 
-// Open the filter modal (the drawer only shows a summary + "Edit filters…" button).
+// Open the filter modal (the panel only shows a one-line summary + "Add filter" / "Edit").
 async function openDialog() {
-  fireEvent.click(await screen.findByRole("button", { name: /edit filters/i }));
+  fireEvent.click(await screen.findByRole("button", { name: /^(Add filter|Edit)$/ }));
 }
 
 describe("ConditionInspector — node-filter section (summary + modal)", () => {
-  it("shows the section with an 'Edit filters…' button on a child-node condition", async () => {
+  it("shows the section with All rows and an Add filter button on a child-node condition", async () => {
     renderWithMeta(<Harness initial={baseCondition()} onPatch={() => {}} />, META);
-    expect(await screen.findByText("Only consider records where…")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /edit filters/i })).toBeInTheDocument();
+    expect(await screen.findByText(/^Only (count|consider) rows where$/)).toBeInTheDocument();
+    expect(screen.getByText("All rows")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add filter" })).toBeInTheDocument();
     // No inline builder in the drawer: the column picker only exists inside the modal.
     expect(screen.queryByRole("combobox", { name: "Filter column" })).toBeNull();
   });
@@ -74,18 +75,19 @@ describe("ConditionInspector — node-filter section (summary + modal)", () => {
       },
     };
     renderWithMeta(<Harness initial={baseCondition({ filter: [filled] })} onPatch={() => {}} />, META);
-    // One complete criterion on the condition's own collection.
-    expect(await screen.findByText(/\(this record's collection\) · 1 condition/)).toBeInTheDocument();
+    // The first complete criterion, as a sentence, with Edit.
+    expect(await screen.findByText("amount is more than 100")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   });
 
   it("does not show the section for a non-child (root) node", () => {
     renderWithMeta(<Harness initial={baseCondition({ tableConfigId: "root" })} onPatch={() => {}} />, META);
-    expect(screen.queryByText("Only consider records where…")).toBeNull();
+    expect(screen.queryByText(/^Only (count|consider) rows where$/)).toBeNull();
   });
 
   it("does not show the section for an Expression condition", () => {
     renderWithMeta(<Harness initial={baseCondition({ conditionType: "Expression" })} onPatch={() => {}} />, META);
-    expect(screen.queryByText("Only consider records where…")).toBeNull();
+    expect(screen.queryByText(/^Only (count|consider) rows where$/)).toBeNull();
   });
 
   it("opening the modal renders the builder for an existing block", async () => {
@@ -104,7 +106,7 @@ describe("ConditionInspector — node-filter section (summary + modal)", () => {
 
     await openDialog();
     // Working copy: adding a filter does not patch the condition yet.
-    fireEvent.click(await screen.findByRole("button", { name: /^add filter$/i }));
+    fireEvent.click(await within(await screen.findByRole("dialog")).findByRole("button", { name: /^add filter$/i }));
     expect(onPatch).not.toHaveBeenCalled();
 
     // Apply commits the working copy.
@@ -120,7 +122,7 @@ describe("ConditionInspector — node-filter section (summary + modal)", () => {
     renderWithMeta(<Harness initial={baseCondition()} onPatch={onPatch} />, META);
 
     await openDialog();
-    fireEvent.click(await screen.findByRole("button", { name: /^add filter$/i }));
+    fireEvent.click(await within(await screen.findByRole("dialog")).findByRole("button", { name: /^add filter$/i }));
     // The added block shows a target-node picker inside the modal…
     expect(await screen.findByRole("combobox", { name: "Filter target node" })).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: /^cancel$/i }));

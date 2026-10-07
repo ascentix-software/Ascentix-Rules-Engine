@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { conditionSummary, conditionParts, actionEffect, actionWhatHappens, firesWhenSummary, actionSummary, actionVerb, actionDetail } from "../../src/editor/ui/labels";
+import { conditionSummary, conditionParts, actionEffect, actionWhatHappens, actionSummaryParts, firesWhenSummary, actionSummary, actionVerb, actionDetail } from "../../src/editor/ui/labels";
 import type { ConditionNode, ConditionGroupNode, FiresWhenGroup, ActionNode, TableConfigRef } from "../../src/editor/model/types";
 
 const tcs: Record<string, TableConfigRef> = {
@@ -67,8 +67,8 @@ describe("actionEffect", () => {
   });
   it.each([1, 2, 3])("marks a field message as holding the form save at severity %i", (severity) => {
     expect(actionEffect(act({ targetColumn: "name", severity }))).toEqual({ kind: "hold", label: "Holds form save", tone: "warn" });
-    expect(actionWhatHappens(act({ targetColumn: "name", severity }), [])).toContain("regardless of severity");
-    expect(actionWhatHappens(act({ severity }), [])).toContain("save still allowed");
+    expect(actionWhatHappens(act({ targetColumn: "name", severity }), [])).toContain("on name and holds the form save");
+    expect(actionWhatHappens(act({ severity }), [])).toContain("The save is allowed");
   });
 });
 
@@ -78,17 +78,22 @@ describe("actionWhatHappens", () => {
     targetTable: null, targetNodeId: null, message: null, fieldMapping: null, value: null,
     applyInverseWhenNotFired: null, severity: null, isActive: true, localizedMessages: [], ...p,
   });
-  it("describes a field-targeted warning that blocks this form", () => {
-    const s = actionWhatHappens(act({ actionType: "ShowMessage", severity: 2, targetColumn: "region" }), []);
-    expect(s).toContain("region");
-    expect(s).toContain("blocks this form's save");
-    expect(s).not.toContain("save still allowed");
+  it("describes a message on a field as holding the form save", () => {
+    const s = actionWhatHappens(act({ actionType: "ShowMessage", severity: 2, targetColumn: "region", message: "Hi" }), []);
+    expect(s).toBe("Every time the rule runs, shows “Hi” on region and holds the form save.");
   });
   it("describes a block", () => {
-    expect(actionWhatHappens(act({ actionType: "Block" }), [])).toContain("prevents the save");
+    expect(actionWhatHappens(act({ actionType: "Block", message: "No" }), [])).toBe("Every time the rule runs, blocks the save with “No”.");
   });
   it("describes Deactivate Record", () => {
-    expect(actionWhatHappens(act({ actionType: "DeactivateRecord" }), [])).toContain("deactivates the target record(s)");
+    expect(actionWhatHappens(act({ actionType: "DeactivateRecord" }), [])).toContain("deactivates the target");
+  });
+  it("bolds outcome and field names in the parts", () => {
+    const parts = actionSummaryParts(act({ targetColumn: "region", message: "Hi",
+      firesWhen: { id: "r", op: "all", groups: [], tests: [{ id: "t", outcomeId: "o", expected: true }] } }),
+      [{ id: "o", name: "Approval gaps", parentGroupId: null, logicalOperator: "And", isExecutionCondition: false, conditions: [], groups: [] }],
+      {}, (c) => (c === "region" ? "Region" : undefined));
+    expect(parts.filter((p) => p.bold).map((p) => p.text)).toEqual(["Approval gaps", "Region"]);
   });
 });
 
@@ -199,9 +204,9 @@ describe("firesWhenSummary", () => {
     expect(s.startsWith("When High Value")).toBe(true);
     expect(s).not.toContain("conditions match");
   });
-  it("actionWhatHappens for an always action starts with Always", () => {
+  it("actionWhatHappens for an always action starts with Every time the rule runs", () => {
     const a = act({ firesWhen: { id: "r", op: "all", groups: [], tests: [] } });
-    expect(actionWhatHappens(a, outcomes).startsWith("Always, when the rule runs")).toBe(true);
+    expect(actionWhatHappens(a, outcomes).startsWith("Every time the rule runs")).toBe(true);
   });
   it("actionWhatHappens for a null tree is only the not-set sentence", () => {
     expect(actionWhatHappens(act({ firesWhen: null }), outcomes)).toBe("Not set. This action never runs.");

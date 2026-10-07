@@ -307,3 +307,10 @@ export function duplicateGroup(graph: RuleGraph, id: string): RuleGraph {
     validationGroups: walk(graph.validationGroups, true, true),
   };
 }
+
+/** A copy of an action (its Fires when tree and translations too), right after the original. */
+export function duplicateAction(graph: RuleGraph, id: string): RuleGraph {
+  const original = graph.actions.find((a) => a.id === id);
+  if (!original) return graph;
+  return { ...graph, actions: renumber(insertAfter(graph.actions, id, withFreshIds(original))!) };
+}

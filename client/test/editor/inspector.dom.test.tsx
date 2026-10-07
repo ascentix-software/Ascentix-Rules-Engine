@@ -47,7 +47,7 @@ describe("Rule Editor inspector wiring (narrow = overlay)", () => {
     await withNarrowViewport(async () => {
       renderApp(graph);
       fireEvent.click(screen.getByText("My group"));
-      await waitFor(() => expect(screen.getByTestId("inspector-heading")).toHaveTextContent("My group"));
+      await waitFor(() => expect(screen.getByTestId("inspector-heading")).toHaveTextContent("Group"));
     });
   });
 

@@ -14,7 +14,7 @@ import { flattenGroups, flattenConditions } from "../model/tree";
 import {
   patchRule, addAction, updateAction, deleteAction, moveAction,
   addGroup, updateGroup, deleteGroup, addCondition, updateCondition, deleteCondition,
-  addTranslation, updateTranslation, removeTranslation, addOutcome, duplicateCondition, duplicateGroup,
+  addTranslation, updateTranslation, removeTranslation, addOutcome, duplicateCondition, duplicateGroup, duplicateAction,
 } from "../model/reducer";
 import { NoticeBar, InfoTip } from "./primitives";
 import { RuleSettingsStrip, DataModelChip } from "./RuleSettingsStrip";
@@ -644,6 +644,21 @@ export function RuleEditorApp({
   }
 
   const inspectorHandlers = {
+    onSelect: setSelection,
+    isManualName: (id: string) => manual.has(id),
+    ...(editable ? {
+      onDuplicate: (kind: "condition" | "group" | "action", id: string) => {
+        if (kind === "condition") handlers.onDuplicateCondition!(id);
+        else if (kind === "group") handlers.onDuplicateGroup!(id);
+        else setWorking((g) => duplicateAction(g, id));
+      },
+      onDelete: (kind: "condition" | "group" | "action", id: string) => {
+        if (kind === "condition") handlers.onDeleteCondition(id);
+        else if (kind === "group") handlers.onDeleteGroup(id);
+        else handlers.onDeleteAction(id);
+      },
+      onMoveAction: handlers.onMoveAction,
+    } : {}),
     onPatchRule: (patch: Partial<RuleHeader>) => setWorking((g) => patchRule(g, patch)),
     onPatchGroup: (id: string, patch: Partial<ConditionGroupNode>) => {
       if ("name" in patch) applyNamePatch("group", id, patch.name ?? "");

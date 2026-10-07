@@ -38,8 +38,8 @@ describe("ruleEditorInspectorContent", () => {
   it("maps kind=group to the group inspector", () => {
     const graph = makeGraph({ executionGroups: [makeGroup({ id: "g1", name: "My group" })] });
     const { header } = ruleEditorInspectorContent(graph, { kind: "group", id: "g1" }, handlers);
-    expect(header.eyebrow).toBe("Editing group");
-    expect(header.title).toBe("My group");
+    expect(header.eyebrow).toBe("Only if");
+    expect(header.title).toBe("Group");
   });
 
   it("falls back to (missing) for an unknown id rather than crashing", () => {
@@ -52,7 +52,7 @@ describe("ruleEditorInspectorContent", () => {
   it("numbers actions in the eyebrow", () => {
     const graph = makeGraph({ actions: [makeAction({ id: "a1" }), makeAction({ id: "a2" })] });
     const { header } = ruleEditorInspectorContent(graph, { kind: "action", id: "a2" }, handlers);
-    expect(header.eyebrow).toBe("Editing action 2");
+    expect(header.eyebrow).toBe("Action 2");
   });
 });
 

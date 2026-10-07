@@ -23,8 +23,8 @@ function render(value: FiresWhenGroup | null, outs = outcomes) {
 describe("FiresWhenEditor", () => {
   it("shows Not set with a Set to Always button that sets an empty ALL root", () => {
     const { onChange, last } = render(null);
-    expect(screen.getByText("Not set: this action never fires.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Set to Always" }));
+    expect(screen.getByText("Not set. This action never runs.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Run always" }));
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(last()).toMatchObject({ op: "all", tests: [], groups: [] });
   });
@@ -33,20 +33,20 @@ describe("FiresWhenEditor", () => {
     render(always());
     expect(screen.getByText("Always, when the rule runs")).toBeInTheDocument();
     expect(screen.queryByText("Add a test, or remove this group.")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Set to Always" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Run always" })).toBeNull();
   });
 
   it("+ Add test adds a test of the first outcome, expected true", () => {
     const { last } = render(tree());
-    fireEvent.click(screen.getByRole("button", { name: "+ Add test" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add test" }));
     expect(last()!.tests).toEqual([expect.objectContaining({ outcomeId: "o1", expected: true })]);
     expect(last()!.op).toBe("all");
   });
 
   it("toggles the root to ANY", () => {
     const { last } = render(tree({ tests: [{ id: "t1", outcomeId: "o1", expected: true }] }));
-    expect(screen.getByRole("button", { name: "ALL" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "ANY" }));
+    expect(screen.getByRole("radio", { name: "All" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(screen.getByRole("radio", { name: "Any" }));
     expect(last()).toMatchObject({ id: "root", op: "any", tests: [{ id: "t1", outcomeId: "o1", expected: true }] });
   });
 
@@ -76,13 +76,13 @@ describe("FiresWhenEditor", () => {
 
   it("+ Add group under an ALL root adds an empty ANY subgroup", () => {
     const { last } = render(tree());
-    fireEvent.click(screen.getByRole("button", { name: "+ Add group" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add group" }));
     expect(last()!.groups).toEqual([expect.objectContaining({ op: "any", tests: [], groups: [] })]);
   });
 
   it("+ Add group under an ANY root adds an empty ALL subgroup", () => {
     const { last } = render(tree({ op: "any" }));
-    fireEvent.click(screen.getByRole("button", { name: "+ Add group" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add group" }));
     expect(last()!.groups).toEqual([expect.objectContaining({ op: "all", tests: [], groups: [] })]);
   });
 
@@ -90,7 +90,7 @@ describe("FiresWhenEditor", () => {
     const sub: FiresWhenGroup = { id: "sub", op: "any", tests: [{ id: "t1", outcomeId: "o1", expected: true }], groups: [] };
     const { last } = render(tree({ groups: [sub] }));
     const card = screen.getByRole("group", { name: "Subgroup 1" });
-    fireEvent.click(within(card).getByRole("button", { name: "+ Add group" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Add group" }));
     expect(last()!.groups[0]).toMatchObject({ id: "sub", op: "any" });
     expect(last()!.groups[0].groups).toEqual([expect.objectContaining({ op: "all", tests: [], groups: [] })]);
   });
@@ -99,7 +99,7 @@ describe("FiresWhenEditor", () => {
     const sub: FiresWhenGroup = { id: "sub", op: "any", tests: [], groups: [] };
     const { last } = render(tree({ groups: [sub] }));
     const card = screen.getByRole("group", { name: "Subgroup 1" });
-    fireEvent.click(within(card).getByRole("button", { name: "ALL" }));
+    fireEvent.click(within(card).getByRole("radio", { name: "All" }));
     expect(last()!.groups).toEqual([{ id: "sub", op: "all", tests: [], groups: [] }]);
   });
 
@@ -112,7 +112,7 @@ describe("FiresWhenEditor", () => {
 
   it("an empty ANY root asks for a test or ALL, since the root can't be removed", () => {
     render(tree({ op: "any" }));
-    expect(screen.getByText("Add a test, or switch to ALL to fire every time the rule runs.")).toBeInTheDocument();
+    expect(screen.getByText("Add a test, or switch to All to run every time the rule runs.")).toBeInTheDocument();
     expect(screen.queryByText("Add a test, or remove this group.")).toBeNull();
     expect(screen.queryByText("Always, when the rule runs")).toBeNull();
   });
@@ -132,8 +132,8 @@ describe("FiresWhenEditor", () => {
 
   it("hides + Add test and + Add group when the rule has no outcomes and says why", () => {
     render(tree(), []);
-    expect(screen.queryByRole("button", { name: "+ Add test" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "+ Add group" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add test" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add group" })).toBeNull();
     expect(screen.getByText("Add an outcome to test it here.")).toBeInTheDocument();
   });
 
@@ -148,17 +148,17 @@ describe("FiresWhenEditor", () => {
     }));
     const before = JSON.parse(JSON.stringify(input));
     const { onChange } = render(input);
-    const root = () => screen.getAllByRole("button", { name: "ANY" })[0];
+    const root = () => screen.getAllByRole("radio", { name: "Any" })[0];
     const card = () => screen.getByRole("group", { name: "Subgroup 1" });
 
     fireEvent.click(root());                                                          // toggle the root
-    fireEvent.click(within(card()).getByRole("button", { name: "ALL" }));             // toggle a subgroup
-    fireEvent.click(screen.getAllByRole("button", { name: "+ Add test" })[0]);        // add a test (root)
-    fireEvent.click(within(card()).getByRole("button", { name: "+ Add test" }));      // add a test (subgroup)
+    fireEvent.click(within(card()).getByRole("radio", { name: "All" }));             // toggle a subgroup
+    fireEvent.click(screen.getAllByRole("button", { name: "Add test" })[0]);        // add a test (root)
+    fireEvent.click(within(card()).getByRole("button", { name: "Add test" }));      // add a test (subgroup)
     fireEvent.click(screen.getAllByRole("button", { name: "Remove test" })[0]);       // remove a test (root)
     fireEvent.click(within(card()).getByRole("button", { name: "Remove test" }));     // remove a test (subgroup)
-    fireEvent.click(screen.getAllByRole("button", { name: "+ Add group" })[0]);       // add a group (root)
-    fireEvent.click(within(card()).getByRole("button", { name: "+ Add group" }));     // add a group (subgroup)
+    fireEvent.click(screen.getAllByRole("button", { name: "Add group" })[0]);       // add a group (root)
+    fireEvent.click(within(card()).getByRole("button", { name: "Add group" }));     // add a group (subgroup)
     fireEvent.click(screen.getByRole("button", { name: "Remove group" }));            // remove a group
     fireEvent.click(screen.getAllByRole("combobox", { name: "Outcome" })[0]);         // change an outcome
     fireEvent.click(await screen.findByRole("option", { name: "At risk" }));

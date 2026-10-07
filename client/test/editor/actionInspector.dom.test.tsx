@@ -40,9 +40,9 @@ function renderAction(actionType: ActionTypeLabel, actionOver = {}, h = handlers
 }
 
 describe("ActionInspector (routed via ruleEditorInspectorContent)", () => {
-  it("shows the Action type combobox and Active switch", () => {
+  it("shows the Type combobox and Active switch", () => {
     renderAction("Block");
-    expect(screen.getByRole("combobox", { name: "Action type" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Type" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Active" })).toBeInTheDocument();
   });
 
@@ -58,9 +58,9 @@ describe("ActionInspector (routed via ruleEditorInspectorContent)", () => {
     expect(screen.getByLabelText("Block message")).toBeInTheDocument();
   });
 
-  it("shows the trailing 'What happens' callout label", () => {
+  it("pins a plain summary of what the action does", () => {
     renderAction("Block");
-    expect(screen.getByText("What happens")).toBeInTheDocument();
+    expect(screen.getByTestId("action-summary")).toHaveTextContent("Every time the rule runs, blocks the save");
   });
 
   it("shows a Severity combobox for ShowMessage", () => {
@@ -77,23 +77,29 @@ describe("ActionInspector (routed via ruleEditorInspectorContent)", () => {
 
   // G1: a ShowMessage that targets a column renders as an ERROR-level control
   // notification, which is the only level a model-driven form renders inline, and it
-  // blocks the save. The inspector says so next to the target-field picker, and only
-  // there: a form-level ShowMessage is a non-blocking banner, and Block blocks by design.
-  const NOTE = "A message on a field also holds the save";
-
-  it("notes that a field-targeted ShowMessage holds the save", () => {
+  // blocks the save. "Show as" says so on the "On a field" card, and hides Severity there.
+  it("shows a field-targeted ShowMessage as On a field, which holds the save, without Severity", () => {
     renderAction("ShowMessage", { targetColumn: "name" });
-    expect(screen.getByText(NOTE)).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /On a field.*Holds the save while shown/ })).toBeChecked();
+    expect(screen.queryByRole("combobox", { name: "Severity" })).toBeNull();
   });
 
-  it("does not show the note for a form-level ShowMessage", () => {
+  it("shows a form-level ShowMessage as a banner that allows the save, with Severity", () => {
     renderAction("ShowMessage", { targetColumn: null });
-    expect(screen.queryByText(NOTE)).toBeNull();
+    expect(screen.getByRole("radio", { name: /Banner on the form.*Save allowed/ })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Severity" })).toBeInTheDocument();
   });
 
-  it("does not show the note for a field-targeted Block", () => {
+  it("choosing Banner clears the field", () => {
+    const h = handlers();
+    renderAction("ShowMessage", { targetColumn: "name" }, h);
+    fireEvent.click(screen.getByRole("radio", { name: /Banner on the form/ }));
+    expect(h.onPatchAction).toHaveBeenCalledWith("a1", { targetColumn: null });
+  });
+
+  it("does not offer Show as for a Block", () => {
     renderAction("Block", { targetColumn: "name" });
-    expect(screen.queryByText(NOTE)).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "Show as" })).toBeNull();
   });
 
   // asx_applyinversewhennotfired is reserved: stored and serialized but consumed by no
@@ -147,18 +153,18 @@ describe("ActionInspector: apply to previous", () => {
 });
 
 describe("ActionInspector Fires when", () => {
-  it("has no Fire on control and shows the Fires when editor", () => {
+  it("has no Fire on control and shows the When section", () => {
     renderAction("Block");
     expect(screen.queryByRole("combobox", { name: "Fire on" })).toBeNull();
     expect(screen.queryByText("Fire on")).toBeNull();
-    expect(screen.getByText("Fires when")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "When" })).toBeInTheDocument();
     expect(screen.getByText("Always, when the rule runs")).toBeInTheDocument();
   });
 
   it("patches the action's firesWhen when the tree is edited", () => {
     const h = handlers();
     renderAction("Block", { firesWhen: null }, h);
-    fireEvent.click(screen.getByRole("button", { name: "Set to Always" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run always" }));
     expect(h.onPatchAction).toHaveBeenCalledWith("a1", { firesWhen: expect.objectContaining({ op: "all", tests: [], groups: [] }) });
   });
 
@@ -172,8 +178,8 @@ describe("ActionInspector Fires when", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("says what happens using the Fires when summary", () => {
-    renderAction("Block");
-    expect(screen.getByText(/^Always, when the rule runs → shows the message/)).toBeInTheDocument();
+  it("says what happens using the When tree", () => {
+    renderAction("Block", { message: "Stop" });
+    expect(screen.getByTestId("action-summary")).toHaveTextContent("Every time the rule runs, blocks the save with “Stop”.");
   });
 });

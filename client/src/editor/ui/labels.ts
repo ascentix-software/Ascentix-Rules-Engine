@@ -98,7 +98,7 @@ function groupDigits(raw: string): string {
 function rowsWord(n: number): string { return n === 1 ? "row" : "rows"; }
 
 export function rowCountPhrase(lo: number | null, hi: number | null): { op: string; value?: string } {
-  if (lo === 0 && hi === 0) return { op: "has no rows" };
+  if (hi === 0 && (lo == null || lo === 0)) return { op: "has no rows" };
   if (lo != null && hi != null) return { op: "has between", value: `${lo} and ${hi} ${rowsWord(hi)}` };
   if (lo != null) return { op: "has at least", value: `${lo} ${rowsWord(lo)}` };
   if (hi != null) return { op: "has at most", value: `${hi} ${rowsWord(hi)}` };
@@ -308,7 +308,6 @@ export function actionDetail(
   }
 }
 
-const SEVERITY_WORD: Record<number, string> = { 1: "notice", 2: "warning", 3: "error" };
 /** The Fires when tree as one sentence: "When High Value and (At Risk or Critical Case is false)". */
 export function firesWhenSummary(tree: FiresWhenGroup | null, outcomes: ConditionGroupNode[]): string {
   if (!tree) return "Not set. This action never runs.";
@@ -328,27 +327,72 @@ export function firesWhenSummary(tree: FiresWhenGroup | null, outcomes: Conditio
   return `When ${render(tree)}`;
 }
 
-export function actionWhatHappens(a: ActionNode, outcomes: ConditionGroupNode[]): string {
-  if (!a.firesWhen) return firesWhenSummary(null, outcomes);
-  const when = firesWhenSummary(a.firesWhen, outcomes);
+/** A piece of the action summary; `bold` pieces are outcome and field names. */
+export interface SummaryPart { text: string; bold?: boolean }
+
+/**
+ * What an action does, as plain prose: "When **Approval gaps** is true, shows “…” on
+ * **Probability** and holds the form save." Outcome and field names are bold parts.
+ */
+export function actionSummaryParts(
+  a: ActionNode, outcomes: ConditionGroupNode[], tcs: Record<string, TableConfigRef> = {},
+  columnLabel?: (logical: string) => string | undefined,
+): SummaryPart[] {
+  if (!a.firesWhen) return [{ text: "Not set. This action never runs." }];
+  if (!a.actionType) return [{ text: "Choose an action type to see what it does." }];
+  const parts: SummaryPart[] = [];
+  const nameOf = (id: string | null) => {
+    const o = outcomes.find((x) => x.id === id);
+    return o ? outcomeDisplayName(o.name) : "(missing outcome)";
+  };
+  const when = (g: FiresWhenGroup, top: boolean) => {
+    const items: (() => void)[] = [
+      ...g.tests.map((t) => () => { parts.push({ text: nameOf(t.outcomeId), bold: true }, { text: t.expected ? " is true" : " is false" }); }),
+      ...g.groups.map((c) => () => { parts.push({ text: "(" }); when(c, false); parts.push({ text: ")" }); }),
+    ];
+    items.forEach((render, i) => {
+      if (i > 0) parts.push({ text: g.op === "any" ? " or " : " and " });
+      render();
+    });
+    if (items.length === 0 && !top) parts.push({ text: "an empty group" });
+  };
+  if (isAlways(a.firesWhen)) parts.push({ text: "Every time the rule runs, " });
+  else { parts.push({ text: "When " }); when(a.firesWhen, true); parts.push({ text: ", " }); }
+  const col = (logical: string | null) => (logical ? columnLabel?.(logical) || logical : "a field");
+  const msg = a.message ? `“${a.message}”` : "a message";
+  const node = a.targetNodeId ? tcs[a.targetNodeId]?.name ?? "the target" : "the target";
   switch (a.actionType) {
     case "Block":
-      return `${when} → shows the message and prevents the save (server-enforced).`;
-    case "ShowMessage": {
-      const sev = SEVERITY_WORD[a.severity ?? 1] ?? "notice";
+      parts.push({ text: `blocks the save with ${msg}` });
+      if (a.targetColumn) parts.push({ text: " on " }, { text: col(a.targetColumn), bold: true });
+      parts.push({ text: "." });
+      break;
+    case "ShowMessage":
       if (messageBlocksForm(a)) {
-        return `${when} → inline error on "${a.targetColumn}"; blocks this form's save while shown, regardless of severity. This message does not enforce server-side validation.`;
+        parts.push({ text: `shows ${msg} on ` }, { text: col(a.targetColumn), bold: true }, { text: " and holds the form save." });
+      } else {
+        parts.push({ text: `shows ${msg} as a banner on the form. The save is allowed.` });
       }
-      return `${when} → ${sev} form banner; save still allowed.`;
-    }
+      break;
     case "SetVisible":
-      return `${when} → sets "${a.targetColumn ?? "(field)"}" ${a.value ? "visible" : "hidden"}.`;
+      parts.push({ text: a.value ? "shows " : "hides " }, { text: col(a.targetColumn), bold: true }, { text: "." });
+      break;
     case "SetRequired":
-      return `${when} → makes "${a.targetColumn ?? "(field)"}" ${a.value ? "required" : "optional"}.`;
-    case "CreateRecord": return `${when} → creates a ${a.targetTable ?? "?"} record (server).`;
-    case "UpdateRecord": return `${when} → updates the target record(s) (server).`;
-    case "DeleteRecord": return `${when} → deletes the target record(s) (server).`;
-    case "DeactivateRecord": return `${when} → deactivates the target record(s) (server).`;
-    default: return "Choose an action type to see what it does.";
+      parts.push({ text: "makes " }, { text: col(a.targetColumn), bold: true }, { text: a.value ? " required." : " optional." });
+      break;
+    case "CreateRecord":
+      parts.push({ text: `creates a ${a.targetTable ?? "new"} record` });
+      if (a.targetNodeId) parts.push({ text: " for each row of " }, { text: node, bold: true });
+      parts.push({ text: "." });
+      break;
+    case "UpdateRecord": parts.push({ text: "updates " }, { text: node, bold: true }, { text: "." }); break;
+    case "DeleteRecord": parts.push({ text: "deletes " }, { text: node, bold: true }, { text: "." }); break;
+    case "DeactivateRecord": parts.push({ text: "deactivates " }, { text: node, bold: true }, { text: "." }); break;
   }
+  return parts;
+}
+
+/** actionSummaryParts as one string. */
+export function actionWhatHappens(a: ActionNode, outcomes: ConditionGroupNode[], tcs: Record<string, TableConfigRef> = {}): string {
+  return actionSummaryParts(a, outcomes, tcs).map((p) => p.text).join("");
 }

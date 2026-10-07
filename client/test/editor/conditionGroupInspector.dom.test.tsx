@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { screen, fireEvent } from "@testing-library/react";
-import { makeGraph, makeGroup, renderWithFluent } from "./domFixtures";
+import { makeGraph, makeGroup, makeAction, renderWithFluent } from "./domFixtures";
 import { ruleEditorInspectorContent } from "../../src/editor/ui/inspectors/ruleEditorInspectorContent";
 import type { RuleEditorInspectorHandlers } from "../../src/editor/ui/inspectors/ruleEditorInspectorContent";
 
@@ -32,12 +32,10 @@ describe("ConditionGroupInspector (routed via ruleEditorInspectorContent)", () =
     expect(screen.getByDisplayValue("Approver checks")).toBeInTheDocument();
   });
 
-  it("shows the current logical operator in the combobox", async () => {
+  it("shows the current operator on the Matches when toggle", () => {
     renderGroupInspector({ logicalOperator: "Or" });
-    // Fluent's Dropdown trigger is a role="combobox" div, not a form control -
-    // jest-dom's toHaveValue only applies to input/select/textarea, so assert
-    // the rendered selected text instead (matches this repo's other Dropdown tests).
-    expect(await screen.findByRole("combobox")).toHaveTextContent("Or");
+    expect(screen.getByRole("radiogroup", { name: "Matches when" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Any" })).toHaveAttribute("aria-checked", "true");
   });
 
   it("fires onPatchGroup with the new name when the Name input changes", () => {
@@ -47,11 +45,10 @@ describe("ConditionGroupInspector (routed via ruleEditorInspectorContent)", () =
     expect(h.onPatchGroup).toHaveBeenCalledWith("g1", { name: "New name" });
   });
 
-  it("fires onPatchGroup with the new operator when Or is selected", async () => {
+  it("fires onPatchGroup with Or when Any is chosen", () => {
     const h = handlers();
     renderGroupInspector({ logicalOperator: "And" }, h);
-    fireEvent.click(screen.getByRole("combobox"));
-    fireEvent.click(await screen.findByRole("option", { name: "Or" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Any" }));
     expect(h.onPatchGroup).toHaveBeenCalledWith("g1", { logicalOperator: "Or" });
   });
 
@@ -65,42 +62,53 @@ describe("ConditionGroupInspector (routed via ruleEditorInspectorContent)", () =
 
 describe("ConditionGroupInspector for an outcome", () => {
   const nested = makeGroup({ id: "n1", name: "Nested", parentGroupId: "o1", isExecutionCondition: false });
-  const graph = (name = "High value") => makeGraph({
-    validationGroups: [makeGroup({ id: "o1", name, isExecutionCondition: false, groups: [nested] })],
+  const graph = (name = "High value", actions: ReturnType<typeof makeAction>[] = []) => makeGraph({
+    validationGroups: [makeGroup({ id: "o1", name, isExecutionCondition: false, groups: [nested] })], actions,
   });
 
-  it("labels the name Outcome name, required, with the by-name info tip", () => {
+  it("labels the name Name, required, with the by-name info tip", () => {
     const { body, header } = ruleEditorInspectorContent(graph(), { kind: "group", id: "o1" }, handlers());
     renderWithFluent(<>{body}</>);
-    const input = screen.getByRole("textbox", { name: /Outcome name/ });
+    const input = screen.getByRole("textbox", { name: /^Name/ });
     expect(input).toHaveValue("High value");
     expect(input).toBeRequired();
     expect(input).not.toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByRole("button", { name: "More info: Outcome name" })).toBeInTheDocument();
-    expect(screen.queryByText("Group name")).toBeNull();
-    expect(header.eyebrow).toBe("Editing outcome");
-    expect(header.title).toBe("High value");
+    expect(screen.getByRole("button", { name: "More info: Name" })).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "True when it matches" })).toBeInTheDocument();
+    expect(header.eyebrow).toBe("Outcomes");
+    expect(header.title).toBe("Outcome");
   });
 
-  it("marks a blank outcome name invalid", () => {
-    const { body, header } = ruleEditorInspectorContent(graph(""), { kind: "group", id: "o1" }, handlers());
+  it("marks a blank outcome name invalid with a message", () => {
+    const { body } = ruleEditorInspectorContent(graph(""), { kind: "group", id: "o1" }, handlers());
     renderWithFluent(<>{body}</>);
-    expect(screen.getByRole("textbox", { name: /Outcome name/ })).toHaveAttribute("aria-invalid", "true");
-    expect(header.title).toBe("(unnamed outcome)");
+    expect(screen.getByRole("textbox", { name: /^Name/ })).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Enter a name.")).toBeInTheDocument();
   });
 
-  it("keeps Group name for a group nested in an outcome", () => {
+  it("lists the actions that use it, and selecting one selects the action", () => {
+    const h = handlers({ onSelect: vi.fn() });
+    const a = makeAction({ id: "a1", actionType: "Block", firesWhen: { id: "r", op: "all", groups: [],
+      tests: [{ id: "t", outcomeId: "o1", expected: false }] } });
+    const { body } = ruleEditorInspectorContent(graph("High value", [a]), { kind: "group", id: "o1" }, h);
+    renderWithFluent(<>{body}</>);
+    const row = screen.getByRole("button", { name: /Block save.*is false/ });
+    fireEvent.click(row);
+    expect(h.onSelect).toHaveBeenCalledWith({ kind: "action", id: "a1" });
+  });
+
+  it("says when no action uses it", () => {
+    const { body } = ruleEditorInspectorContent(graph(), { kind: "group", id: "o1" }, handlers());
+    renderWithFluent(<>{body}</>);
+    expect(screen.getByText("No action uses this outcome yet.")).toBeInTheDocument();
+  });
+
+  it("a group nested in an outcome has no Used by and says Matches when", () => {
     const { body, header } = ruleEditorInspectorContent(graph(), { kind: "group", id: "n1" }, handlers());
     renderWithFluent(<>{body}</>);
-    expect(screen.getByText("Group name")).toBeInTheDocument();
-    expect(screen.queryByText("Outcome name")).toBeNull();
-    expect(screen.queryByText("Actions test this outcome by name.")).toBeNull();
-    expect(header.eyebrow).toBe("Editing group");
-  });
-
-  it("keeps Group name for a top-level execution group", () => {
-    renderGroupInspector();
-    expect(screen.getByText("Group name")).toBeInTheDocument();
-    expect(screen.queryByText("Outcome name")).toBeNull();
+    expect(screen.queryByText("Used by")).toBeNull();
+    expect(screen.getByRole("radiogroup", { name: "Matches when" })).toBeInTheDocument();
+    expect(header.title).toBe("Group");
+    expect(header.eyebrow).toBe("High value");
   });
 });
