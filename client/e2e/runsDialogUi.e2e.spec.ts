@@ -4,7 +4,7 @@ import { ENTITY_SET } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { resolveAppId, createZzRootConfig, createRuleRun, driveRunToCompletion } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, runMenu } from "./editorHarness";
 
 // The Runs dialog (RunsDialog.tsx): the table's status/counts, a selected run's failures (with a
 // record link), and Cancel on an unfinished run. docs/guide/03-administering/04-running-rules-on-demand.md.
@@ -95,39 +95,41 @@ test("Runs dialog: a completed run's blocked failure links its record, and a Que
 
     // --- Part 1: the completed run's row and its failure's record link ----------------------
     const frameA = await openRuleFromHub(page, appId, ruleA.ruleName);
-    await toolbar(frameA).getByRole("button", { name: "Runs", exact: true }).click();
-    const runsDialogA = frameA.getByRole("dialog");
-    await expect(runsDialogA).toContainText(`Runs for ${ruleA.ruleName}`, { timeout: 30_000 });
+    await runMenu(frameA, "View runs");
+    const runsDialogA = frameA.getByRole("dialog", { name: `Runs · ${ruleA.ruleName}` });
+    await expect(runsDialogA).toBeVisible({ timeout: 30_000 });
 
-    const rowA = runsDialogA.locator("tbody tr");
-    await expect(rowA).toHaveCount(1);
-    const cellsA = rowA.locator("td");
-    await expect(cellsA.nth(0)).toHaveText("Completed with failures");
-    await expect(cellsA.nth(1)).toHaveText("2"); // Evaluated
-    await expect(cellsA.nth(2)).toHaveText("1"); // Changed
-    await expect(cellsA.nth(3)).toHaveText("1"); // Blocked
+    // Each run is a rowgroup: its row, then (expanded) its failures.
+    const rowA = runsDialogA.getByRole("rowgroup");
+    await expect(rowA).toHaveCount(1, { timeout: 30_000 });
+    const cellsA = rowA.getByRole("cell");
+    // Cells: expander · Status · Started · Changed · Blocked · Failed · Checked · actions.
+    await expect(cellsA.nth(1)).toHaveText(/^\d+ failed$/);
+    await expect(cellsA.nth(3)).toHaveText("1"); // Changed
+    await expect(cellsA.nth(4)).toHaveText("1"); // Blocked
+    await expect(cellsA.nth(6)).toHaveText("2"); // Checked
 
-    await rowA.click();
-    await expect(runsDialogA.getByText("Failures", { exact: true })).toBeVisible();
-    const link = runsDialogA.getByRole("link", { name: exactly(blockId) });
+    await rowA.getByRole("button", { name: "Show failures" }).click();
+    // The failure names its record (resolved in one query per table) and links to it.
+    const link = runsDialogA.getByRole("link", { name: exactly(`ZZ_E2E_rd_${stamp}_block`) });
     await expect(link).toBeVisible();
     await expect(link).toHaveAttribute("href", new RegExp(`etn=sample_order&id=${escapeRe(blockId)}`, "i"));
     // The engine renders a Block's failure as its standard formatted message — a header line
     // plus a bulleted list of the fired Block(s)' own text — not the bare message alone.
     await expect(runsDialogA.getByText(/Blocked:[\s\S]*ZZ_E2E_rd too small/)).toBeVisible();
 
-    // --- Part 2: a Queued run always offers Cancel -------------------------------------------
+    // --- Part 2: a Queued run always offers Stop ---------------------------------------------
     const frameB = await openRuleFromHub(page, appId, ruleB.ruleName);
-    await toolbar(frameB).getByRole("button", { name: "Runs", exact: true }).click();
-    const runsDialogB = frameB.getByRole("dialog");
-    await expect(runsDialogB).toContainText(`Runs for ${ruleB.ruleName}`, { timeout: 30_000 });
+    await runMenu(frameB, "View runs");
+    const runsDialogB = frameB.getByRole("dialog", { name: `Runs · ${ruleB.ruleName}` });
+    await expect(runsDialogB).toBeVisible({ timeout: 30_000 });
 
-    const rowB = runsDialogB.locator("tbody tr");
-    await expect(rowB).toHaveCount(1);
+    const rowB = runsDialogB.getByRole("rowgroup");
+    await expect(rowB).toHaveCount(1, { timeout: 30_000 });
     await expect(rowB).toContainText("Queued");
     await expect(rowB.getByRole("button", { name: "Resume" })).toHaveCount(0);
 
-    await rowB.getByRole("button", { name: "Cancel", exact: true }).click();
+    await rowB.getByRole("button", { name: "Stop", exact: true }).click();
     await expect(rowB).toContainText("Cancelled", { timeout: 30_000 });
     runBId = undefined; // already Cancelled through the UI; nothing left for cleanup to cancel
   } finally {

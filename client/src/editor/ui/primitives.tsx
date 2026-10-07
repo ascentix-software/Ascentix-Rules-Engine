@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Button, Tooltip, tokens, Field as FluentField, type FieldProps } from "@fluentui/react-components";
+import { Button, Tooltip, tokens, Field as FluentField, type FieldProps, RadioGroup, Radio } from "@fluentui/react-components";
 import {
   Info16Regular, Prohibited16Regular, Warning16Regular, Eye16Regular,
   Important16Regular, Add16Regular, Edit16Regular, Delete16Regular, CircleOff16Regular,
@@ -395,3 +395,37 @@ export const NodeTypeTag: React.FC<{ type: string | null; fixed?: boolean }> = (
     </span>
   );
 };
+
+export interface RadioCardOption { value: string; title: React.ReactNode; sub?: React.ReactNode }
+
+/**
+ * Single choice as bordered cards (title + optional muted subline). The selected card gets a
+ * brand border on the brand tint. Used by Show as, and by New rule's Data model.
+ */
+export function RadioCards({ ariaLabel, value, options, onChange, ariaLabelledBy }: {
+  ariaLabel?: string; ariaLabelledBy?: string; value: string | null; options: RadioCardOption[]; onChange(v: string): void;
+}) {
+  return (
+    <RadioGroup aria-label={ariaLabel} aria-labelledby={ariaLabelledBy} value={value ?? ""}
+      onChange={(_e, d) => onChange(d.value)} style={{ gap: 8, alignItems: "stretch" }}>
+      {options.map((o) => {
+        const on = o.value === value;
+        return (
+          <div key={o.value} style={{
+            border: `1px solid ${on ? color.brand : tokens.colorNeutralStroke1}`, borderRadius: 6,
+            background: on ? color.brandTint : color.surface, padding: "2px 4px", width: "100%", boxSizing: "border-box",
+          }}>
+            <Radio value={o.value} label={{
+              children: (
+                <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.3 }}>
+                  <span style={{ fontSize: 13.5, color: color.ink }}>{o.title}</span>
+                  {o.sub && <span style={{ fontSize: 12, color: color.inkMuted }}>{o.sub}</span>}
+                </span>
+              ),
+            }} />
+          </div>
+        );
+      })}
+    </RadioGroup>
+  );
+}

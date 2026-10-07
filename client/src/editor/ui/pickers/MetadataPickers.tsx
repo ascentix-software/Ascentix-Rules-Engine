@@ -13,7 +13,11 @@ import { RecordPickerDialog } from "./RecordPickerDialog";
 import { OutsideField } from "../fieldScope";
 import { color } from "../tokens";
 
-export function TablePicker({ value, onChange }: { value: string | null; onChange(v: string): void }) {
+export function TablePicker({ value, onChange, sentence, ariaLabel, invalid }: {
+  value: string | null; onChange(v: string): void;
+  /** Shows the display name with the logical name after it (muted); options "Display · logical". */
+  sentence?: boolean; ariaLabel?: string; invalid?: boolean;
+}) {
   const svc = useMetadataService();
   const [tables, setTables] = React.useState<TableMeta[] | null>(null);
   const [query, setQuery] = React.useState("");
@@ -23,12 +27,16 @@ export function TablePicker({ value, onChange }: { value: string | null; onChang
   if (!tables) return <Spinner size="tiny" />;
 
   const selected = tables.find((t) => t.logicalName === value) ?? null;
-  const selectedText = selected ? `${selected.displayName} (${selected.logicalName})` : value ?? "";
+  const optionText = (t: TableMeta) => (sentence ? `${t.displayName} · ${t.logicalName}` : `${t.displayName} (${t.logicalName})`);
+  const selectedText = selected ? (sentence ? selected.displayName : optionText(selected)) : value ?? "";
   const matches = filterTables(tables, { query: open ? query : "", customOnly });
+  const after = sentence && selected && !open ? selected.logicalName : "";
 
-  return (
+  const combo = (
     <Combobox
       freeform
+      aria-label={ariaLabel}
+      aria-invalid={invalid || undefined}
       style={{ width: "100%" }}
       value={open ? query : selectedText}
       selectedOptions={value ? [value] : []}
@@ -48,11 +56,23 @@ export function TablePicker({ value, onChange }: { value: string | null; onChang
         </OutsideField>
       </div>
       {matches.map((t) => (
-        <Option key={t.logicalName} value={t.logicalName} text={`${t.displayName} (${t.logicalName})`}>
-          {`${t.displayName} (${t.logicalName})`}
+        <Option key={t.logicalName} value={t.logicalName} text={optionText(t)}>
+          {optionText(t)}
         </Option>
       ))}
     </Combobox>
+  );
+  if (!after) return combo;
+  return (
+    <div style={{ position: "relative", width: "100%" }}>
+      {combo}
+      <span aria-hidden style={{
+        position: "absolute", right: 34, top: "50%", transform: "translateY(-50%)", pointerEvents: "none",
+        fontSize: 12, color: tokens.colorNeutralForeground3,
+      }}>
+        {after}
+      </span>
+    </div>
   );
 }
 

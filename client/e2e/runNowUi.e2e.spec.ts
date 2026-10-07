@@ -5,7 +5,7 @@ import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { resolveAppId, createZzRootConfig } from "./devHelpers";
 import { openHub, openRuleFromHub, hubRow, runMenu } from "./editorHarness";
 
-// Run now (RunNowDialog / RunProgress), driven for real against DEV: a Published On demand
+// Run now (RunDialog's Apply to records tab / RunProgress), driven for real against DEV: a Published On demand
 // rule's "All records that pass its execution conditions" run (started from the Rule Builder
 // header) and its "A record it's given" run (started from the hub's Play icon, with the
 // multi-record picker's cross-search selection). docs/guide/03-administering/04-running-rules-on-demand.md.
@@ -23,7 +23,7 @@ test.beforeAll(async () => {
 });
 test.describe.configure({ timeout: 600_000 });
 
-test("Run now, all records: the dialog lists the execution condition, Start runs it, and matching orders get the note", async ({ page }) => {
+test("Run now, all records: the dialog reads the Only if condition, Apply runs it, and matching orders get the note", async ({ page }) => {
   const appId = await resolveAppId();
   const api = createDevApi();
   const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -72,19 +72,22 @@ test("Run now, all records: the dialog lists the execution condition, Start runs
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
     await runMenu(frame, /Apply to records/);
 
-    const dialog = frame.getByRole("dialog");
-    await expect(dialog).toBeVisible({ timeout: 30_000 }); // onOpenRunNow loads the published graph first
-    await expect(dialog).toContainText(rule.ruleName);
-    await expect(dialog).toContainText("for all records of sample_order that pass its execution conditions:");
-    // The execution condition's persisted name (authorRule names it `${ruleName}_ec1`).
-    await expect(dialog.getByRole("listitem")).toContainText(`${rule.ruleName}_ec1`);
+    const dialog = frame.getByRole("dialog", { name: `Run ${rule.ruleName}` });
+    await expect(dialog).toBeVisible({ timeout: 30_000 }); // onOpenRun loads the published graph first
+    await expect(dialog.getByRole("tab", { name: "Apply to records", selected: true })).toBeVisible();
+    // Records reads the Only if condition as a sentence: "All … records where Name matches /^prefix/".
+    await expect(dialog).toContainText(/All .* records where/);
+    await expect(dialog).toContainText(`matches /^${prefix}/`);
 
-    await dialog.getByRole("button", { name: "Start", exact: true }).click();
+    await dialog.getByRole("button", { name: "Apply to matching records", exact: true }).click();
 
-    await expect(frame.getByText("Completed", { exact: true })).toBeVisible({ timeout: 570_000 });
-    // Exact counts for the fenced orders; Skipped is NOT asserted (other DEV orders are skipped).
-    await expect(frame.getByText(`Changed ${matchIds.length} ·`)).toBeVisible();
-    await expect(frame.getByText("Blocked 0 ·")).toBeVisible();
+    const applied = frame.getByRole("dialog", { name: `Applied ${rule.ruleName}` });
+    await expect(applied).toBeVisible({ timeout: 570_000 });
+    await expect(applied.getByRole("status")).toHaveText("Completed");
+    // Exact counts for the fenced orders; Didn't match is NOT asserted (other DEV orders are skipped).
+    const tile = (label: string) => applied.getByText(label, { exact: true }).locator("xpath=..");
+    await expect(tile("Changed")).toContainText(String(matchIds.length));
+    await expect(tile("Blocked")).toContainText("0");
 
     for (const id of matchIds) {
       const o = await api.retrieveRecord("sample_orders", id, "?$select=sample_approvalnotes");
@@ -145,17 +148,15 @@ test("Run now, given records: the picker's selection survives a second search, a
     await row.hover();
     await row.getByRole("button", { name: "Run now", exact: true }).click();
 
-    // Fluent portals DialogSurface to document.body; the RunNow dialog and, once opened, the
-    // record picker are DOM siblings, so a bare frame.getByRole("dialog") is ambiguous once both
-    // are mounted. "Run now" is unique to the RunNow dialog's own title.
-    const runDialog = frame.getByRole("dialog").filter({ hasText: "Run now" });
+    // Fluent portals DialogSurface to document.body; the Run dialog and, once opened, the
+    // record picker are DOM siblings, so each is found by its own accessible name.
+    const runDialog = frame.getByRole("dialog", { name: `Run ${rule.ruleName}` });
     await expect(runDialog).toBeVisible({ timeout: 30_000 }); // onRunNow loads the published graph first
-    await expect(runDialog).toContainText(`Choose the records to run ${rule.ruleName} for.`);
+    await expect(runDialog.getByRole("tab", { name: "Apply to records", selected: true })).toBeVisible();
+    await expect(runDialog.getByRole("button", { name: "Apply to 0 records" })).toBeDisabled();
 
-    await runDialog.getByRole("button", { name: "Choose records…", exact: true }).click();
-    // "Choose records" is also a substring of the RunNow dialog's own "Choose records…" button,
-    // so filtering on it alone still matches both dialogs; .last() picks the one mounted after
-    // (the picker), matching this repo's convention for portal-sibling dialogs.
+    await runDialog.getByRole("button", { name: "Add records…", exact: true }).click();
+    // .last() picks the dialog mounted after (the picker), this repo's convention for portal-sibling dialogs.
     const picker = frame.getByRole("dialog").filter({ hasText: "Choose records" }).last();
     await expect(picker).toBeVisible();
 
@@ -174,11 +175,13 @@ test("Run now, given records: the picker's selection survives a second search, a
     await expect(selectBtn).toBeVisible();
     await selectBtn.click();
 
-    await expect(runDialog.getByText("2 records chosen", { exact: true })).toBeVisible();
-    await runDialog.getByRole("button", { name: "Start", exact: true }).click();
+    // The chosen records show by name.
+    await expect(runDialog.getByRole("button", { name: new RegExp(names.alpha) })).toBeVisible();
+    await runDialog.getByRole("button", { name: "Apply to 2 records", exact: true }).click();
 
-    await expect(frame.getByText("Completed", { exact: true })).toBeVisible({ timeout: 60_000 });
-    await expect(frame.getByText("Evaluated 2 ·")).toBeVisible();
+    const applied = frame.getByRole("dialog", { name: `Applied ${rule.ruleName}` });
+    await expect(applied).toBeVisible({ timeout: 60_000 });
+    await expect(applied.getByText("2 records checked", { exact: true })).toBeVisible();
 
     const alphaOrder = await api.retrieveRecord("sample_orders", orderIds.alpha, "?$select=sample_approvalnotes");
     expect(alphaOrder.sample_approvalnotes).toBe(NOTE);

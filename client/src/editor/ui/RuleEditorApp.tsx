@@ -38,10 +38,8 @@ import { ReviewChangesDialog } from "./ReviewChangesDialog";
 import { DialogShell } from "./DialogShell";
 import { reserveTempIds } from "../model/ids";
 import { loadPublishedGraph } from "../load/publishedGraph";
-import { RunNowDialog } from "../runs/RunNowDialog";
+import { RunDialog } from "../runs/RunDialog";
 import { RunsDialog } from "../runs/RunsDialog";
-import { TestRunDialog } from "../runs/TestRunDialog";
-import { executionConditionNames } from "../runs/runsData";
 import type { RuleSchedule } from "../schedule/scheduleModel";
 import { emptySchedule, scheduleApplies, validateSchedule } from "../schedule/scheduleModel";
 import { loadRuleSchedule, diffSchedule } from "../schedule/scheduleData";
@@ -127,12 +125,10 @@ export function RuleEditorApp({
   const [unpublishOpen, setUnpublishOpen] = React.useState(false);
   // An outcome some action tests, waiting on the delete confirmation.
   const [outcomeToDelete, setOutcomeToDelete] = React.useState<string | null>(null);
-  const [runNowRule, setRunNowRule] = React.useState<{
-    id: string; name: string; table: string; scope: number; executionConditions: string[];
-  } | null>(null);
+  // The Run dialog's open tab, or null when it's closed.
+  const [runTab, setRunTab] = React.useState<"preview" | "apply" | null>(null);
   const [loadingRunNow, setLoadingRunNow] = React.useState(false);
   const [runsOpen, setRunsOpen] = React.useState(false);
-  const [testOpen, setTestOpen] = React.useState(false);
   // The live revision, loaded once per published revision: Run actions follow its triggers, and
   // Publish… compares the draft against it.
   const [publishedGraph, setPublishedGraph] = React.useState<RuleGraph | null>(null);
@@ -584,29 +580,23 @@ export function RuleEditorApp({
   const liveGraph = publishedGraph ?? publishedView ?? (activeRuleId ? null : working);
   const runNowTriggers = liveGraph?.rule.triggers ?? working.rule.triggers;
 
-  // The Run now dialog must describe what actually runs — the PUBLISHED definition, not the
-  // draft being edited — so load it the same way "View published" (onViewPublished, above)
-  // does; fall back to the working graph if that load fails (or the port can't read published
-  // rules). Also uses activeRuleId, the rule id the run itself must be created against:
+  // The Run dialog must describe what actually runs — the PUBLISHED definition, not the draft
+  // being edited — so while a draft is open, load it the same way "View published"
+  // (onViewPublished, above) does. The run itself is created against activeRuleId:
   // RuleRunPlugin/OnDemandRules.Resolve only resolve Published rules, and while a draft is open
   // working.rule.id is the DRAFT's id, not the published one.
-  async function onOpenRunNow() {
-    setLoadingRunNow(true);
+  async function onOpenRun(tab: "preview" | "apply") {
     const activeId = working.rule.activeRuleId ?? working.rule.id;
-    let scope = working.rule.onDemandScope ?? 1;
-    let executionConditions = executionConditionNames(displayed);
-    try {
-      if (api.readPublishedRule) {
-        const graph = await loadPublishedGraph(await api.readPublishedRule(activeId), activeId);
-        scope = graph.rule.onDemandScope ?? 1;
-        executionConditions = executionConditionNames(graph);
-        if (working.rule.activeRuleId) setPublishedGraph(graph);
+    if (working.rule.activeRuleId && !publishedGraph && api.readPublishedRule) {
+      setLoadingRunNow(true);
+      try {
+        setPublishedGraph(await loadPublishedGraph(await api.readPublishedRule(activeId), activeId));
+      } catch {
+        // The dialog falls back to the draft's definition.
       }
-    } catch {
-      // fall back to the working graph's values already assigned above
+      setLoadingRunNow(false);
     }
-    setRunNowRule({ id: activeId, name: working.rule.name, table: working.rule.tableLogicalName, scope, executionConditions });
-    setLoadingRunNow(false);
+    setRunTab(tab);
   }
 
   async function onRestoreDraft() {
@@ -700,11 +690,13 @@ export function RuleEditorApp({
     : null;
   // Save shows in draft states, and on a live rule without a draft only to send schedule edits.
   const showSave = !updateLocked && !publishedView && (draftState || (needsDraft && scheduleOps.length > 0));
-  const run = !publishedView && (everPublished || api.dryRun) ? (
+  // Preview runs the live version (asx_RunRules can't evaluate a draft yet), so a rule that was
+  // never published has nothing to run.
+  const run = !publishedView && everPublished ? (
     <RunMenuButton everPublished={everPublished} version={version}
       applyAvailable={canApply(published, runNowTriggers)}
       disabled={busy || loadingRunNow}
-      onPreview={() => setTestOpen(true)} onApply={onOpenRunNow} onViewRuns={() => setRunsOpen(true)} />
+      onPreview={() => void onOpenRun("preview")} onApply={() => void onOpenRun("apply")} onViewRuns={() => setRunsOpen(true)} />
   ) : null;
   const overflow = (
     <RuleOverflowMenu
@@ -840,8 +832,23 @@ export function RuleEditorApp({
             onGoTo={(i) => { setPublishStage("idle"); setIssuesOpen(true); goToIssue(i); }}
             onOpenIssues={() => { setPublishStage("idle"); setIssuesOpen(true); }}
           />
-          {runNowRule && (
-            <RunNowDialog open={!!runNowRule} api={api} rule={runNowRule} onClose={() => setRunNowRule(null)} />
+          {runTab && (
+            <RunDialog open api={api} initialTab={runTab}
+              rule={{
+                id: working.rule.activeRuleId ?? working.rule.id, name: working.rule.name,
+                table: working.rule.tableLogicalName,
+                live: liveGraph ?? (working.rule.activeRuleId ? working : null),
+                draft: working.rule.activeRuleId ? working : null,
+                liveVersion: version, canApply: canApply(published, runNowTriggers),
+              }}
+              onClose={() => setRunTab(null)}
+              onViewRuns={() => { setRunTab(null); setRunsOpen(true); }}
+              onChangeRuleSettings={() => {
+                setRunTab(null);
+                try { sessionStorage.setItem("asx.inspector.when", "1"); } catch { /* storage unavailable */ }
+                setSelection({ kind: "rule" });
+                if (!wide) setPanelOpen(true);
+              }} />
           )}
           <RunsDialog
             open={runsOpen}
@@ -849,13 +856,9 @@ export function RuleEditorApp({
             ruleId={working.rule.activeRuleId ?? working.rule.id}
             ruleName={working.rule.name}
             table={working.rule.tableLogicalName}
+            scheduledRunIds={schedule?.lastRunId ? [schedule.lastRunId] : undefined}
             onClose={() => setRunsOpen(false)}
           />
-          {api.dryRun && (
-            <TestRunDialog open={testOpen} api={{ dryRun: api.dryRun }} onClose={() => setTestOpen(false)}
-              rule={{ id: working.rule.activeRuleId ?? working.rule.id, name: working.rule.name,
-                table: working.rule.tableLogicalName, triggers: runNowTriggers }} />
-          )}
           <DialogShell open={restoreOpen} onClose={() => setRestoreOpen(false)}
             title="Restore the published version to your draft?"
             actions={<><Button onClick={() => setRestoreOpen(false)}>Cancel</Button><Button appearance="primary" onClick={onRestoreDraft}>Restore draft</Button></>}>
