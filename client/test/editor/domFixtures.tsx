@@ -49,3 +49,12 @@ export async function withNarrowViewport(fn: () => void | Promise<void>) {
   })) as unknown as typeof window.matchMedia;
   try { await fn(); } finally { window.matchMedia = orig; }
 }
+
+/**
+ * Matches the innermost element whose whole text is `text`, for sentences split across spans
+ * (e.g. the tree's "When **Approval gaps** is false").
+ */
+export function fullText(text: string) {
+  return (_content: string, el: Element | null) =>
+    !!el && el.textContent === text && !Array.from(el.children).some((c) => c.textContent === text);
+}

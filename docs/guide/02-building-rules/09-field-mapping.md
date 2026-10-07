@@ -13,10 +13,11 @@ screenshots:
 
 **Create Record** and **Update Record** actions write values onto the
 target record's columns, configured through the **Map columns** dialog,
-opened from the action's **"Edit columns…"** button in the action
-inspector. **Deactivate Record** uses the same dialog, but only to set the
-optional **Status Reason** (`statuscode`) column; leave it unmapped and the
-table's default inactive status applies.
+opened from the **"Edit columns…"** button under **Columns to set** in the
+action panel. **Deactivate Record** uses the same dialog (under **Status
+reason (optional)**), but only to set the optional **Status Reason**
+(`statuscode`) column; leave it unmapped and the table's default inactive
+status applies.
 
 ## The Map columns dialog
 

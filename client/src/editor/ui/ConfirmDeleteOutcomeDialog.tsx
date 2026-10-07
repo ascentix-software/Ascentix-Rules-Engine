@@ -1,6 +1,5 @@
-import {
-  Dialog, DialogSurface, DialogBody, DialogTitle, DialogContent, DialogActions, Button,
-} from "@fluentui/react-components";
+import { Button } from "@fluentui/react-components";
+import { DialogShell } from "./DialogShell";
 import type { ActionNode, RuleGraph } from "../model/types";
 import { actionsUsingOutcome, actionsLeftNotSetByDeleting, outcomeDisplayName } from "../model/outcomes";
 import { color } from "./tokens";
@@ -19,20 +18,13 @@ export function ConfirmDeleteOutcomeDialog({ graph, outcomeId, onCancel, onConfi
   const users = outcomeId ? actionsUsingOutcome(graph, outcomeId).map(label) : [];
   const leftNotSet = outcomeId ? actionsLeftNotSetByDeleting(graph, outcomeId).map(label) : [];
   return (
-    <Dialog open={!!outcome} onOpenChange={(_e, d) => { if (!d.open) onCancel(); }}>
-      <DialogSurface>
-        <DialogBody>
-          <DialogTitle>Delete outcome {name}?</DialogTitle>
-          <DialogContent>
-            <p>These actions test it: {users.join(", ")}. Their tests of this outcome are removed.</p>
-            {leftNotSet.length > 0 && <p>{leftNotSet.join(", ")} will then never fire until you set their Fires when.</p>}
-          </DialogContent>
-          <DialogActions>
-            <Button appearance="secondary" onClick={onCancel}>Cancel</Button>
-            <Button appearance="primary" style={{ backgroundColor: color.danger }} onClick={onConfirm}>Delete</Button>
-          </DialogActions>
-        </DialogBody>
-      </DialogSurface>
-    </Dialog>
+    <DialogShell open={!!outcome} title={<>Delete outcome {name}?</>} onClose={onCancel}
+      actions={<>
+        <Button appearance="secondary" onClick={onCancel}>Cancel</Button>
+        <Button appearance="primary" style={{ backgroundColor: color.danger }} onClick={onConfirm}>Delete</Button>
+      </>}>
+      <p style={{ margin: 0 }}>These actions test it: {users.join(", ")}. Their tests of this outcome are removed.</p>
+      {leftNotSet.length > 0 && <p style={{ margin: 0 }}>{leftNotSet.join(", ")} will then never fire until you set their When.</p>}
+    </DialogShell>
   );
 }

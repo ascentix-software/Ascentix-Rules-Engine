@@ -4,7 +4,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createOrderConfigTree, createRuleOnConfig, readFiresWhen, outcomesOf } from "./devHelpers";
-import { openRuleFromHub, saveValidatePublish } from "./editorHarness";
+import { openRuleFromHub, saveValidatePublish, unsavedCount, whenSection } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 import { saveOrderViaForm, awaitBlockArmed } from "./formSaveOracle";
 
@@ -17,7 +17,7 @@ import { saveOrderViaForm, awaitBlockArmed } from "./formSaveOracle";
 //     the REST helper (test-dev/ruleBehavior/authoring.ts), never by the editor.
 //
 // The seam between those two halves is exactly where a shipped bug hides: everything the editor
-// writes (the Fires when tree, asx_actiontype, the condition's node binding, the trigger mask) is
+// writes (the action's When tree, asx_actiontype, the condition's node binding, the trigger mask) is
 // asserted elsewhere either as a persisted column value or as an enforcement outcome, but never
 // both on the same row. A node filter left blank has precisely that shape: it saves clean, it
 // validates clean, and it makes every write to the table throw. This test closes the seam: a
@@ -32,12 +32,14 @@ import { saveOrderViaForm, awaitBlockArmed } from "./formSaveOracle";
 // still mounting: the popup then never opens and the option locator blocks for the WHOLE test
 // timeout rather than failing usefully (measured: a 15-minute hang, with the
 // snapshot showing the dropdown closed and empty). Wait for the option with a bounded timeout
-// and re-open once before giving up.
+// and re-open once before giving up. A RegExp option name matches as given.
 async function pickDropdown(
-  frame: FrameLocator, boxName: string, optionName: string,
+  frame: FrameLocator, boxName: string, optionName: string | RegExp,
 ): Promise<void> {
   const box = frame.getByRole("combobox", { name: boxName, exact: true });
-  const option = frame.getByRole("option", { name: optionName, exact: true });
+  const option = typeof optionName === "string"
+    ? frame.getByRole("option", { name: optionName, exact: true })
+    : frame.getByRole("option", { name: optionName });
   await box.click();
   try {
     await option.waitFor({ state: "visible", timeout: 10_000 });
@@ -48,8 +50,9 @@ async function pickDropdown(
   await option.click();
 }
 
-const ROOT_CFG_NAME = "ZZ_RB_a2e_cfg";
-const ROOT_CFG_NAME_EDIT = "ZZ_RB_a2e_edit_cfg";
+// The condition panel's "On" dropdown names the ROOT node "This <table display name>" (not the
+// config's own name), and it is the only option that starts with "This ".
+const ROOT_NODE_OPTION = /^This /;
 
 test.describe.configure({ timeout: 900_000 });
 
@@ -73,32 +76,31 @@ test("a Block rule authored entirely in the editor stops a real form save, and a
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
 
     // ---- Author the condition: sample_ordertotal <= 100 --------------------------------
-    // The VALIDATION band, not the execution one. GraphTree renders "WHEN · Execution
-    // conditions" first and "WHEN · Validation conditions" second (GraphTree.tsx:262-276), so
+    // The OUTCOMES band, not the Only if one. GraphTree renders "Only if" first and
+    // "Outcomes" second, so
     // `.first()` (which is what authorRuleUi.e2e uses) puts the condition in the EXECUTION
     // band, where it gates whether the rule runs at all rather than deciding a match. A Block
     // rule authored that way silently stops enforcing: measured here, the
     // violating save went straight through because the execution condition was false for it.
-    await frame.getByRole("button", { name: "+ Add outcome" }).first().click();
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    await frame.getByRole("button", { name: "Add outcome" }).first().click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
-    // Bind the condition to the ROOT node FIRST. A new condition starts with
-    // tableConfigId: null (model/reducer.ts newCondition) and nothing defaults it, so skipping
-    // this dropdown persists a condition with no node binding, which asx_ValidateRule passes
-    // and the plugin then rejects on EVERY write with 0x80040265 "references table-config node
-    // 00000000-... which is not in the rule's config tree". That is not a Block, but a
-    // persistence oracle reads it as one, so the omission silently turns this test into a false
-    // positive. See conditionNodeBinding.e2e.spec.ts for the defect pin.
-    await pickDropdown(frame, "Table-config node", ROOT_CFG_NAME);
+    // Bind the condition to the ROOT node FIRST, explicitly, in the "On" dropdown (rendered
+    // because this config has a child node too). A condition with no node binding passes
+    // asx_ValidateRule and the plugin then rejects on EVERY write with 0x80040265 "references
+    // table-config node 00000000-... which is not in the rule's config tree". That is not a
+    // Block, but a persistence oracle reads it as one, so a missing binding silently turns this
+    // test into a false positive. See conditionNodeBinding.e2e.spec.ts for the defect pin.
+    await pickDropdown(frame, "On", ROOT_NODE_OPTION);
 
     // Column next: the operator list is kind-filtered and only settles once the column's
     // metadata resolves (ConditionInspector.visibleOperators).
-    const columnBox = frame.getByRole("combobox", { name: "Comparison column" });
+    const columnBox = frame.getByRole("combobox", { name: "Column", exact: true });
     await columnBox.click();
     await frame.getByRole("option").first().waitFor({ state: "visible", timeout: 30_000 });
     await columnBox.pressSequentially("ordertotal", { delay: 30 });
-    await frame.getByRole("option", { name: /\(sample_ordertotal\)/ }).first().click();
+    await frame.getByRole("option", { name: /· sample_ordertotal$/ }).first().click();
 
     const operatorBox = frame.getByRole("combobox", { name: "Operator" });
     await operatorBox.click();
@@ -107,21 +109,21 @@ test("a Block rule authored entirely in the editor stops a real form save, and a
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
 
     // ---- Author the action: Block, fires when the outcome is false ---------------------
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
-    const type = frame.getByRole("combobox", { name: "Action type" });
+    const type = frame.getByRole("combobox", { name: "Type", exact: true });
     await type.click();
     await frame.getByRole("option", { name: CHOICE.actionType.block, exact: true }).click();
     await frame.getByRole("textbox", { name: "Block message" }).fill("ZZ_RB authored-in-ui block");
-    // Fires when: the outcome is false (the old On No Match). A new action fires Always, so add a
+    // When: the outcome is false (the old On No Match). A new action fires Always, so add a
     // test (it takes the rule's first outcome) and flip it.
-    await frame.getByRole("button", { name: "+ Add test" }).click();
+    await whenSection(frame).getByRole("button", { name: "Add test", exact: true }).click();
     await frame.getByRole("combobox", { name: "Result" }).click();
     await frame.getByRole("option", { name: "is false", exact: true }).click();
 
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     await saveValidatePublish(frame);
-    await expect(frame.getByText("Published", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(frame.getByTestId("lifecycle-status").getByText(/^Live · v\d+$/)).toBeVisible({ timeout: 30_000 });
 
     // What the editor actually wrote. Asserted BEFORE the save probes so a failure below can be
     // read as "the plugin did not enforce" rather than "the editor wrote the wrong row".
@@ -133,7 +135,7 @@ test("a Block rule authored entirely in the editor stops a real form save, and a
     expect(actions.entities.length).toBe(1);
     expect(actions.entities[0].asx_actiontype).toBe(4); // Block
     expect(actions.entities[0].asx_isactive).toBe(true);
-    // Fires when: a root ALL with one test, "the rule's outcome is false" (the old On No Match).
+    // When: a root ALL with one test, "the rule's outcome is false" (the old On No Match).
     const [outcome] = await outcomesOf(rule.ruleId);
     expect(outcome, "the editor persisted no outcome").toBeTruthy();
     const firesWhen = await readFiresWhen(String(actions.entities[0].asx_ruleactionid));
@@ -208,41 +210,40 @@ test("editing a published rule in the UI and re-publishing changes what the plug
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
 
     // Author + publish a threshold of 100, exactly as above.
-    // The VALIDATION band, not the execution one. GraphTree renders "WHEN · Execution
-    // conditions" first and "WHEN · Validation conditions" second (GraphTree.tsx:262-276), so
+    // The OUTCOMES band, not the Only if one. GraphTree renders "Only if" first and
+    // "Outcomes" second, so
     // `.first()` (which is what authorRuleUi.e2e uses) puts the condition in the EXECUTION
     // band, where it gates whether the rule runs at all rather than deciding a match. A Block
     // rule authored that way silently stops enforcing: measured here, the
     // violating save went straight through because the execution condition was false for it.
-    await frame.getByRole("button", { name: "+ Add outcome" }).first().click();
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    await frame.getByRole("button", { name: "Add outcome" }).first().click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
-    // Bind the condition to the ROOT node FIRST. A new condition starts with
-    // tableConfigId: null (model/reducer.ts newCondition) and nothing defaults it, so skipping
-    // this dropdown persists a condition with no node binding, which asx_ValidateRule passes
-    // and the plugin then rejects on EVERY write with 0x80040265 "references table-config node
-    // 00000000-... which is not in the rule's config tree". That is not a Block, but a
-    // persistence oracle reads it as one, so the omission silently turns this test into a false
-    // positive. See conditionNodeBinding.e2e.spec.ts for the defect pin.
-    await pickDropdown(frame, "Table-config node", ROOT_CFG_NAME_EDIT);
-    const columnBox = frame.getByRole("combobox", { name: "Comparison column" });
+    // Bind the condition to the ROOT node FIRST, explicitly, in the "On" dropdown (rendered
+    // because this config has a child node too). A condition with no node binding passes
+    // asx_ValidateRule and the plugin then rejects on EVERY write with 0x80040265 "references
+    // table-config node 00000000-... which is not in the rule's config tree". That is not a
+    // Block, but a persistence oracle reads it as one, so a missing binding silently turns this
+    // test into a false positive. See conditionNodeBinding.e2e.spec.ts for the defect pin.
+    await pickDropdown(frame, "On", ROOT_NODE_OPTION);
+    const columnBox = frame.getByRole("combobox", { name: "Column", exact: true });
     await columnBox.click();
     await frame.getByRole("option").first().waitFor({ state: "visible", timeout: 30_000 });
     await columnBox.pressSequentially("ordertotal", { delay: 30 });
-    await frame.getByRole("option", { name: /\(sample_ordertotal\)/ }).first().click();
+    await frame.getByRole("option", { name: /· sample_ordertotal$/ }).first().click();
     const operatorBox = frame.getByRole("combobox", { name: "Operator" });
     await operatorBox.click();
     await frame.getByRole("option", { name: CHOICE.operator.lessThanOrEqual, exact: true }).click();
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
-    const type = frame.getByRole("combobox", { name: "Action type" });
+    const type = frame.getByRole("combobox", { name: "Type", exact: true });
     await type.click();
     await frame.getByRole("option", { name: CHOICE.actionType.block, exact: true }).click();
     await frame.getByRole("textbox", { name: "Block message" }).fill("ZZ_RB threshold 100");
-    // Fires when: the outcome is false (the old On No Match). A new action fires Always, so add a
+    // When: the outcome is false (the old On No Match). A new action fires Always, so add a
     // test (it takes the rule's first outcome) and flip it.
-    await frame.getByRole("button", { name: "+ Add test" }).click();
+    await whenSection(frame).getByRole("button", { name: "Add test", exact: true }).click();
     await frame.getByRole("combobox", { name: "Result" }).click();
     await frame.getByRole("option", { name: "is false", exact: true }).click();
     await saveValidatePublish(frame);
@@ -261,7 +262,7 @@ test("editing a published rule in the UI and re-publishing changes what the plug
     await expect(frame2.getByRole("button", { name: "Rename rule" })).toBeEnabled();
     await frame2.getByRole("button", { name: /^Edit condition/ }).click();
     await frame2.getByRole("textbox", { name: "Value" }).fill("200");
-    await expect(frame2.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame2)).toBeVisible();
     await saveValidatePublish(frame2);
 
     // The SAME record that was blocked a moment ago must now save: 150 <= 200 matches, so the

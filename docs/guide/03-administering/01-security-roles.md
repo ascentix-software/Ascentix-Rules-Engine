@@ -54,7 +54,7 @@ only an administrator can apply it.
 Neither role grants the privileges to run or schedule rules; an administrator
 grants those separately, typically with a small role assigned on top:
 
-- **Running rules** (Run now, `asx_ApplyRules`, `asx_ProcessRunPage`): **Create**,
+- **Running rules** (Run now / Apply to records, `asx_ApplyRules`, `asx_ProcessRunPage`): **Create**,
   **Read**, **Append** and **Write** on **Rule Run** (`asx_rulerun`), and **Append
   To** on **Rule** (`asx_rule`). See *Running Rules On Demand*.
 - **Setting schedules** in the Rule Builder: **Create**, **Read**, **Write** and

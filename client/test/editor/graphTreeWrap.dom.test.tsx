@@ -28,7 +28,7 @@ function handlers(over: Partial<GraphTreeHandlers> = {}): GraphTreeHandlers {
 }
 
 describe("GraphTree row wrapping", () => {
-  it("condition row always allows wrapping, even with no issues", () => {
+  it("a condition sentence wraps, even with no issues", () => {
     const graph = makeGraph({
       executionGroups: [makeGroup({
         id: "g1", name: "Exec group",
@@ -38,14 +38,18 @@ describe("GraphTree row wrapping", () => {
     renderWithFluent(<GraphTree graph={graph} selection={null} handlers={handlers()} />);
 
     const row = screen.getByLabelText(/^Edit condition/);
-    expect(row.style.flexWrap).toBe("wrap");
+    const sentence = Array.from(row.querySelectorAll("span")).find((s) => s.style.flexWrap === "wrap");
+    expect(sentence).toBeTruthy();
   });
 
-  it("action row always allows wrapping, even with no issues", () => {
+  it("an action row is a grid whose verb line ellipsizes instead of overflowing", () => {
     const graph = makeGraph({ actions: [makeAction({ id: "a1" })] });
     renderWithFluent(<GraphTree graph={graph} selection={null} handlers={handlers()} />);
 
     const row = screen.getByLabelText(/^Edit action/);
-    expect(row.style.flexWrap).toBe("wrap");
+    expect(row.style.display).toBe("grid");
+    expect(row.style.gridTemplateColumns).toContain("minmax(0,1fr)");
+    const verbLine = Array.from(row.querySelectorAll("span")).find((s) => s.style.textOverflow === "ellipsis");
+    expect(verbLine).toBeTruthy();
   });
 });

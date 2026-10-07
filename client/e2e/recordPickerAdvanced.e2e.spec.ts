@@ -4,7 +4,7 @@ import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { ensureTableConfig, authorRule } from "../test-dev/ruleBehavior/authoring";
 import { resolveAppId } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, toolbar, toast } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The record picker's saved-VIEW dropdown and its "Advanced filter" RecordFilterBuilder.
@@ -43,13 +43,13 @@ test("record picker: a saved view plus an Advanced filter narrows the grid, and 
   });
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
-    const columnBox = frame.getByRole("combobox", { name: "Comparison column" });
+    const columnBox = frame.getByRole("combobox", { name: "Column", exact: true });
     await columnBox.click();
     await columnBox.pressSequentially("customerid", { delay: 30 });
-    await frame.getByRole("option", { name: /\(sample_customerid\)/ }).click();
+    await frame.getByRole("option", { name: /· sample_customerid$/ }).click();
 
     const operatorBox = frame.getByRole("combobox", { name: "Operator" });
     await operatorBox.click();
@@ -107,7 +107,7 @@ test("record picker: a saved view plus an Advanced filter narrows the grid, and 
     await picker.getByRole("button", { name: "Select", exact: true }).click();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     // The KEEP guid landed, not the DROP one.
     const conds = await api.retrieveMultipleRecords(
@@ -147,13 +147,13 @@ test("record picker: a filter matching nothing shows the empty state and leaves 
   });
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
-    const columnBox = frame.getByRole("combobox", { name: "Comparison column" });
+    const columnBox = frame.getByRole("combobox", { name: "Column", exact: true });
     await columnBox.click();
     await columnBox.pressSequentially("customerid", { delay: 30 });
-    await frame.getByRole("option", { name: /\(sample_customerid\)/ }).click();
+    await frame.getByRole("option", { name: /· sample_customerid$/ }).click();
 
     await frame.getByRole("button", { name: "Browse…" }).click();
     const picker = frame.getByRole("dialog");

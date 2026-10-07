@@ -7,27 +7,27 @@ import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import {
   resolveAppId, createZzRootConfig, createOrderConfigTree, createRuleOnConfig, deleteRuleCascade,
 } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import {
+  openRuleFromHub, toolbar, checkNoIssues, toast, unsavedCount, pickConditionType, setConditionName,
+} from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
-// Two authoring surfaces driven through real Fluent controls: the RowCount mode dropdown, and the
-// "Insert field" token menus in the Block/ShowMessage message editors.
+// Two authoring surfaces driven through real Fluent controls: the Count rows editor's "Count"
+// dropdown, and the "Insert field" token menus in the Block/ShowMessage message editors.
 //
-//   * ROW-COUNT MODES. The mode is DERIVED from the stored min/max pair, never stored
-//     (countMode.tsx:8-21, applied at :37-55), so a wrong derivation changes the rule's meaning
-//     with nothing on screen to say so: "None (does not exist)" that persists min=null/max=null is
-//     a condition that matches EVERY record, the exact inverse of what the author asked for.
-//     applyCountMode's seeding rules carry scars from that: the `atLeast` seed >= 2 branch (:46)
-//     exists because "At least 1" collapsed straight back into "At least one (exists)", and the
-//     "Between N and M" case in conditionTypesUi.e2e.spec.ts exists because the dropdown
-//     re-derived its mode mid-edit and discarded the range. The oracle here is therefore the
-//     persisted asx_minexpectedrows/asx_maxexpectedrows pair, not the dropdown.
+//   * COUNT OPS. The op (has at least / has at most / has between / has no) is DERIVED from the
+//     stored min/max pair, never stored (ConditionInspector.tsx countOpOf / CountRowsEditor), so a
+//     wrong derivation changes the rule's meaning with nothing on screen to say so: "has no" that
+//     persists min=null/max=null is a condition that matches EVERY record, the exact inverse of
+//     what the author asked for. The "has between" case in conditionTypesUi.e2e.spec.ts exists
+//     because the mode once re-derived mid-edit and discarded the range. The oracle here is
+//     therefore the persisted asx_minexpectedrows/asx_maxexpectedrows pair, not the dropdown.
 //
-//   * INSERT-FIELD TOKENS in the MessageEditor (ActionInspector.tsx:33-57) and in a TranslationRow
-//     (:60-87). The two hosts are genuinely different code paths: the message body splices off an
-//     HTMLTextAreaElement's selectionStart (:39-42), the translation row off an HTMLInputElement's
-//     (:66-69). A real caret in a real controlled input is what makes the splice meaningful.
-//     This is user-facing text, so a wrong token becomes visible garbage in front of a real user.
+//   * INSERT-FIELD TOKENS in the message body's MessageEditor and in a translation row's own
+//     MessageEditor (ActionInspector.tsx). Each splices off its own textarea's selectionStart
+//     through its own "Insert field" menu, so the two are separate instances with separate refs.
+//     A real caret in a real controlled textarea is what makes the splice meaningful. This is
+//     user-facing text, so a wrong token becomes visible garbage in front of a real user.
 
 test.beforeAll(async () => {
   test.setTimeout(180_000); // the sweep runs long after a red run leaves orphans behind
@@ -61,7 +61,7 @@ const byName = (rows: Record<string, unknown>[], name: string) => {
   return hit[0];
 };
 
-test("the five never-authored count modes each persist the min/max pair their semantics require", async ({ page }) => {
+test("each Count op (has no / at least / at most / between, incl. exactly N) persists the min/max pair its semantics require", async ({ page }) => {
   const appId = await resolveAppId();
   const CFG = "ZZ_RB_cm";
   const cfg = await createOrderConfigTree(CFG); // root sample_order + ZZ_RB_cm_line collection
@@ -69,82 +69,88 @@ test("the five never-authored count modes each persist the min/max pair their se
     namePrefix: "cm", table: "sample_order", rootConfigId: cfg.rootId,
   });
 
-  // Five RowCount conditions in ONE group and ONE save. Every mode is exercised against the same
-  // live component instance, which is also where the two known defects lived: CountModeFields
-  // holds the chosen mode in React state and re-derives it whenever the incoming pair is not the
-  // one it last emitted (countMode.tsx:87-98), so switching between conditions is part of what is
-  // under test. Modes are ordered with `custom` LAST on purpose: selecting "custom" on a fresh
-  // condition emits (null, null), which is also a fresh condition's own pair: putting it earlier
-  // would let the component keep a stale `chosen` across the selection change and mask a real
-  // re-derivation failure.
-  const CASES = [
-    // name suffix        dropdown label            input(s) to fill        expected persisted pair
-    { key: "none", label: "None (does not exist)", fills: [] as { name: string; seed: string; to: string }[], min: null, max: 0 },
-    { key: "atleast", label: "At least N", fills: [{ name: "Count", seed: "2", to: "3" }], min: 3, max: null },
-    { key: "atmost", label: "At most N", fills: [{ name: "Count", seed: "1", to: "4" }], min: null, max: 4 },
-    { key: "exactly", label: "Exactly N", fills: [{ name: "Count", seed: "1", to: "2" }], min: 2, max: 2 },
+  // Five RowCount conditions in ONE group and ONE save. Every op is exercised against the same
+  // live panel, which is also where the known defects lived: CountRowsEditor holds the chosen op
+  // in React state and re-derives it whenever the stored pair changes from outside (another
+  // condition selected), so switching between conditions is part of what is under test.
+  // "Exactly N" has no op of its own any more: it is "has between" with equal bounds.
+  // `pick: false` is the op a fresh condition already shows ("has at least", with nothing
+  // stored), so nothing is chosen and its input starts empty.
+  type Fill = { name: string; seed: string; to: string };
+  const CASES: { key: string; label: string; pick: boolean; fills: Fill[]; min: number | null; max: number | null }[] = [
+    // name suffix   Count op         input(s) to fill (seed asserted first)          persisted pair
+    { key: "none", label: "has no", pick: true, fills: [], min: null, max: 0 },
+    { key: "atleast", label: "has at least", pick: false, fills: [{ name: "Minimum rows", seed: "", to: "3" }], min: 3, max: null },
+    { key: "atmost", label: "has at most", pick: true, fills: [{ name: "Maximum rows", seed: "1", to: "4" }], min: null, max: 4 },
     {
-      key: "custom", label: "Custom (min / max)",
-      fills: [{ name: "Min expected rows", seed: "", to: "7" }, { name: "Max expected rows", seed: "", to: "9" }],
+      key: "exactly", label: "has between", pick: true,
+      fills: [{ name: "Minimum rows", seed: "1", to: "2" }, { name: "Maximum rows", seed: "2", to: "2" }],
+      min: 2, max: 2,
+    },
+    {
+      key: "between", label: "has between", pick: true,
+      fills: [{ name: "Minimum rows", seed: "1", to: "7" }, { name: "Maximum rows", seed: "2", to: "9" }],
       min: 7, max: 9,
     },
   ];
 
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: "+ Add group" }).first().click();
+    await frame.getByRole("button", { name: "Add group" }).first().click();
 
     for (const c of CASES) {
       const condName = `ZZ_RB_cm_${c.key}`;
-      await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
-      // A RowCount condition's aria-label carries only its node (labels.ts:50 leaves `field` null),
-      // so all five rows end up identically named. The one just added is picked with .last(), and
-      // the persisted rows are told apart by the name typed below instead.
+      await frame.getByRole("button", { name: "Add condition", exact: true }).click();
+      // A RowCount condition's row reads "<node> has …", so rows can share a name. The one just
+      // added is picked with .last(), and the persisted rows are told apart by the name typed
+      // below instead.
       await frame.getByRole("button", { name: /^Edit condition/ }).last().click();
 
-      await frame.getByRole("textbox", { name: "Condition name" }).fill(condName);
+      // The Condition name lives in the panel's collapsed "More" section.
+      await setConditionName(frame, condName);
 
-      const node = frame.getByRole("combobox", { name: "Table-config node", exact: true });
+      await pickConditionType(frame, CHOICE.conditionType.rowCount);
+      // "Rows of" lists only the collection (ChildTable) nodes.
+      const node = frame.getByRole("combobox", { name: "Rows of", exact: true });
       await node.click();
       await frame.getByRole("option", { name: /_line$/ }).click();
 
-      const type = frame.getByRole("combobox", { name: "Condition type" });
-      await type.click();
-      await frame.getByRole("option", { name: CHOICE.conditionType.rowCount, exact: true }).click();
-
-      const mode = frame.getByRole("combobox", { name: "Row count mode" });
-      // A fresh condition stores (null, null), which deriveRowCountMode reports as "custom", so
-      // the raw min/max inputs are what an author sees before choosing anything.
-      await expect(mode).toContainText("Custom (min / max)");
-      await mode.click();
-      await frame.getByRole("option", { name: c.label, exact: true }).click();
+      const mode = frame.getByRole("combobox", { name: "Count", exact: true });
+      // A fresh condition stores (null, null), which the editor reads as "has at least" with an
+      // empty count, so that is what an author sees before choosing anything.
+      await expect(mode).toContainText("has at least");
+      if (c.pick) {
+        await mode.click();
+        await frame.getByRole("option", { name: c.label, exact: true }).click();
+      }
       await expect(mode).toContainText(c.label);
 
-      // The SEEDED value is asserted before it is overwritten. This is where applyCountMode's
-      // rules actually live: "At least N" must seed 2, never 1: a seed of 1 makes the stored pair
-      // (1, null), which deriveRowCountMode reads back as `atLeastOne`, snapping the dropdown and
-      // hiding the input the moment the author selects the mode.
+      // The SEEDED value is asserted before it is overwritten: choosing an op seeds the stored
+      // pair (at most from 1, between as 1..2), and a wrong seed would snap the op the moment the
+      // author selects it.
       for (const f of c.fills) {
-        const box = frame.getByRole("spinbutton", { name: f.name });
+        const box = frame.getByRole("spinbutton", { name: f.name, exact: true });
         await expect(box, `${c.label} seeds "${f.name}" with ${f.seed || "(empty)"}`).toHaveValue(f.seed);
         await box.fill(f.to);
       }
       if (c.fills.length === 0) {
-        // "None" is expressed entirely by the pair (null, 0): there is nothing to type, and an
-        // input appearing here would mean applyCountMode landed on a different mode.
-        await expect(frame.getByRole("spinbutton", { name: "Count" })).toHaveCount(0);
-        await expect(frame.getByRole("spinbutton", { name: "Minimum" })).toHaveCount(0);
+        // "has no" is expressed entirely by the pair (null, 0): there is nothing to type, and an
+        // input appearing here would mean the editor landed on a different op.
+        await expect(frame.getByRole("spinbutton", { name: "Minimum rows", exact: true })).toHaveCount(0);
+        await expect(frame.getByRole("spinbutton", { name: "Maximum rows", exact: true })).toHaveCount(0);
       }
-      // The two-input modes must keep BOTH inputs mounted; a collapse to a single "Count" is the
-      // shape of the already-fixed between->exactly defect.
+      // "has between" must keep BOTH inputs mounted, even with equal bounds (exactly N); a
+      // collapse to a single input is the shape of the already-fixed between->exactly defect.
       if (c.fills.length === 2) {
-        await expect(frame.getByRole("spinbutton", { name: "Count" })).toHaveCount(0);
+        await expect(frame.getByRole("spinbutton", { name: "Minimum rows", exact: true })).toHaveCount(1);
+        await expect(frame.getByRole("spinbutton", { name: "Maximum rows", exact: true })).toHaveCount(1);
+        await expect(mode).toContainText("has between");
       }
     }
 
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const rows = await conditionsOf(rule.ruleId);
     expect(rows.length).toBe(5);
@@ -158,11 +164,11 @@ test("the five never-authored count modes each persist the min/max pair their se
       expect(r.asx_maxexpectedrows ?? null, `${c.label} persists max=${c.max}`).toBe(c.max);
     }
 
-    // Spelled out because it is the single highest-value line in the case: "None (does not exist)"
-    // means max=0, and a max of null instead would make the condition match every record, the
-    // exact inverse of the author's intent, with an identical-looking dropdown.
+    // Spelled out because it is the single highest-value line in the case: "has no" means
+    // max=0, and a max of null instead would make the condition match every record, the exact
+    // inverse of the author's intent, with an identical-looking dropdown.
     expect(byName(rows, "ZZ_RB_cm_none").asx_maxexpectedrows,
-      "'None (does not exist)' must persist max=0; a null max matches EVERY record").toBe(0);
+      "'has no' must persist max=0; a null max matches EVERY record").toBe(0);
   } finally {
     await rule.cleanup(); // deleteRuleCascade: the group and all five conditions came from the UI
     await cfg.cleanup();
@@ -228,28 +234,35 @@ test("Insert field splices a {root.x} token at the caret in a message body and i
     // the field land at the end of the message their user actually reads.
     await body.press("Home");
     await insertField(frame, frame.getByRole("button", { name: "Insert field", exact: true }), POSTAL);
-    await expect(body, "the token must be spliced AT THE CARET (ActionInspector.tsx:39-42), not appended").toHaveValue(MESSAGE);
+    await expect(body, "the token must be spliced AT THE CARET (MessageEditor insert), not appended").toHaveValue(MESSAGE);
 
-    // The preview line is the only thing standing between the author and a wall of logical names.
-    const preview = frame.getByText(/^Preview:/).first();
+    // The preview is the only thing standing between the author and a wall of logical names. The
+    // old "Preview: …" line under the message is gone: once the message has tokens, the Message
+    // label carries an info tip ("More info: Message") whose tooltip is that preview.
+    await frame.getByRole("button", { name: "More info: Message", exact: true }).hover();
+    const preview = frame.getByRole("tooltip").filter({ hasText: /^Preview:/ });
     await expect(preview).toContainText("{Shipping Postal Code}ZZ_RB total is {Order Total}");
     await expect(preview, "friendlyTemplate must resolve tokens to display names, never leak the raw column").not.toContainText("sample_ordertotal");
 
-    // --- the INPUT host (TranslationRow), a different ref type and a different splice site ---
-    const addLang = frame.getByRole("combobox", { name: "Translations (fallback = message above)" });
-    await addLang.click();
-    await frame.getByRole("option", { name: /French \(1036\)/ }).click();
+    // --- the TRANSLATION host: its own MessageEditor, its own textarea and splice site --------
+    await frame.getByRole("button", { name: "Add translation", exact: true }).click();
+    await frame.getByRole("menuitem", { name: /^French/ }).click();
 
-    const row = frame.getByText("French (1036)").locator("xpath=..");
-    const frInput = row.getByRole("textbox");
+    const frInput = frame.getByRole("textbox", { name: "French message", exact: true });
+    // The translation row: the innermost element holding both its Remove button and its
+    // textarea (document order puts ancestors first, so .last() is the deepest match).
+    const row = frame.locator("div")
+      .filter({ has: frame.getByRole("button", { name: "Remove French", exact: true }) })
+      .filter({ has: frInput })
+      .last();
     await frInput.fill("ZZ_RB fr end");
     await frInput.press("Home");
     await insertField(frame, row.getByRole("button", { name: "Insert field", exact: true }), ORDER_TOTAL);
-    await expect(frInput, "the translation row splices off an <Input>'s selectionStart (ActionInspector.tsx:66-69)").toHaveValue(FRENCH);
+    await expect(frInput, "the translation row splices off its own textarea's selectionStart").toHaveValue(FRENCH);
 
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     // --- the oracle: both messages VERBATIM on the rows the engine renders from ---------------
     const api = createDevApi();
@@ -272,8 +285,7 @@ test("Insert field splices a {root.x} token at the caret in a message body and i
 
     // A token the editor emits but the SERVER validator rejects would be the worst outcome of the
     // three, so it is checked last and on the saved rule: everything above already round-tripped.
-    await toolbar(frame).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
-    await expect(frame.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
+    await checkNoIssues(frame);
   } finally {
     await deleteRuleCascade(rule.ruleId); // reclaims the UI-authored asx_localizedmessage row
     await rule.cleanup().catch(() => {});

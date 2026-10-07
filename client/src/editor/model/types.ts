@@ -12,6 +12,9 @@ export interface RuleHeader {
   statusCode: number | null;
   publishedRevisionId?: string | null;
   publishedVersion?: number;
+  /** When and by whom the live revision was published (the revision row); display only, never saved. */
+  publishedOn?: string | null;
+  publishedBy?: string | null;
   activeRuleId?: string;
   activeEtag?: string | null;
   etag: string | null;

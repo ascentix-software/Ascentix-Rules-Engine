@@ -4,7 +4,7 @@ import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId } from "./devHelpers";
-import { openRuleFromHub, openHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, openHub, toolbar, headerMenu, toast } from "./editorHarness";
 
 // The Schedule section (client/src/editor/schedule/ScheduleSection.tsx), end to end: tick a
 // Published On demand/all-records rule's schedule On — directly on the published rule, with no
@@ -59,9 +59,7 @@ test("Schedule: set Daily at 02:00, verify via the API, reload, and see it in th
     const editRule = toolbar(frame).getByRole("button", { name: "Edit rule", exact: true });
     await expect(editRule).toBeVisible();
 
-    // The Switch is doubly-labelled (its own "On"/"Off" text plus the surrounding Field's
-    // "Schedule" — see ScheduleSection.tsx), so match loosely on "Schedule" rather than the
-    // current toggle state.
+    // The On demand card's Schedule switch is named "Schedule on" (ScheduleSection.tsx).
     await expect(frame.getByRole("switch", { name: /Schedule/ })).toBeEnabled();
     await frame.getByRole("switch", { name: /Schedule/ }).click();
 
@@ -70,7 +68,7 @@ test("Schedule: set Daily at 02:00, verify via the API, reload, and see it in th
     await frame.getByLabel("Time of day").fill("02:00");
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
     // Still the published rule, not a draft: nothing but the schedule was saved.
     await expect(editRule).toBeVisible();
 
@@ -87,12 +85,12 @@ test("Schedule: set Daily at 02:00, verify via the API, reload, and see it in th
     expect(row.asx_timeofday).toBe("02:00");
     expect(row.asx_nextrunon).toBeTruthy();
 
-    // Reload: the section shows the saved values and a "Next run" line.
-    await toolbar(frame).getByRole("button", { name: "Reload", exact: true }).click();
+    // Reload: the card shows the saved values and a "Next" line in its footer.
+    await headerMenu(frame, /Reload from server/);
     await expect(frame.getByRole("switch", { name: /Schedule/ })).toBeChecked();
     await expect(frame.getByRole("combobox", { name: "Pattern" })).toHaveText("Daily");
     await expect(frame.getByLabel("Time of day")).toHaveValue("02:00");
-    await expect(frame.getByText("Next run", { exact: true })).toBeVisible();
+    await expect(frame.getByTestId("on-demand-card").getByText(/^Next/)).toBeVisible();
 
     // Open the hub: the rule row shows the clock icon (an aria-labelled "Scheduled: …" tooltip
     // trigger — Tooltip's relationship="label" sets aria-label directly since the content is a

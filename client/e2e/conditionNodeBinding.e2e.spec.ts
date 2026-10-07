@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP, BIND_NAV } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createOrderConfigTree, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, saveValidatePublish } from "./editorHarness";
+import { openRuleFromHub, saveValidatePublish, whenSection } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 import { saveOrderViaForm } from "./formSaveOracle";
 
@@ -12,10 +12,10 @@ import { saveOrderViaForm } from "./formSaveOracle";
 //
 // Why an unbound condition is dangerous. The chain:
 //   1. `model/reducer.ts` newCondition() starts `tableConfigId: null`.
-//   2. Nothing defaults it. `ConditionInspector.tsx:250-256` renders the "Table-config node"
-//      dropdown with `value=""` and no preselection, so an author who never opens that dropdown
-//      leaves it null. The COLUMN picker meanwhile falls back to the rule's root table
-//      (`ConditionInspector.tsx:220`), so the condition looks completely filled in.
+//   2. Nothing defaults it. The condition panel's node dropdown (then "Table-config node", now
+//      "On") rendered with `value=""` and no preselection, so an author who never opens that
+//      dropdown leaves it null. The COLUMN picker meanwhile falls back to the rule's root table
+//      (ConditionInspector.tsx `tcTable`), so the condition looks completely filled in.
 //   3. `save/diff.ts:399` omits `asx_tableconfig@odata.bind` when the id is null: the row is
 //      written with a null lookup.
 //   4. If `asx_ValidateRule` were to return isValid: true, publish succeeds and the badge says
@@ -63,33 +63,33 @@ test("a condition authored without touching the node dropdown is caught before i
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
 
-    // The happy path, exactly as a first-time author walks it. The "Table-config node"
-    // dropdown is deliberately never opened.
+    // The happy path, exactly as a first-time author walks it. The node dropdown ("On") is
+    // deliberately never opened.
     // The VALIDATION band (GraphTree.tsx:262-276 renders execution first, validation second).
     // `.first()` would author into the EXECUTION band, which gates whether the rule runs rather
-    // than deciding a match, so the Outcomes band's "+ Add outcome" is the one that decides a match here.
-    await frame.getByRole("button", { name: "+ Add outcome" }).first().click();
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    // than deciding a match, so the Outcomes band's "Add outcome" is the one that decides a match here.
+    await frame.getByRole("button", { name: "Add outcome" }).first().click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
-    const columnBox = frame.getByRole("combobox", { name: "Comparison column" });
+    const columnBox = frame.getByRole("combobox", { name: "Column", exact: true });
     await columnBox.click();
     await frame.getByRole("option").first().waitFor({ state: "visible", timeout: 30_000 });
     await columnBox.pressSequentially("ordertotal", { delay: 30 });
-    await frame.getByRole("option", { name: /\(sample_ordertotal\)/ }).first().click();
+    await frame.getByRole("option", { name: /· sample_ordertotal$/ }).first().click();
     const operatorBox = frame.getByRole("combobox", { name: "Operator" });
     await operatorBox.click();
     await frame.getByRole("option", { name: CHOICE.operator.lessThanOrEqual, exact: true }).click();
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
 
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
-    const type = frame.getByRole("combobox", { name: "Action type" });
+    const type = frame.getByRole("combobox", { name: "Type", exact: true });
     await type.click();
     await frame.getByRole("option", { name: CHOICE.actionType.block, exact: true }).click();
     await frame.getByRole("textbox", { name: "Block message" }).fill("ZZ_RB node-binding pin");
-    // Fires when: the outcome is false (the old On No Match). A new action fires Always, so add a
+    // When: the outcome is false (the old On No Match). A new action fires Always, so add a
     // test (it takes the rule's first outcome) and flip it.
-    await frame.getByRole("button", { name: "+ Add test" }).click();
+    await whenSection(frame).getByRole("button", { name: "Add test", exact: true }).click();
     await frame.getByRole("combobox", { name: "Result" }).click();
     await frame.getByRole("option", { name: "is false", exact: true }).click();
 

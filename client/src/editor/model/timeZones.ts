@@ -35,3 +35,10 @@ export function timeZoneLabel(id: string | null | undefined): string {
   const key = id ?? "";
   return TIME_ZONE_OPTIONS.find((o) => o.id === key)?.label ?? key;
 }
+
+/** "UTC" or the zone's offset ("GMT-05:00"), for compact schedule text. */
+export function timeZoneShort(id: string | null | undefined): string {
+  if (!id) return "UTC";
+  const m = /^\((GMT[^)]*)\)/.exec(timeZoneLabel(id));
+  return m ? m[1] : id;
+}

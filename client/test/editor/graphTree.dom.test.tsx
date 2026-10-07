@@ -48,21 +48,34 @@ describe("GraphTree keyboard operability", () => {
     expect(h.onSelect).toHaveBeenCalledWith({ kind: "action", id: "a1" });
   });
 
-  it("delete-group control has an accessible name", () => {
+  it("the group's ⋯ menu is named after the group and offers Delete group", async () => {
+    const h = handlers();
     const graph = makeGraph({ executionGroups: [makeGroup({ id: "g1" })] });
-    renderWithFluent(<GraphTree graph={graph} selection={null} handlers={handlers()} />);
-    expect(screen.getByRole("button", { name: "Delete group" })).toBeInTheDocument();
+    renderWithFluent(<GraphTree graph={graph} selection={null} handlers={h} />);
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Exec group" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete group" }));
+    expect(h.onDeleteGroup).toHaveBeenCalledWith("g1");
+    expect(h.onSelect).not.toHaveBeenCalled();
   });
 
-  it("Enter/Space on the Delete group button does not bubble to select the row", () => {
+  it("Enter/Space on the group's ⋯ button does not bubble to select the row", () => {
     const h = handlers();
     const graph = makeGraph({ executionGroups: [makeGroup({ id: "g1" })] });
     renderWithFluent(<GraphTree graph={graph} selection={null} handlers={h} />);
 
-    const deleteBtn = screen.getByRole("button", { name: "Delete group" });
-    fireEvent.keyDown(deleteBtn, { key: "Enter" });
-    fireEvent.keyDown(deleteBtn, { key: " " });
+    const menuBtn = screen.getByRole("button", { name: "More actions for Exec group" });
+    fireEvent.keyDown(menuBtn, { key: "Enter" });
+    fireEvent.keyDown(menuBtn, { key: " " });
     expect(h.onSelect).not.toHaveBeenCalled();
+  });
+
+  it("offers Match any instead and Duplicate in the group menu", async () => {
+    const h = handlers({ onSetGroupMatch: vi.fn(), onDuplicateGroup: vi.fn() });
+    const graph = makeGraph({ executionGroups: [makeGroup({ id: "g1" })] });
+    renderWithFluent(<GraphTree graph={graph} selection={null} handlers={h} />);
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Exec group" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Match any instead" }));
+    expect(h.onSetGroupMatch).toHaveBeenCalledWith("g1", "Or");
   });
 
   it("Enter/Space on the Move down button does not bubble to select the row", () => {
@@ -94,24 +107,24 @@ describe("GraphTree action effect badge", () => {
 describe("GraphTree outcomes zone", () => {
   const outcome = (over = {}) => makeGroup({ id: "o1", name: "High value", isExecutionCondition: false, ...over });
 
-  it("titles the validation band WHEN · Outcomes", () => {
+  it("titles the bands Only if / Outcomes / Then", () => {
     renderWithFluent(<GraphTree graph={makeGraph()} selection={null} handlers={handlers()} />);
-    expect(screen.getByText("WHEN · Outcomes")).toBeInTheDocument();
-    expect(screen.queryByText("WHEN · Validation conditions")).toBeNull();
+    for (const t of ["Only if", "Outcomes", "Then"]) expect(screen.getByRole("heading", { name: t })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More info: Outcomes" })).toBeInTheDocument();
   });
 
   it("labels a top-level validation group as an outcome", () => {
     const h = handlers();
     renderWithFluent(<GraphTree graph={makeGraph({ validationGroups: [outcome()] })} selection={null} handlers={h} />);
-    expect(screen.getByText("Outcome · High value")).toBeInTheDocument();
+    expect(screen.getByText("High value")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Edit outcome High value" }));
     expect(h.onSelect).toHaveBeenCalledWith({ kind: "group", id: "o1" });
   });
 
-  it("labels an unnamed outcome Outcome · (unnamed)", () => {
+  it("labels an unnamed outcome (unnamed outcome)", () => {
     renderWithFluent(<GraphTree graph={makeGraph({ validationGroups: [outcome({ name: "" })] })} selection={null} handlers={handlers()} />);
-    expect(screen.getByText("Outcome · (unnamed)")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit outcome (unnamed)" })).toBeInTheDocument();
+    expect(screen.getByText("(unnamed outcome)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit outcome (unnamed outcome)" })).toBeInTheDocument();
   });
 
   it("keeps a nested group inside an outcome labelled as a group", () => {
@@ -121,13 +134,12 @@ describe("GraphTree outcomes zone", () => {
     expect(screen.queryByRole("button", { name: "Edit outcome Nested" })).toBeNull();
   });
 
-  it("+ Add outcome calls the add-outcome handler, from the band header and the empty state", () => {
+  it("Add outcome (in the band header) calls the add-outcome handler; the empty state only says none yet", () => {
     const h = handlers();
     renderWithFluent(<GraphTree graph={makeGraph()} selection={null} handlers={h} />);
-    const buttons = screen.getAllByRole("button", { name: "+ Add outcome" });
-    expect(buttons).toHaveLength(2);
-    buttons.forEach((b) => fireEvent.click(b));
-    expect(h.onAddOutcome).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "Add outcome" }));
+    expect(h.onAddOutcome).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("No outcomes yet.")).toBeInTheDocument();
     expect(h.onAddGroup).not.toHaveBeenCalledWith("validation", null);
   });
 
@@ -142,13 +154,14 @@ describe("GraphTree outcomes zone", () => {
       } })],
     });
     renderWithFluent(<GraphTree graph={graph} selection={null} handlers={handlers()} />);
-    expect(screen.getByText("When High value AND (At risk OR Critical case)")).toBeInTheDocument();
+    expect(screen.getByText((_t, el) => el?.tagName === "SPAN" && el.textContent === "When High value and (At risk or Critical case)"
+      && !Array.from(el.children).some((c) => c.textContent === el.textContent))).toBeInTheDocument();
   });
 
   it("shows Always and Not set summaries on action rows", () => {
     const graph = makeGraph({ actions: [makeAction({ id: "a1" }), makeAction({ id: "a2", firesWhen: null })] });
     renderWithFluent(<GraphTree graph={graph} selection={null} handlers={handlers()} />);
     expect(screen.getByText("Always, when the rule runs")).toBeInTheDocument();
-    expect(screen.getByText("Not set: this action never fires.")).toBeInTheDocument();
+    expect(screen.getByText("Not set. This action never runs.")).toBeInTheDocument();
   });
 });

@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveAppId, createRuleFixture } from "./devHelpers";
-import { openRuleFromHub } from "./editorHarness";
+import { openRuleFromHub, unsavedCount } from "./editorHarness";
 
 // The unsaved-changes guard in a real browser: the Fluent discard dialog in front of in-app
 // navigation, the bypass (no double prompt after Discard), and the native beforeunload prompt
@@ -13,7 +13,7 @@ async function dirtyViaRename(frame: ReturnType<import("@playwright/test").Page[
   const nameBox = frame.getByRole("textbox", { name: "Rule name" });
   await nameBox.fill(newName);
   await nameBox.press("Enter");
-  await expect(frame.getByText("Unsaved changes")).toBeVisible();
+  await expect(unsavedCount(frame)).toBeVisible();
 }
 
 test("dirty: breadcrumb prompts; Cancel stays with edits; Discard navigates with no second native prompt", async ({ page }) => {
@@ -33,7 +33,7 @@ test("dirty: breadcrumb prompts; Cancel stays with edits; Discard navigates with
     await discardDialog.getByRole("button", { name: "Cancel" }).click();
     // exact: once opened, Fluent keeps the closed dialog mounted, and its title
     // "Discard unsaved changes?" substring-matches a bare "Unsaved changes".
-    await expect(frame.getByText("Unsaved changes", { exact: true })).toBeVisible(); // edits kept
+    await expect(unsavedCount(frame)).toBeVisible(); // edits kept
 
     await frame.getByRole("button", { name: "Rules", exact: true }).click();
     await expect(frame.getByRole("dialog")).toContainText("Discard unsaved changes?");

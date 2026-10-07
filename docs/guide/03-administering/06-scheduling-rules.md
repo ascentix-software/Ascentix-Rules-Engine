@@ -7,19 +7,19 @@ slug: scheduling-rules
 
 # Scheduling Rules
 
-A **Published**, **On demand** rule scoped to **All records that pass its execution
-conditions** can also run on a recurring schedule, instead of (or as well as) **Run
-now** (*Running Rules On Demand*). Scheduling starts or continues a **Rule Run**
-exactly the way Run now does — the same table read, the same execution-condition
+A **Published**, **On demand** rule scoped to **All records that match “Only if”**
+can also run on a recurring schedule, instead of (or as well as) **Apply to
+records** (*Running Rules On Demand*). Scheduling starts or continues a **Rule Run**
+exactly the way Apply to records does — the same table read, the same execution-condition
 gate, the same **Runs** dialog for history — the only difference is what starts it.
 
 ## Setting a schedule
 
 Open a Published rule that's On demand with **Runs for** set to **All records that
-pass its execution conditions** (*Running Rules On Demand*); a rule scoped to **A
-record it's given** can't be scheduled, since a schedule has no records to choose. The
-Rule Builder's properties panel then shows a **Schedule** section with a switch and,
-once it's On, a **Pattern**:
+match “Only if”** (*Running Rules On Demand*); a rule scoped to **Records it's given**
+can't be scheduled, since a schedule has no records to choose. The **On demand** card
+in the **When it runs** section of the rule settings then shows a **Schedule** with an
+**On** / **Off** switch and, once it's On, a pattern:
 
 - **Every N minutes** — N is 15, 30 or 45.
 - **Every N hours** — N is 1–23.
@@ -29,18 +29,18 @@ once it's On, a **Pattern**:
   end of a shorter month (the 31st in a 30-day month, or in February) clamps to that
   month's last day.
 
-A time of day is read in the rule's own **Time zone for dates** setting (*Editor
-Layout*'s properties panel; blank means UTC), the same zone the rule's date
-comparisons use. **Next run** and **Last run** (with its outcome) are shown below the
-pattern, both engine-owned: they're computed by the schedule plug-in and by
-`asx_StartDueSchedules`, never set from the Rule Builder, and clicking either opens the
-**Runs** dialog. Saving writes one `asx_ruleschedule` row for the rule (*Schema
-Reference*); a rule can have at most one. **Save** stays unavailable while the schedule
-is On and something in it is missing or invalid; the section says what.
+A time of day is read in the rule's own **Rule time zone** setting (the **Evaluation**
+section of the rule settings, see *Editor Layout*; UTC by default), the same zone the
+rule's date comparisons use. **Next** and **Last** (the last run's time, with its
+outcome) are shown below the pattern, both engine-owned: they're computed by the
+schedule plug-in and by `asx_StartDueSchedules`, never set from the Rule Builder. A
+**View runs** link below them opens the **Runs** dialog. Saving writes one
+`asx_ruleschedule` row for the rule (*Schema Reference*); a rule can have at most one.
+**Save** doesn't save while the schedule is On and something in it is missing or
+invalid; the section says what, and the **Issues** drawer points at it.
 
 A schedule never needs a draft or a publish. On a Published rule you haven't chosen
-**Edit rule** for, the rule's own fields are read-only but the **Schedule** section
-isn't: change it and **Save** writes only the schedule, and the published rule keeps
+**Edit rule** for, the rule's own fields are read-only but the **Schedule** isn't: change it and **Save** writes only the schedule, and the published rule keeps
 enforcing untouched. With a draft open, the schedule saves along with the draft, still
 against the published rule (a schedule always belongs to the published rule; one can't
 be attached to a draft row: "Schedules belong to the published rule."). A change to the
@@ -54,7 +54,7 @@ needs **Create**, **Read**, **Write** and **Append** on Rule Schedule, and **App
 on Rule. Like the run privileges (*Running Rules On Demand*), the shipped **Rules Engine
 Author** and **Reader** roles don't include these (*Security Roles*): an administrator
 grants them to whoever may schedule rules. Without Read on Rule Schedule, the Schedule
-section shows "You don't have access to rule schedules. Ask an administrator." instead
+shows "You don't have access to rule schedules. Ask an administrator." instead
 of its controls.
 
 ## Precision: within 15 minutes

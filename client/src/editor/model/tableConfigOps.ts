@@ -86,9 +86,9 @@ function referencedNodeIds(graph: RuleGraph): Set<string> {
 export function canDeleteNode(graph: RuleGraph, id: string): { ok: boolean; reason?: string } {
   const node = graph.tableConfigs[id];
   if (!node) return { ok: false, reason: "Node not found." };
-  if (node.tableConfigType === "RootTable") return { ok: false, reason: "The root node can't be deleted." };
-  if (childrenOf(graph.tableConfigs, id).length > 0) return { ok: false, reason: "Delete child nodes first." };
-  if (referencedNodeIds(graph).has(id)) return { ok: false, reason: "A condition or action references this node." };
+  if (node.tableConfigType === "RootTable") return { ok: false, reason: "The root table can't be deleted." };
+  if (childrenOf(graph.tableConfigs, id).length > 0) return { ok: false, reason: "Delete the tables under it first." };
+  if (referencedNodeIds(graph).has(id)) return { ok: false, reason: "Can't delete: a condition or action in this rule uses it." };
   return { ok: true };
 }
 
@@ -100,11 +100,13 @@ export function orphanedByRoot(graph: RuleGraph, newRootId: string): string[] {
 // Delete guard for the standalone config editor: structural guard first, then
 // block nodes any rule references (usedNodeIds is precomputed by loadConfigUsage).
 export function canDeleteConfigNode(
-  graph: RuleGraph, id: string, usedNodeIds: Set<string>,
+  graph: RuleGraph, id: string, usedNodeIds: Set<string>, rulesUsing?: number,
 ): { ok: boolean; reason?: string } {
   const base = canDeleteNode(graph, id);
   if (!base.ok) return base;
-  if (usedNodeIds.has(id)) return { ok: false, reason: "In use by a rule, can't delete." };
+  if (usedNodeIds.has(id)) {
+    return { ok: false, reason: rulesUsing ? `Can't delete: used by ${rulesUsing} rule${rulesUsing === 1 ? "" : "s"}.` : "Can't delete: used by a rule." };
+  }
   return { ok: true };
 }
 

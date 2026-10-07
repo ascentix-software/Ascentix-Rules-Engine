@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createZzRootConfig, addLookupNode, createRuleOnConfig, deleteRuleCascade } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, toolbar, toast } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The "Also apply to the previous <lookup node> when it changes" switch (ActionInspector.tsx),
@@ -45,10 +45,10 @@ test("Also apply to the previous switch: visible and saved only while the target
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
 
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
 
-    const typeBox = frame.getByRole("combobox", { name: "Action type" });
+    const typeBox = frame.getByRole("combobox", { name: "Type", exact: true });
     await typeBox.click();
     await frame.getByRole("option", { name: CHOICE.actionType.updateRecord, exact: true }).click();
 
@@ -62,7 +62,7 @@ test("Also apply to the previous switch: visible and saved only while the target
     await applySwitch.check();
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     let action = await actionOf(rule.ruleId);
     expect(action.asx_applytoprevious).toBe(true);
@@ -80,7 +80,7 @@ test("Also apply to the previous switch: visible and saved only while the target
     await expect(frame.getByRole("switch", { name: /Also apply to the previous/ })).toHaveCount(0);
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     action = await actionOf(rule.ruleId);
     expect(action.asx_applytoprevious).toBe(false);

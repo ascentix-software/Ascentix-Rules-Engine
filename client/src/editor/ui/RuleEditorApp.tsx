@@ -1,29 +1,24 @@
 import * as React from "react";
-import {
-  Button,
-  Input,
-  Dialog, DialogSurface, DialogBody, DialogTitle, DialogContent, DialogActions,
-} from "@fluentui/react-components";
-import { Edit16Regular, Play16Regular, History16Regular } from "@fluentui/react-icons";
+import { Button } from "@fluentui/react-components";
+import { ErrorCircle20Regular, History20Regular, Warning20Regular, Dismiss16Regular } from "@fluentui/react-icons";
 import { AppProvider } from "./AppProvider";
 import { formatError, isPrivilegeDeniedError } from "./errors";
 import { ScreenShell } from "./ScreenShell";
 import type {
   RuleGraph, Selection, RuleHeader, ConditionGroupNode, ConditionNode, ActionNode,
 } from "../model/types";
-import type { EditorApi, ApiIssue } from "../webapi";
+import type { EditorApi } from "../webapi";
 import { reconcileAutoNames, seedManualNames, nextManualSet } from "../model/autoName";
 import { deriveGroupName, deriveConditionName } from "./labels";
 import { flattenGroups, flattenConditions } from "../model/tree";
 import {
   patchRule, addAction, updateAction, deleteAction, moveAction,
   addGroup, updateGroup, deleteGroup, addCondition, updateCondition, deleteCondition,
-  addTranslation, updateTranslation, removeTranslation, addOutcome,
+  addTranslation, updateTranslation, removeTranslation, addOutcome, duplicateCondition, duplicateGroup, duplicateAction,
 } from "../model/reducer";
-import { flattenForDisplay } from "../model/tableConfigOps";
-import {
-  NodeTag, TitleActionsRow, Eyebrow, UnsavedPill, Callout,
-} from "./primitives";
+import { NoticeBar, InfoTip } from "./primitives";
+import { RuleSettingsStrip, DataModelChip } from "./RuleSettingsStrip";
+import { ENTITY, LOOKUP } from "../load/odata";
 import { Breadcrumb } from "./Breadcrumb";
 import { navigate } from "./router";
 import { useUnsavedGuard } from "./useUnsavedGuard";
@@ -35,28 +30,34 @@ import { saveRuleGraph, type SaveResult } from "../save/index";
 import { GraphTree, type GraphTreeHandlers } from "./GraphTree";
 import { InspectorShell } from "./InspectorShell";
 import { ruleEditorInspectorContent, IssueCallout } from "./inspectors/ruleEditorInspectorContent";
-import { StatusBadge } from "./primitives";
-import { triggerLabel, channelLabel } from "../model/enums";
-import { ValidationIssuesPanel } from "./ValidationIssuesPanel";
-import { useChoiceLabel } from "./useSystemChoices";
-import { SYSTEM_CHOICE } from "./choiceLabels";
-import { useEditorStyles } from "./styles";
 import { useIsWide } from "./useIsWide";
 import { color } from "./tokens";
 import { useEditHistory } from "./useEditHistory";
 import { recoveryKey, useRuleRecovery } from "./useRuleRecovery";
 import { ReviewChangesDialog } from "./ReviewChangesDialog";
+import { DialogShell } from "./DialogShell";
 import { reserveTempIds } from "../model/ids";
 import { loadPublishedGraph } from "../load/publishedGraph";
-import { canRunNow, RunNowDialog } from "../runs/RunNowDialog";
+import { RunDialog } from "../runs/RunDialog";
 import { RunsDialog } from "../runs/RunsDialog";
-import { TestRunDialog } from "../runs/TestRunDialog";
-import { executionConditionNames } from "../runs/runsData";
 import type { RuleSchedule } from "../schedule/scheduleModel";
 import { emptySchedule, scheduleApplies, validateSchedule } from "../schedule/scheduleModel";
 import { loadRuleSchedule, diffSchedule } from "../schedule/scheduleData";
 import { useDataUpdates } from "../dataUpdates/DataUpdateContext";
 import { DataUpdateBanner } from "../dataUpdates/DataUpdateBanner";
+import { hintIssues } from "../validation";
+import { useNotify } from "./notify";
+import { useIssues, type Issue, type IssueCheck } from "./useIssues";
+import { IssuesButton } from "./issues/IssuesButton";
+import { IssuesDrawer, IssuesLiveRegion, scrollToElement } from "./issues/IssuesDrawer";
+import { RuleHeader as RuleHeaderBar, type HeaderPrimary } from "./header/RuleHeader";
+import { RunMenuButton } from "./header/RunMenuButton";
+import { RuleOverflowMenu } from "./header/RuleOverflowMenu";
+import { PublishDialog } from "./header/PublishDialog";
+import { formatPublished } from "./header/LifecycleStatus";
+import {
+  deriveLifecycle, dirtyCount as countDirty, canApply, changesSince, PUBLISHED,
+} from "./header/lifecycle";
 
 const clone = (g: RuleGraph): RuleGraph => JSON.parse(JSON.stringify(g));
 // Deterministic-enough unique ids for batch/changeset boundaries.
@@ -67,24 +68,30 @@ function nextIds() {
   return { batchId: `b${stamp}`, changesetId: `c${stamp}` };
 }
 
-function PropCell({ label, value, bold, first }: { label: string; value: string; bold?: boolean; first?: boolean }) {
-  return (
-    <span style={{
-      display: "flex", flexDirection: "column", gap: 1,
-      padding: first ? "0 22px 0 0" : "0 22px",
-      borderLeft: first ? undefined : `1px solid ${color.line}`,
-    }}>
-      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: color.inkMuted }}>{label}</span>
-      <span style={{ fontSize: 13, color: color.ink, fontWeight: bold ? 600 : 400 }}>{value}</span>
-    </span>
-  );
-}
-
 function findGroupById(graph: RuleGraph, id: string): ConditionGroupNode | undefined {
   return flattenGroups([...graph.executionGroups, ...graph.validationGroups]).find((x) => x.group.id === id)?.group;
 }
 function findConditionById(graph: RuleGraph, id: string): ConditionNode | undefined {
   return flattenConditions([...graph.executionGroups, ...graph.validationGroups]).find((x) => x.condition.id === id)?.condition;
+}
+function selectionExists(graph: RuleGraph, sel: Selection): boolean {
+  if (!sel || sel.kind === "rule" || sel.kind === "node") return true;
+  if (sel.kind === "group") return !!findGroupById(graph, sel.id);
+  if (sel.kind === "condition") return !!findConditionById(graph, sel.id);
+  return graph.actions.some((a) => a.id === sel.id);
+}
+
+/** A save failure that stays under the header until dismissed or the next successful save. */
+interface SaveError { lead: string; text: string; conflict: boolean; retry?: () => void }
+
+const CONFLICT = /412|precondition|etag|concurren|changed by another|modified by another/i;
+
+function isTypingTarget(t: EventTarget | null): boolean {
+  const el = t as HTMLElement | null;
+  if (!el || !el.tagName) return false;
+  const tag = el.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable
+    || el.getAttribute("role") === "combobox" || el.getAttribute("role") === "textbox";
 }
 
 export function RuleEditorApp({
@@ -108,29 +115,31 @@ export function RuleEditorApp({
   workingRef.current = working;
   const [selection, setSelection] = React.useState<Selection>({ kind: "rule" });
   const [busy, setBusy] = React.useState(false);
-  const published = serverStatus === 753840000;
+  const published = serverStatus === PUBLISHED;
   const [reviewOpen, setReviewOpen] = React.useState(false);
   const [publishedView, setPublishedView] = React.useState<RuleGraph | null>(null);
   const [restoreOpen, setRestoreOpen] = React.useState(false);
   const displayed = publishedView ?? working;
-  const [banner, setBanner] = React.useState<{ intent: "success" | "error" | "warning"; text: string } | null>(null);
-  const [renaming, setRenaming] = React.useState(false);
-  const [nameDraft, setNameDraft] = React.useState("");
+  const [saveError, setSaveError] = React.useState<SaveError | null>(null);
   const [panelOpen, setPanelOpen] = React.useState(false);
   const [unpublishOpen, setUnpublishOpen] = React.useState(false);
   // An outcome some action tests, waiting on the delete confirmation.
   const [outcomeToDelete, setOutcomeToDelete] = React.useState<string | null>(null);
-  const [runNowRule, setRunNowRule] = React.useState<{
-    id: string; name: string; table: string; scope: number; executionConditions: string[];
-  } | null>(null);
+  // The Run dialog's open tab, or null when it's closed.
+  const [runTab, setRunTab] = React.useState<"preview" | "apply" | null>(null);
   const [loadingRunNow, setLoadingRunNow] = React.useState(false);
   const [runsOpen, setRunsOpen] = React.useState(false);
-  const [testOpen, setTestOpen] = React.useState(false);
-  const [publishedTriggers, setPublishedTriggers] = React.useState<number[] | null>(null);
-  const [validationResult, setValidationResult] = React.useState<{
-    isValid: boolean; issues: ApiIssue[]; draftHash?: string;
-  } | null>(null);
-  const cancelledRef = React.useRef(false);
+  // The live revision, loaded once per published revision: Run actions follow its triggers, and
+  // Publish… compares the draft against it.
+  const [publishedGraph, setPublishedGraph] = React.useState<RuleGraph | null>(null);
+  // The last server check. Kept (not cleared) when the graph changes; useIssues marks it stale.
+  const [check, setCheck] = React.useState<IssueCheck | null>(null);
+  const [issuesOpen, setIssuesOpen] = React.useState(false);
+  const [currentIssueId, setCurrentIssueId] = React.useState<string | null>(null);
+  const [publishStage, setPublishStage] = React.useState<"idle" | "checking" | "open" | "publishing">("idle");
+  const [changesSinceOpen, setChangesSinceOpen] = React.useState(false);
+  const [checking, setChecking] = React.useState(false);
+  const notify = useNotify();
   // The rule's asx_ruleschedule row: loaded/saved against the ACTIVE (published) rule id, same
   // as Run now/Runs above, never a draft's own id (RuleSchedulePlugin resolves the draft itself
   // when checking runnability). null means the rule has no schedule (yet). scheduleSnapshot is
@@ -148,8 +157,6 @@ export function RuleEditorApp({
   // edits — only the first qualification per rule id loads automatically; see the load effect below.
   const loadedScheduleRuleIdRef = React.useRef<string | null>(null);
 
-  const labelFor = useChoiceLabel();
-  const styles = useEditorStyles();
   const wide = useIsWide(1000);
   React.useEffect(() => { if (wide) setPanelOpen(false); }, [wide]);
   const titleStacked = !useIsWide(720);
@@ -166,20 +173,18 @@ export function RuleEditorApp({
   const scheduleOps = scheduleStatus === "ok" && (scheduleAppliesNow || scheduleStoppedApplying)
     ? diffSchedule(scheduleSnapshot, schedule, scheduleRuleId, scheduleAppliesNow) : [];
   const scheduleError = scheduleAppliesNow && schedule?.on ? validateSchedule(schedule) : null;
-  // scheduleError disables Save/Validate everywhere (canSave, below), but the message itself only
-  // lives in the Schedule section's own panel; this surfaces it next to the buttons themselves so
-  // it's visible with any other panel selected too.
-  const scheduleSaveBlockReason = scheduleError ? `Fix the schedule before saving: ${scheduleError}` : null;
-  const graphDirty = JSON.stringify(snapshot) !== JSON.stringify(working);
+  const graphDirty = React.useMemo(() => JSON.stringify(snapshot) !== JSON.stringify(working), [snapshot, working]);
   const dirty = graphDirty || scheduleOps.length > 0;
   const recovery = useRuleRecovery(recoveryKey(api.getClientUrl?.() ?? window.location.origin, initialGraph.rule.activeRuleId ?? initialGraph.rule.id), snapshot, working);
-  const needsDraft = (published || !!working.rule.publishedRevisionId) && !working.rule.activeRuleId;
+  const everPublished = published || !!working.rule.publishedRevisionId;
+  const needsDraft = everPublished && !working.rule.activeRuleId;
   const updateLocked = useDataUpdates().readOnly;
   const editable = !publishedView && !busy && !recovery.pending && !needsDraft && !updateLocked;
   // A schedule never needs a publish: on a published rule that isn't being edited, the Schedule
   // section stays editable (the rule's own fields don't) and Save sends only its ops.
   const scheduleEditable = !publishedView && !busy && !recovery.pending && scheduleStatus === "ok" && !updateLocked;
-  const canSave = !scheduleError && (editable ? dirty : scheduleEditable && needsDraft && !graphDirty && scheduleOps.length > 0);
+  // A schedule error doesn't disable Save: Save then sends nothing and opens the issues drawer.
+  const canSave = editable ? dirty : scheduleEditable && needsDraft && !graphDirty && scheduleOps.length > 0;
   const setWorking: React.Dispatch<React.SetStateAction<RuleGraph>> = (value) => {
     if (editable) history.set(value);
   };
@@ -194,19 +199,38 @@ export function RuleEditorApp({
     setManual(names);
   }, [working, resolve]);
 
+  // Keep the selection across undo/redo and edits; fall back to the rule only when the selected
+  // item no longer exists.
+  React.useEffect(() => {
+    if (!selectionExists(displayed, selection)) setSelection({ kind: "rule" });
+  }, [displayed, selection]);
+
+  const dirtyCount = React.useMemo(
+    () => countDirty(snapshot, working, scheduleOps.length),
+    // scheduleOps is rebuilt each render; its length is what counts.
+    [snapshot, working, scheduleOps.length],
+  );
+  const lifecycle = deriveLifecycle({
+    serverStatus, rule: working.rule, needsDraft, viewingPublished: !!publishedView, dirtyCount,
+  });
+  const version = working.rule.publishedVersion ?? 0;
+
+  // The schedule's own error, surfaced through the issues drawer (target kind "schedule").
+  const scheduleIssues = React.useMemo<Issue[]>(() => scheduleError ? [{
+    id: "schedule", severity: "Error", code: "SCHEDULE_INVALID", message: scheduleError,
+    target: { kind: "schedule", id: working.rule.id, field: "Schedule" },
+    path: "Schedule", stale: false, source: "client",
+  }] : [], [scheduleError, working.rule.id]);
+  const issues = useIssues(publishedView ?? working, publishedView ? null : check, { extra: publishedView ? undefined : scheduleIssues });
+
   function restoreRecovery() {
     if (!recovery.pending) return;
     reserveTempIds(recovery.pending.working);
     setSnapshot(recovery.pending.snapshot);
     history.reset(recovery.pending.working);
     recovery.dismiss();
-    setBanner({ intent: "warning", text: "Recovered unsaved edits. They have not been saved. If the rule changed elsewhere, review and copy your changes before reloading." });
+    notify.success("Unsaved edits restored");
   }
-
-  // Invalidate stale validation result whenever the working graph changes after a validate.
-  React.useEffect(() => {
-    setValidationResult(null);
-  }, [working]);
 
   // Load the schedule next to the graph, only the first time a rule qualifies (per scheduleRuleId)
   // in this session: moving a rule out of On demand + All records and back in must not reload and
@@ -275,6 +299,30 @@ export function RuleEditorApp({
     setManual(next);
   }
 
+  // Selects an issue's target, scrolls its row into view and focuses the first invalid field.
+  function goToIssue(issue: Issue) {
+    setCurrentIssueId(issue.id);
+    const t = issue.target;
+    if (t.kind === "condition" || t.kind === "group" || t.kind === "action") setSelection({ kind: t.kind, id: t.id });
+    else if (t.kind === "rule" || t.kind === "schedule") {
+      try { sessionStorage.setItem("asx.inspector.when", "1"); } catch { /* storage unavailable */ }
+      setSelection({ kind: "rule" });
+      if (!wide) setPanelOpen(true);
+    }
+    requestAnimationFrame(() => {
+      const row = document.querySelector<HTMLElement>(`[data-select-id="${CSS.escape(t.id)}"]`);
+      if (row) scrollToElement(row);
+      const panel = document.querySelector<HTMLElement>("[data-testid=inspector-body]") ?? document;
+      const invalid = panel.querySelector<HTMLElement>("[aria-invalid=true]");
+      (invalid ?? document.querySelector<HTMLElement>("[data-testid=inspector-heading]"))?.focus();
+    });
+  }
+
+  function openIssue(issue: Issue) {
+    setIssuesOpen(true);
+    goToIssue(issue);
+  }
+
   const handlers: GraphTreeHandlers = {
     onSelect: setSelection,
     onAddGroup: (bucket, parentGroupId) => setWorking((g) => recon(addGroup(g, bucket, parentGroupId))),
@@ -282,17 +330,50 @@ export function RuleEditorApp({
       // An outcome that actions test asks first; deleteGroup then prunes those tests.
       const current = workingRef.current;
       if (isOutcome(current, id) && actionsUsingOutcome(current, id).length > 0) { setOutcomeToDelete(id); return; }
+      const thing = isOutcome(current, id) ? "Outcome" : "Group";
       setWorking((g) => recon(deleteGroup(g, id))); setSelection({ kind: "rule" });
+      notify.undo(`${thing} deleted`, () => history.undo());
     },
     onAddOutcome: () => setWorking((g) => recon(addOutcome(g))),
     onAddCondition: (groupId) => setWorking((g) => recon(addCondition(g, groupId))),
-    onDeleteCondition: (id) => { setWorking((g) => recon(deleteCondition(g, id))); setSelection({ kind: "rule" }); },
+    onDeleteCondition: (id) => {
+      setWorking((g) => recon(deleteCondition(g, id))); setSelection({ kind: "rule" });
+      notify.undo("Condition deleted", () => history.undo());
+    },
     onAddAction: () => setWorking((g) => addAction(g)),
-    onDeleteAction: (id) => { setWorking((g) => deleteAction(g, id)); setSelection({ kind: "rule" }); },
+    onDeleteAction: (id) => {
+      setWorking((g) => deleteAction(g, id)); setSelection({ kind: "rule" });
+      notify.undo("Action deleted", () => history.undo());
+    },
     onMoveAction: (id, dir) => setWorking((g) => moveAction(g, id, dir)),
+    onDuplicateCondition: (id) => setWorking((g) => recon(duplicateCondition(g, id))),
+    onDuplicateGroup: (id) => setWorking((g) => recon(duplicateGroup(g, id))),
+    onSetGroupMatch: (id, op) => setWorking((g) => recon(updateGroup(g, id, { logicalOperator: op }))),
+    onRenameGroup: (id) => {
+      setSelection({ kind: "group", id });
+      if (!wide) setPanelOpen(true);
+      // The name is the inspector's first field once the group's panel renders.
+      requestAnimationFrame(() => document.querySelector<HTMLInputElement>("[data-testid=inspector-body] input")?.focus());
+    },
+    onOpenIssue: openIssue,
   };
 
-  async function acceptFresh(fresh: RuleGraph) {
+  // Ctrl+Z / Ctrl+Y (and Ctrl+Shift+Z) while focus isn't in a text input.
+  const canUndo = editable && history.canUndo;
+  const canRedo = editable && history.canRedo;
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || isTypingTarget(e.target)) return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey && canUndo) { e.preventDefault(); history.undo(); }
+      else if ((k === "y" || (k === "z" && e.shiftKey)) && canRedo) { e.preventDefault(); history.redo(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [canUndo, canRedo, history]);
+
+  /** Accepts a fresh server graph and returns the reconciled graph the editor now holds. */
+  async function acceptFresh(fresh: RuleGraph): Promise<RuleGraph> {
     const vl = await loadValueLabels(fresh);
     setValueLabels(vl);
     const resolver = makeValueLabelResolver(vl);
@@ -302,13 +383,23 @@ export function RuleEditorApp({
     const graph = reconcileAutoNames(clone(fresh), names, resolver);
     setSnapshot(graph);
     history.reset(clone(graph));
+    workingRef.current = graph;
     setServerStatus(fresh.rule.statusCode);
-    setSelection({ kind: "rule" });
+    return graph;
   }
 
-  function reportSaveFailure(result: SaveResult): boolean {
+  function showSaveError(message: string, retry?: () => void) {
+    const conflict = CONFLICT.test(message);
+    setSaveError({
+      lead: "Couldn't save.",
+      text: conflict ? "Someone else changed this rule. Your edits are still here." : message,
+      conflict, retry,
+    });
+  }
+
+  function reportSaveFailure(result: SaveResult, retry?: () => void): boolean {
     if (result.status === "error") {
-      setBanner({ intent: "error", text: `Save failed: ${result.message ?? "unknown error"}` });
+      showSaveError(result.message ?? "Unknown error.", retry);
       return true;
     }
     return false;
@@ -321,23 +412,35 @@ export function RuleEditorApp({
   }
 
   // Reloads the graph and then the schedule, e.g. after a save.
-  async function refreshAfterSave() {
+  async function refreshAfterSave(): Promise<RuleGraph> {
     const fresh = await reload();
-    await acceptFresh(fresh);
+    const graph = await acceptFresh(fresh);
     await reloadSchedule(fresh.rule);
+    return graph;
+  }
+
+  /** Points the issues drawer at the schedule error; returns true when one blocks the save. */
+  function blockOnScheduleError(): boolean {
+    if (!scheduleError) return false;
+    setIssuesOpen(true);
+    goToIssue(scheduleIssues[0]);
+    return true;
   }
 
   async function onSave() {
-    if (!canSave) return;
+    if (!canSave || busy) return;
+    if (blockOnScheduleError()) return;
     setBusy(true);
-    setBanner(null);
     try {
       const result = await performSave();
-      if (reportSaveFailure(result)) return;
-      if (result.status === "saved") await refreshAfterSave();
-      setBanner({ intent: "success", text: result.status === "noop" ? "Nothing to save." : "Saved." });
+      if (reportSaveFailure(result, onSave)) return;
+      setSaveError(null);
+      if (result.status === "saved") {
+        await refreshAfterSave();
+        notify.success("Saved");
+      }
     } catch (e) {
-      setBanner({ intent: "error", text: `Save or refresh failed: ${formatError(e)}. Your local edits are retained; review them before reloading.` });
+      showSaveError(`${formatError(e)}. Your local edits are retained; review them before reloading.`, onSave);
     } finally { setBusy(false); }
   }
 
@@ -347,115 +450,153 @@ export function RuleEditorApp({
       const fresh = await reload();
       await acceptFresh(fresh);
       await reloadSchedule(fresh.rule);
-      setBanner(null);
+      setSaveError(null);
     } catch (e) {
-      setBanner({ intent: "error", text: `Reload failed: ${formatError(e)}` });
+      showSaveError(`Reload failed: ${formatError(e)}`);
     } finally { setBusy(false); }
   }
 
-  async function onValidate() {
-    if (busy || recovery.pending || publishedView || (dirty && scheduleError)) return;
+  /**
+   * The shared save + server check behind Publish… and Check for issues. Returns the
+   * check (or null when the save failed); the editor keeps it and useIssues marks it
+   * stale once the graph changes.
+   */
+  async function saveAndCheck(): Promise<{ isValid: boolean; check: IssueCheck; graph: RuleGraph } | null> {
+    let graph = workingRef.current;
+    if (dirty) {
+      const result = await performSave();
+      if (reportSaveFailure(result)) return null;
+      setSaveError(null);
+      if (result.status === "saved") graph = await refreshAfterSave();
+    }
+    const result = await api.validateRule(graph.rule.id);
+    const next: IssueCheck = { issues: result.issues, graphJson: JSON.stringify(graph), checkedAt: new Date() };
+    setCheck(next);
+    return { isValid: result.isValid, check: next, graph };
+  }
+
+  async function onCheckIssues() {
+    if (busy || recovery.pending || publishedView) return;
+    if (blockOnScheduleError()) return;
     setBusy(true);
-    setBanner(null);
+    setChecking(true);
     try {
-      if (dirty) {
-        const result = await performSave();
-        if (reportSaveFailure(result)) return;
-        if (result.status === "saved") await refreshAfterSave();
-      }
-      const result = await api.validateRule(working.rule.id);
-      setValidationResult(result);
-      setBanner(result.isValid
-        ? { intent: "success", text: "Validation passed. The rule is valid." }
-        : { intent: "warning", text: `Validation found ${result.issues.length} issue${result.issues.length === 1 ? "" : "s"}.` });
+      const done = await saveAndCheck();
+      if (!done) return;
+      if (done.check.issues.length === 0 && hintIssues(done.graph).length === 0) {
+        setIssuesOpen(false);
+        notify.success("No issues found");
+      } else setIssuesOpen(true);
     } catch (e) {
-      setBanner({ intent: "error", text: `Validate failed: ${formatError(e)}` });
+      showSaveError(`Check failed: ${formatError(e)}`);
+    } finally { setBusy(false); setChecking(false); }
+  }
+
+  async function onPublishClick() {
+    if (busy || recovery.pending || publishedView || updateLocked) return;
+    if (blockOnScheduleError()) return;
+    setBusy(true);
+    setPublishStage("checking");
+    try {
+      const done = await saveAndCheck();
+      setPublishStage(done ? "open" : "idle");
+    } catch (e) {
+      setPublishStage("idle");
+      showSaveError(`Check failed: ${formatError(e)}`);
     } finally { setBusy(false); }
   }
 
-  async function onPublish() {
-    if (!editable || dirty || !validationResult?.isValid) return;
+  async function onConfirmPublish() {
+    setPublishStage("publishing");
     setBusy(true);
-    setBanner(null);
+    const next = version + 1;
     try {
       await api.publishRule(working.rule.id);
-      setServerStatus(753840000);
+      setServerStatus(PUBLISHED);
       await acceptFresh(await reload());
-      setBanner({ intent: "success", text: "Rule published successfully." });
+      setPublishStage("idle");
+      notify.success(`v${next} is live`, { label: "View runs", onClick: () => setRunsOpen(true) });
     } catch (e) {
-      setBanner({ intent: "error", text: `Publish failed: ${formatError(e)}` });
+      setPublishStage("idle");
+      showSaveError(`Publish failed: ${formatError(e)}`);
     } finally { setBusy(false); }
   }
 
   async function onEdit() {
     if (busy || !api.openRuleDraft) return;
     setBusy(true);
-    setBanner(null);
     try {
       await api.openRuleDraft(working.rule.id);
       await acceptFresh(await reload());
-    } catch (e) { setBanner({ intent: "error", text: `Could not open the draft: ${formatError(e)}` }); }
+    } catch (e) { showSaveError(`Could not open the draft: ${formatError(e)}`); }
     finally { setBusy(false); }
   }
 
   async function onViewPublished() {
-    if (publishedView) { setPublishedView(null); setSelection({ kind: "rule" }); return; }
+    if (publishedView) { setPublishedView(null); return; }
     if (!api.readPublishedRule) return;
     setBusy(true);
     try {
       const id = working.rule.activeRuleId ?? working.rule.id;
       setPublishedView(await loadPublishedGraph(await api.readPublishedRule(id), id));
-      setSelection({ kind: "rule" });
-    } catch (e) { setBanner({ intent: "error", text: `Could not load the published revision: ${formatError(e)}` }); }
+    } catch (e) { showSaveError(`Could not load the published revision: ${formatError(e)}`); }
     finally { setBusy(false); }
   }
 
-  // The Run now dialog must describe what actually runs — the PUBLISHED definition,
-  // not the draft being edited — so load it the same way "View published" (onViewPublished,
-  // above) does; fall back to the working graph if that load fails (or the port can't read
-  // published rules). Also uses activeRuleId, the rule id the run itself must be created
-  // against: RuleRunPlugin/OnDemandRules.Resolve only resolve Published rules, and while a
-  // draft is open working.rule.id is the DRAFT's id, not the published one.
-  // Run now is offered from the PUBLISHED triggers, as the hub does: with a draft open, the
-  // draft's triggers may not be what's enforced (it can add or drop On demand). Loaded once
-  // per published revision; until it loads, or if it can't, the published view (when shown)
-  // or the working graph stands in. Without a draft, the working graph is the published one.
+  // Run actions are offered from the PUBLISHED revision, as the hub does: with a draft open, the
+  // draft's triggers may not be what's enforced (it can add or drop On demand). Loaded once per
+  // published revision; until it loads, or if it can't, the published view (when shown) or the
+  // working graph stands in. Without a draft, the working graph is the published one.
   const activeRuleId = working.rule.activeRuleId;
   const publishedRevisionId = working.rule.publishedRevisionId;
   React.useEffect(() => {
-    setPublishedTriggers(null);
+    setPublishedGraph(null);
     const read = api.readPublishedRule;
     if (!activeRuleId || !(published || publishedRevisionId) || !read) return;
     let live = true;
     (async () => {
       try {
         const graph = await loadPublishedGraph(await read(activeRuleId), activeRuleId);
-        if (live) setPublishedTriggers(graph.rule.triggers);
+        if (live) setPublishedGraph(graph);
       } catch {
         // keep the fallback below
       }
     })();
     return () => { live = false; };
   }, [api, activeRuleId, publishedRevisionId, published]);
-  const runNowTriggers = publishedTriggers ?? publishedView?.rule.triggers ?? working.rule.triggers;
+  // "shared by {k} rules" in the data-model popover: active rules whose root is this model.
+  const rootConfigId = working.rule.rootTableConfigId;
+  const [sharedBy, setSharedBy] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    setSharedBy(null);
+    if (!rootConfigId || !api.retrieveMultipleRecords) return;
+    let live = true;
+    api.retrieveMultipleRecords(ENTITY.rule,
+      `?$select=asx_ruleid&$filter=${LOOKUP.ruleOfTableConfig} eq ${rootConfigId} and _asx_draftof_value eq null`)
+      .then((r) => { if (live) setSharedBy(r.entities.length); })
+      .catch(() => { /* leave the count out */ });
+    return () => { live = false; };
+  }, [api, rootConfigId]);
+  const liveGraph = publishedGraph ?? publishedView ?? (activeRuleId ? null : working);
+  const runNowTriggers = liveGraph?.rule.triggers ?? working.rule.triggers;
 
-  async function onOpenRunNow() {
-    setLoadingRunNow(true);
+  // The Run dialog must describe what actually runs — the PUBLISHED definition, not the draft
+  // being edited — so while a draft is open, load it the same way "View published"
+  // (onViewPublished, above) does. The run itself is created against activeRuleId:
+  // RuleRunPlugin/OnDemandRules.Resolve only resolve Published rules, and while a draft is open
+  // working.rule.id is the DRAFT's id, not the published one.
+  async function onOpenRun(tab: "preview" | "apply") {
     const activeId = working.rule.activeRuleId ?? working.rule.id;
-    let scope = working.rule.onDemandScope ?? 1;
-    let executionConditions = executionConditionNames(displayed);
-    try {
-      if (api.readPublishedRule) {
-        const publishedGraph = await loadPublishedGraph(await api.readPublishedRule(activeId), activeId);
-        scope = publishedGraph.rule.onDemandScope ?? 1;
-        executionConditions = executionConditionNames(publishedGraph);
-        if (working.rule.activeRuleId) setPublishedTriggers(publishedGraph.rule.triggers);
+    if (working.rule.activeRuleId && !publishedGraph && api.readPublishedRule) {
+      setLoadingRunNow(true);
+      try {
+        setPublishedGraph(await loadPublishedGraph(await api.readPublishedRule(activeId), activeId));
+      } catch {
+        // The dialog falls back to the draft's definition.
       }
-    } catch {
-      // fall back to the working graph's values already assigned above
+      setLoadingRunNow(false);
     }
-    setRunNowRule({ id: activeId, name: working.rule.name, table: working.rule.tableLogicalName, scope, executionConditions });
-    setLoadingRunNow(false);
+    setRunTab(tab);
   }
 
   async function onRestoreDraft() {
@@ -465,8 +606,8 @@ export function RuleEditorApp({
     try {
       await api.restoreRuleDraft(working.rule.id);
       await acceptFresh(await reload());
-      setBanner({ intent: "success", text: "Draft restored from the published revision. A private data-model copy was created. Published enforcement is unchanged." });
-    } catch (e) { setBanner({ intent: "error", text: `Restore failed: ${formatError(e)}. Your local edits are retained.` }); }
+      notify.success(`Draft restored from v${version}`);
+    } catch (e) { showSaveError(`Restore failed: ${formatError(e)}. Your local edits are retained.`); }
     finally { setBusy(false); }
   }
 
@@ -474,7 +615,6 @@ export function RuleEditorApp({
     setUnpublishOpen(false);
     if (busy || recovery.pending || !published) return;
     setBusy(true);
-    setBanner(null);
     const pending = clone(workingRef.current);
     try {
       await api.unpublishRule(working.rule.activeRuleId ?? working.rule.id);
@@ -487,28 +627,28 @@ export function RuleEditorApp({
       } else {
         await acceptFresh(fresh);
       }
-      setBanner({ intent: "success", text: dirty
-        ? "Rule unpublished. Enforcement has stopped. Your unsaved edits are preserved; review and save them before publishing again."
-        : "Rule unpublished. It is back to Draft and no longer enforced." });
+      notify.success(`Unpublished. ${working.rule.name || "The rule"} is no longer enforced.`);
     } catch (e) {
-      setBanner({ intent: "error", text: `Unpublish or refresh failed: ${formatError(e)}. Your local edits are retained. Reload to confirm the current status.` });
+      showSaveError(`Unpublish or refresh failed: ${formatError(e)}. Your local edits are retained. Reload to confirm the current status.`);
     } finally { setBusy(false); }
   }
 
-  // Build a map of issues by target id for inline rendering.
-  const issuesByTargetId = React.useMemo<Map<string, ApiIssue[]>>(() => {
-    if (!validationResult) return new Map();
-    const m = new Map<string, ApiIssue[]>();
-    for (const issue of validationResult.issues) {
-      const key = issue.target.id;
-      const list = m.get(key) ?? [];
-      list.push(issue);
-      m.set(key, list);
-    }
-    return m;
-  }, [validationResult]);
-
   const inspectorHandlers = {
+    onSelect: setSelection,
+    isManualName: (id: string) => manual.has(id),
+    ...(editable ? {
+      onDuplicate: (kind: "condition" | "group" | "action", id: string) => {
+        if (kind === "condition") handlers.onDuplicateCondition!(id);
+        else if (kind === "group") handlers.onDuplicateGroup!(id);
+        else setWorking((g) => duplicateAction(g, id));
+      },
+      onDelete: (kind: "condition" | "group" | "action", id: string) => {
+        if (kind === "condition") handlers.onDeleteCondition(id);
+        else if (kind === "group") handlers.onDeleteGroup(id);
+        else handlers.onDeleteAction(id);
+      },
+      onMoveAction: handlers.onMoveAction,
+    } : {}),
     onPatchRule: (patch: Partial<RuleHeader>) => setWorking((g) => patchRule(g, patch)),
     onPatchGroup: (id: string, patch: Partial<ConditionGroupNode>) => {
       if ("name" in patch) applyNamePatch("group", id, patch.name ?? "");
@@ -538,169 +678,118 @@ export function RuleEditorApp({
     {content.body}
   </fieldset>;
   const selectedId = !!selection && (selection.kind === "group" || selection.kind === "condition" || selection.kind === "action") ? selection.id : undefined;
-  const panelIssues = selectedId ? <IssueCallout issues={issuesByTargetId?.get(selectedId) ?? []} /> : undefined;
+  const panelIssues = selectedId ? <IssueCallout issues={issues.byTarget.get(selectedId) ?? []} /> : undefined;
+
+  // ---- header ----
+  const readOnlyView = lifecycle.kind === "liveReadOnly" || lifecycle.kind === "viewingPublished" || lifecycle.kind === "archived";
+  const draftState = lifecycle.kind === "draftOfLive" || lifecycle.kind === "newDraft";
+  const primary: HeaderPrimary | null =
+    lifecycle.kind === "viewingPublished" ? { kind: "backToDraft", onClick: onViewPublished, disabled: busy }
+    : lifecycle.kind === "liveReadOnly" ? (!updateLocked && api.openRuleDraft ? { kind: "edit", onClick: onEdit, disabled: busy } : null)
+    : draftState && !updateLocked ? { kind: "publish", onClick: onPublishClick, busy: publishStage === "checking", disabled: busy || !!recovery.pending }
+    : null;
+  // Save shows in draft states, and on a live rule without a draft only to send schedule edits.
+  const showSave = !updateLocked && !publishedView && (draftState || (needsDraft && scheduleOps.length > 0));
+  // Preview runs the live version (asx_RunRules can't evaluate a draft yet), so a rule that was
+  // never published has nothing to run.
+  const run = !publishedView && everPublished ? (
+    <RunMenuButton everPublished={everPublished} version={version}
+      applyAvailable={canApply(published, runNowTriggers)}
+      disabled={busy || loadingRunNow}
+      onPreview={() => void onOpenRun("preview")} onApply={() => void onOpenRun("apply")} onViewRuns={() => setRunsOpen(true)} />
+  ) : null;
+  const overflow = (
+    <RuleOverflowMenu
+      dirtyCount={dirtyCount} version={version}
+      onReviewChanges={() => setReviewOpen(true)}
+      onCheckIssues={draftState && !(updateLocked && dirty) ? onCheckIssues : undefined}
+      onViewPublished={everPublished && api.readPublishedRule && !publishedView ? onViewPublished : undefined}
+      onRestoreDraft={editable && working.rule.activeRuleId && api.restoreRuleDraft ? () => setRestoreOpen(true) : undefined}
+      onReload={!publishedView ? () => guardNavigate(onReload) : undefined}
+      onUnpublish={published && !updateLocked && !recovery.pending ? () => setUnpublishOpen(true) : undefined}
+    />
+  );
+  const rootNode = displayed.rule.rootTableConfigId ? displayed.tableConfigs[displayed.rule.rootTableConfigId] : undefined;
+  const changes = React.useMemo(
+    () => (publishStage === "open" || changesSinceOpen) && publishedGraph ? changesSince(publishedGraph, working) : null,
+    [publishStage, changesSinceOpen, publishedGraph, working],
+  );
+
+  const bars = (
+    <>
+      <DataUpdateBanner api={api} />
+      {recovery.pending && (
+        <NoticeBar tone="warn" icon={<History20Regular />} lead="Unsaved edits from this tab were found." testId="recovery-bar"
+          actions={<>
+            <Button appearance="primary" size="small" disabled={busy} onClick={restoreRecovery}>Restore</Button>
+            <Button size="small" disabled={busy} onClick={recovery.dismiss}>Discard</Button>
+          </>}>
+          <InfoTip label="Recovery" text="Restoring brings the edits back into the editor. It doesn't save or publish anything." />
+        </NoticeBar>
+      )}
+      {!recovery.pending && recovery.unavailable && (
+        <NoticeBar tone="warn" icon={<Warning20Regular />}>Browser recovery is off. Use Review changes before leaving.</NoticeBar>
+      )}
+    </>
+  );
 
   return (
     <AppProvider>
       <ScreenShell
+        accent={publishedView ? "success" : "brand"}
         aboveCard={
-          <Breadcrumb
-            segments={[{ label: "Rules & data model", view: "hub" }, { label: "Rules", view: "hub" }]}
-            current={working.rule.name || "(unnamed rule)"}
-            onNavigate={(v, id) => confirmNavigate(() => navigate(v, id))}
-          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Breadcrumb
+              segments={[{ label: "Rules & data model", view: "hub" }, { label: "Rules", view: "hub" }]}
+              current={working.rule.name || "(unnamed rule)"}
+              onNavigate={(v, id) => confirmNavigate(() => navigate(v, id))}
+            />
+            {bars}
+          </div>
         }
         header={
-          <div style={{ padding: "18px 24px 14px", background: `linear-gradient(180deg, ${color.canvas}, ${color.surface})` }}>
-            <TitleActionsRow stacked={titleStacked}
-              left={
-                <div>
-                  <Eyebrow>{publishedView || needsDraft ? "Published rule" : "Rule draft"}</Eyebrow>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 2 }}>
-                    {renaming ? (
-                      <Input
-                        autoFocus
-                        aria-label="Rule name"
-                        value={nameDraft}
-                        onChange={(_e, d) => setNameDraft(d.value)}
-                        onBlur={() => {
-                          if (cancelledRef.current) { cancelledRef.current = false; return; }
-                          setWorking((g) => patchRule(g, { name: nameDraft }));
-                          setRenaming(false);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            if (!cancelledRef.current) { setWorking((g) => patchRule(g, { name: nameDraft })); }
-                            cancelledRef.current = false;
-                            setRenaming(false);
-                          }
-                          if (e.key === "Escape") { cancelledRef.current = true; setRenaming(false); }
-                        }}
-                      />
-                    ) : (
-                      <>
-                        <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-.01em", color: color.ink }}>
-                          {displayed.rule.name || "(unnamed rule)"}
-                        </span>
-                        <Button
-                          appearance="subtle" size="small" icon={<Edit16Regular />}
-                          aria-label="Rename rule"
-                          disabled={!editable}
-                          onClick={() => { cancelledRef.current = false; setNameDraft(working.rule.name ?? ""); setRenaming(true); }}
-                        />
-                      </>
-                    )}
-                    <StatusBadge statusCode={serverStatus} />
-                    {!!working.rule.publishedVersion && <span>v{working.rule.publishedVersion}</span>}
-                  </div>
-                </div>
-              }
-              actions={
-                <div aria-busy={busy} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  {dirty && <UnsavedPill />}
-                  {!updateLocked && needsDraft && !publishedView && <Button appearance="primary" disabled={busy || !api.openRuleDraft} onClick={onEdit}>Edit rule</Button>}
-                  {!updateLocked && <Button appearance={needsDraft ? "secondary" : "primary"} disabled={!canSave} title={scheduleSaveBlockReason ?? undefined} onClick={onSave}>Save</Button>}
-                  <Button disabled={busy || !!publishedView} onClick={() => guardNavigate(onReload)}>Reload</Button>
-                  {/* While a data update is pending nothing is saved, so Validate shows only when there is nothing to save. */}
-                  {(!updateLocked || !dirty) && (
-                    <Button disabled={busy || !!recovery.pending || !!publishedView || (dirty && !!scheduleError)} title={scheduleSaveBlockReason ?? undefined} onClick={onValidate}>{dirty ? "Save & validate" : "Validate"}</Button>
-                  )}
-                  {/* scheduleError disables Save/Validate everywhere, not just in the rule panel where the
-                      Schedule section lives, so the reason must be visible regardless of the current selection. */}
-                  {scheduleSaveBlockReason && <span style={{ fontSize: 12.5, color: color.danger }}>{scheduleSaveBlockReason}</span>}
-                  {!updateLocked && (
-                    <Button
-                      appearance="primary"
-                      disabled={!editable || dirty || !validationResult?.isValid}
-                      onClick={onPublish}
-                    >
-                      Publish
-                    </Button>
-                  )}
-                  {!updateLocked && (
-                    <Button
-                      disabled={busy || !!recovery.pending || !published}
-                      onClick={() => setUnpublishOpen(true)}
-                    >
-                      Unpublish
-                    </Button>
-                  )}
-                  {canRunNow(serverStatus, runNowTriggers) && (
-                    <Button icon={<Play16Regular />} disabled={busy || loadingRunNow} onClick={onOpenRunNow}>
-                      Run now
-                    </Button>
-                  )}
-                  {(published || !!working.rule.publishedRevisionId) && api.dryRun && (
-                    <Button disabled={busy} onClick={() => setTestOpen(true)}>Test</Button>
-                  )}
-                  {(published || !!working.rule.publishedRevisionId) && (
-                    <Button icon={<History16Regular />} disabled={busy} onClick={() => setRunsOpen(true)}>
-                      Runs
-                    </Button>
-                  )}
-                </div>
-              }
+          <div aria-busy={busy} style={{ padding: "18px 24px 14px", background: `linear-gradient(180deg, ${color.canvas}, ${color.surface})` }}>
+            <RuleHeaderBar
+              name={displayed.rule.name}
+              lifecycle={lifecycle}
+              publishedText={formatPublished(working.rule.publishedOn, working.rule.publishedBy)}
+              stacked={titleStacked}
+              canRename={editable}
+              onRename={(name) => setWorking((g) => patchRule(g, { name }))}
+              history={draftState && !updateLocked ? { canUndo, canRedo, onUndo: history.undo, onRedo: history.redo } : null}
+              issues={!publishedView ? <IssuesButton state={issues} open={issuesOpen} onToggle={() => setIssuesOpen((o) => !o)} /> : null}
+              run={run}
+              save={showSave ? { dirty, disabled: !canSave || busy, onSave } : null}
+              primary={primary}
+              overflow={overflow}
             />
-            <div aria-label="Edit history" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-              {!updateLocked && <Button size="small" disabled={!editable || !history.canUndo} onClick={() => { history.undo(); setSelection({ kind: "rule" }); }}>Undo</Button>}
-              {!updateLocked && <Button size="small" disabled={!editable || !history.canRedo} onClick={() => { history.redo(); setSelection({ kind: "rule" }); }}>Redo</Button>}
-              <Button size="small" disabled={busy || !dirty} onClick={() => setReviewOpen(true)}>Review changes</Button>
-              <Button size="small" disabled={busy || (!published && !working.rule.publishedRevisionId) || !api.readPublishedRule} onClick={onViewPublished}>{publishedView ? "Back to draft" : "View published"}</Button>
-              {!updateLocked && <Button size="small" disabled={!editable || !working.rule.activeRuleId || !api.restoreRuleDraft} onClick={() => setRestoreOpen(true)}>Restore published to draft</Button>}
-            </div>
+            {saveError && (
+              <div style={{ marginTop: 12 }}>
+                <NoticeBar tone="danger" icon={<ErrorCircle20Regular />} lead={saveError.lead} testId="save-error"
+                  actions={<>
+                    {saveError.conflict ? (
+                      <>
+                        <Button size="small" onClick={() => setReviewOpen(true)}>Review changes</Button>
+                        <Button size="small" onClick={() => guardNavigate(onReload)}>Reload</Button>
+                      </>
+                    ) : saveError.retry ? <Button size="small" onClick={saveError.retry}>Try again</Button> : null}
+                    <Button size="small" appearance="subtle" icon={<Dismiss16Regular />} aria-label="Dismiss" onClick={() => setSaveError(null)} />
+                  </>}>
+                  {saveError.text}
+                </NoticeBar>
+              </div>
+            )}
           </div>
         }
       >
         <div style={{ padding: "0 24px 24px" }}>
-          <DataUpdateBanner api={api} />
-          {(published || publishedView) && <Callout intent="info" title={publishedView ? "Viewing the published revision — read-only" : "The published version stays active while you edit"}>
-            {publishedView ? "This is the configuration currently used for enforcement." : needsDraft ? "Choose Edit rule to open a separate working draft. This published rule keeps enforcing while you make changes." : "Save and validate your draft here. Publish replaces the live version after server validation; shared data-model changes also take effect only when this rule is republished."}
-          </Callout>}
-          {recovery.pending && <Callout intent="warning" title="Unsaved work is available from this browser tab">
-            <p>Restore your previous edits or discard the recovery copy. Restoring does not save or publish anything.</p>
-            <Button disabled={busy} onClick={restoreRecovery}>Restore edits</Button>{" "}
-            <Button disabled={busy} onClick={recovery.dismiss}>Discard recovery</Button>
-          </Callout>}
-          {recovery.unavailable && <Callout intent="warning">
-            Browser recovery is unavailable. Use Review changes to copy your edits before leaving or reloading.
-          </Callout>}
-          {/* Properties strip */}
-          <div style={{
-            marginTop: 16, background: color.canvas, border: `1px solid ${color.line}`, borderRadius: 8,
-            padding: "10px 16px", display: "flex", alignItems: "center", flexWrap: "wrap", rowGap: 6,
-          }}>
-            <PropCell first label="Table" bold value={displayed.rule.tableLogicalName} />
-            <PropCell label="Triggers" value={displayed.rule.triggers.length
-              ? displayed.rule.triggers.map((t) => labelFor(SYSTEM_CHOICE.triggers, t, triggerLabel(t))).join(", ") : "—"} />
-            <PropCell label="Channels" value={displayed.rule.channels.length
-              ? displayed.rule.channels.map((c) => labelFor(SYSTEM_CHOICE.channel, c, channelLabel(c))).join(", ") : "All"} />
-            {!wide && (
-              <Button appearance="secondary" size="small" style={{ marginLeft: "auto" }}
-                onClick={() => setPanelOpen(true)}>
-                Properties
-              </Button>
-            )}
+          <div style={{ marginTop: 16, display: "flex", alignItems: "stretch", gap: 10, flexWrap: "wrap" }}>
+            <RuleSettingsStrip graph={displayed} schedule={schedule}
+              editing={wide ? rulePanel : panelOpen}
+              onOpen={() => { setSelection({ kind: "rule" }); if (!wide) setPanelOpen(true); }} />
+            <DataModelChip graph={displayed} sharedBy={sharedBy} editDisabled={!!publishedView}
+              onEdit={() => confirmNavigate(() => navigate("tableconfig", working.rule.rootTableConfigId!))} />
           </div>
-          {displayed.rule.rootTableConfigId && flattenForDisplay(displayed.tableConfigs, displayed.rule.rootTableConfigId).length > 0 && (
-            <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: color.inkMuted }}>Data map</span>
-              {flattenForDisplay(displayed.tableConfigs, displayed.rule.rootTableConfigId).map(({ node }, i, arr) => (
-                <span key={node.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <NodeTag>{node.name}</NodeTag>
-                  {i < arr.length - 1 && <span style={{ color: color.line }}>▸</span>}
-                </span>
-              ))}
-              <button type="button" disabled={!!publishedView} className={styles.focusRing} onClick={() => confirmNavigate(() => navigate("tableconfig", working.rule.rootTableConfigId!))}
-                style={{ marginLeft: 6, background: "none", border: "none", padding: 0, cursor: "pointer", color: color.brandInk, fontWeight: 600, fontSize: 12.5 }}>
-                Edit data model →
-              </button>
-            </div>
-          )}
-          {banner && (
-            <div style={{ margin: "8px 0" }}>
-              <Callout intent={banner.intent === "error" ? "danger" : banner.intent}>{banner.text}</Callout>
-            </div>
-          )}
           {guardDialog}
           <ConfirmUnpublishDialog
             open={unpublishOpen}
@@ -715,11 +804,51 @@ export function RuleEditorApp({
             onConfirm={() => {
               const id = outcomeToDelete;
               setOutcomeToDelete(null);
-              if (id) { setWorking((g) => recon(deleteGroup(g, id))); setSelection({ kind: "rule" }); }
+              if (id) {
+                setWorking((g) => recon(deleteGroup(g, id))); setSelection({ kind: "rule" });
+                notify.undo("Outcome deleted", () => history.undo());
+              }
             }} />
           <ReviewChangesDialog open={reviewOpen} snapshot={snapshot} working={working} onClose={() => setReviewOpen(false)} />
-          {runNowRule && (
-            <RunNowDialog open={!!runNowRule} api={api} rule={runNowRule} onClose={() => setRunNowRule(null)} />
+          {changes && (
+            <ReviewChangesDialog open={changesSinceOpen} snapshot={snapshot} working={working}
+              title={`Changes since v${version}`}
+              text={changes.length ? changes.join("\n") : "No changes."}
+              onClose={() => setChangesSinceOpen(false)} />
+          )}
+          <PublishDialog
+            open={publishStage === "open" || publishStage === "publishing"}
+            ruleName={working.rule.name || "(unnamed rule)"}
+            version={version}
+            errors={issues.errors.filter((i) => i.source === "server" || i.target.kind === "schedule")}
+            warnings={issues.warnings.filter((i) => i.source === "server")}
+            changeCount={changes ? changes.length : null}
+            modelName={rootNode?.name ?? null}
+            busy={publishStage === "publishing"}
+            onCancel={() => setPublishStage("idle")}
+            onConfirm={onConfirmPublish}
+            onViewWarnings={() => { setPublishStage("idle"); setIssuesOpen(true); }}
+            onReviewChanges={() => setChangesSinceOpen(true)}
+            onGoTo={(i) => { setPublishStage("idle"); setIssuesOpen(true); goToIssue(i); }}
+            onOpenIssues={() => { setPublishStage("idle"); setIssuesOpen(true); }}
+          />
+          {runTab && (
+            <RunDialog open api={api} initialTab={runTab}
+              rule={{
+                id: working.rule.activeRuleId ?? working.rule.id, name: working.rule.name,
+                table: working.rule.tableLogicalName,
+                live: liveGraph ?? (working.rule.activeRuleId ? working : null),
+                draft: working.rule.activeRuleId ? working : null,
+                liveVersion: version, canApply: canApply(published, runNowTriggers),
+              }}
+              onClose={() => setRunTab(null)}
+              onViewRuns={() => { setRunTab(null); setRunsOpen(true); }}
+              onChangeRuleSettings={() => {
+                setRunTab(null);
+                try { sessionStorage.setItem("asx.inspector.when", "1"); } catch { /* storage unavailable */ }
+                setSelection({ kind: "rule" });
+                if (!wide) setPanelOpen(true);
+              }} />
           )}
           <RunsDialog
             open={runsOpen}
@@ -727,26 +856,28 @@ export function RuleEditorApp({
             ruleId={working.rule.activeRuleId ?? working.rule.id}
             ruleName={working.rule.name}
             table={working.rule.tableLogicalName}
+            scheduledRunIds={schedule?.lastRunId ? [schedule.lastRunId] : undefined}
             onClose={() => setRunsOpen(false)}
           />
-          {api.dryRun && (
-            <TestRunDialog open={testOpen} api={{ dryRun: api.dryRun }} onClose={() => setTestOpen(false)}
-              rule={{ id: working.rule.activeRuleId ?? working.rule.id, name: working.rule.name,
-                table: working.rule.tableLogicalName, triggers: runNowTriggers }} />
-          )}
-          <Dialog open={restoreOpen} onOpenChange={(_e, d) => setRestoreOpen(d.open)}><DialogSurface><DialogBody>
-            <DialogTitle>Restore the published version to your draft?</DialogTitle>
-            <DialogContent>This replaces saved and unsaved draft changes, including its data model, with a private copy of the published revision. The published rule and other rules keep enforcing unchanged.</DialogContent>
-            <DialogActions><Button onClick={() => setRestoreOpen(false)}>Cancel</Button><Button appearance="primary" onClick={onRestoreDraft}>Restore draft</Button></DialogActions>
-          </DialogBody></DialogSurface></Dialog>
+          <DialogShell open={restoreOpen} onClose={() => setRestoreOpen(false)}
+            title="Restore the published version to your draft?"
+            actions={<><Button onClick={() => setRestoreOpen(false)}>Cancel</Button><Button appearance="primary" onClick={onRestoreDraft}>Restore draft</Button></>}>
+            <p style={{ margin: 0 }}>This replaces saved and unsaved draft changes, including its data model, with a private copy of the published revision. The published rule and other rules keep enforcing unchanged.</p>
+          </DialogShell>
 
           {/* Always mounted so the aria-live status region exists before results arrive (4.1.3). */}
-          <ValidationIssuesPanel issues={validationResult?.issues ?? []} />
+          <IssuesLiveRegion state={issues} />
+          <IssuesDrawer state={issues} open={issuesOpen && !publishedView} checking={checking}
+            currentId={currentIssueId}
+            onClose={() => setIssuesOpen(false)}
+            onCheckAgain={draftState ? onCheckIssues : undefined}
+            onGo={goToIssue} />
 
           <div style={{ display: "flex", gap: 18, marginTop: 18, alignItems: "flex-start" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <fieldset disabled={!editable} style={{ display: "flex", flexDirection: "column", gap: 14, border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-                <GraphTree graph={displayed} selection={selection} handlers={handlers} issuesByTargetId={issuesByTargetId} />
+              <fieldset disabled={!editable && !readOnlyView} style={{ display: "flex", flexDirection: "column", gap: 14, border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+                <GraphTree graph={displayed} selection={selection} handlers={handlers}
+                  issuesByTargetId={issues.byTarget} readOnly={readOnlyView || updateLocked} />
               </fieldset>
             </div>
             {wide ? (

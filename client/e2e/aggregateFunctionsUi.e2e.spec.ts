@@ -4,7 +4,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createOrderConfigTree, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, toolbar, pickFromMenu } from "./editorHarness";
+import { openRuleFromHub, toolbar, pickFromMenu, toast, pickConditionType } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The Insert-aggregate menu, exercised in a real browser: `avg`, `min`, `max` and `count` are
@@ -59,18 +59,16 @@ const conditionsOf = async (ruleId: string) => {
 const exprBox = (frame: FrameLocator) => frame.getByPlaceholder("+ - * / and ( )");
 
 // Add an execution group + one condition and open that condition's inspector, then switch it to
-// Calculation (liveLabels.ts: the org's label for conditionType 4 Expression).
+// Calculation (the Condition type radio for conditionType 4 Expression; liveLabels.ts).
 async function openExpressionCondition(page: Parameters<typeof openRuleFromHub>[0], appId: string, ruleName: string) {
   const frame = await openRuleFromHub(page, appId, ruleName);
   // .first() is the EXECUTION band's empty-state CTA. That band gates whether the rule runs
   // rather than deciding a match, which matters for a Block rule but not here, where the oracle
   // is the persisted expression. conditionTypesUi's Expression case uses the same band.
-  await frame.getByRole("button", { name: "+ Add group" }).first().click();
-  await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+  await frame.getByRole("button", { name: "Add group" }).first().click();
+  await frame.getByRole("button", { name: "Add condition", exact: true }).click();
   await frame.getByRole("button", { name: /^Edit condition/ }).click();
-  const type = frame.getByRole("combobox", { name: "Condition type" });
-  await type.click();
-  await frame.getByRole("option", { name: CHOICE.conditionType.expression, exact: true }).click();
+  await pickConditionType(frame, CHOICE.conditionType.expression);
   return frame;
 }
 
@@ -122,14 +120,14 @@ test("Expression: avg, min and max authored from the Insert-aggregate menu survi
     const EXPECTED = `${avg} + ${min} + ${max}`;
     await expect(ta).toHaveValue(exactly(EXPECTED));
 
-    // Expression conditions expose only the six numeric operators (ConditionInspector.tsx:312).
+    // Expression conditions expose only the six numeric operators (ConditionInspector.tsx visibleOperatorsForExpression).
     const operator = frame.getByRole("combobox", { name: "Operator" });
     await operator.click();
     await frame.getByRole("option", { name: CHOICE.operator.greaterThan, exact: true }).click();
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const [c] = await conditionsOf(rule.ruleId);
     expect(c.asx_conditiontype).toBe(4); // Expression
@@ -174,7 +172,7 @@ test("Expression: Count authored from the Insert-aggregate menu takes a collecti
     await frame.getByRole("textbox", { name: "Value" }).fill("2");
 
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const [c] = await conditionsOf(rule.ruleId);
     expect(c.asx_conditiontype).toBe(4);

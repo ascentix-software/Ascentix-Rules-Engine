@@ -23,9 +23,10 @@ those metadata-aware checks work.
 
 ## Add related, live
 
-The table-config **"Add related from here"** picker is built from the
-node table's actual relationships, each labeled with a lookup or child
-icon.
+The data-model editor's **"Add related table"** picker is built from the
+node table's actual relationships, grouped under **LOOKS UP · ONE RECORD**
+and **HAS MANY · ROWS**, with a **Search tables and columns** box to
+narrow the list.
 
 ![The "Add related from here" picker on the sample_customer node listing real relationships from that table's metadata: sample_customer (lookup), userentityinstancedata (child), sample_customer (child), sample_order (child), with lookup/child icons.](../images/02-11-metadata-pickers-01.png)
 
@@ -44,7 +45,7 @@ only"** checkbox that hides system metadata.
 
 ## Browsing for a record
 
-Lookup value fields, a condition's Literal value in *Building Conditions*
+Lookup value fields, a condition's value (the **a value** tab) in *Building Conditions*
 and a field mapping's Literal value in *Field Mapping*, show a
 **Browse…** button next to the inline search box. Browse… opens the
 **Record Picker** modal:

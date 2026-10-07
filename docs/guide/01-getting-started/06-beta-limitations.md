@@ -157,10 +157,10 @@ and keeps only its **first 50** Blocked/Failed records, each message cut to
 **1,000 characters**. A write that fails rolls its whole page back: one extra
 call records the failure, and the page is then processed again without that
 record, so a page with many failing writes is processed many times over and
-takes many calls to finish. A **Given records** run
+takes many calls to finish. A **Records it's given** run
 is capped at **250** record ids. A rule can have at most **one** run Queued or
 Running at a time; starting a second is refused until the first is cancelled or
-reaches a terminal status. An **All records** run's execution conditions are
+reaches a terminal status. An **All records that match “Only if”** run's execution conditions are
 **not** pushed into the Dataverse query during the beta — the run reads the whole
 table, a page at a time, and relies on the execution conditions (evaluated
 per record, same as any other rule evaluation) to skip records it shouldn't
@@ -168,7 +168,7 @@ touch, rather than a server-side pre-filter. Scope such a rule with a tight
 execution condition on a large table.
 
 A rule **schedule** (*Administering → Scheduling Rules*) starts or continues a Rule
-Run the same way Run now does, so the limits above apply equally to a scheduled run.
+Run the same way **Apply to records** does, so the limits above apply equally to a scheduled run.
 On top of those: a schedule fires **within 15 minutes** of its scheduled time, not at
 the exact minute, since the shipped scheduler add-on's flow calls
 `asx_StartDueSchedules` on that interval. Each call to `asx_StartDueSchedules`
@@ -191,7 +191,7 @@ does not show it. It is reserved for possible future use.
 
 A set action writes every filtered row of its collection, and nothing caps how many. A very large set
 can exceed the platform's 2-minute limit for a synchronous save, which fails the save. Keep sets
-bounded with the Rows filter and the rule's conditions, and use the Rule Builder's **Test** to see
-how many rows a record would write. Update, Delete, Create and Deactivate Record all send their rows
+bounded with the Rows filter and the rule's conditions, and use the Rule Builder's **Preview on a
+record** to see how many rows a record would write. Update, Delete, Create and Deactivate Record all send their rows
 in bulk where the target table supports it (proven on DEV 2026-09-29: `UpdateMultiple` accepts a
 state change).

@@ -4,7 +4,7 @@ import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { createOrderLine } from "../test-dev/ruleBehavior/subjects";
 import { resolveAppId, createOrderConfigTree } from "./devHelpers";
-import { openRuleFromHub, saveValidatePublish } from "./editorHarness";
+import { openRuleFromHub, saveValidatePublish, toolbar } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // Author a set action with a Rows filter in the Rule Builder, publish, and see the dry-run counts in Test.
@@ -32,9 +32,9 @@ test("a set Update with a Rows filter reports its row counts in Test", async ({ 
     actions: [], publish: false, requireValid: false });
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
-    await frame.getByRole("combobox", { name: "Action type" }).click();
+    await frame.getByRole("combobox", { name: "Type", exact: true }).click();
     await frame.getByRole("option", { name: CHOICE.actionType.updateRecord, exact: true }).click();
     await frame.getByRole("combobox", { name: "Target node" }).click();
     await frame.getByRole("option", { name: /_line \(each row\)$/ }).click();
@@ -58,14 +58,18 @@ test("a set Update with a Rows filter reports its row counts in Test", async ({ 
 
     await saveValidatePublish(frame);
 
-    await frame.getByRole("button", { name: "Test", exact: true }).click();
-    const test = frame.getByRole("dialog", { name: "Test on a record" });
-    await test.getByRole("button", { name: "Choose record…" }).click();
+    // The Run split button's main action opens the Run dialog on Preview on a record (a dry run).
+    await toolbar(frame).getByRole("button", { name: "Run", exact: true }).click();
+    const test = frame.getByRole("dialog", { name: /^Run / });
+    await expect(test.getByRole("tab", { name: "Preview on a record", selected: true })).toBeVisible();
+    await test.getByRole("combobox", { name: "Record" }).click();
+    await test.getByRole("option", { name: "Advanced search…" }).click();
     const picker = frame.getByRole("dialog").last();
     await picker.getByRole("textbox", { name: "Search records" }).fill(orderName);
     await picker.getByRole("radio", { name: `Select ${orderName}` }).check();
     await picker.getByRole("button", { name: "Select", exact: true }).click();
-    await test.getByRole("button", { name: "Run test" }).click();
+    await test.getByRole("button", { name: "Run preview" }).click();
+    await expect(test.getByText("Save would go through")).toBeVisible({ timeout: 60_000 });
     await expect(test.getByText("Update sample_orderline × 2 (1 unchanged)")).toBeVisible({ timeout: 60_000 });
     await expect(test.getByText(/Change set: 0 creates, 1 update, 0 deletes · 1 unchanged/)).toBeVisible();
   } finally {

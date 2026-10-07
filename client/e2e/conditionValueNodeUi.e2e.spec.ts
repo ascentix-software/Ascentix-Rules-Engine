@@ -5,7 +5,9 @@ import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { configsVisible } from "../test-dev/ruleBehavior/settle";
 import { resolveAppId, createZzRootConfig, deleteRuleCascade } from "./devHelpers";
-import { openRuleFromHub, toolbar, pickFromCombobox } from "./editorHarness";
+import {
+  openRuleFromHub, toolbar, pickFromCombobox, checkNoIssues, toast, unsavedCount, pickValueSource,
+} from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // A condition's RIGHT-HAND SIDE pointed at a related node and saved from a real browser, so that
@@ -24,7 +26,7 @@ import { CHOICE } from "./liveLabels";
 // instead of the related one, the same failure class pinned in conditionNodeBinding.e2e.spec.ts.
 //
 // WHY THE FIXTURE IS A CUSTOMER→PARENT-CUSTOMER CHAIN, not the usual order tree. The RHS column
-// picker is bound to `tcTable`, the CONDITION's own node table (ConditionInspector.tsx:126,220),
+// picker was bound to `tcTable`, the CONDITION's own node table (ConditionInspector.tsx),
 // while the engine reads that column off the RIGHT-HAND node's table. The two agree only when
 // both nodes sit on the same table, so a same-table pair (sample_customer -> its parent customer,
 // via the self-referential sample_parentcustomerid) is the one shape where the authored rule is
@@ -32,7 +34,8 @@ import { CHOICE } from "./liveLabels";
 // that cannot be right, whatever the bind says.
 //
 // ORACLE: `_asx_comparisonvaluenode_value` read straight off the persisted asx_rulecondition row,
-// then the same value re-loaded into the dropdown after a hub reload, then asx_ValidateRule.
+// then the same value re-loaded into the "Other column's record" dropdown after a hub reload,
+// then asx_ValidateRule.
 // Engine-side evaluation of a node-referencing comparison stays covered by ruleBehaviorTraversal.
 
 test.beforeAll(async () => {
@@ -92,7 +95,7 @@ test("a condition authored in the editor with a related right-hand node persists
   const NAME = "ZZ_RB_cvn_new";
   const cfg = await customerChain(NAME);
   // conditions: [] still creates the (empty) VALIDATION group, so the browser can author the
-  // condition straight into it via the group's "+ Condition" chip: no band ambiguity, and the
+  // condition straight into it via the group's "Add condition" button: no band ambiguity, and the
   // condition is genuinely new, which is what puts the save down diff.ts's CREATE branch.
   const rule = await authorRule({
     name: `${NAME}_${rand()}_rule`,
@@ -105,38 +108,36 @@ test("a condition authored in the editor with a related right-hand node persists
   });
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
-    // Bind the node FIRST: a new condition starts with tableConfigId: null, and nothing defaults
-    // it. exact:true is load-bearing here: the parent node's name starts with the root's.
-    const node = frame.getByRole("combobox", { name: "Table-config node", exact: true });
+    // Bind the node FIRST, explicitly, in the "On" dropdown (rendered because the model has two
+    // nodes). It names the root "This <table display name>", the only option starting "This ".
+    const node = frame.getByRole("combobox", { name: "On", exact: true });
     await node.click();
-    await frame.getByRole("option", { name: NAME, exact: true }).click();
+    await frame.getByRole("option", { name: /^This / }).click();
 
-    await pickFromCombobox(frame, "Comparison column", "creditlimit", /\(sample_creditlimit\)/);
+    await pickFromCombobox(frame, "Column", "creditlimit", /· sample_creditlimit$/, { exact: true });
 
     const operator = frame.getByRole("combobox", { name: "Operator" });
     await operator.click();
     await frame.getByRole("option", { name: CHOICE.operator.lessThanOrEqual, exact: true }).click();
 
-    const source = frame.getByRole("combobox", { name: "Value source" });
-    await source.click();
-    await frame.getByRole("option", { name: CHOICE.valueSource.fieldReference, exact: true }).click();
+    await pickValueSource(frame, CHOICE.valueSource.fieldReference);
 
-    // "(same record)" is the default right-hand node, so this dropdown stays shut on the ordinary
+    // "Same record" is the default right-hand node, so this dropdown stays shut on the ordinary
     // authoring path and the bind is never emitted. Opening it is what makes the case meaningful.
-    const rhsNode = frame.getByRole("combobox", { name: "Right-hand node" });
-    await expect(rhsNode, "the default RHS is the triggering record itself").toContainText("(same record)");
+    const rhsNode = frame.getByRole("combobox", { name: "Other column's record", exact: true });
+    await expect(rhsNode, "the default RHS is the triggering record itself").toContainText("Same record");
     await rhsNode.click();
     await frame.getByRole("option", { name: `${NAME}_parent`, exact: true }).click();
 
     // Same table on both sides, so this column is real on the RHS node too. See the header note.
-    await pickFromCombobox(frame, "Right-hand column", "creditlimit", /\(sample_creditlimit\)/);
+    await pickFromCombobox(frame, "Other column", "creditlimit", /· sample_creditlimit$/, { exact: true });
 
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const c = await conditionOf(rule.ruleId);
     expect(c.asx_comparisonvaluesource).toBe(2); // FieldReference
@@ -148,14 +149,16 @@ test("a condition authored in the editor with a related right-hand node persists
 
     // ROUND TRIP: the loader has to hand `comparisonValueNodeId` back
     // (load/*, LOOKUP.comparisonValueNode) or the next edit of this condition re-saves it as
-    // "(same record)" without the author touching the field.
+    // "Same record" without the author touching the field.
     const reloaded = await openRuleFromHub(page, appId, rule.ruleName);
     await reloaded.getByRole("button", { name: /^Edit condition/ }).click();
-    await expect(reloaded.getByRole("combobox", { name: "Right-hand node" })).toContainText(`${NAME}_parent`);
-    await expect(reloaded.getByRole("combobox", { name: "Right-hand column" })).toHaveValue(/\(sample_creditlimit\)/);
+    await expect(reloaded.getByRole("combobox", { name: "Other column's record", exact: true })).toContainText(`${NAME}_parent`);
+    // The sentence-mode picker's input shows the column's DISPLAY name only (live metadata), or
+    // the logical name while that has not resolved.
+    await expect(reloaded.getByRole("combobox", { name: "Other column", exact: true }))
+      .toHaveValue(/Credit ?[Ll]imit|sample_creditlimit/);
 
-    await toolbar(reloaded).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
-    await expect(reloaded.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
+    await checkNoIssues(reloaded);
   } finally {
     await deleteRuleCascade(rule.ruleId); // the UI-created condition isn't tracked by the fixture
     await rule.cleanup().catch(() => {});
@@ -192,13 +195,13 @@ test("re-pointing an already-persisted condition at a related node emits the bin
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
-    const rhsNode = frame.getByRole("combobox", { name: "Right-hand node" });
+    const rhsNode = frame.getByRole("combobox", { name: "Other column's record", exact: true });
     await rhsNode.click();
     await frame.getByRole("option", { name: `${NAME}_parent`, exact: true }).click();
 
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(unsavedCount(frame)).toBeVisible();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const after = await conditionOf(rule.ruleId);
     expect(sameGuid(after[LOOKUP.comparisonValueNode], cfg.parentId), "the update branch (save/diff.ts:655) must PATCH asx_ComparisonValueNode; a null here means the editor reported 'Saved.' over a change it never sent").toBe(true);

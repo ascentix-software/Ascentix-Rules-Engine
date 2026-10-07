@@ -129,7 +129,7 @@ enforcement (see *How Rules Run*):
 - `asx_ApplyRules` **does** enforce, exactly like *On create / update /
   delete* above: a fired `Block` throws and applies no writes; otherwise every
   fired write action is applied inside the call's transaction.
-- **Run now** and a **Rule Run** enforce too, per record, but a run keeps
+- **Apply to records** (the hub's **Run now**) and a **Rule Run** enforce too, per record, but a run keeps
   going: a record that fires a `Block` gets no writes and is **counted**
   Blocked (with its message) instead of stopping the run, and every other
   record's fired writes are applied. The records of one page share one

@@ -25,7 +25,8 @@ GET /api/data/v9.2/asx_ruleactions?$select=asx_message
 Advanced Find on the **Rule Actions** table, filtered on *Message* contains,
 returns the same record.
 
-Set that rule back to **Draft**. Unpublishing removes or narrows the table's
+Unpublish that rule (**Unpublish…** in the Rule Builder's **More actions** (⋯) menu), which
+sets it back to **Draft**. Unpublishing removes or narrows the table's
 enforcement steps in the same transaction, so the next save is evaluated
 without the rule.
 
@@ -73,7 +74,7 @@ treating it as a bug.
 
 ## Rules can't be edited and a banner names an update
 
-The Rule Builder shows *Update N · title must be applied before rules can be edited.* A release has
+The Rule Builder shows *Read-only until Update N is applied.* and the update's title. A release has
 a data update that converts existing rules, and it hasn't been applied yet. Until it is, rules can be
 viewed but not edited, and publishing is refused. Enforcement, **Run now** and schedules keep
 working.

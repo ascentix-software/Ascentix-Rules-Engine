@@ -3,7 +3,7 @@ import { createDevApi, updateDevRecord } from "../test-dev/devApi";
 import { ENTITY_SET } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createRuleFixture } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, toolbar, toast, unsavedCount } from "./editorHarness";
 
 // The Channels multiselect (RuleInspector), whose options are Standard/Portal. A later change
 // replaced an earlier Interactive/Application split. This drives the AUTHORING path in a real
@@ -19,11 +19,10 @@ test.beforeAll(async () => {
 });
 test.describe.configure({ timeout: 180_000 });
 
-// The properties strip renders label/value pairs with no testid; the label text is the only
-// stable anchor. `Channels` also appears as the inspector Field's label ("Channels (none = all)"),
-// so match the strip's cell exactly and read its sibling value span.
-function stripValue(frame: FrameLocator, label: string) {
-  return frame.getByText(label, { exact: true }).locator("xpath=following-sibling::span[1]");
+// The Rule settings strip summarises the rule in one line ending with the channels
+// ("… · Standard, Portal" or "… · All channels").
+function stripChannels(frame: FrameLocator) {
+  return frame.getByTestId("rule-settings-strip");
 }
 
 test("channels: default is All; Standard then +Portal persist as the asx_channels CSV", async ({ page }) => {
@@ -35,9 +34,9 @@ test("channels: default is All; Standard then +Portal persist as the asx_channel
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
 
     // A fixture rule sets no channels, the gate's "applies everywhere" default.
-    await expect(stripValue(frame, "Channels")).toHaveText("All");
+    await expect(stripChannels(frame)).toContainText("· All channels");
 
-    const channels = frame.getByRole("combobox", { name: "Channels (none = all)" });
+    const channels = frame.getByRole("combobox", { name: "Channels" });
 
     // --- Select Standard ------------------------------------------------------------------
     await channels.click();
@@ -45,10 +44,10 @@ test("channels: default is All; Standard then +Portal persist as the asx_channel
       .or(frame.getByRole("option", { name: "Standard" })).first().click();
     await page.keyboard.press("Escape");
 
-    await expect(stripValue(frame, "Channels")).toHaveText("Standard");
-    await expect(frame.getByText("Unsaved changes")).toBeVisible();
+    await expect(stripChannels(frame)).toContainText(/· Standard$/);
+    await expect(unsavedCount(frame)).toBeVisible();
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     expect(String((await api.retrieveMultipleRecords(ENTITY_SET.rule, select)).entities[0].asx_channels))
       .toBe("1");
@@ -59,9 +58,9 @@ test("channels: default is All; Standard then +Portal persist as the asx_channel
       .or(frame.getByRole("option", { name: "Portal" })).first().click();
     await page.keyboard.press("Escape");
 
-    await expect(stripValue(frame, "Channels")).toHaveText("Standard, Portal");
+    await expect(stripChannels(frame)).toContainText("· Standard, Portal");
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const both = String((await api.retrieveMultipleRecords(ENTITY_SET.rule, select)).entities[0].asx_channels)
       .split(",").map((s) => s.trim()).sort();
@@ -79,17 +78,17 @@ test("channels: deselecting every channel writes null (back to All), not an empt
   await updateDevRecord(ENTITY_SET.rule, fixture.ruleId, { asx_channels: "1" });
   try {
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
-    await expect(stripValue(frame, "Channels")).toHaveText("Standard");
+    await expect(stripChannels(frame)).toContainText(/· Standard$/);
 
-    const channels = frame.getByRole("combobox", { name: "Channels (none = all)" });
+    const channels = frame.getByRole("combobox", { name: "Channels" });
     await channels.click();
     await frame.getByRole("menuitemcheckbox", { name: "Standard" })
       .or(frame.getByRole("option", { name: "Standard" })).first().click(); // toggles OFF
     await page.keyboard.press("Escape");
 
-    await expect(stripValue(frame, "Channels")).toHaveText("All");
+    await expect(stripChannels(frame)).toContainText("· All channels");
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     // encodeMultiSelect returns null for an empty list, because an empty STRING would make
     // ChannelFilter see a malformed gate rather than "unrestricted".

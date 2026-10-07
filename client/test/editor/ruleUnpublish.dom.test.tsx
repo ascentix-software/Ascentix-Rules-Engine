@@ -51,70 +51,75 @@ function renderApp(statusCode: number, api: Partial<EditorApi>, reloadTo = statu
   );
 }
 
-const toolbarUnpublish = () => screen.getAllByRole("button", { name: "Unpublish" })[0];
+// Unpublish lives in the header's ⋯ menu, offered only for a live rule.
+async function openMenu() {
+  fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await screen.findByRole("menuitem", { name: /Reload from server/ });
+}
+const unpublishItem = () => screen.queryByRole("menuitem", { name: "Unpublish…" });
 
-// Open the confirm. The click must NOT be preceded by an awaited query in this render. See
-// dialogA11yQueryable.dom.test.tsx for why that makes the dialog permanently unqueryable.
-function openConfirm() {
-  fireEvent.click(toolbarUnpublish());
+async function openConfirm() {
+  await openMenu();
+  fireEvent.click(unpublishItem()!);
 }
 
 describe("RuleEditorApp Unpublish", () => {
-  it("is disabled for a Draft rule and Publish is still offered", () => {
+  it("isn't offered for a Draft rule, and Publish… is", async () => {
     renderApp(DRAFT, {});
-    expect(toolbarUnpublish()).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Publish…" })).toBeInTheDocument();
+    await openMenu();
+    expect(unpublishItem()).toBeNull();
   });
 
-  it("is enabled for a Published rule while Publish is disabled", () => {
-    renderApp(PUBLISHED, {});
-    expect(toolbarUnpublish()).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeInTheDocument();
+  it("is offered for a live rule, which shows Edit rule instead of Publish…", async () => {
+    renderApp(PUBLISHED, { openRuleDraft: vi.fn() });
+    expect(screen.getByRole("button", { name: "Edit rule" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Publish…" })).toBeNull();
+    await openMenu();
+    expect(unpublishItem()).toBeInTheDocument();
   });
 
   it("opens a confirm naming the rule and the table it stops blocking", async () => {
     renderApp(PUBLISHED, {});
-    openConfirm();
+    await openConfirm();
     expect(await screen.findByText('Unpublish "Credit limit guard"?')).toBeInTheDocument();
     expect(screen.getByText(/All enforcement and automation from this rule on opportunity will stop/i))
       .toBeInTheDocument();
   });
 
-  it("confirming calls unpublishRule and shows the success banner", async () => {
+  it("confirming calls unpublishRule and shows the success toast", async () => {
     const unpublishRule = vi.fn(async () => {});
     renderApp(PUBLISHED, { unpublishRule }, DRAFT);
-    openConfirm();
+    await openConfirm();
     const dialog = within(await screen.findByRole("dialog"));
     fireEvent.click(dialog.getByRole("button", { name: "Unpublish" }));
 
-    expect(await screen.findByText(/Rule unpublished/i)).toBeInTheDocument();
+    expect(await screen.findByText("Unpublished. Credit limit guard is no longer enforced.")).toBeInTheDocument();
     expect(unpublishRule).toHaveBeenCalledOnce();
     expect(unpublishRule).toHaveBeenCalledWith("r1");
-    // The reload ran: the badge now reflects the persisted Draft status.
-    expect(screen.getByText("Draft")).toBeInTheDocument();
+    // The reload ran: the status now reflects the persisted Draft status.
+    expect(screen.getByText("Not live")).toBeInTheDocument();
   });
 
-  it("cancelling calls nothing and leaves the rule Published", async () => {
+  it("cancelling calls nothing and leaves the rule live", async () => {
     const unpublishRule = vi.fn(async () => {});
     renderApp(PUBLISHED, { unpublishRule });
-    openConfirm();
+    await openConfirm();
     const dialog = within(await screen.findByRole("dialog"));
     fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
 
     expect(unpublishRule).not.toHaveBeenCalled();
-    expect(screen.getByText("Published")).toBeInTheDocument();
-    expect(toolbarUnpublish()).toBeEnabled();
+    expect(screen.getByText(/Live · v/)).toBeInTheDocument();
   });
 
-  it("an API rejection produces an error banner and leaves the status alone", async () => {
+  it("an API rejection shows the inline failure and leaves the status alone", async () => {
     const unpublishRule = vi.fn(async () => { throw new Error("PATCH failed (403)"); });
     renderApp(PUBLISHED, { unpublishRule });
-    openConfirm();
+    await openConfirm();
     const dialog = within(await screen.findByRole("dialog"));
     fireEvent.click(dialog.getByRole("button", { name: "Unpublish" }));
 
     expect(await screen.findByText(/Unpublish or refresh failed: .*403/)).toBeInTheDocument();
-    expect(screen.getByText("Published")).toBeInTheDocument();
-    expect(toolbarUnpublish()).toBeEnabled();
+    expect(screen.getByText(/Live · v/)).toBeInTheDocument();
   });
 });

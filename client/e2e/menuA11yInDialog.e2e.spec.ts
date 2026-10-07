@@ -124,10 +124,10 @@ async function skeleton(name: string) {
 // numeric sample_ordertotal, switch its source to Calculation.
 async function openCalculationMapping(page: Page, appId: string, ruleName: string, cfgName: string) {
   const frame = await openRuleFromHub(page, appId, ruleName);
-  await frame.getByRole("button", { name: "+ Add action" }).click();
+  await frame.getByRole("button", { name: "Add action" }).click();
   await frame.getByRole("button", { name: /^Edit action 1/ }).click();
 
-  const type = frame.getByRole("combobox", { name: "Action type" });
+  const type = frame.getByRole("combobox", { name: "Type", exact: true });
   await type.click();
   await frame.getByRole("option", { name: CHOICE.actionType.updateRecord, exact: true }).click();
 

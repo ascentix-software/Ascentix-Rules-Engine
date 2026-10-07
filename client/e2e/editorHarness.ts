@@ -133,7 +133,7 @@ export async function openConfigFromHub(page: Page, appId: string, cfgName: stri
   return frame;
 }
 
-// The header command bar (Save / Reload / Validate / Publish). ALWAYS go through this rather
+// The header command bar (Undo/Redo · issues · Run · Save · Publish… · ⋯). ALWAYS go through this rather
 // than a frame-wide getByRole("button", { name: "Save", exact: true }): the GraphTree's action rows are
 // themselves role="button" and their accessible name is derived from their contents, so a rule
 // carrying a Block action produces a row named "Edit action 2: Block save", which a frame-wide
@@ -143,17 +143,127 @@ export function toolbar(frame: FrameLocator): Locator {
   return frame.getByTestId("title-actions-row");
 }
 
-// The proven Save → Validate → Publish sequence (banner strings from RuleEditorApp).
-export async function saveValidatePublish(frame: FrameLocator): Promise<void> {
+// A toast (bottom-centre, 5s). Success feedback lives here, never in an inline banner.
+export function toast(frame: FrameLocator, text: string | RegExp): Locator {
+  return frame.getByTestId("toast").filter({ hasText: text });
+}
+
+// The rule editor's unsaved-change count under the title ("1 unsaved change", "4 unsaved changes").
+export function unsavedCount(frame: FrameLocator): Locator {
+  return frame.getByTestId("lifecycle-status").getByText(/^\d+ unsaved changes?$/);
+}
+
+// An item of the header's ⋯ menu ("Review changes", "Check for issues", "View published",
+// "Restore published to draft…", "Reload from server", "Unpublish…").
+export async function headerMenu(frame: FrameLocator, item: string | RegExp): Promise<void> {
+  await toolbar(frame).getByRole("button", { name: "More actions" }).click();
+  await frame.getByRole("menuitem", { name: item }).click();
+}
+
+// An item of the Run split button's menu ("Preview on a record…", "Apply to records…", "View runs").
+export async function runMenu(frame: FrameLocator, item: string | RegExp): Promise<void> {
+  await toolbar(frame).getByRole("button", { name: "More run options" }).click();
+  await frame.getByRole("menuitem", { name: item }).click();
+}
+
+// Rule settings › When it runs › Triggers is a tag picker: picking an option adds it, clicking a
+// selected tag removes it. Labels are the editor's own sentence case ("On update", "On demand").
+export async function addTrigger(frame: FrameLocator, label: string): Promise<void> {
+  await frame.getByRole("combobox", { name: "Triggers", exact: true }).click();
+  await frame.getByRole("option", { name: label, exact: true }).click();
+  await frame.getByRole("combobox", { name: "Triggers", exact: true }).press("Escape");
+}
+export async function removeTrigger(frame: FrameLocator, label: string): Promise<void> {
+  await frame.getByRole("listbox", { name: "Selected triggers" })
+    .getByRole("option", { name: new RegExp(`^${label}`) }).click();
+}
+
+// Opens a collapsed Rule settings section ("Active period", "Evaluation") if it isn't open yet.
+export async function openSettingsSection(frame: FrameLocator, title: string): Promise<void> {
+  const header = frame.getByRole("button", { name: new RegExp(`^${title}`) });
+  if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
+}
+
+// A condition row in the tree. Its accessible name is the sentence "Edit condition <node tag>
+// <column display name> <operator phrase>" (GraphTree ConditionRow), built from LIVE column
+// labels, so a spec that knows only the logical column finds the row by the column span's
+// title, which is the logical name.
+export function conditionRow(frame: FrameLocator, logicalColumn: string): Locator {
+  return frame.getByRole("button", { name: /^Edit condition/ })
+    .filter({ has: frame.locator(`[title="${logicalColumn}"]`) });
+}
+
+// ---- Inspector panels ---------------------------------------------------------------
+// The condition panel's mode switch: a radiogroup "Condition type" whose radios are the editor's
+// own words ("Compare", "Count rows", "Pattern", "Calculation"; see CHOICE.conditionType).
+export async function pickConditionType(frame: FrameLocator, label: string): Promise<void> {
+  await frame.getByRole("radiogroup", { name: "Condition type" })
+    .getByRole("radio", { name: label, exact: true }).click();
+}
+
+// The condition's "Operator" dropdown. Its options are phrases ("is", "is not", "is more than",
+// …; see CHOICE.operator), and "is" is a substring of most of them, so always exact.
+export async function pickOperator(frame: FrameLocator, phrase: string): Promise<void> {
+  await frame.getByRole("combobox", { name: "Operator" }).click();
+  await frame.getByRole("option", { name: phrase, exact: true }).click();
+}
+
+// The comparison's "Compare with" tabs ("a value", "another column", "a date calculation",
+// "a text template"; see CHOICE.valueSource).
+export function valueSourceTab(frame: FrameLocator, label: string): Locator {
+  return frame.getByRole("tablist", { name: "Compare with" }).getByRole("tab", { name: label, exact: true });
+}
+export async function pickValueSource(frame: FrameLocator, label: string): Promise<void> {
+  await valueSourceTab(frame, label).click();
+}
+
+// The condition panel's collapsed "More" section holds the Condition name. Its header button is
+// named "More" plus, while collapsed, its summary ("Name: automatic" / "Name: <name>"); the
+// pattern keeps it clear of "More actions", "More run options" and the "More info: …" tips.
+// Open state persists per tab session (sessionStorage asx.inspector.condition-more), so only
+// click when it isn't already open.
+export async function openConditionMore(frame: FrameLocator): Promise<void> {
+  const header = frame.getByRole("button", { name: /^More(\s*Name:.*)?$/ });
+  if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
+}
+export function conditionNameBox(frame: FrameLocator): Locator {
+  return frame.getByRole("textbox", { name: "Condition name" });
+}
+export async function setConditionName(frame: FrameLocator, name: string): Promise<void> {
+  await openConditionMore(frame);
+  await conditionNameBox(frame).fill(name);
+}
+
+// The action panel's "When" section (FiresWhenEditor). Scope its "Add group" through here: the
+// tree's Only if band header has an "Add group" button too.
+export function whenSection(frame: FrameLocator): Locator {
+  return frame.getByRole("group", { name: "When", exact: true });
+}
+
+// Save from the header, then wait for the Saved toast.
+export async function saveRule(frame: FrameLocator): Promise<void> {
   await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-  await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
-  await toolbar(frame).getByRole("button", { name: /^(Validate|Save & validate)$/ }).click();
-  await expect(frame.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
-  // exact: true, because role-name matching is SUBSTRING based, and the toolbar also carries
-  // an "Unpublish" button, so a bare "Publish" is a strict-mode violation. Same trap as the
-  // hubRow and action-row notes above; adding a button re-triggered it three specs away.
-  await toolbar(frame).getByRole("button", { name: "Publish", exact: true }).click();
-  await expect(frame.getByText("Rule published successfully.")).toBeVisible({ timeout: 30_000 });
+  await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+}
+
+// ⋯ › Check for issues (saves first when dirty), expecting a clean result.
+export async function checkNoIssues(frame: FrameLocator): Promise<void> {
+  await headerMenu(frame, "Check for issues");
+  await expect(toast(frame, "No issues found")).toBeVisible({ timeout: 30_000 });
+}
+
+// Publish… saves any edits, runs the server check, and opens the confirm; Publish vN publishes.
+export async function publishRule(frame: FrameLocator): Promise<void> {
+  await toolbar(frame).getByRole("button", { name: "Publish…", exact: true }).click();
+  const dialog = frame.getByRole("dialog");
+  await dialog.getByRole("button", { name: /^Publish v\d+$/ }).click({ timeout: 30_000 });
+  await expect(toast(frame, /^v\d+ is live/)).toBeVisible({ timeout: 30_000 });
+}
+
+// The proven Save → Publish… sequence.
+export async function saveValidatePublish(frame: FrameLocator): Promise<void> {
+  await saveRule(frame);
+  await publishRule(frame);
 }
 
 // Pick an option from one of the editor's freeform metadata Comboboxes (ColumnPicker /

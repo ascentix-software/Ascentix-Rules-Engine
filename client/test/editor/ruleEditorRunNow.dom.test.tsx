@@ -48,13 +48,13 @@ const meta: MetadataService = {
 };
 const records: RecordSearchService = { search: async () => [], resolveName: async () => null, queryByFetchXml: async () => [] };
 
-function execGroup(conditionName: string): ConditionGroupNode {
+function execGroup(conditionName: string, column = "statuscode"): ConditionGroupNode {
   return {
     id: "g1", name: "Exec group", parentGroupId: null, logicalOperator: "And",
     isExecutionCondition: true,
     conditions: [{
       id: "c1", name: conditionName, tableConfigId: "root", conditionType: "FieldComparison",
-      comparisonColumn: "statuscode", comparisonOperator: 1, valueSource: 1,
+      comparisonColumn: column, comparisonOperator: 1, valueSource: 1,
       comparisonValue: "1", comparisonValueColumn: null, comparisonValueNodeId: null,
       minExpectedRows: null, maxExpectedRows: null,
     }],
@@ -89,7 +89,7 @@ function publishedGraphFixture(): RuleGraph {
   return {
     ...draft,
     rule: { ...draft.rule, id: ACTIVE_ID, activeRuleId: undefined },
-    executionGroups: [execGroup("Published condition")],
+    executionGroups: [execGroup("Published condition", "creditlimit")],
   };
 }
 
@@ -108,78 +108,100 @@ function renderApp(api: Partial<EditorApi>, graph: RuleGraph = draftGraph()) {
   );
 }
 
-describe("RuleEditorApp Run now / Runs, with a draft open on a published rule", () => {
-  it("Run now loads and lists the PUBLISHED execution conditions (not the draft's) and starts against activeRuleId", async () => {
+async function runMenu() {
+  fireEvent.click(screen.getByRole("button", { name: "More run options" }));
+  return screen.findByRole("menu");
+}
+async function runMenuItem(name: string | RegExp) {
+  await runMenu();
+  fireEvent.click(await screen.findByRole("menuitem", { name }));
+}
+
+describe("RuleEditorApp Run menu (Apply / View runs / Preview), with a draft open on a published rule", () => {
+  it("Apply to records describes the PUBLISHED execution conditions (not the draft's) and starts against activeRuleId", async () => {
     vi.mocked(loadPublishedGraph).mockResolvedValue(publishedGraphFixture());
     vi.mocked(startRun).mockResolvedValue("run1");
     vi.mocked(driveRun).mockResolvedValue({ done: true, status: 3, evaluated: 1, changed: 0, blocked: 0, failed: 0, skipped: 0 });
     const readPublishedRule = vi.fn(async () => "definition");
     renderApp({ readPublishedRule });
 
-    fireEvent.click(screen.getByRole("button", { name: "Run now" }));
     await waitFor(() => expect(readPublishedRule).toHaveBeenCalledWith(ACTIVE_ID));
+    await runMenuItem(/Apply to records/);
 
-    expect(await screen.findByText("Published condition")).toBeInTheDocument();
-    expect(screen.queryByText("Draft-only condition")).not.toBeInTheDocument();
+    // "Records" reads the published Only if as a sentence: its column, not the draft's.
+    const dialog = await screen.findByRole("dialog", { name: "Run Credit limit guard" });
+    expect(await within(dialog).findByText(/^credit ?limit$/i)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/status ?code/i)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply to matching records" }));
     await waitFor(() => expect(startRun).toHaveBeenCalledWith(expect.anything(), ACTIVE_ID, undefined));
   });
 
-  it("falls back to the working graph's conditions when the published load fails", async () => {
+  it("falls back to the draft's conditions when the published load fails", async () => {
     vi.mocked(loadPublishedGraph).mockRejectedValue(new Error("no published revision"));
     const readPublishedRule = vi.fn(async () => "definition");
     renderApp({ readPublishedRule });
 
-    fireEvent.click(screen.getByRole("button", { name: "Run now" }));
-    expect(await screen.findByText("Draft-only condition")).toBeInTheDocument();
+    await runMenuItem(/Apply to records/);
+    expect(await screen.findByText(/status ?code/i)).toBeInTheDocument();
   });
 
-  it("Runs loads the run history for activeRuleId, not the draft's own id", async () => {
+  it("View runs loads the run history for activeRuleId, not the draft's own id", async () => {
     renderApp({});
-    fireEvent.click(screen.getByRole("button", { name: "Runs" }));
+    await runMenuItem("View runs");
     await waitFor(() => expect(loadRuns).toHaveBeenCalledWith(expect.anything(), ACTIVE_ID));
   });
 
-  it("shows Run now when the published rule runs On demand, even if the draft dropped the trigger", async () => {
+  it("offers Apply when the published rule runs On demand, even if the draft dropped the trigger", async () => {
     vi.mocked(loadPublishedGraph).mockResolvedValue(publishedGraphFixture());
     const readPublishedRule = vi.fn(async () => "definition");
     const draft = draftGraph();
     draft.rule.triggers = [1];
     renderApp({ readPublishedRule }, draft);
 
-    expect(await screen.findByRole("button", { name: "Run now" })).toBeInTheDocument();
-    expect(readPublishedRule).toHaveBeenCalledWith(ACTIVE_ID);
+    await waitFor(() => expect(readPublishedRule).toHaveBeenCalledWith(ACTIVE_ID));
+    await runMenu();
+    expect(await screen.findByRole("menuitem", { name: /Apply to records/ })).toBeInTheDocument();
   });
 
-  it("hides Run now when only the draft has the On demand trigger", async () => {
+  it("hides Apply when only the draft has the On demand trigger", async () => {
     const published = publishedGraphFixture();
     published.rule = { ...published.rule, triggers: [1] };
     vi.mocked(loadPublishedGraph).mockResolvedValue(published);
     const readPublishedRule = vi.fn(async () => "definition");
     renderApp({ readPublishedRule });
 
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Run now" })).not.toBeInTheDocument());
-    expect(readPublishedRule).toHaveBeenCalledWith(ACTIVE_ID);
+    await waitFor(() => expect(readPublishedRule).toHaveBeenCalledWith(ACTIVE_ID));
+    await new Promise((r) => setTimeout(r, 0));
+    await runMenu();
+    await screen.findByRole("menuitem", { name: "View runs" });
+    expect(screen.queryByRole("menuitem", { name: /Apply to records/ })).toBeNull();
   });
 
-  it("shows Test, like Runs, on a Draft-status draft of a rule with a published revision", () => {
+  it("offers Preview and View runs, but not Apply, on a Draft-status draft of a rule with a published revision", async () => {
     const draft = draftGraph();
     draft.rule.statusCode = 1;
     renderApp({ dryRun: vi.fn() }, draft);
-    expect(screen.getByRole("button", { name: "Runs" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Test" })).toBeInTheDocument();
+    await runMenu();
+    expect(await screen.findByRole("menuitem", { name: /Preview on a record/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "View runs" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Apply to records/ })).toBeNull();
   });
 
-  it("hides Test when the dry run isn't available", () => {
-    renderApp({});
-    expect(screen.queryByRole("button", { name: "Test" })).not.toBeInTheDocument();
+  // Preview runs the live version (asx_RunRules can't evaluate a draft), so there's nothing to run yet.
+  it("offers no Run actions for a rule that was never published", () => {
+    const draft = draftGraph();
+    draft.rule.statusCode = 1; draft.rule.publishedRevisionId = null; draft.rule.activeRuleId = undefined;
+    renderApp({ dryRun: vi.fn() }, draft);
+    expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "More run options" })).toBeNull();
   });
 
-  it("opens the Test dialog on the published rule", async () => {
+  it("the Run button opens the Run dialog on its Preview tab", async () => {
     renderApp({ dryRun: vi.fn() });
-    fireEvent.click(screen.getByRole("button", { name: "Test" }));
-    const dialog = await screen.findByRole("dialog", { name: "Test on a record" });
-    expect(within(dialog).getByText("Credit limit guard")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    const dialog = await screen.findByRole("dialog", { name: "Run Credit limit guard" });
+    expect(within(dialog).getByRole("tab", { name: "Preview on a record", selected: true })).toBeInTheDocument();
   });
 });

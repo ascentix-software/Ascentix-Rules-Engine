@@ -17,8 +17,8 @@ as JSON in the response parameters.
 ## `asx_ValidateRule`: validate a rule
 
 Validates a **persisted** rule and returns a structured report of what, if anything,
-is wrong with it. This is the check behind the Rule Builder's status badge and the
-gate on the Draft → Published transition (see *Rule Lifecycle*). It is **always
+is wrong with it. This is the check behind the Rule Builder's **Check for issues** and
+**Publish…**, and the gate on the Draft → Published transition (see *Rule Lifecycle*). It is **always
 non-enforcing**: an invalid rule comes back as report data, never as an exception. It
 throws only on bad input: a missing or non-GUID `RuleId`, or a rule that doesn't
 exist.
@@ -148,8 +148,8 @@ apply to the previous" is available only on a single-record target.
 run only. A rule held back by its execution conditions reports no outcomes. `Results` keeps its
 shape. Without `IncludeOutcomes` (or with `false`), `Outcomes` is always `[]`: the client form
 library doesn't ask for it, so a form's calls don't carry outcome names and values. The Rule
-Builder's **Test** dialog sets `IncludeOutcomes` and lists the tested rule's outcomes from this
-output. The `Outcomes` output and the `IncludeOutcomes` parameter are created by
+Builder's **Preview on a record** sets `IncludeOutcomes` and lists the tested rule's outcomes from
+this output under **OUTCOMES**. The `Outcomes` output and the `IncludeOutcomes` parameter are created by
 `pipelines/Configure-RuleAuthoring.ps1` when the deploy's Register phase runs.
 
 **`ChangeSet`** summarizes every write this evaluation would make, across every rule and action
@@ -164,8 +164,8 @@ A record with a fired `Block` counts zero in every field (`IsValid` is `false`):
 would write nothing for it. An update of the evaluated record itself counts as an update here,
 although a form save applies it to the record in place rather than as a separate write.
 
-This is the same summary the Rule Builder's **Test** dialog renders as "Change set: 1 create, 12
-updates, 0 deletes · 3 unchanged".
+This is the same summary the Rule Builder's **Preview on a record** renders as "Change set: 1
+create, 12 updates, 0 deletes · 3 unchanged".
 
 **Diagnostics** (opt-in, `IncludeDiagnostics: true`) report what the evaluation cost,
 for support conversations and your own sizing against the *Beta Limitations* budget:
@@ -206,8 +206,8 @@ Evaluates one **On demand** rule against one persisted record and, unlike
 `asx_RunRules`, **enforces** the result: a fired `Block` throws, and every other
 fired write action runs inside the call's own transaction. It's what a script or
 a command button calls directly for a single record (see the recipe below).
-**Run now** doesn't call it: Run now creates a Rule Run and drives it with
-`asx_ProcessRunPage` (below), even for one record.
+**Apply to records** (and the hub's **Run now**) doesn't call it: it creates a Rule Run and
+drives it with `asx_ProcessRunPage` (below), even for one record.
 
 **Request**
 
@@ -237,8 +237,8 @@ record.
 ## `asx_ProcessRunPage`: advance a Rule Run
 
 Processes the next page of an existing Rule Run (`asx_rulerun`), driven from
-**outside** Dataverse by repeated calls so every page starts fresh. **Run now**
-and the **Runs** dialog (*Running Rules On Demand*) call this in a loop; a flow
+**outside** Dataverse by repeated calls so every page starts fresh. **Apply to
+records** and the **Runs** dialog (*Running Rules On Demand*) call this in a loop; a flow
 or an integration can call it the same way (see the recipe below).
 
 **Request**
@@ -465,7 +465,7 @@ requires the same run privileges as `asx_ApplyRules`/`asx_ProcessRunPage` (the g
 full set). The caller needs no privileges on Rule Schedule or Scheduler Status: the
 engine writes those itself.
 
-Drive each returned id with `asx_ProcessRunPage` (above) the same way Run now does, in
+Drive each returned id with `asx_ProcessRunPage` (above) the same way Apply to records does, in
 the order given: new runs come first, so a long run that keeps being continued never
 holds up the rules started after it. A schedule whose rule already has an active run is
 reported as **continued**, not started again, so an id in `RunIds` may already be

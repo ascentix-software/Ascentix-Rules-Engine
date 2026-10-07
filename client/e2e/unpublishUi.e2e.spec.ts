@@ -4,7 +4,7 @@ import { ENTITY_SET } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { ensureTableConfig, authorRule } from "../test-dev/ruleBehavior/authoring";
 import { resolveAppId, createThrowawayRule } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, toolbar, toast, publishRule, headerMenu } from "./editorHarness";
 import { loadPublishedGraph } from "../src/editor/load/publishedGraph";
 
 // The emergency brake, inside the Rule Builder: the Unpublish command on the editor toolbar.
@@ -47,7 +47,7 @@ test("Edit rule opens a working draft and publishes it without stopping the acti
     expect((await api.validateRule(fixture.ruleId)).isValid).toBe(true);
     await api.publishRule(fixture.ruleId);
     const frame = await openRuleFromHub(page, await resolveAppId(), fixture.ruleName);
-    await expect(frame.getByRole("button", { name: "Rename rule" })).toBeDisabled();
+    await expect(frame.getByRole("button", { name: "Rename rule" })).toHaveCount(0);
     await frame.getByRole("button", { name: "Edit rule", exact: true }).click();
     await expect(frame.getByRole("button", { name: "Rename rule" })).toBeEnabled();
     await frame.getByRole("button", { name: "Rename rule" }).click();
@@ -55,20 +55,17 @@ test("Edit rule opens a working draft and publishes it without stopping the acti
     await frame.getByLabel("Rule name", { exact: true }).fill(revisedName);
     await frame.getByLabel("Rule name", { exact: true }).press("Enter");
     await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(frame.getByText("Saved.", { exact: true })).toBeVisible();
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
     expect((await header()).statuscode).toBe(PUBLISHED);
     expect((await published()).rule.name).toBe(fixture.ruleName);
-    await toolbar(frame).getByRole("button", { name: "Validate", exact: true }).click();
-    await expect(frame.getByText(/Validation passed/)).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Publish", exact: true }).click();
-    await expect(frame.getByText("Rule published successfully.", { exact: true })).toBeVisible();
+    await publishRule(frame);
     expect((await header()).statuscode).toBe(PUBLISHED);
     expect((await header()).asx_publishedversion).toBe(2);
     expect((await published()).rule.name).toBe(revisedName);
   } finally { await fixture.cleanup(); }
 });
 
-test("Unpublish is offered only for a Published rule, confirms, and persists Draft", async ({ page }) => {
+test("Unpublish… is offered only for a live rule, confirms, and persists Draft", async ({ page }) => {
   const appId = await resolveAppId();
   const tc = await ensureTableConfig();
   // Manual-only: this spec is about the affordance and the persisted status, never about firing.
@@ -85,13 +82,10 @@ test("Unpublish is offered only for a Published rule, confirms, and persists Dra
     expect(await statusOf(rule.ruleId)).toBe(PUBLISHED); // authorRule publishes by default
 
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await expect(frame.getByText("Published", { exact: true })).toBeVisible({ timeout: 30_000 });
-
-    const unpublish = toolbar(frame).getByRole("button", { name: "Unpublish", exact: true });
-    await expect(unpublish).toBeEnabled();
+    await expect(frame.getByTestId("lifecycle-status").getByText(/^Live · v\d+$/)).toBeVisible({ timeout: 30_000 });
 
     // CANCEL leaves the rule alone: a confirm that does not actually guard is worse than none.
-    await unpublish.click();
+    await headerMenu(frame, "Unpublish…");
     const dialog = frame.getByRole("dialog");
     await expect(dialog).toContainText(`Unpublish "${rule.ruleName}"?`);
     // The consequence is named, not just "are you sure?".
@@ -101,22 +95,24 @@ test("Unpublish is offered only for a Published rule, confirms, and persists Dra
     expect(await statusOf(rule.ruleId)).toBe(PUBLISHED);
 
     // CONFIRM releases it.
-    await unpublish.click();
+    await headerMenu(frame, "Unpublish…");
     await frame.getByRole("dialog").getByRole("button", { name: "Unpublish", exact: true }).click();
 
-    await expect(frame.getByText(/Rule unpublished/)).toBeVisible({ timeout: 30_000 });
-    await expect(frame.getByText("Draft", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(toast(frame, /is no longer enforced/)).toBeVisible({ timeout: 30_000 });
+    await expect(frame.getByTestId("lifecycle-status").getByText(/^Not live/)).toBeVisible({ timeout: 30_000 });
     expect(await statusOf(rule.ruleId)).toBe(DRAFT);
 
-    // ... and the button is now correctly unavailable, so a second click cannot re-issue it.
-    await expect(unpublish).toBeDisabled();
+    // ... and the item is now gone from the menu, so a second click cannot re-issue it.
+    await toolbar(frame).getByRole("button", { name: "More actions" }).click();
+    await expect(frame.getByRole("menuitem", { name: /Reload from server/ })).toBeVisible();
+    await expect(frame.getByRole("menuitem", { name: "Unpublish…" })).toHaveCount(0);
   } finally {
     await rule.cleanup();
     await tc.cleanup();
   }
 });
 
-test("Unpublish is disabled for a Draft rule", async ({ page }) => {
+test("Unpublish… isn't offered for a Draft rule", async ({ page }) => {
   const appId = await resolveAppId();
   const tc = await ensureTableConfig();
   const rule = await authorRule({
@@ -132,10 +128,12 @@ test("Unpublish is disabled for a Draft rule", async ({ page }) => {
   try {
     expect(await statusOf(rule.ruleId)).toBe(DRAFT);
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await expect(frame.getByText("Draft", { exact: true })).toBeVisible({ timeout: 30_000 });
-    await expect(toolbar(frame).getByRole("button", { name: "Unpublish", exact: true })).toBeDisabled();
-    // Publish is still the live affordance here; the two coexist.
-    await expect(toolbar(frame).getByRole("button", { name: "Publish", exact: true })).toBeVisible();
+    await expect(frame.getByTestId("lifecycle-status").getByText("Draft", { exact: true })).toBeVisible({ timeout: 30_000 });
+    // Publish… is the primary affordance here; Unpublish… isn't in the menu.
+    await expect(toolbar(frame).getByRole("button", { name: "Publish…", exact: true })).toBeVisible();
+    await toolbar(frame).getByRole("button", { name: "More actions" }).click();
+    await expect(frame.getByRole("menuitem", { name: /Reload from server/ })).toBeVisible();
+    await expect(frame.getByRole("menuitem", { name: "Unpublish…" })).toHaveCount(0);
   } finally {
     await rule.cleanup();
     await tc.cleanup();

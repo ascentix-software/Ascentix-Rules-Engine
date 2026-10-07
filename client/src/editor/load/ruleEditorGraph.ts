@@ -3,6 +3,19 @@ import { loadRuleGraph } from "./index";
 import { ENTITY, RULE_SELECT } from "./odata";
 import { loadPublishedGraph } from "./publishedGraph";
 
+const FV = "@OData.Community.Display.V1.FormattedValue";
+
+// "Published 2 Oct by Dana": the revision row's created on/by. Best effort; the header leaves the
+// text out when it can't be read.
+async function publishedStamp(api: WebApiPort, revisionId: string): Promise<{ publishedOn: string | null; publishedBy: string | null }> {
+  try {
+    const rev = await api.retrieveRecord("asx_rulerevision", revisionId, "?$select=createdon,_createdby_value");
+    return { publishedOn: rev?.createdon ?? null, publishedBy: rev?.["_createdby_value" + FV] ?? null };
+  } catch {
+    return { publishedOn: null, publishedBy: null };
+  }
+}
+
 // The route keeps the public rule identity while the editor loads its separate working copy.
 export async function loadRuleEditorGraph(api: WebApiPort, ruleId: string) {
   const requested = await api.retrieveRecord(ENTITY.rule, ruleId, "?$select=" + RULE_SELECT);
@@ -18,6 +31,7 @@ export async function loadRuleEditorGraph(api: WebApiPort, ruleId: string) {
   graph.rule.publishedRevisionId = active._asx_publishedrevision_value ?? null;
   graph.rule.publishedVersion = active.asx_publishedversion ?? 0;
   graph.rule.statusCode = active.statuscode ?? null;
+  if (graph.rule.publishedRevisionId) Object.assign(graph.rule, await publishedStamp(api, graph.rule.publishedRevisionId));
   if (!draftId) graph.rule.etag = active["@odata.etag"] ?? null;
   if (draftId) {
     graph.rule.activeRuleId = activeId;

@@ -13,21 +13,23 @@ import { openHub, hubRow } from "./editorHarness";
 
 test.beforeAll(async () => { await sweepRuleBehaviorOrphans(); });
 
-test("New rule dialog: existing config + On demand trigger → lands in the rule editor", async ({ page }) => {
+test("New rule dialog: existing data model + On demand trigger → lands in the rule editor", async ({ page }) => {
   const appId = await resolveAppId();
   const cfg = await createZzRootConfig("uidlg_cfg", "account");
   const ruleName = "ZZ_RB_uidlg_rule";
   try {
     const frame = await openHub(page, appId);
     await frame.getByRole("button", { name: "New rule" }).click();
-    const dialog = frame.getByRole("dialog");
-    await expect(dialog).toContainText("New rule");
+    const dialog = frame.getByRole("dialog", { name: "New rule" });
+    await expect(dialog).toBeVisible();
 
-    await dialog.getByRole("textbox", { name: "Name" }).fill(ruleName);
-    // Default is already "existing" when any config exists; click for determinism.
-    await dialog.getByRole("radio", { name: "Use an existing configuration" }).check();
-    await dialog.getByRole("combobox", { name: "Configuration" }).click();
-    await frame.getByRole("option", { name: /ZZ_RB_uidlg_cfg/ }).click();
+    await dialog.getByRole("textbox", { name: /^Name/ }).fill(ruleName);
+    // Table first; Data model then lists the models rooted at it (the most-used preselected).
+    const tableBox = dialog.getByRole("combobox", { name: /^Table/ });
+    await tableBox.click();
+    await tableBox.pressSequentially("account", { delay: 30 });
+    await frame.getByRole("option", { name: /· account\b/ }).first().click();
+    await dialog.getByRole("radio", { name: /ZZ_RB_uidlg_cfg/ }).check();
     await dialog.getByRole("checkbox", { name: "On demand" }).check();
 
     const create = dialog.getByRole("button", { name: "Create" });
@@ -44,41 +46,42 @@ test("New rule dialog: existing config + On demand trigger → lands in the rule
   }
 });
 
-test("New rule dialog: NEW-configuration mode creates config + rule (empty-org default path)", async ({ page }) => {
+test("New rule dialog: Start a new model creates a model named after the table, and the rule on it", async ({ page }) => {
   const appId = await resolveAppId();
   const ruleName = "ZZ_RB_uidlg2_rule";
-  const cfgName = "ZZ_RB_uidlg2_cfg";
   const api = createDevApi();
+  let cfgId: string | null = null;
   try {
     const frame = await openHub(page, appId);
     await frame.getByRole("button", { name: "New rule" }).click();
-    const dialog = frame.getByRole("dialog");
+    const dialog = frame.getByRole("dialog", { name: "New rule" });
 
-    await dialog.getByRole("textbox", { name: "Name" }).fill(ruleName);
-    // On a fresh org this is the DEFAULT mode; here configs exist, so switch explicitly.
-    await dialog.getByRole("radio", { name: "New configuration for a table" }).check();
-    await dialog.getByRole("textbox", { name: "Configuration name" }).fill(cfgName);
-    const tableBox = dialog.getByRole("combobox", { name: "Table" });
+    await dialog.getByRole("textbox", { name: /^Name/ }).fill(ruleName);
+    const tableBox = dialog.getByRole("combobox", { name: /^Table/ });
     await tableBox.click();
     await tableBox.pressSequentially("account", { delay: 30 });
-    await frame.getByRole("option", { name: /\(account\)$/ }).first().click();
+    await frame.getByRole("option", { name: /· account\b/ }).first().click();
+    // On a fresh org this is the only choice; here models exist, so pick it explicitly.
+    await dialog.getByRole("radio", { name: /^Start a new model for / }).check();
     await dialog.getByRole("checkbox", { name: "On demand" }).check();
     await dialog.getByRole("button", { name: "Create" }).click();
 
     await expect(frame.getByRole("button", { name: "Rename rule" })).toBeVisible({ timeout: 30_000 });
 
-    // API-verify: the config root exists and the rule is bound to it.
-    const cfgId = await findIdByName(ENTITY_SET.tableConfig, "asx_name", "asx_tableconfigid", cfgName);
-    expect(cfgId).not.toBeNull();
+    // API-verify: the rule is bound to a new model named after the table ("Account", or
+    // "Account (2)"… when taken). That name has no ZZ_RB_ prefix, so the sweep won't find it:
+    // the finally block deletes it by id.
     const r = await api.retrieveMultipleRecords(
       ENTITY_SET.rule, `?$filter=asx_name eq '${ruleName}'&$select=asx_ruleid,_asx_roottableconfig_value`,
     );
     expect(r.entities.length).toBe(1);
-    expect(r.entities[0]._asx_roottableconfig_value).toBe(cfgId);
+    cfgId = r.entities[0]._asx_roottableconfig_value;
+    expect(cfgId).toBeTruthy();
+    const cfg = await api.retrieveRecord(ENTITY_SET.tableConfig, cfgId!, "?$select=asx_name");
+    expect(cfg.asx_name).toMatch(/^Account( \(\d+\))?$/);
   } finally {
     const ruleId = await findIdByName(ENTITY_SET.rule, "asx_name", "asx_ruleid", ruleName);
     if (ruleId) await deleteRuleCascade(ruleId);
-    const cfgId = await findIdByName(ENTITY_SET.tableConfig, "asx_name", "asx_tableconfigid", cfgName);
     if (cfgId) await deleteDevRecord(ENTITY_SET.tableConfig, cfgId).catch(() => {});
   }
 });

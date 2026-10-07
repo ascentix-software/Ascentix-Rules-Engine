@@ -130,13 +130,17 @@ describe("read-only while a data update is pending", () => {
   it("hides the rule editor's edit actions but keeps Reload", async () => {
     renderRuleEditor(api(PENDING));
     expect(await screen.findByTestId("data-update-banner")).toBeInTheDocument();
-    for (const name of ["Save", "Publish", "Unpublish", "Undo", "Redo", "Restore published to draft", "Edit rule"]) {
+    for (const name of ["Save", "Publish…", "Undo", "Redo", "Edit rule"]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
     }
-    expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    expect(await screen.findByRole("menuitem", { name: /Reload from server/ })).toBeInTheDocument();
+    for (const name of [/Unpublish/, /Restore published to draft/]) {
+      expect(screen.queryByRole("menuitem", { name })).toBeNull();
+    }
   });
 
-  it("never offers Save & validate while locked, even with unsaved edits", async () => {
+  it("never offers Save, Publish or Check for issues while locked, even with unsaved edits", async () => {
     // The edit is made before Status arrives; once it reports a pending update, the view locks.
     let resolveStatus: (s: DataUpdateStatus) => void = () => {};
     const a = {
@@ -148,11 +152,14 @@ describe("read-only while a data update is pending", () => {
     const field = screen.getByLabelText("Rule name");
     fireEvent.change(field, { target: { value: "Edited" } });
     fireEvent.keyDown(field, { key: "Enter" });
-    expect(screen.getByRole("button", { name: "Save & validate" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
 
     await act(async () => { resolveStatus(PENDING); });
     expect(await screen.findByTestId("data-update-banner")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save & validate" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Validate" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish…" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await screen.findByRole("menuitem", { name: /Reload from server/ });
+    expect(screen.queryByRole("menuitem", { name: /Check for issues/ })).toBeNull();
   });
 });

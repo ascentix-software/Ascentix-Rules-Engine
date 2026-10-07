@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { screen, fireEvent } from "@testing-library/react";
 import { fakeMetadata, tableMeta, renderWithMeta } from "./metaFixtures";
-import { NewRuleDialog } from "../../src/editor/ui/hub/NewRuleDialog";
+import { NewRuleDialog, uniqueModelName } from "../../src/editor/ui/hub/NewRuleDialog";
 import type { ConfigListItem } from "../../src/editor/load/hubData";
 
 function metaWithTables() {
@@ -13,127 +13,84 @@ function metaWithTables() {
   return svc;
 }
 
-const oneConfig: ConfigListItem = {
+const cfg = (over: Partial<ConfigListItem>): ConfigListItem => ({
   id: "cfg-1", name: "Account Rules", rootTableLogicalName: "account",
-  nodeCount: 3, usedByCount: 2, modifiedOn: null, modifiedBy: null,
-};
+  nodeCount: 3, usedByCount: 2, modifiedOn: null, modifiedBy: null, ...over,
+});
 
-// Each trigger Checkbox keeps its own `label` prop as its accessible name (the Triggers group is
-// labeled separately via role="group"/aria-labelledby), so checkboxes are addressable directly by
-// accessible name.
-function triggerCheckbox(label: string): HTMLInputElement {
-  return screen.getByRole("checkbox", { name: label }) as HTMLInputElement;
+async function pickTable(name: RegExp) {
+  const box = await screen.findByRole("combobox");
+  fireEvent.click(box);
+  fireEvent.click(await screen.findByRole("option", { name }));
 }
 
 describe("NewRuleDialog", () => {
-  it("renders open with title 'New rule' and Create disabled", async () => {
-    const onCancel = vi.fn();
+  it("keeps Create enabled and explains what's missing, focusing the first invalid field", async () => {
     const onCreate = vi.fn();
-    renderWithMeta(
-      <NewRuleDialog open configs={[]} onCancel={onCancel} onCreate={onCreate} />,
-      metaWithTables(),
-    );
+    renderWithMeta(<NewRuleDialog open configs={[]} onCancel={vi.fn()} onCreate={onCreate} />, metaWithTables());
     expect(await screen.findByText("New rule")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+    const create = screen.getByRole("button", { name: "Create" });
+    expect(create).toBeEnabled();
+    fireEvent.click(create);
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(screen.getByText("Enter a name.")).toBeInTheDocument();
+    expect(screen.getByText("Choose a table.")).toBeInTheDocument();
+    expect(screen.getByText("Choose at least one.")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /^Name/ })).toHaveFocus();
+  });
 
-    // Each trigger checkbox must have its own distinct accessible name (WCAG 4.1.2).
-    for (const name of ["On Create", "On Form", "On demand", "On Update", "On Delete"]) {
+  it("groups the triggers by where they run, each checkbox with its own name", async () => {
+    renderWithMeta(<NewRuleDialog open configs={[]} onCancel={vi.fn()} onCreate={vi.fn()} />, metaWithTables());
+    await screen.findByText("New rule");
+    for (const name of ["While editing", "Create", "Update", "Delete", "On demand"]) {
       expect(screen.getByRole("checkbox", { name })).toBeInTheDocument();
+    }
+    for (const group of ["On the form", "When saved", "On demand"]) {
+      expect(screen.getByRole("button", { name: `More info: ${group}` })).toBeInTheDocument();
     }
   });
 
-  it("enables Create once name, a trigger, config name, and table are all set (mode new)", async () => {
-    const onCancel = vi.fn();
-    const onCreate = vi.fn();
-    renderWithMeta(
-      <NewRuleDialog open configs={[]} onCancel={onCancel} onCreate={onCreate} />,
-      metaWithTables(),
-    );
-
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "My Rule" } });
-    fireEvent.click(triggerCheckbox("On Create"));
-    fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "My Config" } });
-
-    const combo = await screen.findByRole("combobox");
-    fireEvent.click(combo);
-    fireEvent.click(await screen.findByText(/Account \(account\)/));
-
-    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
+  it("asks for the table first; Data model appears with matching models, most-used preselected", async () => {
+    const configs = [cfg({ id: "a", name: "Less used", usedByCount: 1 }), cfg({ id: "b", name: "Most used", usedByCount: 5 }),
+      cfg({ id: "c", name: "Other table", rootTableLogicalName: "asx_rule" })];
+    renderWithMeta(<NewRuleDialog open configs={configs} onCancel={vi.fn()} onCreate={vi.fn()} />, metaWithTables());
+    await screen.findByText("New rule");
+    expect(screen.queryByRole("radiogroup", { name: "Data model" })).toBeNull();
+    await pickTable(/^Account · account/);
+    expect(await screen.findByRole("radio", { name: /Most used/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /Less used/ })).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /Other table/ })).toBeNull();
+    expect(screen.getByRole("radio", { name: "Start a new model for Account" })).toBeInTheDocument();
   });
 
-  it("Create fires onCreate with the new-mode payload", async () => {
-    const onCancel = vi.fn();
+  it("creates on an existing model with the same args as before", async () => {
     const onCreate = vi.fn();
-    renderWithMeta(
-      <NewRuleDialog open configs={[]} onCancel={onCancel} onCreate={onCreate} />,
-      metaWithTables(),
-    );
-
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "My Rule" } });
-    fireEvent.click(triggerCheckbox("On Create"));
-    fireEvent.change(screen.getByLabelText("Configuration name"), { target: { value: "My Config" } });
-
-    const combo = await screen.findByRole("combobox");
-    fireEvent.click(combo);
-    fireEvent.click(await screen.findByText(/Account \(account\)/));
-
+    renderWithMeta(<NewRuleDialog open configs={[cfg({})]} onCancel={vi.fn()} onCreate={onCreate} />, metaWithTables());
+    await screen.findByText("New rule");
+    fireEvent.change(screen.getByRole("textbox", { name: /^Name/ }), { target: { value: "  My rule " } });
+    await pickTable(/^Account · account/);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Create" }));
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
-
-    expect(onCreate).toHaveBeenCalledWith({
-      name: "My Rule", table: "account", triggers: [1],
-      existingRootId: undefined, newConfigName: "My Config",
-    });
+    expect(onCreate).toHaveBeenCalledWith({ name: "My rule", table: "account", triggers: [1], existingRootId: "cfg-1", newConfigName: undefined });
   });
 
-  it("defaults to existing mode with configs present, and lists the config in the dropdown", async () => {
-    const onCancel = vi.fn();
+  it("starts a new model named after the table, made unique", async () => {
     const onCreate = vi.fn();
-    renderWithMeta(
-      <NewRuleDialog open configs={[oneConfig]} onCancel={onCancel} onCreate={onCreate} />,
-      metaWithTables(),
-    );
-
-    expect(screen.getByRole("radio", { name: "Use an existing configuration" })).toBeChecked();
-    expect(screen.getByRole("radio", { name: "New configuration for a table" })).not.toBeChecked();
-
-    const combo = await screen.findByRole("combobox");
-    fireEvent.click(combo);
-    expect(await screen.findByText("Account Rules (account)")).toBeInTheDocument();
-  });
-
-  it("existing-mode Create fires onCreate with existingRootId/table from the chosen config", async () => {
-    const onCancel = vi.fn();
-    const onCreate = vi.fn();
-    renderWithMeta(
-      <NewRuleDialog open configs={[oneConfig]} onCancel={onCancel} onCreate={onCreate} />,
-      metaWithTables(),
-    );
-
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "My Rule" } });
-    fireEvent.click(triggerCheckbox("On Update"));
-
-    const combo = await screen.findByRole("combobox");
-    fireEvent.click(combo);
-    fireEvent.click(await screen.findByText("Account Rules (account)"));
-
-    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
+    renderWithMeta(<NewRuleDialog open configs={[cfg({ name: "Account", rootTableLogicalName: "asx_rule" })]}
+      onCancel={vi.fn()} onCreate={onCreate} />, metaWithTables());
+    await screen.findByText("New rule");
+    fireEvent.change(screen.getByRole("textbox", { name: /^Name/ }), { target: { value: "R" } });
+    await pickTable(/^Account · account/);
+    expect(await screen.findByRole("radio", { name: "Start a new model for Account" })).toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", { name: "On demand" }));
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
-
-    expect(onCreate).toHaveBeenCalledWith({
-      name: "My Rule", table: "account", triggers: [4],
-      existingRootId: "cfg-1", newConfigName: undefined,
-    });
+    expect(onCreate).toHaveBeenCalledWith({ name: "R", table: "account", triggers: [3], existingRootId: undefined, newConfigName: "Account (2)" });
   });
+});
 
-  it("Cancel fires onCancel, not onCreate", async () => {
-    const onCancel = vi.fn();
-    const onCreate = vi.fn();
-    renderWithMeta(
-      <NewRuleDialog open configs={[]} onCancel={onCancel} onCreate={onCreate} />,
-      metaWithTables(),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(onCancel).toHaveBeenCalledTimes(1);
-    expect(onCreate).not.toHaveBeenCalled();
+describe("uniqueModelName", () => {
+  it("appends (2), (3)… when taken", () => {
+    expect(uniqueModelName("Account", [])).toBe("Account");
+    expect(uniqueModelName("Account", ["account", "Account (2)"])).toBe("Account (3)");
   });
 });

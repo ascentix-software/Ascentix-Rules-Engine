@@ -1,56 +1,63 @@
-// The LIVE global-choice labels the editor renders, keyed the way a spec reads them.
+// The labels the editor renders for its choice controls, keyed the way a spec reads them.
 //
-// Why this file exists: every choice dropdown in the editor renders `useChoiceLabel()`, the
-// label from the ORG's global option set (docs/Schema.md §1), and only falls back to the
-// TypeScript token when the choice is missing. The tokens and the shipped labels DIVERGE
-// ("Expression" vs "Calculation", "Text template" vs "Template",
-// "Date calculation" vs "Date Expression"). A spec that types the token silently never matches
-// an option, and the symptom is a 3-minute timeout on an expanded dropdown rather than an
-// assertion failure, so a token typed by mistake reads as a hung test, not as a wrong string.
+// Two kinds live here:
 //
-// Source of truth = the org, read from DEV:
-//   node -e "GlobalOptionSetDefinitions(Name='asx_actiontype')"  (see scripts/devOrg.mjs)
-// If a label changes in the org, change it HERE, not in each spec.
+// 1. The EDITOR'S OWN WORDS (conditionType, valueSource, operator, actionType). Since the Rule
+//    Builder redesign these controls no longer show the org's global choice labels: the
+//    condition panel renders "Compare" / "Count rows" / "Pattern" / "Calculation" as radios
+//    (ConditionInspector MODES), the value source as "Compare with" tabs (ValueSourceTabs), the
+//    operator as a phrase (labels.ts OPERATOR_PHRASE), and the action Type as a verb
+//    (labels.ts actionVerb). If one of those changes, change it HERE, not in each spec.
+//    Note that several operator phrases contain "is", so pick an operator option with
+//    exact: true or Playwright's substring match finds several.
+//
+// 2. ORG GLOBAL-CHOICE LABELS (severity, channel, trigger). These dropdowns still render
+//    `useChoiceLabel()`, the label from the org's global option set (docs/Schema.md §1), and
+//    only fall back to the TypeScript token when the choice is missing. The tokens and the
+//    shipped labels can DIVERGE, and a spec that types the token silently never matches an
+//    option: the symptom is a 3-minute timeout on an expanded dropdown rather than an
+//    assertion failure. Source of truth = the org, read from DEV:
+//      node -e "GlobalOptionSetDefinitions(Name='asx_severity')"  (see scripts/devOrg.mjs)
 export const CHOICE = {
+  // The "Condition type" radiogroup's radios.
   conditionType: {
-    fieldComparison: "Field Comparison",
-    rowCount: "Row Count",
-    regexMatch: "Regex Match",
-    expression: "Calculation",          // token is "Expression"
+    fieldComparison: "Compare",
+    rowCount: "Count rows",         // only rendered when the data model has a ChildTable node
+    regexMatch: "Pattern",
+    expression: "Calculation",
   },
+  // The "Compare with" tablist's tabs.
   valueSource: {
-    literal: "Literal",
-    fieldReference: "Field Reference",  // token is "FieldReference"
-    template: "Template",               // token/Field label is "Text template"
-    dateExpression: "Date Expression",  // token/Field label is "Date calculation"
+    literal: "a value",
+    fieldReference: "another column",
+    template: "a text template",      // text columns only
+    dateExpression: "a date calculation", // date columns only
   },
+  // The "Operator" dropdown's options (labels.ts OPERATOR_PHRASE, by operator value 1..10).
   operator: {
-    equals: "Equals",
-    notEquals: "Not Equals",
-    greaterThan: "Greater Than",
-    greaterThanOrEqual: "Greater Than Or Equal",
-    lessThan: "Less Than",
-    lessThanOrEqual: "Less Than Or Equal",
-    // The four the TS token list spells without spaces (ConditionInspector.tsx:30-36
-    // "DoesNotContain", "IsNull", "IsNotNull"): exactly the divergence this module exists for.
-    // Re-read from DEV: GlobalOptionSetDefinitions(Name='asx_comparisonoperator')
-    // is 1 Equals, 2 Not Equals, 3 Greater Than, 4 Greater Than Or Equal, 5 Less Than,
-    // 6 Less Than Or Equal, 7 Contains, 8 Does Not Contain, 9 Is Null, 10 Is Not Null.
-    contains: "Contains",
-    doesNotContain: "Does Not Contain",
-    isNull: "Is Null",
-    isNotNull: "Is Not Null",
+    equals: "is",
+    notEquals: "is not",
+    greaterThan: "is more than",
+    greaterThanOrEqual: "is at least",
+    lessThan: "is less than",
+    lessThanOrEqual: "is at most",
+    contains: "contains",
+    doesNotContain: "doesn't contain",
+    isNull: "is empty",
+    isNotNull: "has a value",
   },
+  // The action panel's "Type" dropdown options (labels.ts actionVerb).
   actionType: {
-    setVisible: "Set Visible",
-    setRequired: "Set Required",
-    showMessage: "Show Message",
-    block: "Block",
-    createRecord: "Create Record",
-    updateRecord: "Update Record",
-    deleteRecord: "Delete Record",
-    deactivateRecord: "Deactivate Record",
+    setVisible: "Set visible",
+    setRequired: "Set required",
+    showMessage: "Show message",
+    block: "Block save",
+    createRecord: "Create record",
+    updateRecord: "Update record",
+    deleteRecord: "Delete record",
+    deactivateRecord: "Deactivate record",
   },
+  // Org global-choice labels from here down.
   severity: { information: "Information", warning: "Warning", error: "Error" },
   channel: { standard: "Standard", portal: "Portal" },
   trigger: {

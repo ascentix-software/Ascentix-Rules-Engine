@@ -125,3 +125,25 @@ export function scheduleSummary(s: {
     default: return "Scheduled";
   }
 }
+
+const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * The schedule in one phrase for the settings strip and section summaries:
+ * "Daily 06:00 UTC", "Weekly Mon & Thu 06:00 UTC", "Every 2 hours", "Monthly on day 1, 06:00 UTC".
+ */
+export function scheduleStripSummary(s: RuleSchedule, zone = "UTC"): string {
+  const at = s.timeOfDay ? ` ${s.timeOfDay} ${zone}` : "";
+  switch (s.pattern) {
+    case 1: return `Every ${s.every ?? "?"} minutes`;
+    case 2: return s.every === 1 ? "Every hour" : `Every ${s.every ?? "?"} hours`;
+    case 3: return `Daily${at}`;
+    case 4: {
+      const days = [...s.days].sort((a, b) => a - b).map((d) => DAY_SHORT[d]);
+      const list = days.length <= 2 ? days.join(" & ") : `${days.slice(0, -1).join(", ")} & ${days[days.length - 1]}`;
+      return `Weekly${list ? ` ${list}` : ""}${at}`;
+    }
+    case 5: return `Monthly on day ${s.dayOfMonth ?? "?"}${s.timeOfDay ? `, ${s.timeOfDay} ${zone}` : ""}`;
+    default: return "Scheduled";
+  }
+}

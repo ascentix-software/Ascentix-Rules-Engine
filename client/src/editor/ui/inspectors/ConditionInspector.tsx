@@ -1,12 +1,8 @@
 import * as React from "react";
-import { Button, Dropdown, Option, Field, Input, Text } from "@fluentui/react-components";
-import type {
-  ConditionNode, ConditionTypeLabel, TableConfigRef,
-} from "../../model/types";
+import { Button, Dropdown, Option, Input, Text } from "@fluentui/react-components";
+import { Add16Regular } from "@fluentui/react-icons";
+import type { ConditionNode, ConditionTypeLabel, TableConfigRef } from "../../model/types";
 import { ColumnPicker, ValueEditor } from "../pickers/MetadataPickers";
-import { useChoiceLabel } from "../useSystemChoices";
-import { SYSTEM_CHOICE } from "../choiceLabels";
-import { conditionTypeValue } from "../../model/enums";
 import { columnKind, type ColumnKind } from "../columnKind";
 import { useMetadataService } from "../useMetadata";
 import { allowedOperators, allowedOperatorsForExpression } from "../operatorSupport";
@@ -14,20 +10,20 @@ import { TemplateEditor, DateExprEditor, MathExprEditor } from "../valueExpressi
 import {
   templateFromComparisonValue, dateExprFromComparisonValue, dateExprToComparisonValue,
 } from "../../model/conditionValue";
-import { countCompleteCriteria } from "../../model/nodeFilter";
+import { countCompleteCriteria, type NodeFilterNode } from "../../model/nodeFilter";
 import { NodeFilterDialog } from "./NodeFilterDialog";
-import { CountModeFields, deriveRowCountMode, type RowCountMode } from "./countMode";
+import { deriveRowCountMode, type RowCountMode } from "./countMode";
+import { InfoField, InfoTip, SegmentedToggle } from "../primitives";
+import { InspectorSection } from "../InspectorShell";
+import { OPERATOR_PHRASE } from "../labels";
+import { useTableDisplayName } from "../RuleSettingsStrip";
+import { useEditorStyles } from "../styles";
 import { color } from "../tokens";
 
 // Re-exported for back-compat: other modules (and tests) import deriveRowCountMode/RowCountMode
-// from ConditionInspector; the mode logic itself now lives in the shared countMode module so
-// NodeFilterBuilder's ExistsRow can reuse it without duplicating the mapping.
+// from ConditionInspector; the mode logic itself lives in the shared countMode module.
 export { deriveRowCountMode, type RowCountMode };
 
-const CONDITION_TYPES: ConditionTypeLabel[] = ["FieldComparison", "RowCount", "RegexMatch", "Expression"];
-const VALUE_SOURCE_FALLBACK: Record<number, string> = {
-  1: "Literal", 2: "FieldReference", 3: "Text template", 4: "Date calculation",
-};
 const OPERATORS: { value: number; label: string }[] = [
   { value: 1, label: "Equals" }, { value: 2, label: "NotEquals" },
   { value: 3, label: "GreaterThan" }, { value: 4, label: "GreaterThanOrEqual" },
@@ -58,9 +54,56 @@ export function visibleOperatorsForExpression(): { value: number; label: string 
   return OPERATORS.filter((o) => allowed.has(o.value));
 }
 
-// Shared RHS comparison-value editor: Value source (Literal/FieldReference/Template/Date
-// calculation) plus the matching value control. Used verbatim by both FieldComparison (whose
-// LHS `kind` is the picked column's type) and Expression (whose LHS is always numeric).
+const card: React.CSSProperties = {
+  background: color.canvas, border: `1px solid ${color.line}`, borderRadius: 8, padding: 12,
+  display: "flex", flexDirection: "column", gap: 6,
+};
+const caption: React.CSSProperties = { fontSize: 12, color: color.inkMuted };
+
+function OperatorDropdown({ value, options, onChange }: {
+  value: number | null; options: { value: number }[]; onChange(v: number): void;
+}) {
+  return (
+    <Dropdown aria-label="Operator" placeholder="Choose an operator"
+      value={value != null ? OPERATOR_PHRASE[value] ?? "" : ""}
+      selectedOptions={value != null ? [String(value)] : []}
+      onOptionSelect={(_e, d) => d.optionValue && onChange(Number(d.optionValue))}>
+      {options.map((o) => <Option key={o.value} value={String(o.value)}>{OPERATOR_PHRASE[o.value]}</Option>)}
+    </Dropdown>
+  );
+}
+
+/** The value source as inline text tabs above the value: a value / another column / … */
+function ValueSourceTabs({ value, kind, onChange }: { value: number; kind: ColumnKind | null; onChange(v: number): void }) {
+  const s = useEditorStyles();
+  const tabs = [
+    { v: 1, label: "a value" },
+    { v: 2, label: "another column" },
+    ...(kind === "datetime" ? [{ v: 4, label: "a date calculation" }] : []),
+    ...(kind === "text" ? [{ v: 3, label: "a text template" }] : []),
+  ];
+  return (
+    <div role="tablist" aria-label="Compare with" style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 2 }}>
+      {tabs.map((t) => {
+        const on = t.v === value;
+        return (
+          <button key={t.v} type="button" role="tab" aria-selected={on} className={s.focusRing}
+            onClick={() => onChange(t.v)}
+            style={{
+              background: "none", border: 0, padding: "2px 0", cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+              color: on ? color.brandInk : color.inkMuted, fontWeight: on ? 700 : 400,
+              borderBottom: `2px solid ${on ? color.brand : "transparent"}`,
+            }}>
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// The right-hand side of a comparison: the source tabs, then the matching value control. Used by
+// Compare (whose LHS `kind` is the picked column's type) and Calculation (always numeric).
 function ComparisonValueEditor({
   condition, tcTable, ruleTable, tableConfigs, tcList, kind, columnReady, onPatch,
 }: {
@@ -69,7 +112,6 @@ function ComparisonValueEditor({
   kind: ColumnKind | null; columnReady: boolean;
   onPatch(patch: Partial<ConditionNode>): void;
 }) {
-  const labelFor = useChoiceLabel();
   // The right-hand side may live on a DIFFERENT node than the condition itself. The RHS column
   // picker must list THAT node's table: passing tcTable (the condition's own node) would let
   // an author pick a column that does not exist on the right-hand table: it saves, validates,
@@ -87,153 +129,189 @@ function ComparisonValueEditor({
       ? { comparisonValueNodeId: nodeId }
       : { comparisonValueNodeId: nodeId, comparisonValueColumn: null });
   };
+  const source = condition.valueSource ?? 1;
   return (
     <>
-      <Field label="Value source">
-        <Dropdown
-          value={labelFor(SYSTEM_CHOICE.comparisonValueSource, condition.valueSource ?? 1, VALUE_SOURCE_FALLBACK[condition.valueSource ?? 1] ?? "Literal")}
-          selectedOptions={[String(condition.valueSource ?? 1)]}
-          onOptionSelect={(_e, d) => d.optionValue && onPatch({ valueSource: Number(d.optionValue) })}
-        >
-          <Option value="1">{labelFor(SYSTEM_CHOICE.comparisonValueSource, 1, "Literal")}</Option>
-          <Option value="2">{labelFor(SYSTEM_CHOICE.comparisonValueSource, 2, "FieldReference")}</Option>
-          {kind === "text" && (
-            <Option value="3">{labelFor(SYSTEM_CHOICE.comparisonValueSource, 3, "Text template")}</Option>
-          )}
-          {kind === "datetime" && (
-            <Option value="4">{labelFor(SYSTEM_CHOICE.comparisonValueSource, 4, "Date calculation")}</Option>
-          )}
-        </Dropdown>
-      </Field>
-      {condition.valueSource === 3 && (
-        <Field label="Template">
-          <TemplateEditor value={templateFromComparisonValue(condition.comparisonValue)}
-            ruleTable={ruleTable} tableConfigs={tableConfigs}
-            onChange={(t) => onPatch({ comparisonValue: t })} />
-        </Field>
+      <ValueSourceTabs value={source} kind={kind} onChange={(v) => onPatch({ valueSource: v })} />
+      {source === 3 && (
+        <TemplateEditor value={templateFromComparisonValue(condition.comparisonValue)}
+          ruleTable={ruleTable} tableConfigs={tableConfigs}
+          onChange={(t) => onPatch({ comparisonValue: t })} />
       )}
-      {condition.valueSource === 4 && (
-        <Field label="Date calculation">
-          <DateExprEditor value={dateExprFromComparisonValue(condition.comparisonValue)}
-            ruleTable={ruleTable} tableConfigs={tableConfigs}
-            onChange={(patch) => onPatch({
-              comparisonValue: dateExprToComparisonValue({
-                ...dateExprFromComparisonValue(condition.comparisonValue), ...patch,
-              }),
-            })} />
-        </Field>
+      {source === 4 && (
+        <DateExprEditor value={dateExprFromComparisonValue(condition.comparisonValue)}
+          ruleTable={ruleTable} tableConfigs={tableConfigs}
+          onChange={(patch) => onPatch({
+            comparisonValue: dateExprToComparisonValue({
+              ...dateExprFromComparisonValue(condition.comparisonValue), ...patch,
+            }),
+          })} />
       )}
-      {condition.valueSource === 2 ? (
-        <>
-          <Field label="Right-hand node">
-            <Dropdown
-              value={condition.comparisonValueNodeId ? tableConfigs[condition.comparisonValueNodeId]?.name ?? condition.comparisonValueNodeId : "(same record)"}
-              selectedOptions={condition.comparisonValueNodeId ? [condition.comparisonValueNodeId] : []}
-              onOptionSelect={(_e, d) => patchRhsNode(d.optionValue || null)}
-            >
-              <Option value="">(same record)</Option>
-              {tcList.map((tc) => <Option key={tc.id} value={tc.id}>{tc.name}</Option>)}
-            </Dropdown>
-          </Field>
-          <Field label="Right-hand column">
-            {!columnReady ? (
-              <Text size={200}>Select a comparison column first to choose a compatible field.</Text>
-            ) : (
-              // key: ColumnPicker keeps the previous table's columns while it re-fetches, so
-              // without a remount the list (and the rendered selection text) would briefly be the
-              // old table's. Keying on the table forces a fresh fetch and an empty query.
-              <ColumnPicker
-                key={rhsTable}
-                table={rhsTable}
-                context="read"
-                value={condition.comparisonValueColumn}
-                onChange={(v) => onPatch({ comparisonValueColumn: v })}
-                compatibleWith={kind}
-              />
-            )}
-          </Field>
-        </>
-      ) : (condition.valueSource ?? 1) === 1 ? (
-        <Field label="Value">
-          <ValueEditor table={tcTable} column={condition.comparisonColumn} value={condition.comparisonValue} onChange={(v) => onPatch({ comparisonValue: v })} />
-        </Field>
-      ) : null}
+      {source === 2 && (
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.4fr)", gap: 6 }}>
+          <Dropdown aria-label="Other column's record" style={{ minWidth: 0 }}
+            value={condition.comparisonValueNodeId ? tableConfigs[condition.comparisonValueNodeId]?.name ?? condition.comparisonValueNodeId : "Same record"}
+            selectedOptions={condition.comparisonValueNodeId ? [condition.comparisonValueNodeId] : [""]}
+            onOptionSelect={(_e, d) => patchRhsNode(d.optionValue || null)}>
+            <Option value="">Same record</Option>
+            {tcList.map((tc) => <Option key={tc.id} value={tc.id}>{tc.name}</Option>)}
+          </Dropdown>
+          {!columnReady ? (
+            <Text size={200} style={{ alignSelf: "center" }}>Choose a column first.</Text>
+          ) : (
+            // key: ColumnPicker keeps the previous table's columns while it re-fetches, so
+            // without a remount the list (and the rendered selection text) would briefly be the
+            // old table's. Keying on the table forces a fresh fetch and an empty query.
+            <ColumnPicker key={rhsTable} table={rhsTable} context="read" sentence ariaLabel="Other column"
+              value={condition.comparisonValueColumn}
+              onChange={(v) => onPatch({ comparisonValueColumn: v })}
+              compatibleWith={kind} />
+          )}
+        </div>
+      )}
+      {source === 1 && (
+        <ValueEditor ariaLabel="Value" table={tcTable} column={condition.comparisonColumn} value={condition.comparisonValue}
+          onChange={(v) => onPatch({ comparisonValue: v })} />
+      )}
     </>
   );
 }
 
-const FILTERABLE_CONDITION_TYPES = new Set<ConditionTypeLabel>(["FieldComparison", "RegexMatch", "RowCount"]);
+/** "Amount is more than 25,000" for a filter summary row: the first complete criterion. */
+function firstCriterion(nodes: NodeFilterNode[]): string | null {
+  for (const n of nodes) {
+    if (n.kind === "rule" && n.column && n.operator != null) {
+      const v = n.operator === 9 || n.operator === 10 ? "" : ` ${n.valueSource === 2 ? n.valueColumn ?? "" : n.value ?? ""}`;
+      return `${n.column} ${OPERATOR_PHRASE[n.operator] ?? ""}${v}`.trim();
+    }
+    if (n.kind === "group") { const f = firstCriterion(n.rules); if (f) return f; }
+  }
+  return null;
+}
 
-// "Only consider records where…": a compact summary plus an "Edit filters…" button that opens
-// the wide NodeFilterDialog. The drawer is too narrow for the builder's column/operator/value row,
-// so editing happens in the modal. Engine-accurate: a condition filtering multiple nodes is a list
-// of single-target top-level groups (NodeFilterEvaluator evaluates each top-level group and its
-// nested descendants against one node's records).
-function NodeFilterSection({ condition, tableConfigs, tcList, onPatch }: {
+// "Only count rows where": a one-line summary plus Edit / Add filter, which open the wide
+// NodeFilterDialog (the panel is too narrow for the builder's column/operator/value row).
+// Engine-accurate: a condition filtering multiple nodes is a list of single-target top-level
+// groups (NodeFilterEvaluator evaluates each against one node's records).
+function NodeFilterSection({ condition, tableConfigs, tcList, label, onPatch }: {
   condition: ConditionNode; tableConfigs: Record<string, TableConfigRef>; tcList: TableConfigRef[];
-  onPatch(patch: Partial<ConditionNode>): void;
+  label: string; onPatch(patch: Partial<ConditionNode>): void;
 }) {
   const [open, setOpen] = React.useState(false);
   const blocks = condition.filter ?? [];
-  const labelFor = (id: string) =>
-    id === condition.tableConfigId ? "(this record's collection)" : tableConfigs[id]?.name ?? id;
-  const summary = blocks.length === 0
-    ? "All records, no filter."
-    : blocks
-        .map((b) => {
-          const n = countCompleteCriteria(b.root);
-          const where = b.targetNodeId ? labelFor(b.targetNodeId) : "(no node)";
-          return `${where} · ${n} condition${n === 1 ? "" : "s"}`;
-        })
-        .join("; ");
-
+  const nodeName = condition.tableConfigId ? tableConfigs[condition.tableConfigId]?.name ?? "related" : "related";
+  const total = blocks.reduce((n, b) => n + countCompleteCriteria(b.root), 0);
+  const first = blocks.map((b) => firstCriterion(b.root.rules)).find(Boolean) ?? null;
   return (
-    <Field label="Only consider records where…">
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <span style={{ fontSize: 12, color: color.inkMuted }}>{summary}</span>
-        <div>
-          <Button size="small" onClick={() => setOpen(true)}>Edit filters…</Button>
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13.5, color: color.ink }}>
+        {label}
+        <InfoTip label={label} text={`Counts only the ${nodeName} rows that match these filters.`} />
+      </span>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${color.line}`, borderRadius: 6,
+        padding: "8px 10px", fontSize: 13, color: color.ink }}>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {total === 0 ? "All rows" : <>{first}{total > 1 ? <span style={{ color: color.inkMuted }}> + {total - 1} more</span> : null}</>}
+        </span>
+        <Button size="small" appearance="transparent" icon={total === 0 ? <Add16Regular /> : undefined}
+          style={{ color: color.brandInk, minWidth: "auto", padding: "0 4px" }} onClick={() => setOpen(true)}>
+          {total === 0 ? "Add filter" : "Edit"}
+        </Button>
       </div>
       <NodeFilterDialog open={open} condition={condition} tableConfigs={tableConfigs} tcList={tcList}
         onCancel={() => setOpen(false)}
         onApply={(next) => { onPatch({ filter: next.length ? next : null }); setOpen(false); }} />
-    </Field>
+    </div>
   );
 }
 
-// RowCount presents min/max expected rows as a friendlier "count mode" ("At least one
-// (exists)" / "None" / etc.) mapped onto the existing minExpectedRows/maxExpectedRows storage.
-// Pure UI convenience; no engine/schema change. Combined with the "Only consider records where…"
-// filter below, this expresses descendant-exists ("has at least one line where amount > 100").
-// The mode logic itself lives in the shared countMode module (see import above). NodeFilterBuilder's
-// ExistsRow reuses the exact same CountModeFields for its "Has related rows…" count bounds.
-function RowCountEditor({ condition, filterAvailable, onPatch }: {
-  condition: ConditionNode; filterAvailable: boolean; onPatch(patch: Partial<ConditionNode>): void;
+type CountOp = "atLeast" | "atMost" | "between" | "none";
+const COUNT_OP_LABEL: Record<CountOp, string> = {
+  atLeast: "has at least", atMost: "has at most", between: "has between", none: "has no",
+};
+function countOpOf(min: number | null, max: number | null): CountOp {
+  if (max === 0 && (min == null || min === 0)) return "none";
+  if (min != null && max != null) return "between";
+  if (max != null) return "atMost";
+  return "atLeast";
+}
+
+/** Count rows: "{node} has at least [1] row". Maps onto minExpectedRows / maxExpectedRows. */
+function CountRowsEditor({ condition, collections, onPatch }: {
+  condition: ConditionNode; collections: TableConfigRef[]; onPatch(patch: Partial<ConditionNode>): void;
 }) {
+  const { minExpectedRows: min, maxExpectedRows: max } = condition;
+  const [chosen, setChosen] = React.useState<CountOp>(() => countOpOf(min, max));
+  // The stored pair wins when it changes from outside (another condition selected).
+  React.useEffect(() => { setChosen((c) => (c === "between" && min != null && max != null ? c : countOpOf(min, max))); }, [min, max]);
+  const op = chosen;
+  const num = (v: string) => (v === "" ? null : Math.max(0, Math.floor(Number(v))));
+  const setOp = (next: CountOp) => {
+    setChosen(next);
+    const seed = min ?? max ?? 1;
+    if (next === "atLeast") onPatch({ minExpectedRows: seed || 1, maxExpectedRows: null });
+    if (next === "atMost") onPatch({ minExpectedRows: null, maxExpectedRows: seed });
+    if (next === "between") onPatch({ minExpectedRows: min ?? 1, maxExpectedRows: max != null && max > (min ?? 1) ? max : (min ?? 1) + 1 });
+    if (next === "none") onPatch({ minExpectedRows: null, maxExpectedRows: 0 });
+  };
+  const n = op === "atMost" ? max : min;
+  const plural = (op === "between" ? max : n) === 1 ? "row" : "rows";
   return (
     <>
-      <CountModeFields min={condition.minExpectedRows} max={condition.maxExpectedRows}
-        onChange={(min, max) => onPatch({ minExpectedRows: min, maxExpectedRows: max })} />
-      {filterAvailable && (
-        <Text size={200} style={{ color: color.inkMuted }}>
-          Use “Only consider records where…” below to count only the rows that match a filter.
-        </Text>
-      )}
+      <Dropdown aria-label="Rows of" placeholder="Choose related rows"
+        value={condition.tableConfigId ? collections.find((c) => c.id === condition.tableConfigId)?.name ?? "" : ""}
+        selectedOptions={condition.tableConfigId ? [condition.tableConfigId] : []}
+        onOptionSelect={(_e, d) => d.optionValue && onPatch({ tableConfigId: d.optionValue })}>
+        {collections.map((c) => <Option key={c.id} value={c.id}>{c.name}</Option>)}
+      </Dropdown>
+      <div style={{ display: "grid", gridTemplateColumns: op === "between" ? "minmax(0,1fr) 56px 56px auto" : op === "none" ? "minmax(0,1fr) auto" : "minmax(0,1fr) 72px auto", gap: 6, alignItems: "center" }}>
+        <Dropdown aria-label="Count" style={{ minWidth: 0 }} value={COUNT_OP_LABEL[op]} selectedOptions={[op]}
+          onOptionSelect={(_e, d) => d.optionValue && setOp(d.optionValue as CountOp)}>
+          {(Object.keys(COUNT_OP_LABEL) as CountOp[]).map((k) => <Option key={k} value={k}>{COUNT_OP_LABEL[k]}</Option>)}
+        </Dropdown>
+        {op === "atLeast" && <Input aria-label="Minimum rows" type="number" min={0} value={min == null ? "" : String(min)}
+          onChange={(_e, d) => onPatch({ minExpectedRows: num(d.value), maxExpectedRows: null })} />}
+        {op === "atMost" && <Input aria-label="Maximum rows" type="number" min={0} value={max == null ? "" : String(max)}
+          onChange={(_e, d) => onPatch({ minExpectedRows: null, maxExpectedRows: num(d.value) })} />}
+        {op === "between" && <>
+          <Input aria-label="Minimum rows" type="number" min={0} value={min == null ? "" : String(min)}
+            onChange={(_e, d) => onPatch({ minExpectedRows: num(d.value) })} />
+          <Input aria-label="Maximum rows" type="number" min={0} value={max == null ? "" : String(max)}
+            onChange={(_e, d) => onPatch({ maxExpectedRows: num(d.value) })} />
+        </>}
+        <span style={{ fontSize: 13, color: color.ink }}>{op === "none" ? "rows" : plural}</span>
+      </div>
     </>
   );
 }
 
+const MODES: { value: ConditionTypeLabel; label: string }[] = [
+  { value: "FieldComparison", label: "Compare" },
+  { value: "RowCount", label: "Count rows" },
+  { value: "RegexMatch", label: "Pattern" },
+  { value: "Expression", label: "Calculation" },
+];
+
+/**
+ * The condition panel: a mode switch (Compare / Count rows / Pattern / Calculation), then the
+ * condition as a sentence card, then (for related rows) the filter, and a collapsed More with
+ * the name.
+ */
 export function ConditionInspector({
-  condition, ruleTable, tableConfigs, onPatch,
+  condition, ruleTable, tableConfigs, onPatch, rootNodeId, nameIsManual,
 }: {
   condition: ConditionNode; ruleTable: string;
   tableConfigs: Record<string, TableConfigRef>;
   onPatch(patch: Partial<ConditionNode>): void;
+  rootNodeId?: string | null;
+  /** The author typed the name; otherwise it's derived from the condition. */
+  nameIsManual?: boolean;
 }) {
   const tcList = Object.values(tableConfigs);
+  const collections = tcList.filter((t) => t.tableConfigType === "ChildTable");
   const tcTable = condition.tableConfigId ? tableConfigs[condition.tableConfigId]?.tableLogicalName ?? ruleTable : ruleTable;
-  const labelFor = useChoiceLabel();
+  const rootId = rootNodeId ?? tcList.find((t) => t.tableConfigType === "RootTable")?.id ?? null;
+  const rootDisplay = useTableDisplayName(ruleTable);
 
   const svc = useMetadataService();
   const [leftKind, setLeftKind] = React.useState<ColumnKind | null>(null);
@@ -257,110 +335,85 @@ export function ConditionInspector({
     return () => { live = false; };
   }, [svc, tcTable, condition.comparisonColumn]);
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <Field label="Condition name">
-        <Input value={condition.name} onChange={(_e, d) => onPatch({ name: d.value })} />
-      </Field>
-      <Field label="Table-config node">
-        <Dropdown
-          value={condition.tableConfigId ? tableConfigs[condition.tableConfigId]?.name ?? condition.tableConfigId : ""}
-          selectedOptions={condition.tableConfigId ? [condition.tableConfigId] : []}
-          onOptionSelect={(_e, d) => d.optionValue && onPatch({ tableConfigId: d.optionValue })}
-        >
-          {tcList.map((tc) => <Option key={tc.id} value={tc.id}>{tc.name}</Option>)}
-        </Dropdown>
-      </Field>
+  const modes = MODES.filter((m) => m.value !== "RowCount" || collections.length > 0 || condition.conditionType === "RowCount");
+  const nodeLabel = (id: string) => (id === rootId ? `This ${rootDisplay.toLowerCase()}` : tableConfigs[id]?.name ?? id);
+  const nodePicker = tcList.length > 1 && (
+    <>
+      <span style={caption}>On</span>
+      <Dropdown aria-label="On"
+        value={condition.tableConfigId ? nodeLabel(condition.tableConfigId) : ""}
+        selectedOptions={condition.tableConfigId ? [condition.tableConfigId] : []}
+        onOptionSelect={(_e, d) => d.optionValue && onPatch({ tableConfigId: d.optionValue })}>
+        {tcList.map((tc) => <Option key={tc.id} value={tc.id}>{nodeLabel(tc.id)}</Option>)}
+      </Dropdown>
+    </>
+  );
+  const onChildNode = !!condition.tableConfigId && tableConfigs[condition.tableConfigId]?.tableConfigType === "ChildTable";
 
-      <Field label="Condition type">
-        <Dropdown
-          value={condition.conditionType ? labelFor(SYSTEM_CHOICE.conditionType, conditionTypeValue(condition.conditionType), condition.conditionType) : ""}
-          selectedOptions={condition.conditionType ? [condition.conditionType] : []}
-          onOptionSelect={(_e, d) => d.optionValue && onPatch({ conditionType: d.optionValue as ConditionTypeLabel })}
-        >
-          {CONDITION_TYPES.map((t) => (
-            <Option key={t} value={t}>{labelFor(SYSTEM_CHOICE.conditionType, conditionTypeValue(t), t)}</Option>
-          ))}
-        </Dropdown>
-      </Field>
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <SegmentedToggle<ConditionTypeLabel> fullWidth ariaLabel="Condition type"
+        value={condition.conditionType} options={modes}
+        onChange={(conditionType) => onPatch({ conditionType })} />
 
       {condition.conditionType === "FieldComparison" && (
-        <>
-          <Field label="Comparison column">
-            <ColumnPicker table={tcTable} context="read" value={condition.comparisonColumn} onChange={(v) => onPatch({ comparisonColumn: v })} />
-          </Field>
-          <Field label="Operator">
-            <Dropdown
-              value={condition.comparisonOperator != null
-                ? labelFor(SYSTEM_CHOICE.comparisonOperator, condition.comparisonOperator, OPERATORS.find((o) => o.value === condition.comparisonOperator)?.label ?? "")
-                : ""}
-              selectedOptions={condition.comparisonOperator ? [String(condition.comparisonOperator)] : []}
-              onOptionSelect={(_e, d) => d.optionValue && onPatch({ comparisonOperator: Number(d.optionValue) })}
-            >
-              {visibleOperators(leftKind).map((o) => (
-                <Option key={o.value} value={String(o.value)}>
-                  {labelFor(SYSTEM_CHOICE.comparisonOperator, o.value, o.label)}
-                </Option>
-              ))}
-            </Dropdown>
-          </Field>
-          <ComparisonValueEditor condition={condition} tcTable={tcTable} ruleTable={ruleTable}
-            tableConfigs={tableConfigs} tcList={tcList} kind={leftKind}
-            columnReady={!!condition.comparisonColumn && leftKind !== null} onPatch={onPatch} />
-        </>
-      )}
-
-      {condition.conditionType === "Expression" && (
-        <>
-          <Field label="Expression">
-            <MathExprEditor value={condition.expression ?? ""} ruleTable={ruleTable} tableConfigs={tableConfigs}
-              onChange={(expression) => onPatch({ expression })}
-              filters={condition.expressionFilters ?? {}}
-              onFiltersChange={(next) => onPatch({ expressionFilters: Object.keys(next).length ? next : null })} />
-          </Field>
-          <Field label="Operator">
-            <Dropdown
-              value={condition.comparisonOperator != null
-                ? labelFor(SYSTEM_CHOICE.comparisonOperator, condition.comparisonOperator, OPERATORS.find((o) => o.value === condition.comparisonOperator)?.label ?? "")
-                : ""}
-              selectedOptions={condition.comparisonOperator ? [String(condition.comparisonOperator)] : []}
-              onOptionSelect={(_e, d) => d.optionValue && onPatch({ comparisonOperator: Number(d.optionValue) })}
-            >
-              {visibleOperatorsForExpression().map((o) => (
-                <Option key={o.value} value={String(o.value)}>
-                  {labelFor(SYSTEM_CHOICE.comparisonOperator, o.value, o.label)}
-                </Option>
-              ))}
-            </Dropdown>
-          </Field>
-          <ComparisonValueEditor condition={condition} tcTable={tcTable} ruleTable={ruleTable}
-            tableConfigs={tableConfigs} tcList={tcList} kind="number" columnReady onPatch={onPatch} />
-        </>
-      )}
-
-      {condition.conditionType === "RegexMatch" && (
-        <>
-          <Field label="Column">
-            <ColumnPicker table={tcTable} context="read" value={condition.comparisonColumn} onChange={(v) => onPatch({ comparisonColumn: v })} />
-          </Field>
-          <Field label="Pattern (regex)">
-            <Input value={condition.comparisonValue ?? ""} onChange={(_e, d) => onPatch({ comparisonValue: d.value })} />
-          </Field>
-        </>
+        <div style={card} data-testid="condition-sentence">
+          {nodePicker}
+          <ColumnPicker sentence ariaLabel="Column" table={tcTable} context="read" value={condition.comparisonColumn}
+            onChange={(v) => onPatch({ comparisonColumn: v })} />
+          <OperatorDropdown value={condition.comparisonOperator} options={visibleOperators(leftKind)}
+            onChange={(comparisonOperator) => onPatch({ comparisonOperator })} />
+          {condition.comparisonOperator !== 9 && condition.comparisonOperator !== 10 && (
+            <ComparisonValueEditor condition={condition} tcTable={tcTable} ruleTable={ruleTable}
+              tableConfigs={tableConfigs} tcList={tcList} kind={leftKind}
+              columnReady={!!condition.comparisonColumn && leftKind !== null} onPatch={onPatch} />
+          )}
+        </div>
       )}
 
       {condition.conditionType === "RowCount" && (
-        <RowCountEditor condition={condition} onPatch={onPatch}
-          filterAvailable={condition.tableConfigId != null
-            && tableConfigs[condition.tableConfigId]?.tableConfigType === "ChildTable"} />
+        <div style={card} data-testid="condition-sentence">
+          <CountRowsEditor condition={condition} collections={collections} onPatch={onPatch} />
+        </div>
       )}
 
-      {condition.tableConfigId
-        && tableConfigs[condition.tableConfigId]?.tableConfigType === "ChildTable"
-        && condition.conditionType != null
-        && FILTERABLE_CONDITION_TYPES.has(condition.conditionType) && (
-        <NodeFilterSection condition={condition} tableConfigs={tableConfigs} tcList={tcList} onPatch={onPatch} />
+      {condition.conditionType === "RegexMatch" && (
+        <div style={card} data-testid="condition-sentence">
+          {nodePicker}
+          <ColumnPicker sentence ariaLabel="Column" table={tcTable} context="read" value={condition.comparisonColumn}
+            onChange={(v) => onPatch({ comparisonColumn: v })} />
+          <span style={caption}>matches</span>
+          <Input aria-label="Pattern" value={condition.comparisonValue ?? ""} placeholder="Regular expression"
+            input={{ style: { fontFamily: "ui-monospace, Consolas, monospace" } }}
+            onChange={(_e, d) => onPatch({ comparisonValue: d.value })} />
+        </div>
       )}
+
+      {condition.conditionType === "Expression" && (
+        <div style={card} data-testid="condition-sentence">
+          <MathExprEditor value={condition.expression ?? ""} ruleTable={ruleTable} tableConfigs={tableConfigs}
+            onChange={(expression) => onPatch({ expression })}
+            filters={condition.expressionFilters ?? {}}
+            onFiltersChange={(next) => onPatch({ expressionFilters: Object.keys(next).length ? next : null })} />
+          <OperatorDropdown value={condition.comparisonOperator} options={visibleOperatorsForExpression()}
+            onChange={(comparisonOperator) => onPatch({ comparisonOperator })} />
+          <ComparisonValueEditor condition={condition} tcTable={tcTable} ruleTable={ruleTable}
+            tableConfigs={tableConfigs} tcList={tcList} kind="number" columnReady onPatch={onPatch} />
+        </div>
+      )}
+
+      {onChildNode && condition.conditionType !== "Expression" && condition.conditionType != null && (
+        <NodeFilterSection condition={condition} tableConfigs={tableConfigs} tcList={tcList} onPatch={onPatch}
+          label={condition.conditionType === "RowCount" ? "Only count rows where" : "Only consider rows where"} />
+      )}
+
+      <div style={{ margin: "0 0 -18px" }}>
+        <InspectorSection id="condition-more" title="More" summary={nameIsManual && condition.name ? `Name: ${condition.name}` : "Name: automatic"}>
+          <InfoField label="Condition name" info="Leave blank to name it from the condition.">
+            <Input value={condition.name} onChange={(_e, d) => onPatch({ name: d.value })} />
+          </InfoField>
+        </InspectorSection>
+      </div>
     </div>
   );
 }

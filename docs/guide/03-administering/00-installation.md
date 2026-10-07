@@ -57,17 +57,17 @@ on each target table (*Evaluation Context*).
 3. **Hub loads:** open the Rule Builder. The hub renders its Rules and Table
    configurations tabs, both empty, without errors.
 4. **Author a test rule:** in the hub, create a rule on any test table with
-   a new configuration; add one condition that a test record will violate
-   and a **Block** action that fires when the outcome is false, with a recognizable
-   message; triggers **On Create**.
-5. **Validate & publish:** Validate shows no errors; Publish succeeds.
+   a new data model; add one condition that a test record will violate
+   and a **Block save** action that fires when the outcome is false, with a recognizable
+   message; runs on **Create** (under **When saved**).
+5. **Check & publish:** **Check for issues** finds no issues; **Publish…** succeeds.
 6. **Enforcement is live:** create a violating record → the save is blocked
    with *"This record could not be saved:"* and your message. Fix the value
    → the save succeeds.
 7. **Report-only works:** call `asx_RunRules` for the table and a record id
    (see *Custom APIs*). It returns a verdict without writing anything.
-8. **Unpublish releases:** set the rule back to Draft → the previously
-   blocked save now succeeds.
+8. **Unpublish releases:** choose **Unpublish…** in the rule's **More actions**
+   (⋯) menu → the previously blocked save now succeeds.
 9. **Clean up:** delete the test rule and configuration; delete the test
     records.
 
@@ -82,7 +82,7 @@ enforcement steps are unaffected. Each beta release is verified to upgrade
 from its immediate predecessor (*Beta Limitations §12*); don't skip versions
 without testing in a sandbox first.
 
-If the release carries a *data update*, the Rule Builder shows a banner after the
+If the release carries a *data update*, the Rule Builder shows a read-only bar after the
 import; a System Administrator or System Customizer applies it from there (see
 *Data Updates*).
 
@@ -101,8 +101,8 @@ Before you import the new version:
 2. Every rule that has ever been published from the Rule Builder keeps a working draft. The script
    republishes enforcing rules from their drafts, so it first checks each draft and lists, under
    **Drafts with edits since the last publish** (the first list of its summary), only the drafts
-   changed since their last publish. Open each listed rule and **Publish** or **Discard** its
-   changes.
+   changed since their last publish. Open each listed rule and **Publish…** its changes, or
+   discard them with **Restore published to draft…** (in the **More actions** (⋯) menu).
 
 After you import it, sign in as a System Administrator or System Customizer and run
 `Convert-RulesToOutcomes.ps1` straight away. It names each outcome, builds each action's Fires

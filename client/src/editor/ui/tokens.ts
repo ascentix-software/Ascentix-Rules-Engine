@@ -20,6 +20,7 @@ export const color = {
   brandInk: "#4a44c9",     // links, eyebrows, text-on-light (7.09:1)
   brandTint: "#edecfb",    // chips, info callout bg
   brandLine: "#dcd9f6",
+  brandOnInk: "#b0b3f4",   // link text on the ink toast (brandRamp[120])
   canvas: "#f5f6fb",
   surface: "#ffffff",
   fill: "#f3f2fc",
@@ -71,6 +72,7 @@ export const roles = {
     success: "successTint",
     danger: "dangerTint",
     warnInk: "warnTint",
+    brandOnInk: "ink",
   },
   /** Fills that convey state (buttons, accents, dots). WCAG 1.4.11, >= 3:1 on surface. */
   uiFill: ["brand", "warn", "execution", "validation", "action", "success", "danger"],
@@ -157,16 +159,13 @@ export const ascentixTheme: Theme = {
 export type Zone = "execution" | "validation" | "action";
 
 export interface ZoneStyle {
-  numeral: string;
+  /** Band title, add button and info icon. AA as text on the zone's tint. */
   color: string;
   gradient: string;
   headerBorder: string;
   rowTint: string;
   selTint: string;
   selBorder: string;
-  subtitle: string;
-  /** AA-safe solid subtitle color (replaces opacity). */
-  subtitleColor: string;
 }
 
 /**
@@ -176,27 +175,21 @@ export interface ZoneStyle {
  */
 export const ZONES: Record<Zone, ZoneStyle> = {
   execution: {
-    numeral: "1", color: color.execution,
+    color: color.execution,
     gradient: `linear-gradient(90deg,${color.executionTint},${color.canvas})`,
     headerBorder: color.brandLine,
     rowTint: color.canvas, selTint: color.executionTint, selBorder: color.brandLine,
-    subtitle: "Rule evaluates only if these match",
-    subtitleColor: color.execution,
   },
   validation: {
-    numeral: "2", color: color.validation,
+    color: color.validation,
     gradient: `linear-gradient(90deg,${color.validationTint},${color.canvas})`,
     headerBorder: color.validationTint,
     rowTint: color.canvas, selTint: color.validationTint, selBorder: color.validationTint,
-    subtitle: "Checked at save time",
-    subtitleColor: color.validation,
   },
   action: {
-    numeral: "3", color: color.action,
+    color: color.action,
     gradient: `linear-gradient(90deg,${color.actionTint},${color.canvas})`,
     headerBorder: color.actionTint,
     rowTint: color.surface, selTint: color.actionTint, selBorder: color.actionTint,
-    subtitle: "Run in order when the rule fires",
-    subtitleColor: color.action,
   },
 };

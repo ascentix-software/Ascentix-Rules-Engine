@@ -209,8 +209,8 @@ action's default message.
 
 ### Rule Run (`asx_rulerun`)
 
-One row per **Run now** / Rule Run started against an On demand rule, created by
-Run now (or a caller) and driven to completion by repeated calls to
+One row per **Apply to records** / Rule Run started against an On demand rule, created by
+Apply to records (or a caller) and driven to completion by repeated calls to
 `asx_ProcessRunPage` (see *Custom APIs*). Deleting the owning rule deletes its
 runs.
 

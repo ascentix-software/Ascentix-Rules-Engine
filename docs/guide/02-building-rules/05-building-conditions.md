@@ -5,10 +5,10 @@ order: 205
 slug: building-conditions
 screenshots:
   - file: images/02-05-building-conditions-01.png
-    caption: An outcome (a top-level validation group) holding a direct condition and a nested ALL·AND subgroup.
+    caption: An outcome (a top-level validation group) holding a direct condition and a nested Match all subgroup.
     alt: Validation zone, titled WHEN · Outcomes, with an outcome (a top-level "ANY · OR" group) "Review triggers" containing a direct condition (sample_approvalnotes Is Null) and a nested "ALL · AND" subgroup "Expedited & high value" with two conditions (sample_isexpedited Equals Yes; sample_ordertotal Greater Than 1000).
   - file: images/02-05-building-conditions-02.png
-    caption: The condition inspector, with fields for table-config node, condition type, comparison column, operator, value source, and value.
+    caption: The condition panel, with the condition type switch, then the node, column, operator, Compare with tabs, and value.
     alt: Condition editing panel for "sample_ordertotal > 1000" with fields Condition name, Table-config node (Orders), Condition type (Field Comparison), Comparison column (Order Total), Operator (Greater Than), Value source (Literal), Value (1000).
   - file: images/02-05-building-conditions-03.png
     caption: A Calculation condition using the Expression editor with Insert field and Insert aggregate, compared by a numeric operator.
@@ -17,30 +17,41 @@ screenshots:
 
 # Building Conditions
 
-Conditions are what a rule checks. They appear in two zones,
-**WHEN · Execution conditions** and **WHEN · Outcomes**, which
+Conditions are what a rule checks. They appear in two bands,
+**Only if** and **Outcomes**, which
 use the same building blocks and differ only in their role in the rule (see
 *Editor Layout*).
 
 ## Condition groups
 
 Conditions live inside **condition groups**, and every group combines its
-children one of two ways:
+children one of two ways. Each group's header shows which, and its panel has
+an **All** / **Any** toggle:
 
-- **ALL · AND**: every condition (and subgroup) in the group must match.
-- **ANY · OR**: at least one condition (or subgroup) in the group must match.
+- **Match all** (AND): every condition (and subgroup) in the group must match.
+- **Match any** (OR): at least one condition (or subgroup) in the group must match.
 
 Groups can **nest**: a group can hold subgroups as well as direct
-conditions, so you can build arbitrarily deep AND/OR trees. An **ANY · OR**
-group holding a direct condition and an **ALL · AND** subgroup matches if
-either the direct condition matches, or every condition in the subgroup
-does.
+conditions, so you can build arbitrarily deep AND/OR trees. Inside a group,
+**Add condition** adds a condition and **Add subgroup** adds a nested group.
+A **Match any** group holding a direct condition and a **Match all** subgroup
+matches if either the direct condition matches, or every condition in the
+subgroup does.
+
+Each condition reads as a sentence, for example *Order Total is more than
+1,000*. Hovering over a condition (or focusing it) shows **Duplicate
+condition** and **Delete condition** buttons. A group's ⋯ menu has **Rename
+group**, **Match any instead** (or **Match all instead**), **Duplicate** and
+**Delete group**; on an outcome the menu reads **Rename outcome** and
+**Delete outcome**.
 
 ## Outcomes
 
-Each top-level group in **WHEN · Outcomes** is an **outcome**. Click **+ Add outcome** to add
-one. Its card reads **Outcome · <name>**, and its inspector has an **Outcome name** field
-with the hint "Actions test this outcome by name."
+Each top-level group in **Outcomes** is an **outcome**. Click **Add outcome** to add
+one. Its card shows its name and, once actions test it, **Used by N actions**. Its panel has a
+**Name** field whose info tip reads "Actions test this outcome by name.", a **True when it
+matches** **All** / **Any** toggle, and a **Used by** list of the actions that test it (select one
+to jump to that action).
 
 - The name is required.
 - Names must be unique in the rule, ignoring upper and lower case.
@@ -48,29 +59,31 @@ with the hint "Actions test this outcome by name."
 
 Every outcome is evaluated; there is no short-circuit. An outcome that no active action tests
 still runs and is reported, but publishing warns you (`OUTCOME_UNUSED`). Subgroups inside an outcome
-are not outcomes of their own; they only shape how that outcome is decided. Execution
+are not outcomes of their own; they only shape how that outcome is decided. **Only if**
 groups are not outcomes either. They gate the whole rule.
 
-If you delete an outcome that actions test, a dialog names those actions and removes their
-tests of it. An action whose only test was that outcome becomes **Not set**, and the dialog
-says it will then never fire until you set its **Fires when**. See *Building Actions*.
+If you delete an outcome that actions test, a **Delete outcome** dialog names those actions and
+removes their tests of it. An action whose only test was that outcome becomes **Not set**, and the
+dialog says it will then never fire until you set its **When**.
+See *Building Actions*.
 
 ![Validation zone, titled WHEN · Outcomes, with an outcome (a top-level "ANY · OR" group) "Review triggers" containing a direct condition (sample_approvalnotes Is Null) and a nested "ALL · AND" subgroup "Expedited & high value" with two conditions (sample_isexpedited Equals Yes; sample_ordertotal Greater Than 1000).](../images/02-05-building-conditions-01.png)
 
 ## Condition types
 
-Each condition is one of four types:
+Each condition is one of four types, picked with the switch at the top of
+the condition panel:
 
-- **Field Comparison**: compares a column against a value using a comparison
+- **Compare** (Field Comparison): compares a column against a value using a comparison
   operator. The default and most common type.
-- **Row Count**: counts the related child rows at a child table-config
-  node and checks the count against a **min** and/or **max**. Only valid on
+- **Count rows** (Row Count): counts the related child rows at a child table-config
+  node and checks the count against a minimum and/or maximum. Only valid on
   a child node. At Create of the parent record, Row Count evaluates the child
   rows existing at that instant (always zero for the record's own
-  collections), so a minimum-row rule blocks the create unless **On Create**
+  collections), so a minimum-row rule blocks the create unless **On create**
   is omitted from its triggers. The validator flags this combination with a
   `STRUCT_ROWCOUNT_ON_CREATE` warning at authoring time.
-- **Regex Match**: tests a text column against a regular expression, matching
+- **Pattern** (Regex Match): tests a text column against a regular expression, matching
   or not matching.
 - **Calculation**: compares a numeric expression against a value using a
   numeric comparison operator. The expression can aggregate child collection
@@ -78,40 +91,41 @@ Each condition is one of four types:
 
 ## Comparison operators
 
-For a Field Comparison condition, the **Operator** dropdown offers:
+For a Compare condition, the **Operator** dropdown offers these phrases
+(the stored operator is in brackets):
 
-- **Equals**
-- **Not Equals**
-- **Greater Than**
-- **Greater Than Or Equal**
-- **Less Than**
-- **Less Than Or Equal**
-- **Contains**
-- **Does Not Contain**
-- **Is Null**
-- **Is Not Null**
+- **is** (Equals)
+- **is not** (Not Equals)
+- **is more than** (Greater Than)
+- **is at least** (Greater Than Or Equal)
+- **is less than** (Less Than)
+- **is at most** (Less Than Or Equal)
+- **contains** (Contains)
+- **doesn't contain** (Does Not Contain)
+- **is empty** (Is Null)
+- **has a value** (Is Not Null)
 
 The editor only offers operators that suit the comparison column's data
-type: ordering operators like Greater Than aren't offered for a text column,
-and Contains/Does Not Contain aren't offered for a number column. `Is Null`
-and `Is Not Null` are always available and ignore whatever's configured on
-the value side.
+type: ordering operators like **is more than** aren't offered for a text
+column, and **contains**/**doesn't contain** aren't offered for a number
+column. **is empty** and **has a value** are always available, hide the
+value side, and ignore whatever was configured there.
 
-`Is Null` matches both an explicitly-null value **and a column that is
+`Is Null` (**is empty**) matches both an explicitly-null value **and a column that is
 absent from the record**: Dataverse omits null attributes entirely, so an
 absent column is how "no value" actually looks at runtime, and `Is Null`
-treats it as a match (while `Is Not Null` treats it as no match).
+treats it as a match (while `Is Not Null`, **has a value**, treats it as no match).
 
 ## Calculation conditions
 
-A Calculation condition evaluates the arithmetic expression held in the
-inspector's **Calculation** field and compares the result against a value:
-"order total is greater than 1000," or "average line item discount is less
-than 5%." Only the six numeric operators apply (Equals, Not Equals, Greater
-Than, Greater Than Or Equal, Less Than, Less Than Or Equal). The right-hand
-side uses the same **Value source** options as a Field Comparison (Literal,
-Field Reference, Text template, or Date calculation); see *Comparison Value
-Sources*.
+A Calculation condition evaluates the arithmetic expression typed into the
+condition panel's expression box and compares the result against a value:
+"order total is more than 1000," or "average line item discount is less
+than 5%." Only the six numeric operators apply (**is**, **is not**, **is
+more than**, **is at least**, **is less than**, **is at most**). The
+right-hand side uses the same **Compare with** tabs as a Compare condition;
+because the result is a number, they are **a value** and **another
+column**. See *Comparison Value Sources*.
 
 Expressions support:
 
@@ -152,17 +166,22 @@ closed in the last 12 months. Two aggregates over the same table can use differe
 
 ## The condition inspector
 
-Selecting a condition opens its inspector. Two of its fields are documented
-nowhere else:
+Selecting a condition opens its panel. Below the condition type switch, a
+Compare condition reads as a sentence, top to bottom. Two of its fields are
+documented nowhere else:
 
-- **Table-config node**: which node in the data map tree this condition
-  evaluates against (the root, or a lookup/child node reachable from it).
-- **Comparison column**: the column to evaluate, for Field Comparison and
-  Regex Match. Row Count replaces this section with min/max row fields;
-  Calculation replaces it with the Calculation expression field.
+- **On**: which node in the data model this condition evaluates against
+  (the root, listed as *This* plus the table name, or a lookup/child node
+  reachable from it). Shown only when the data model has more than one table.
+- **Column**: the column to evaluate, for Compare and Pattern. Count rows
+  replaces the sentence with **Rows of** (the child node) and a **Count**
+  choice (**has at least**, **has at most**, **has between**, **has no**)
+  with its row numbers; Calculation replaces it with the expression box.
 
-The rest are Condition name, Condition type, Operator, Value source (Literal
-by default), and Value.
+The rest are the **Operator**, the **Compare with** tabs (**a value** by
+default), and the value. The condition's name sits in the collapsed **More**
+section: **Condition name**, which you can leave blank to name the condition
+from what it checks.
 
 ![Condition editing panel for "sample_ordertotal > 1000" with fields Condition name, Table-config node (Orders), Condition type (Field Comparison), Comparison column (Order Total), Operator (Greater Than), Value source (Literal), Value (1000).](../images/02-05-building-conditions-02.png)
 

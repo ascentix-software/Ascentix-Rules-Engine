@@ -17,6 +17,7 @@ import {
 } from "../../model/nodeFilter";
 import { CountModeFields } from "./countMode";
 import { color } from "../tokens";
+import { MatchToggle } from "../primitives";
 import { DateExprEditor } from "../valueExpressions";
 import { dateExprFromComparisonValue, dateExprToComparisonValue } from "../../model/conditionValue";
 
@@ -41,14 +42,12 @@ const OP_LABEL: Record<number, string> = {
 const VALUELESS = new Set([9, 10]);
 
 /** Two (or more) joined small buttons picking a group's operator; each shows its value upper-cased. */
+/** All / Any for a filter or Fires-when group: the shared MatchToggle, mapped onto the group's own op values. */
 export function OpToggle<T extends string>({ op, options, onToggle }: { op: T; options: readonly T[]; onToggle(v: T): void }) {
+  const [allOp, anyOp] = options;
   return (
-    <div style={{ display: "inline-flex", border: `1px solid ${color.line}`, borderRadius: 6, overflow: "hidden" }}>
-      {options.map((v) => (
-        <Button key={v} appearance={op === v ? "primary" : "subtle"} size="small" aria-pressed={op === v}
-          style={{ minWidth: 44, borderRadius: 0 }} onClick={() => onToggle(v)}>{v.toUpperCase()}</Button>
-      ))}
-    </div>
+    <MatchToggle ariaLabel="Match" value={op === anyOp ? "any" : "all"}
+      onChange={(m) => onToggle(m === "any" ? anyOp : allOp)} />
   );
 }
 

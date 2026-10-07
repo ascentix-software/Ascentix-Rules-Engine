@@ -56,13 +56,16 @@ describe("loadConfigUsage", () => {
   it("counts rules rooted at the config and collects referenced node ids", async () => {
     const usagePort = port({
       retrieveMultipleRecords: async (entity, _options) => {
-        if (entity === ENTITY.rule) return { entities: [{ asx_ruleid: "r1" }, { asx_ruleid: "r2" }] };
-        if (entity === ENTITY.condition) return { entities: [
-          { [LOOKUP.conditionTableConfig]: CHILD, [LOOKUP.comparisonValueNode]: null },
+        if (entity === ENTITY.rule) return { entities: [
+          { asx_ruleid: "r1", asx_name: "Rule one", statuscode: 753840000 }, { asx_ruleid: "r2", asx_name: "Rule two", statuscode: 1 },
         ] };
+        if (entity === ENTITY.condition) return { entities: [
+          { [LOOKUP.conditionTableConfig]: CHILD, [LOOKUP.comparisonValueNode]: null, _asx_conditiongroup_value: "g1" },
+        ] };
+        if (entity === ENTITY.group) return { entities: [{ asx_conditiongroupid: "g1", [LOOKUP.ruleOfGroup]: "r1" }] };
         if (entity === ENTITY.action) return { entities: [
-          { [LOOKUP.actionTargetNode]: GRAND },
-          { [LOOKUP.actionTargetNode]: "outside-the-tree" },
+          { [LOOKUP.actionTargetNode]: GRAND, [LOOKUP.ruleOfAction]: "r2" },
+          { [LOOKUP.actionTargetNode]: "outside-the-tree", [LOOKUP.ruleOfAction]: "r2" },
         ] };
         return { entities: [] };
       },
@@ -70,6 +73,10 @@ describe("loadConfigUsage", () => {
     const u = await loadConfigUsage(usagePort, [ROOT, CHILD, GRAND], ROOT);
     expect(u.rulesUsingCount).toBe(2);
     expect([...u.usedNodeIds].sort()).toEqual([CHILD, GRAND].sort());
+    expect(u.rules).toEqual([
+      { id: "r1", name: "Rule one", statusCode: 753840000, refs: [{ nodeId: CHILD, conditions: 1, actions: 0 }] },
+      { id: "r2", name: "Rule two", statusCode: 1, refs: [{ nodeId: GRAND, conditions: 0, actions: 1 }] },
+    ]);
   });
 });
 

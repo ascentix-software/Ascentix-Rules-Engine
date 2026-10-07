@@ -43,16 +43,15 @@ describe("ConditionInspector — Calculation (Expression) condition kind", () =>
     expect(await screen.findByText("Insert field")).toBeInTheDocument();
     expect(screen.getByText("Insert aggregate")).toBeInTheDocument();
 
-    // Numeric-only operator dropdown. No live choice map is wired in this harness, so labels
-    // fall back to humanize(token), e.g. "GreaterThanOrEqual" -> "Greater Than Or Equal".
+    // Numeric-only operator dropdown, worded as phrases ("is at least").
     const opBox = screen.getByRole("combobox", { name: "Operator" });
     fireEvent.click(opBox);
-    expect(await screen.findByRole("option", { name: "Greater Than Or Equal" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Contains" })).toBeNull();
-    expect(screen.queryByRole("option", { name: "Is Null" })).toBeNull();
+    expect(await screen.findByRole("option", { name: "is at least" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "contains" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "is empty" })).toBeNull();
 
-    // RHS comparison-value editor, reused verbatim from FieldComparison (Value source + literal Input).
-    expect(screen.getByRole("combobox", { name: "Value source" })).toBeInTheDocument();
+    // RHS comparison-value editor, shared with Compare (the source tabs + literal Input).
+    expect(screen.getByRole("tab", { name: "a value" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByPlaceholderText("value")).toBeInTheDocument();
   });
 
@@ -69,7 +68,7 @@ describe("ConditionInspector — Calculation (Expression) condition kind", () =>
 
     const opBox = screen.getByRole("combobox", { name: "Operator" });
     fireEvent.click(opBox);
-    fireEvent.click(await screen.findByRole("option", { name: "Greater Than Or Equal" }));
+    fireEvent.click(await screen.findByRole("option", { name: "is at least" }));
     expect(onPatch).toHaveBeenCalledWith({ comparisonOperator: 4 });
   });
 });
