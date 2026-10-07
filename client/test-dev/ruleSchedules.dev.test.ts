@@ -202,8 +202,25 @@ describe("rule schedules", () => {
 
   it("Continue: a schedule due while its rule already has an active run continues that run", async () => {
     const earlier = new Set(await ruleRunIds()); // the Due test's run
-    const runId = await createRun(); // left Queued deliberately: no processRunPage call
-    await makeDueInTwoMinutes();
+    // The live scheduler flow (every 15 minutes) also drives any Queued/Running run of a rule with
+    // an On schedule (docs/Schema.md, asx_StartDueSchedules RunIds). A Queued run created BEFORE the
+    // ~2 minute wait for the due time could be driven to completion by a tick during that wait,
+    // leaving nothing active to continue. So the run is created only once the schedule is due, just
+    // before the call; a tick in that last second continues it itself, which passes the same way.
+    // A tick in the wait's final 20 seconds (after the due instant) starts a run on its own: then
+    // there is nothing to test continuing, so cancel that run and make the schedule due again, once.
+    let runId = "";
+    for (let attempt = 1; !runId; attempt++) {
+      await makeDueInTwoMinutes();
+      const flowStarted = (await ruleRunIds()).filter((id) => !earlier.has(id));
+      if (!flowStarted.length) {
+        runId = await createRun(); // left Queued deliberately: no processRunPage call
+        break;
+      }
+      if (attempt === 2) throw new Error(`the live scheduler flow started this rule's due run itself twice (${flowStarted.join(", ")}), so Continue could not be exercised`);
+      await cancelActiveRuns();
+      for (const id of flowStarted) earlier.add(id);
+    }
 
     await startDueSchedules();
 
@@ -216,5 +233,5 @@ describe("rule schedules", () => {
     expect(gained).toEqual([runId.toLowerCase()]);
 
     await cancelActiveRuns();
-  }, 240000);
+  }, 420000); // up to two ~2.5 minute waits for the due time
 });
