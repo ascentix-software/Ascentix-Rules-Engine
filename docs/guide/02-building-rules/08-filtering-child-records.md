@@ -5,14 +5,14 @@ order: 208
 slug: filtering-child-records
 screenshots:
   - file: images/02-08-filtering-child-records-01.png
-    caption: The "Only consider records where…" modal, a filter block that targets one node and builds an AND/OR set of column criteria.
-    alt: The "Only consider records where…" filter modal opened from a Row Count condition, with a filter block showing a "FILTER ON (this record's collection)" node selector, a "Match AND/OR of the following" toggle, a column/operator criteria row, "Add" and "Add filter" buttons, and Cancel/Apply.
+    caption: The “Only consider records where…” dialog, a filter block that targets one node and builds an AND/OR set of column criteria.
+    alt: "The “Only consider records where…” dialog: Filter on “(this record's collection)”, Match All of the following, and the criterion Line Amount, Greater than, Literal, 100, with Add, Add filter, Cancel and Apply."
   - file: images/02-08-filtering-child-records-02.png
-    caption: A completed filter in which the condition only evaluates child records where Line Amount is greater than 100.
-    alt: 'The filter modal with a completed criterion: FILTER ON "(this record''s collection)", Match AND, and a row reading Line Amount (sample_lineamount) · Greater than · Literal · 100, plus Add, Add filter, and Cancel/Apply.'
+    caption: A completed filter, so the condition only counts order lines where Line Amount is more than 100.
+    alt: "A Count rows condition “Order lines has at least 1 row” with Only count rows where “Line Amount is more than 100” and an Edit link."
   - file: images/02-08-filtering-child-records-03.png
-    caption: The "How many matching rows?" count-mode dropdown, which sets the same minimum and maximum row counts as a Count rows condition.
-    alt: The Row Count condition inspector with the "How many matching rows?" dropdown open, listing At least one (exists), None (does not exist), At least N, At most N, Exactly N, Between N and M, and Custom (min / max).
+    caption: The Count dropdown sets how many matching rows the condition needs (at least, at most, between, or none).
+    alt: "The Count rows condition with its Count dropdown open: has at least (selected), has at most, has between, and has no."
 ---
 
 # Filtering a Condition's Child Records
@@ -36,7 +36,7 @@ Each filter is a **block that targets one specific node** and specifies an
   **all** filters you add. An ancestor filter acts as an additional constraint
   via the parent relationship.
 
-![The "Only consider records where…" filter modal opened from a Row Count condition, with a filter block showing a "FILTER ON (this record's collection)" node selector, a "Match AND/OR of the following" toggle, a column/operator criteria row, "Add" and "Add filter" buttons, and Cancel/Apply.](../images/02-08-filtering-child-records-01.png)
+![The “Only consider records where…” dialog: Filter on “(this record's collection)”, Match All of the following, and the criterion Line Amount, Greater than, Literal, 100, with Add, Add filter, Cancel and Apply.](../images/02-08-filtering-child-records-01.png)
 
 ## Supported operators
 
@@ -99,7 +99,7 @@ amount > 0."
 - Add a filter targeting the order-line node: `status Equals Active`.
 - Result: only order lines with `status = Active` are checked.
 
-![The filter modal with a completed criterion: FILTER ON "(this record's collection)", Match AND, and a row reading Line Amount (sample_lineamount) · Greater than · Literal · 100, plus Add, Add filter, and Cancel/Apply.](../images/02-08-filtering-child-records-02.png)
+![A Count rows condition “Order lines has at least 1 row” with Only count rows where “Line Amount is more than 100” and an Edit link.](../images/02-08-filtering-child-records-02.png)
 
 ### Example 2: Filter child records by a column on an ancestor node
 
@@ -142,7 +142,7 @@ minimum and maximum a Count rows condition stores:
 - **Between N and M**: min N, max M.
 - **Custom (min / max)**: the raw bounds, set directly.
 
-![The Row Count condition inspector with the "How many matching rows?" dropdown open, listing At least one (exists), None (does not exist), At least N, At most N, Exactly N, Between N and M, and Custom (min / max).](../images/02-08-filtering-child-records-03.png)
+![The Count rows condition with its Count dropdown open: has at least (selected), has at most, has between, and has no.](../images/02-08-filtering-child-records-03.png)
 
 ### The sub-filter
 

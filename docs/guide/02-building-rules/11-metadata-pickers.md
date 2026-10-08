@@ -6,7 +6,7 @@ slug: metadata-pickers
 screenshots:
   - file: images/02-11-metadata-pickers-01.png
     caption: Pickers are driven by live metadata. Only relationships (or columns/choices) that actually exist are offered.
-    alt: 'The "Add related from here" picker on the sample_customer node listing real relationships from that table''s metadata: sample_customer (lookup), userentityinstancedata (child), sample_customer (child), sample_order (child), with lookup/child icons.'
+    alt: "Add related table open on Customer: a search box and the tables Customer can reach from metadata, under LOOKS UP · ONE RECORD (Customer via Parent Customer) and HAS MANY · ROWS (User Entity Instance Data, Customer, Order)."
 ---
 
 # Metadata Pickers
@@ -28,7 +28,7 @@ node table's actual relationships, grouped under **LOOKS UP · ONE RECORD**
 and **HAS MANY · ROWS**, with a **Search tables and columns** box to
 narrow the list.
 
-![The "Add related from here" picker on the sample_customer node listing real relationships from that table's metadata: sample_customer (lookup), userentityinstancedata (child), sample_customer (child), sample_order (child), with lookup/child icons.](../images/02-11-metadata-pickers-01.png)
+![Add related table open on Customer: a search box and the tables Customer can reach from metadata, under LOOKS UP · ONE RECORD (Customer via Parent Customer) and HAS MANY · ROWS (User Entity Instance Data, Customer, Order).](../images/02-11-metadata-pickers-01.png)
 
 See *Table Configuration Tree* for how these relationship picks build out
 a traversal tree, and *Building Conditions* / *Comparison Value Sources*

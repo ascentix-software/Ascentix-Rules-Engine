@@ -6,7 +6,7 @@ slug: building-actions
 screenshots:
   - file: images/02-07-building-actions-01.png
     caption: The action panel, with its plain summary, type, optional target field, message, severity, and the When section.
-    alt: Action editing panel "EDITING ACTION 1 · Block" with Action type (Block), Active toggle, Fires when (an outcome test), Target field, Message ("Order total exceeds the customer's credit limit."), Severity (Error), and a WHAT HAPPENS explainer.
+    alt: "The action panel for a Show message: the summary “When Valid email is false, shows ‘Enter a valid email address.’ on Contact Email and holds the form save”, Type Show message and Active, Show as “On a field” with Field Contact Email, the message, Insert field, Translations, and When: Valid email is false."
 ---
 
 # Building Actions
@@ -101,12 +101,16 @@ the currently-configured action will do, for example "When **Credit check**
 is false, blocks the save with “…”." Below it you configure:
 
 - **Type**: one of the eight types above. Only the types that do something under the
-  rule's triggers can be picked; the others show what they need. **Set visible**,
-  **Set required** and **Show message** need **On form** or **On demand**. The write
-  actions need **On create**, **On update**, **On delete** or **On demand**. **Block**
-  works under every trigger. A new action starts as **Show message** when the rule runs
-  on the form or on demand, and as **Block** otherwise. If you change the triggers so
-  that an existing action can no longer run, Issues shows a warning on that action.
+  rule's triggers can be picked; the others are disabled and show what they need.
+  **Set visible**, **Set required** and **Show message** need **On form** or **On
+  demand** (*Needs On form*). The write actions (**Create record**, **Update record**,
+  **Delete record**, **Deactivate record**) need **On create**, **On update**, **On
+  delete** or **On demand** (*Needs a save or On demand trigger*). **Block save** works
+  under every trigger. A new action starts as **Show message** when the rule runs on
+  the form or on demand, and as **Block save** otherwise. If you change the triggers so
+  that an existing active action can no longer run, the **Issues** drawer shows a
+  warning on that action, for example *This action only works on the form. Add On form
+  to the triggers, or choose another type.* (see *Validating & Publishing*).
 - **Active**: a switch to enable or disable the action without deleting
   it (it reads **Off** when disabled).
 - **Target column** / **Target field** / **Show as**: as described above.
@@ -117,7 +121,7 @@ is false, blocks the save with “…”." Below it you configure:
   message and Block save actions.
 - **When**: the outcome tree described above, always last.
 
-![Action editing panel "EDITING ACTION 1 · Block" with Action type (Block), Active toggle, Fires when (an outcome test), Target field, Message ("Order total exceeds the customer's credit limit."), Severity (Error), and a WHAT HAPPENS explainer.](../images/02-07-building-actions-01.png)
+![The action panel for a Show message: the summary “When Valid email is false, shows ‘Enter a valid email address.’ on Contact Email and holds the form save”, Type Show message and Active, Show as “On a field” with Field Contact Email, the message, Insert field, Translations, and When: Valid email is false.](../images/02-07-building-actions-01.png)
 
 Create record and Update record actions replace the Message/Severity
 fields with a field mapping (**Columns to set**). See *Field Mapping* for how to map target

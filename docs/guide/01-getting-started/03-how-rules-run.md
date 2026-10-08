@@ -60,7 +60,8 @@ integrations, admin tools, or testing a rule before publishing it.
 - **What triggers it:** an explicit call to the `asx_RunRules` Custom API, matching
   the rule's **On demand** trigger (the API's default trigger filter). The caller
   passes a table name plus an existing record id, unsaved field values as JSON, or
-  both.
+  both, and optionally a draft rule's id to evaluate that saved draft in place of its
+  live rule (how the Rule Builder previews a draft).
 - **What actions it can apply:** every fired action across all action types is
   reported back to the caller, but `asx_RunRules` is always **non-enforcing**. Even
   a fired **Block** is only reported, never thrown, and write actions are reported

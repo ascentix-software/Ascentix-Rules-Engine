@@ -6,7 +6,7 @@ slug: field-mapping
 screenshots:
   - file: images/02-09-field-mapping-01.png
     caption: The Map columns dialog maps each target column to a source (literal, field, template, or date expression).
-    alt: '"Map columns" modal with two mapped columns: Approval Notes via a Text template ("Auto-flagged: expedited order totaling {root.sample_ordertotal}." with a live preview) and Handling Instructions via a Literal ("Handle with priority."), plus Add column, Edit as JSON, and Apply/Cancel.'
+    alt: "The Map columns dialog for an Update record action on Orders: Approval Notes from a Template and Handling Instructions from a Literal “Ship within 24 hours.”, with Add column, Edit as JSON, “Ready to apply”, Cancel and Apply."
 ---
 
 # Field Mapping
@@ -60,7 +60,7 @@ The detail pane sets the mapped **Column** and its **Source**:
 - **Calculation**, for numeric targets only (integer or decimal columns):
   an arithmetic expression over numeric operands. See *Calculation* below.
 
-!["Map columns" modal with two mapped columns: Approval Notes via a Text template ("Auto-flagged: expedited order totaling {root.sample_ordertotal}." with a live preview) and Handling Instructions via a Literal ("Handle with priority."), plus Add column, Edit as JSON, and Apply/Cancel.](../images/02-09-field-mapping-01.png)
+![The Map columns dialog for an Update record action on Orders: Approval Notes from a Template and Handling Instructions from a Literal “Ship within 24 hours.”, with Add column, Edit as JSON, “Ready to apply”, Cancel and Apply.](../images/02-09-field-mapping-01.png)
 
 ## Adding and removing columns
 
