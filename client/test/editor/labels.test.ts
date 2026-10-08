@@ -222,3 +222,30 @@ describe("firesWhenSummary", () => {
     expect(firesWhenSummary(tree, outcomes)).toBe("When High Value and (empty group)");
   });
 });
+
+import { conditionSentence } from "../../src/editor/ui/labels";
+
+describe("conditionSentence · Calculation", () => {
+  const tcs: Record<string, TableConfigRef> = {
+    root: { id: "root", name: "Orders", tableLogicalName: "sample_order", tableConfigType: "RootTable", parentTableConfigId: null, lookupColumnLogicalName: null, childLinkField: null, lookupTargetIdAttribute: null },
+    "29037bc0-dec2-f111-aaad-70a8a5acb5f7": { id: "29037bc0-dec2-f111-aaad-70a8a5acb5f7", name: "Order lines", tableLogicalName: "sample_orderline", tableConfigType: "ChildTable", parentTableConfigId: "root", lookupColumnLogicalName: null, childLinkField: "sample_orderid", lookupTargetIdAttribute: null },
+  };
+  const labels: Record<string, string> = { "sample_order.sample_ordertotal": "Order Total", "sample_orderline.sample_lineamount": "Line Amount" };
+  const meta = { rootNodeId: "root", columnLabel: (t: string | null, c: string) => labels[`${t}.${c}`] };
+
+  it("reads node ids and logical names as the panel's preview does", () => {
+    const c = { id: "c1", name: "", tableConfigId: "root", conditionType: "Expression", comparisonColumn: null,
+      comparisonOperator: 3, valueSource: 1, comparisonValue: "5000", comparisonValueColumn: null, comparisonValueNodeId: null,
+      minExpectedRows: null, maxExpectedRows: null, expression: "sum(node:29037bc0-dec2-f111-aaad-70a8a5acb5f7.sample_lineamount) + {root.sample_ordertotal}" } as unknown as ConditionNode;
+    const s = conditionSentence(c, tcs, meta);
+    expect(s.field).toBe("Sum of Order lines → Line Amount + Order Total");
+    expect(s.op).toBe("is more than");
+    expect(s.value).toBe("5000");
+  });
+
+  it("keeps an expression that doesn't parse as written", () => {
+    const c = { id: "c1", name: "", tableConfigId: "root", conditionType: "Expression", comparisonOperator: 3,
+      comparisonValue: "1", expression: "sum(" } as unknown as ConditionNode;
+    expect(conditionSentence(c, tcs, meta).field).toBe("sum(");
+  });
+});

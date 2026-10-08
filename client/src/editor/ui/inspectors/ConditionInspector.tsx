@@ -15,6 +15,7 @@ import { NodeFilterDialog } from "./NodeFilterDialog";
 import { deriveRowCountMode, type RowCountMode } from "./countMode";
 import { InfoField, InfoTip, SegmentedToggle } from "../primitives";
 import { InspectorSection } from "../InspectorShell";
+import { useColumnLabels } from "../useColumnLabels";
 import { OPERATOR_PHRASE } from "../labels";
 import { useTableDisplayName } from "../RuleSettingsStrip";
 import { useEditorStyles } from "../styles";
@@ -148,7 +149,8 @@ function ComparisonValueEditor({
           })} />
       )}
       {source === 2 && (
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.4fr)", gap: 6 }}>
+        // Stacked: side by side, the record and column names don't fit the panel's width.
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 6 }}>
           <Dropdown aria-label="Other column's record" style={{ minWidth: 0 }}
             value={condition.comparisonValueNodeId ? tableConfigs[condition.comparisonValueNodeId]?.name ?? condition.comparisonValueNodeId : "Same record"}
             selectedOptions={condition.comparisonValueNodeId ? [condition.comparisonValueNodeId] : [""]}
@@ -177,14 +179,15 @@ function ComparisonValueEditor({
   );
 }
 
-/** "Amount is more than 25,000" for a filter summary row: the first complete criterion. */
-function firstCriterion(nodes: NodeFilterNode[]): string | null {
+/** "Amount is more than 25,000" for a filter summary row: the first complete criterion, its
+ *  columns by display name (`label`). */
+function firstCriterion(nodes: NodeFilterNode[], label: (column: string) => string = (c) => c): string | null {
   for (const n of nodes) {
     if (n.kind === "rule" && n.column && n.operator != null) {
-      const v = n.operator === 9 || n.operator === 10 ? "" : ` ${n.valueSource === 2 ? n.valueColumn ?? "" : n.value ?? ""}`;
-      return `${n.column} ${OPERATOR_PHRASE[n.operator] ?? ""}${v}`.trim();
+      const v = n.operator === 9 || n.operator === 10 ? "" : ` ${n.valueSource === 2 ? (n.valueColumn ? label(n.valueColumn) : "") : n.value ?? ""}`;
+      return `${label(n.column)} ${OPERATOR_PHRASE[n.operator] ?? ""}${v}`.trim();
     }
-    if (n.kind === "group") { const f = firstCriterion(n.rules); if (f) return f; }
+    if (n.kind === "group") { const f = firstCriterion(n.rules, label); if (f) return f; }
   }
   return null;
 }
@@ -201,7 +204,9 @@ function NodeFilterSection({ condition, tableConfigs, tcList, label, onPatch }: 
   const blocks = condition.filter ?? [];
   const nodeName = condition.tableConfigId ? tableConfigs[condition.tableConfigId]?.name ?? "related" : "related";
   const total = blocks.reduce((n, b) => n + countCompleteCriteria(b.root), 0);
-  const first = blocks.map((b) => firstCriterion(b.root.rules)).find(Boolean) ?? null;
+  const tableOf = (b: { targetNodeId: string | null }) => (b.targetNodeId ? tableConfigs[b.targetNodeId]?.tableLogicalName ?? null : null);
+  const columns = useColumnLabels(blocks.map(tableOf).filter((t): t is string => !!t));
+  const first = blocks.map((b) => firstCriterion(b.root.rules, (c) => columns.label(tableOf(b), c) ?? c)).find(Boolean) ?? null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13.5, color: color.ink }}>
