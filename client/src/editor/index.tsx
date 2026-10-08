@@ -98,7 +98,7 @@ async function renderView(root: Root) {
         <TableConfigApp initialGraph={graph} initialUsage={usage} api={api} reload={reload} />,
       ));
     } catch (e) {
-      root.render(<ErrorPanel title="The table configuration could not load." error={e} />);
+      root.render(<ErrorPanel title="The data model could not load." error={e} />);
     }
     return;
   }

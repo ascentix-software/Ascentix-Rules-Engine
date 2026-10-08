@@ -49,7 +49,7 @@ function renderApp() {
 }
 
 async function dirtyViaRename() {
-  fireEvent.click(screen.getByRole("button", { name: "Rename configuration" }));
+  fireEvent.click(screen.getByRole("button", { name: "Rename data model" }));
   // The rename Input carries no aria-label (unlike the rule editor's); it is the
   // only textbox on screen while renaming.
   const input = screen.getByRole("textbox");
@@ -64,13 +64,13 @@ describe("TableConfigApp unsaved-changes guard", () => {
   it("dirty: breadcrumb opens the discard dialog; Discard navigates, Cancel keeps edits", async () => {
     renderApp();
     await dirtyViaRename();
-    fireEvent.click(screen.getByRole("button", { name: "Table configurations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Data models" }));
     expect(await screen.findByText("Discard unsaved changes?")).toBeInTheDocument();
     expect(navigateMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByText(/1 unsaved change/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Table configurations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Data models" }));
     await screen.findByText("Discard unsaved changes?");
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(navigateMock).toHaveBeenCalledWith("hub", undefined);
@@ -78,7 +78,7 @@ describe("TableConfigApp unsaved-changes guard", () => {
 
   it("clean: breadcrumb navigates without a dialog", () => {
     renderApp();
-    fireEvent.click(screen.getByRole("button", { name: "Table configurations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Data models" }));
     expect(navigateMock).toHaveBeenCalledWith("hub", undefined);
     expect(screen.queryByText("Discard unsaved changes?")).toBeNull();
   });

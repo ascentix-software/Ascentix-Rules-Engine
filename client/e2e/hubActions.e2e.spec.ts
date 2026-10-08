@@ -153,8 +153,8 @@ test("config delete is disabled while a rule uses it", async ({ page }) => {
   });
   try {
     const frame = await openHub(page, appId);
-    await frame.getByRole("tab", { name: /Table configurations/ }).click();
-    await frame.getByPlaceholder("Search configurations").fill("ZZ_RB_inuse_cfg");
+    await frame.getByRole("tab", { name: /Data models/ }).click();
+    await frame.getByPlaceholder("Search data models").fill("ZZ_RB_inuse_cfg");
     const row = frame.getByText("ZZ_RB_inuse_cfg", { exact: true });
     await expect(row).toBeVisible();
     await row.hover();

@@ -182,8 +182,8 @@ export function TableConfigApp({ initialGraph, initialUsage, api, reload }: {
         aboveCard={
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <Breadcrumb
-              segments={[{ label: "Rules & data model", view: "hub" }, { label: "Table configurations", view: "hub" }]}
-              current={root?.name || "(configuration)"}
+              segments={[{ label: "Rules & data model", view: "hub" }, { label: "Data models", view: "hub" }]}
+              current={root?.name || "(data model)"}
               onNavigate={(v, id) => confirmNavigate(() => navigate(v, id))}
             />
             <DataUpdateBanner api={api} />
@@ -206,9 +206,9 @@ export function TableConfigApp({ initialGraph, initialUsage, api, reload }: {
                         }} />
                     ) : (
                       <>
-                        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-.01em", color: color.ink }}>{root?.name || "(configuration)"}</h1>
+                        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: "-.01em", color: color.ink }}>{root?.name || "(data model)"}</h1>
                         {!readOnly && (
-                          <Button appearance="subtle" size="small" icon={<Edit16Regular />} aria-label="Rename configuration"
+                          <Button appearance="subtle" size="small" icon={<Edit16Regular />} aria-label="Rename data model"
                             style={{ minWidth: 24, width: 24, height: 24, padding: 0, color: color.inkMuted }}
                             onClick={() => { cancelledRef.current = false; setNameDraft(root?.name ?? ""); setRenaming(true); }} />
                         )}
@@ -324,7 +324,7 @@ export function TableConfigApp({ initialGraph, initialUsage, api, reload }: {
                       </div>
                     ),
                   }
-                : { eyebrow: "Data model", title: root?.name || "(configuration)" }}
+                : { eyebrow: "Data model", title: root?.name || "(data model)" }}
               onClose={(stacked ? overlayOpen : !!selectedNode) ? closePanel : undefined}
             >
               {selectedNode ? (

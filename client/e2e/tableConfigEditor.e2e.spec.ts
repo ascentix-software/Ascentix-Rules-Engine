@@ -21,7 +21,7 @@ test("rename config, add child node via Add related, save; in-use node delete is
     const frame = await openConfigFromHub(page, appId, "ZZ_RB_tcui_cfg");
 
     // Rename the model.
-    await frame.getByRole("button", { name: "Rename configuration" }).click();
+    await frame.getByRole("button", { name: "Rename data model" }).click();
     const nameBox = frame.getByRole("textbox", { name: "Model name" });
     await nameBox.fill("ZZ_RB_tcui_cfg renamed");
     await nameBox.press("Enter");

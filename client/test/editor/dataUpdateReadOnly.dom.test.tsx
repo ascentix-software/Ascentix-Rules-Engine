@@ -104,7 +104,7 @@ describe("read-only while a data update is pending", () => {
     );
     expect(await screen.findByTestId("data-update-banner")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Rename configuration" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Rename data model" })).toBeNull();
     expect(screen.queryByTitle("Delete node")).toBeNull();
     expect(screen.queryByText("Add related")).toBeNull();
   });
