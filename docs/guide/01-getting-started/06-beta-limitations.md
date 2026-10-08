@@ -23,8 +23,10 @@ as-is under the Apache-2.0 licence.
 The supported ceiling for the beta: about **100 published rules per
 environment**, and about **5,000 traversed related rows per save**.
 
-Benchmarking shows that rules within these boundaries evaluate inside the
-[2-second budget Microsoft recommends for synchronous plug-ins](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/analyze-performance).
+Measured on our development environment with about 100 rules on the table (see
+*Performance*), a save's rule evaluation stayed inside the
+[2-second budget Microsoft recommends for synchronous plug-ins](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/analyze-performance)
+up to about 500 related rows; at 5,000 related rows it took about 5.6 seconds.
 Those tests were not run in your environment; real-world timings depend on the
 number of other processes registered on the same events and the volume of data.
 Bulk operations (`CreateMultiple`/`UpdateMultiple`) incur that per-record
