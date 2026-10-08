@@ -15,6 +15,10 @@ import { color } from "../tokens";
 
 // The listbox treats a click inside it as picking an option and cancels it, so a checkbox in the
 // popup's header never toggled. Stop the click (and the mousedown that moves focus) here.
+// Room for a muted label drawn over the input's right end (the type, or the logical name): about
+// 6.5px a character at 12px, plus a gap.
+const reserveFor = (label: string) => Math.ceil(label.length * 6.5) + 10;
+
 // A long list scrolls inside its popup instead of running off the screen.
 // autoSize shrinks the popup to the room left on screen; 360px caps it on a tall one.
 const LISTBOX = {
@@ -51,7 +55,10 @@ export function TablePicker({ value, onChange, sentence, ariaLabel, invalid }: {
       freeform
       aria-label={ariaLabel}
       aria-invalid={invalid || undefined}
-      style={{ width: "100%" }}
+      // minWidth 0: Fluent's default minimum would push the picker past a narrow grid cell.
+      style={{ width: "100%", minWidth: 0 }}
+      // The logical name sits over the input's right end: keep the display name clear of it.
+      input={after ? { style: { paddingRight: reserveFor(after), textOverflow: "ellipsis" } } : undefined}
       value={open ? query : selectedText}
       selectedOptions={value ? [value] : []}
       placeholder="Type to filter tables"
@@ -140,7 +147,8 @@ export function ColumnPicker({
     <Combobox {...LISTBOX}
       freeform
       aria-label={ariaLabel}
-      style={{ width: "100%" }}
+      style={{ width: "100%", minWidth: 0 }}
+      input={typeText ? { style: { paddingRight: reserveFor(typeText), textOverflow: "ellipsis" } } : undefined}
       value={displayValue}
       selectedOptions={value ? [value] : allowEmpty ? [""] : []}
       placeholder="Type to filter columns"
