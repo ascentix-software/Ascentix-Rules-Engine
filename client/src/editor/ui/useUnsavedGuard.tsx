@@ -6,6 +6,8 @@ import { ConfirmDiscardDialog } from "./ConfirmDiscardDialog";
 // front of any deferred action that would drop the working state (navigate, reload).
 export function useUnsavedGuard(dirty: boolean): {
   confirmNavigate(action: () => void): void;
+  /** Runs a navigation the user already confirmed elsewhere (e.g. Discard draft): no prompt. */
+  leave(action: () => void): void;
   guardDialog: React.ReactNode;
 } {
   const dirtyRef = React.useRef(dirty);
@@ -47,6 +49,8 @@ export function useUnsavedGuard(dirty: boolean): {
     action?.();
   }, []);
 
+  const leave = React.useCallback((action: () => void) => { bypassRef.current = true; action(); }, []);
+
   const guardDialog = <ConfirmDiscardDialog open={open} onCancel={onCancel} onDiscard={onDiscard} />;
-  return { confirmNavigate, guardDialog };
+  return { confirmNavigate, leave, guardDialog };
 }
