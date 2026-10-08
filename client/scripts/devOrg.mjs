@@ -349,6 +349,7 @@ export function devOrg(identity = "user", opts = {}) {
     if (o.recordJson) body.RecordJson = o.recordJson;
     body.Triggers = o.triggers ?? "Manual";
     if (o.includeDiagnostics) body.IncludeDiagnostics = true;
+    if (o.draftRuleId) body.DraftRuleId = o.draftRuleId;
     const r = await request("POST", "asx_RunRules", body);
     if (!r.ok) throw shapeError("asx_RunRules", r.status, r.text);
     const raw = r.json ?? {};

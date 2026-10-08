@@ -42,6 +42,8 @@ export interface RunRulesOptions {
   /** OnCreate|OnForm|Manual|OnUpdate|OnDelete or the numeric form; default Manual. */
   triggers?: string;
   includeDiagnostics?: boolean;
+  /** Previews this draft: its saved rows run in place of the live rule it is a draft of. */
+  draftRuleId?: string;
 }
 
 export interface RunRulesResult {

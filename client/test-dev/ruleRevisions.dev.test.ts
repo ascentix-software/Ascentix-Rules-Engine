@@ -173,8 +173,13 @@ it("keeps published execution through invalid drafts and accepts latest saved pu
   const api = createDevApi();
   const header = () => api.retrieveRecord("asx_rules", fixture.ruleId, "?$select=statuscode,asx_publishedversion");
   const published = async () => loadPublishedGraph(await api.readPublishedRule!(fixture.ruleId), fixture.ruleId);
+  // Without draftRuleId the call omits DraftRuleId, which Dataverse passes as Guid.Empty: the
+  // published rules must run as before (a regression in #52 rejected it).
   const messages = async () => (await runRules("account", { recordJson: JSON.stringify({ revenue: 100 }), triggers: "Manual" }))
     .firedActions.filter(a => a.ruleId === fixture.ruleId).map(a => a.message);
+  // A draft preview: the draft's saved rows run in place of the live rule, reported under the draft's id.
+  const draftMessages = async (draftId: string) => (await runRules("account", { recordJson: JSON.stringify({ revenue: 100 }), triggers: "Manual", draftRuleId: draftId }))
+    .firedActions.filter(a => a.ruleId === draftId || a.ruleId === fixture.ruleId).map(a => ({ ruleId: a.ruleId, message: a.message }));
   try {
     expect((await api.validateRule(fixture.ruleId)).isValid).toBe(true);
     await api.publishRule(fixture.ruleId);
@@ -202,6 +207,9 @@ it("keeps published execution through invalid drafts and accepts latest saved pu
     await updateDevRecord("asx_ruleactions", actionId, { asx_message: nextMessage });
     const valid = await api.validateRule(draftId);
     expect(valid.isValid).toBe(true);
+    // Preview the draft before publishing: its message, not the live one, and only once.
+    expect(await draftMessages(draftId)).toEqual([{ ruleId: draftId, message: nextMessage }]);
+    expect(await messages()).toContain(liveMessage);
     await updateDevRecord("asx_tableconfigs", (await draftHeader())._asx_roottableconfig_value, { asx_name: "ZZ_RB_model_changed_after_validation" });
     // Publication revalidates the latest saved values, including changes after validation.
     await api.publishRule(draftId);

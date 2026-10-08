@@ -34,7 +34,7 @@ export async function deleteDevRecord(entitySet: string, id: string, tokenOverri
 // tokenOverride: same seam as updateDevRecord, to drive the call as a different origin channel.
 export async function runRules(
   tableName: string,
-  opts: { recordId?: string; recordJson?: string; triggers?: string; tokenOverride?: string } = {},
+  opts: { recordId?: string; recordJson?: string; triggers?: string; draftRuleId?: string; tokenOverride?: string } = {},
 ): Promise<RunRulesResult> {
   const { tokenOverride, ...rest } = opts;
   return devOrg("user", tokenOverride ? { tokenOverride } : {}).runRules(tableName, rest);
