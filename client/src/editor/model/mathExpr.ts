@@ -146,6 +146,22 @@ export function parseMathExpr(expr: string): MathParseResult {
 // text, leaving operators/numbers/whitespace/parens untouched. Mirrors friendlyTemplate's
 // approach: the expression must already parse (grammar-valid), so this rescans it with the
 // same per-token parsers instead of re-validating.
+/** "Sum", "Count", … as the panel and the tree name an aggregate. */
+export const AGG_LABELS: Record<NonNullable<MathRef["agg"]>, string> = {
+  sum: "Sum", count: "Count", min: "Min", max: "Max", avg: "Average",
+};
+
+/** A ref's label from a node/column resolver: "Order Total", "Customer → Credit Limit",
+ *  "Sum of Order lines → Line Amount", "Count of Order lines". */
+export function mathRefLabel(
+  ref: MathRef, nodeName: (node: string) => string, columnLabel: (node: string | null, column: string) => string,
+): string {
+  if (!ref.agg) return ref.node ? `${nodeName(ref.node)} → ${columnLabel(ref.node, ref.column)}` : columnLabel(null, ref.column);
+  const name = ref.node ? nodeName(ref.node) : "?";
+  if (ref.agg === "count" || !ref.column) return `${AGG_LABELS[ref.agg]} of ${name}`;
+  return `${AGG_LABELS[ref.agg]} of ${name} → ${columnLabel(ref.node, ref.column)}`;
+}
+
 export function friendlyMathExpr(
   expr: string,
   labelFor: (ref: MathRef) => string,

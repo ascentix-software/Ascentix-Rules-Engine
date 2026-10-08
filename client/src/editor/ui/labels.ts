@@ -2,6 +2,7 @@ import type { ConditionNode, ActionNode, TableConfigRef, ConditionTypeLabel, Con
 import { isAlways } from "../model/firesWhen";
 import { outcomeDisplayName } from "../model/outcomes";
 import { comparisonOperatorLabel } from "../model/enums";
+import { friendlyMathExpr, mathRefLabel } from "../model/mathExpr";
 import type { OptionMeta } from "../metadata";
 
 export function resolvePicklistLabel(opts: OptionMeta[], raw: string | null): string | null {
@@ -148,8 +149,13 @@ export function conditionSentence(
     }
     case "Expression": {
       const op = c.comparisonOperator != null ? OPERATOR_PHRASE[c.comparisonOperator] ?? "" : "";
-      return { nodeTag, field: c.expression || "(no calculation)", fieldLogical: c.expression ?? "", op,
-        value: c.comparisonValue ?? undefined };
+      // Node ids and logical names read as the panel's preview: "Sum of Order lines → Line Amount + Order Total".
+      const field = c.expression
+        ? friendlyMathExpr(c.expression, (ref) => mathRefLabel(ref,
+          (node) => tcs[node]?.name ?? "?",
+          (node, column) => display(node ? tableOf(node) : tableOf(meta.rootNodeId) ?? table, column)))
+        : "(no calculation)";
+      return { nodeTag, field, fieldLogical: c.expression ?? "", op, value: c.comparisonValue ?? undefined };
     }
     default:
       return { nodeTag, field: c.name || "(unconfigured)", fieldLogical: "", op: "" };

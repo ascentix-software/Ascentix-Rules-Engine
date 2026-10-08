@@ -6,7 +6,7 @@ import { columnKind } from "./columnKind";
 import type { TableConfigRef } from "../model/types";
 import { isSingleCardinality } from "../model/tableConfigOps";
 import { insertAt, friendlyTemplate } from "../model/templateTokens";
-import { friendlyMathExpr, parseMathExpr, type MathRef } from "../model/mathExpr";
+import { AGG_LABELS, friendlyMathExpr, parseMathExpr, type MathRef } from "../model/mathExpr";
 import { DATE_UNITS, type DateUnit } from "../model/fieldMapping";
 import {
   InsertFieldMenu, InsertAggregateMenu, useColumns, useFieldLabelFor, savedNodes, collectionNodes,
@@ -22,9 +22,6 @@ const subLabelStyle: React.CSSProperties = {
   fontSize: 11, fontWeight: 600, color: color.inkMuted, marginBottom: 3, display: "block",
 };
 
-const AGG_LABELS: Record<NonNullable<MathRef["agg"]>, string> = {
-  sum: "Sum", avg: "Average", min: "Min", max: "Max", count: "Count",
-};
 
 /** A `MathRef -> display label` resolver for MathExprEditor's friendly preview: plain refs
  * reuse useFieldLabelFor's node/column labels; aggregate refs render as
