@@ -22,6 +22,41 @@ export function parseFrontMatter(text) {
   return { meta, body: text.slice(m[0].length) };
 }
 
+/**
+ * The front matter's screenshot captions, by image file name: `screenshots:` is a list of
+ * `- file: images/<name>` entries, each followed by `caption:` (and `alt:`). parseFrontMatter
+ * skips this nested block, so it is read here.
+ */
+export function screenshotCaptions(text) {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  const captions = {};
+  if (!m) return captions;
+  let file = null;
+  for (const line of m[1].split(/\r?\n/)) {
+    const f = /^\s*-\s*file:\s*(?:images\/)?(.+?)\s*$/.exec(line);
+    if (f) { file = f[1]; continue; }
+    const c = /^\s+caption:\s*(.+?)\s*$/.exec(line);
+    if (c && file) captions[file] = c[1].replace(/^"(.*)"$/, "$1");
+  }
+  return captions;
+}
+
+const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/**
+ * A screenshot on its own line (marked renders `<p><img …></p>`) becomes a figure with its
+ * front-matter caption, as the product website shows it (rehype-doc-figures there). Run before
+ * rewriteImages, while src still reads ../images/.
+ */
+export function wrapFigures(html, captions) {
+  return html.replace(/<p>\s*(<img src="\.\.\/images\/([^"]+)"[^>]*>)\s*<\/p>/g, (_m, img, file) => {
+    const caption = captions[file];
+    return caption
+      ? `<figure class="doc-figure">${img}<figcaption>${escapeHtml(caption)}</figcaption></figure>`
+      : `<figure class="doc-figure">${img}</figure>`;
+  });
+}
+
 export function renderBody(markdown) {
   marked.setOptions({ gfm: true, breaks: false });
   // strip script/style blocks, then strip the leading H1 (the page title is rendered from
