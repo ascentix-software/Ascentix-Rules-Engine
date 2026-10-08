@@ -54,7 +54,7 @@ test("a 5xx on save shows the failure banner and KEEPS the edit dirty and recove
 
     // The documented surface: an error banner naming the failure, never a silent no-op and
     // never a raw "[object Object]" (the error-containment contract).
-    await expect(frame.getByText(/Save (or refresh )?failed:/)).toBeVisible({ timeout: 30_000 });
+    await expect(frame.getByRole("alert").filter({ hasText: "Couldn't save." })).toBeVisible({ timeout: 30_000 });
     await expect(frame.getByText(/\[object Object\]/)).toHaveCount(0);
     expect(injected).toBeGreaterThan(0);
 

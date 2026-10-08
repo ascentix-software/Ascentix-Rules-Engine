@@ -249,12 +249,17 @@ export function whenSection(frame: FrameLocator): Locator {
 // Closes every open toast. A toast stays up 5 s, so waiting for "Saved" right after a second
 // save would otherwise match the first save's toast and race ahead of the save in flight
 // (hit as rows read before the save landed, and a cleanup deleting a rule mid-save).
+// A toast still sliding in never counts as stable, so the click is forced; and the toaster pauses
+// on hover, so the mouse leaves the toasts before each check or the next one never times out.
 export async function dismissToasts(frame: FrameLocator): Promise<void> {
   const toasts = frame.getByTestId("toast");
-  for (let i = 0; i < 6 && (await toasts.count()) > 0; i++) {
-    await toasts.getByRole("button", { name: "Dismiss" }).first().click({ timeout: 2_000 }).catch(() => {});
-  }
-  await expect(toasts).toHaveCount(0, { timeout: 10_000 });
+  await expect(async () => {
+    if ((await toasts.count()) > 0) {
+      await toasts.last().getByRole("button", { name: "Dismiss" }).click({ timeout: 2_000, force: true }).catch(() => {});
+    }
+    await frame.locator("body").hover({ position: { x: 1, y: 1 }, force: true });
+    expect(await toasts.count()).toBe(0);
+  }).toPass({ timeout: 20_000, intervals: [250, 500, 1_000] });
 }
 
 // Save from the header, then wait for this save's Saved toast.
