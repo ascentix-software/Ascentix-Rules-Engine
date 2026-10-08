@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { publishedDefinition, publishedRuleId } from "./publishedFixtures";
 import {
   loadHubData, retrieveAll, MAX_PAGES, countByRule, subtreeSize, groupUsedBy,
   loadSchedulerStatus, schedulerChip,
@@ -303,5 +304,45 @@ describe("schedulerChip", () => {
     const lastSeenOn = "2026-09-29T11:55:00Z"; // 35 minutes before NOW
     expect(schedulerChip({ lastSeenOn, installed: true }, true, NOW))
       .toEqual({ text: `Scheduler not running since ${new Date(lastSeenOn).toLocaleString()}`, tone: "warning" });
+  });
+});
+
+describe("loadHubData · published rules at scale", () => {
+  // An org with more published rules than Dataverse's 100 concurrent requests: one
+  // asx_ReadPublishedRule per rule, all at once, failed the whole hub.
+  it("reads 120 published definitions in 5 bulk revision queries, with no per-rule requests", async () => {
+    const n = 120;
+    const id = (i: number) => `${String(i).padStart(8, "0")}-0000-0000-0000-000000000000`;
+    const rev = (i: number) => `${String(i).padStart(8, "0")}-1111-1111-1111-111111111111`;
+    const revisionQueries: string[] = [];
+    const readPublishedRule = vi.fn();
+    const api: WebApiPort = {
+      ...port(),
+      readPublishedRule,
+      retrieveMultipleRecords: async (entity, options) => {
+        if (entity === ENTITY.rule) return { entities: Array.from({ length: n }, (_, i) => ({
+          asx_ruleid: id(i), asx_name: `Row name ${i}`, asx_tablelogicalname: "account", statuscode: 753840000,
+          asx_triggers: "1", _asx_publishedrevision_value: rev(i), modifiedon: "2026-10-01T00:00:00Z" })) };
+        if (entity === "asx_rulerevision") {
+          revisionQueries.push(options ?? "");
+          const ids = [...(options ?? "").matchAll(/'([0-9-]{36})'/g)].map((m) => m[1]);
+          return { entities: ids.map((r) => {
+            const i = Number(r.slice(0, 8));
+            // Rule 7's revision doesn't parse: that rule falls back to its own row.
+            const definition = i === 7 ? "{not json" : publishedDefinition.split(publishedRuleId).join(id(i));
+            return { asx_rulerevisionid: r, asx_definition: definition };
+          }) };
+        }
+        if (entity === ENTITY.action || entity === ENTITY.tableConfig || entity === ENTITY.ruleSchedule) return { entities: [] };
+        throw new Error("unexpected " + entity);
+      },
+    };
+    const { rules } = await loadHubData(api);
+    expect(readPublishedRule).not.toHaveBeenCalled();
+    expect(revisionQueries).toHaveLength(5);
+    expect(rules).toHaveLength(n);
+    expect(rules[0].name).toBe("Frozen version");      // from the published definition
+    expect(rules[0].triggers).toEqual([2, 3]);
+    expect(rules[7].name).toBe("Row name 7");          // unparseable revision: the row's own name
   });
 });
