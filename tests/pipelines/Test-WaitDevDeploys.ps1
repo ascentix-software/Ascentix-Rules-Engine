@@ -10,23 +10,28 @@ $definitions = @{ value = @(
   @{ id = 9; name = 'Classic'; process = @{ } }
 ) }
 
+# The mocks keep their state in one global (this test runs in its own process), not in
+# GetNewClosure copies or $script: (which means the Wait script while it calls them), so they
+# behave the same on every PowerShell 7 version.
+$get = {
+  param($Uri, $Headers)
+  $global:waitTest.calls.Add($Uri)
+  if ($Uri -like '*/_apis/build/definitions*') { return $global:waitTest.definitions }
+  # Each poll asks notStarted then inProgress: page i serves both of round i.
+  $round = [math]::Floor($global:waitTest.page / 2); $global:waitTest.page++
+  $builds = if ($round -lt $global:waitTest.pages.Count) { $global:waitTest.pages[$round] } else { @() }
+  $status = if ($Uri -like '*statusFilter=notStarted*') { 'notStarted' } else { 'inProgress' }
+  return @{ value = @($builds | Where-Object { $_.status -eq $status }) }
+}
+$sleep = { param($s) $global:waitTest.sleeps++; $global:waitTest.now = $global:waitTest.now.AddSeconds($s) }
+$now = { $global:waitTest.now }
+
 function Run([object[]] $BuildPages, [int] $Timeout = 45) {
-  $state = @{ calls = [System.Collections.Generic.List[string]]::new(); page = 0; sleeps = 0; now = [datetime]'2026-10-08T00:00:00Z' }
-  $get = {
-    param($Uri, $Headers)
-    $state.calls.Add($Uri)
-    if ($Uri -like '*/_apis/build/definitions*') { return $definitions }
-    # Each poll asks notStarted then inProgress: page i serves both of round i.
-    $round = [math]::Floor($state.page / 2); $state.page++
-    $builds = if ($round -lt $BuildPages.Count) { $BuildPages[$round] } else { @() }
-    $status = if ($Uri -like '*statusFilter=notStarted*') { 'notStarted' } else { 'inProgress' }
-    return @{ value = @($builds | Where-Object { $_.status -eq $status }) }
-  }.GetNewClosure()
-  $sleep = { param($s) $state.sleeps++; $state.now = $state.now.AddSeconds($s) }.GetNewClosure()
-  $now = { $state.now }.GetNewClosure()
+  $global:waitTest = @{ calls = [System.Collections.Generic.List[string]]::new(); page = 0; sleeps = 0;
+    now = [datetime]'2026-10-08T00:00:00Z'; pages = $BuildPages; definitions = $definitions }
   $output = & $script -CollectionUri 'https://dev.azure.com/org/' -Project 'proj' -AccessToken 't' `
     -TimeoutMinutes $Timeout -PollSeconds 60 -Get $get -Sleep $sleep -Now $now 6>&1 | Out-String
-  return @{ calls = $state.calls; sleeps = $state.sleeps; output = $output }
+  return @{ calls = $global:waitTest.calls; sleeps = $global:waitTest.sleeps; output = $output }
 }
 
 $running = @{ status = 'inProgress'; buildNumber = 'plugin-ci-1'; definition = @{ name = 'Plugin CI' } }
@@ -34,13 +39,13 @@ $queued = @{ status = 'notStarted'; buildNumber = 'client-ci-7'; definition = @{
 
 # Nothing active: no wait, and only the two CI definitions are polled.
 $r = Run @()
-Assert ($r.sleeps -eq 0) 'Waited with nothing active.'
-Assert ($r.calls[1] -like '*definitions=3,4&statusFilter=notStarted*') "Polled the wrong definitions: $($r.calls[1])"
+Assert ($r.sleeps -eq 0) "Waited with nothing active. Output: $($r.output)"
+Assert ($r.calls[1] -like '*definitions=3,4&statusFilter=notStarted*') "Polled the wrong definitions: $($r.calls[1]). Output: $($r.output)"
 Assert ($r.output -like '*Starting L2*') 'Did not report starting L2.'
 
 # Active for two rounds (in progress, then queued), then clear: waits twice.
 $r = Run @(@($running), @($queued))
-Assert ($r.sleeps -eq 2) "Expected 2 waits, got $($r.sleeps)."
+Assert ($r.sleeps -eq 2) "Expected 2 waits, got $($r.sleeps). Output: $($r.output)"
 Assert ($r.output -like '*Plugin CI plugin-ci-1 (inProgress)*') 'Did not list the running build.'
 Assert ($r.output -like '*Client CI client-ci-7 (notStarted)*') 'Did not list the queued build.'
 
