@@ -119,6 +119,18 @@ function firedDetail(f: DryRunAction, field: (logical: string) => string): strin
   }
 }
 
+/** Why fired actions had no effect under the previewed trigger, and what to do about it. */
+function notHereText(fired: DryRunAction[], trigger: number, ruleTriggers: number[]): string {
+  if (trigger !== 2 && fired.every((a) => FORM_ACTIONS.has(a.actionType))) {
+    const what = fired.every((a) => a.actionType === "ShowMessage")
+      ? `${plural(fired.length, "message")} fired, but messages only show on the form.`
+      : `${plural(fired.length, "form action")} fired, but messages and field changes only show on the form.`;
+    return `${what} ${ruleTriggers.includes(2) ? "Choose As if On form to see them." : "Add On form to the rule's triggers to show them."}`;
+  }
+  if (trigger === 2) return "Only write actions fired, and they run when a record is saved or run on demand, not on the form.";
+  return "Only actions that don't run on this trigger fired.";
+}
+
 function PreviewResults({ result, trigger, rule, graph }: { result: DryRunResult; trigger: number; rule: RunDialogRule; graph: RuleGraph }) {
   // A draft's results come back under the draft's own id.
   const ownIds = new Set([rule.id, graph.rule.id].map((x) => x.toLowerCase()));
@@ -160,7 +172,7 @@ function PreviewResults({ result, trigger, rule, graph }: { result: DryRunResult
         </Verdict>
       ) : effective.length === 0 ? (
         <Verdict tone="neutral" icon={<Info20Regular />} title="Nothing would happen">
-          {mine.length === 0 ? "No action of this rule fired." : "Only actions that don't run on this trigger fired."}
+          {mine.length === 0 ? "No action of this rule fired." : notHereText(mine, trigger, graph.rule.triggers)}
         </Verdict>
       ) : held.length > 0 ? (
         <Verdict tone="warn" icon={<Warning20Regular />} title="Save would be held">
@@ -283,12 +295,14 @@ function usePreviewTab({ rule, api, version, setVersion, draftAvailable }: {
   const graph = (version === "draft" ? rule.draft : rule.live) ?? rule.live ?? rule.draft!;
   const triggers = graph.rule.triggers.length ? graph.rule.triggers : [3];
   const [record, setRecord] = React.useState<{ id: string; name: string } | null>(null);
-  const [trigger, setTrigger] = React.useState<number>(triggers[0]);
+  // On form first when the rule runs there: it's where messages and field changes show.
+  const defaultTrigger = triggers.includes(2) ? 2 : triggers[0];
+  const [trigger, setTrigger] = React.useState<number>(defaultTrigger);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [running, setRunning] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<{ result: DryRunResult; trigger: number } | null>(null);
-  React.useEffect(() => { if (!triggers.includes(trigger)) setTrigger(triggers[0]); }, [triggers.join(",")]);
+  React.useEffect(() => { if (!triggers.includes(trigger)) setTrigger(defaultTrigger); }, [triggers.join(",")]);
   const run = async () => {
     if (!record) return;
     if (!api.dryRun) return;
