@@ -221,7 +221,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
           <div style={{ padding: "20px 24px 0", background: `linear-gradient(180deg, ${color.canvas}, ${color.surface})` }}>
             <Eyebrow>Power Apps · Rules Engine</Eyebrow>
             <h1 style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.015em", color: color.ink, margin: "2px 0 2px" }}>Rules &amp; data model</h1>
-            <div style={{ fontSize: 13.5, color: color.inkMuted }}>Browse rules and the shared table configurations they traverse.</div>
+            <div style={{ fontSize: 13.5, color: color.inkMuted }}>Browse rules and the shared data models they read.</div>
           </div>
         }
       >
@@ -249,7 +249,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                 Rules <Pill tone={tab === "rules" ? "info" : "neutral"}>{rules.length}</Pill>
               </Tab>
               <Tab value="configs">
-                Table configurations <Pill tone={tab === "configs" ? "info" : "neutral"}>{configs.length}</Pill>
+                Data models <Pill tone={tab === "configs" ? "info" : "neutral"}>{configs.length}</Pill>
               </Tab>
             </TabList>
             {chip && (
@@ -264,10 +264,10 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
             {!readOnly && (
               <Button appearance="primary" icon={<Add16Regular />} disabled={busy}
                 onClick={() => (tab === "rules" ? setNewRuleOpen(true) : setNewConfigOpen(true))}>
-                {tab === "rules" ? "New rule" : "New table configuration"}
+                {tab === "rules" ? "New rule" : "New data model"}
               </Button>
             )}
-            <SearchBox placeholder={tab === "rules" ? "Search rules" : "Search configurations"} value={search}
+            <SearchBox placeholder={tab === "rules" ? "Search rules" : "Search data models"} value={search}
               onChange={(_e, d) => { setSearch(d.value); reset(); }} style={{ minWidth: 240 }} />
             {tab === "rules" ? (
               <>
@@ -296,7 +296,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
 
           {tab === "configs" && (
             <div style={{ marginBottom: 12 }}>
-              <Callout intent="info">Table configurations are shared. Editing one affects every rule that uses it, and a configuration in use can't be deleted.</Callout>
+              <Callout intent="info">Data models are shared. Editing one affects every rule that uses it, and a data model in use can't be deleted.</Callout>
             </div>
           )}
 
@@ -351,19 +351,19 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                 })}
             </GridCard>
           ) : (
-            <GridCard cols={CONFIG_COLS} headers={["Configuration", "Root table", "Nodes", "Used by", "Modified", ""]} stacked={stacked}>
+            <GridCard cols={CONFIG_COLS} headers={["Data model", "Root table", "Tables", "Used by", "Modified", ""]} stacked={stacked}>
               {pageConfigs.length === 0
-                ? <div style={{ padding: 24, textAlign: "center", color: color.inkMuted, fontSize: 13 }}>No configurations match.</div>
+                ? <div style={{ padding: 24, textAlign: "center", color: color.inkMuted, fontSize: 13 }}>No data models match.</div>
                 : pageConfigs.map((c) => {
                   const cells: RowCell[] = [
-                    { label: "Configuration", node: (
+                    { label: "Data model", node: (
                       <div>
                         <div style={{ fontSize: 14, fontWeight: 600, color: color.ink }}>{c.name}</div>
                         <div style={{ fontSize: 12, color: color.inkMuted }}>{c.rootTableLogicalName}</div>
                       </div>
                     ) },
                     { label: "Root table", node: <span><NodeTag>{c.rootTableLogicalName}</NodeTag></span> },
-                    { label: "Nodes", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{c.nodeCount} nodes</span> },
+                    { label: "Tables", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{c.nodeCount} {c.nodeCount === 1 ? "table" : "tables"}</span> },
                     { label: "Used by", node: (
                       <span style={{ fontSize: 12.5, fontWeight: 600, color: c.usedByCount > 0 ? color.brandInk : color.inkMuted }}>
                         {c.usedByCount > 0 ? `${c.usedByCount} rules` : "Unused"}
@@ -389,7 +389,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
 
           <ListFooter total={total} page={page} pageSize={pageSize}
             onPage={setPage} onPageSize={(n) => { setPageSize(n); reset(); }}
-            noun={tab === "rules" ? "rules" : "configurations"} />
+            noun={tab === "rules" ? "rules" : "data models"} />
           <NewRuleDialog open={newRuleOpen} configs={configs}
             onCancel={() => setNewRuleOpen(false)}
             onCreate={(args) => { setNewRuleOpen(false); onCreateRule(args); }} />

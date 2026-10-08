@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Query;
 using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Loaders;
@@ -56,6 +57,22 @@ namespace Ascentix.RulesEngine.Core.Engine
                 var headers = PublishedRules.Headers(systemService, logicalName);
                 if (selection?.RuleId != null)
                     headers = headers.Where(h => h.Id == selection.RuleId.Value).ToList();
+                if (selection?.DraftRuleId != null)
+                {
+                    // The draft's authored rows, captured the way Publish captures them, stand in
+                    // for the live revision it is a draft of; every other published rule runs as is.
+                    var draftId = selection.DraftRuleId.Value;
+                    var draft = systemService.Retrieve("asx_rule", draftId, new ColumnSet(true));
+                    if (!string.Equals(draft.GetAttributeValue<string>("asx_tablelogicalname"), logicalName, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidPluginExecutionException($"The draft rule {draftId} is not on the {logicalName} table.");
+                    var liveId = draft.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf)?.Id;
+                    headers = headers.Where(h => h.Id != draftId && h.Id != liveId).ToList();
+                    var frozen = new SnapshotService(systemService, RuleSnapshot.Capture(systemService, draft));
+                    var candidates = Load(new RuleLoader(frozen));
+                    publishedLoaded += candidates.Count;
+                    var selected = candidates.Where(r => RuleScheduleFilter.IsInEffect(r, nowUtc)).ToList();
+                    if (selected.Count > 0) revisionBuckets.Add(new Bucket(RuleEvaluationContextResolver.Resolve(selected[0]), selected) { ConfigurationService = frozen });
+                }
                 foreach (var header in headers.Where(h => h.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) != null))
                 {
                     var frozen = new SnapshotService(systemService, PublishedRules.Read(systemService, header));

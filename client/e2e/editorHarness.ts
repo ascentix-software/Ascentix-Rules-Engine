@@ -130,12 +130,12 @@ export async function editorReady(frame: FrameLocator): Promise<void> {
 
 export async function openConfigFromHub(page: Page, appId: string, cfgName: string): Promise<FrameLocator> {
   const frame = await openHub(page, appId);
-  await frame.getByRole("tab", { name: /Table configurations/ }).click();
-  await frame.getByPlaceholder("Search configurations").fill(cfgName);
+  await frame.getByRole("tab", { name: /Data models/ }).click();
+  await frame.getByPlaceholder("Search data models").fill(cfgName);
   // Same reasoning as openRuleFromHub above: click the row via hubRow, not a raw exact-text
   // locator, so it can't strict-mode-fail on a coincidental second match inside the row.
   await hubRow(frame, cfgName).click();
-  await expect(frame.getByRole("button", { name: "Rename configuration" })).toBeVisible({ timeout: 30_000 });
+  await expect(frame.getByRole("button", { name: "Rename data model" })).toBeVisible({ timeout: 30_000 });
   return frame;
 }
 

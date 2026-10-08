@@ -435,6 +435,7 @@ if ($runRules.value.Count -ne 1) { throw 'Missing asx_RunRules API.' }
 EnsureParameter $runRules.value[0].customapiid 'ChangeSet' 10 $true 'JSON change-set summary: creates, updates, deletes and unchanged rows.'
 EnsureParameter $runRules.value[0].customapiid 'Outcomes' 10 $true 'JSON per record: each rule outcome (name and true or false).'
 EnsureParameter $runRules.value[0].customapiid 'IncludeOutcomes' 0 $false 'When true, Outcomes carries each rule outcome per record; otherwise it is an empty JSON array.' $true
+EnsureParameter $runRules.value[0].customapiid 'DraftRuleId' 12 $false 'Previews a draft: its authored rows run in place of the live rule it is a draft of.' $true
 $applyRulesType = PluginType 'ApplyRulesApi'
 $id = EnsureApi 'asx_ApplyRules' 'prvCreateasx_RuleRun' 'Evaluates one On demand rule for one record and applies its results (enforcing).' 'Apply Rules' $applyRulesType
 EnsureParameter $id 'RuleId' 12 $false 'Identifier of the On demand rule to evaluate.'

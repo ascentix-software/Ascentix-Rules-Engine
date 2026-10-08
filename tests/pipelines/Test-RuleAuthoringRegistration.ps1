@@ -182,7 +182,7 @@ function Invoke-RestMethod {
             $key = "$path/$apiId/$($record.uniquename)"
             Assert (!$parameters.ContainsKey($key)) 'Duplicate parameter create on retry.'
             if ($path -eq 'customapirequestparameters') {
-                $expectOptional = $record.uniquename -in @('FailedRecordId', 'FailedMessage', 'IncludeDiagnostics', 'IncludeOutcomes', 'Retry', 'FailedItem')
+                $expectOptional = $record.uniquename -in @('FailedRecordId', 'FailedMessage', 'IncludeDiagnostics', 'IncludeOutcomes', 'DraftRuleId', 'Retry', 'FailedItem')
                 Assert ($record.isoptional -eq $expectOptional) "Unexpected optionality for $($record.uniquename)."
             }
             $parameters[$key] = $record
@@ -220,8 +220,8 @@ foreach ($interrupt in @($false, $true)) {
         Assert ($apis.Count -eq 3 -and $parameters.Count -eq 0) 'Unexpected partial-deployment state.'
     }
     Register
-    Assert ($apis.Count -eq 11 -and $parameters.Count -eq 44) 'Expected nine new APIs and forty-four parameters/properties.'
-    Assert ($state.Creates -eq 57) 'Expected exactly fifty-seven successful creates.'
+    Assert ($apis.Count -eq 11 -and $parameters.Count -eq 45) 'Expected nine new APIs and forty-five parameters/properties.'
+    Assert ($state.Creates -eq 58) 'Expected exactly fifty-eight successful creates.'
     foreach ($spec in @(
         @('asx_ReadPublishedRule', 'RuleId', 10), @('asx_ReadPublishedRule', 'Definition', 10),
         @('asx_RestoreRuleDraft', 'RuleId', 10),
@@ -237,7 +237,7 @@ foreach ($interrupt in @($false, $true)) {
     Assert ($apis['asx_ApplyDataUpdates'].executeprivilegename -eq 'prvReadasx_rule' -and $apis['asx_ApplyDataUpdates'].bindingtype -eq 0 -and $apis['asx_ApplyDataUpdates'].isfunction -eq $false) 'Incorrect contract for asx_ApplyDataUpdates.'
     # (Api, Parameter, Type, IsOutput, IsOptional) — IsOptional is ignored for outputs.
     foreach ($spec in @(
-        @('asx_RunRules', 'IncludeOutcomes', 0, $false, $true),
+        @('asx_RunRules', 'IncludeOutcomes', 0, $false, $true), @('asx_RunRules', 'DraftRuleId', 12, $false, $true),
         @('asx_ApplyRules', 'RuleId', 12, $false, $false), @('asx_ApplyRules', 'RecordId', 12, $false, $false),
         @('asx_ApplyRules', 'IsValid', 0, $true, $false), @('asx_ApplyRules', 'Results', 10, $true, $false), @('asx_ApplyRules', 'WriteCount', 7, $true, $false),
         @('asx_ApplyRules', 'IncludeDiagnostics', 0, $false, $true), @('asx_ApplyRules', 'Diagnostics', 10, $true, $false),
@@ -279,7 +279,7 @@ foreach ($interrupt in @($false, $true)) {
     Assert ($parameters.ContainsKey($otherVersionKey)) 'Registration removed another API parameter.'
     $parameters.Remove($otherVersionKey)
     Register
-    Assert ($parameters.Count -eq 44 -and $state.Creates -eq 57) 'Completed deployment retry changed the API contract.'
+    Assert ($parameters.Count -eq 45 -and $state.Creates -eq 58) 'Completed deployment retry changed the API contract.'
     Assert ($state.GuardCreates -eq 1 -and $state.DeleteStages.Count -eq 3 -and $state.DeleteStages.ContainsKey(10) -and $state.DeleteStages.ContainsKey(20) -and $state.DeleteStages.ContainsKey(40)) 'Expected capture in PreValidation and transactional cleanup in PreOperation/PostOperation.'
     Assert (!$state.RevisionGuard) 'Revision-table plugin vetoes must be removed.'
     Assert ($apis['asx_OpenRuleDraft'].executeprivilegename -eq 'prvWriteasx_rule') 'Opening a draft requires the platform Write privilege.'

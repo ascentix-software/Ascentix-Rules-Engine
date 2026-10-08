@@ -90,7 +90,7 @@ test("rule → data model: 'Edit data model' and the hub's 'uses' link both open
     // The data-model chip opens the model's tree; its footer links to the editor.
     await frame.getByRole("button", { name: /^Data model:/ }).click();
     await frame.getByRole("button", { name: "Edit data model", exact: true }).click();
-    await expect(frame.getByRole("button", { name: "Rename configuration" })).toBeVisible({ timeout: 30_000 });
+    await expect(frame.getByRole("button", { name: "Rename data model" })).toBeVisible({ timeout: 30_000 });
 
     // (b) From the hub row's "uses <config>" link, which must NOT also open the rule.
     const hub = await openHub(page, appId);
@@ -98,7 +98,7 @@ test("rule → data model: 'Edit data model' and the hub's 'uses' link both open
     const row = hubRow(hub, rule.ruleName);
     await expect(row).toBeVisible();
     await row.getByRole("button", { name: /^ZZ_RB_dmnav_x/ }).click();
-    await expect(hub.getByRole("button", { name: "Rename configuration" })).toBeVisible({ timeout: 30_000 });
+    await expect(hub.getByRole("button", { name: "Rename data model" })).toBeVisible({ timeout: 30_000 });
     await expect(hub.getByRole("button", { name: "Rename rule" })).toHaveCount(0);
   } finally {
     await rule.cleanup();
@@ -114,8 +114,8 @@ test("duplicating a configuration from the hub copies its whole node tree", asyn
   let copyId: string | null = null;
   try {
     const frame = await openHub(page, appId);
-    await frame.getByRole("tab", { name: /Table configurations/ }).click();
-    await frame.getByPlaceholder("Search configurations").fill(`ZZ_RB_${tag}`);
+    await frame.getByRole("tab", { name: /Data models/ }).click();
+    await frame.getByPlaceholder("Search data models").fill(`ZZ_RB_${tag}`);
 
     const row = hubRow(frame, `ZZ_RB_${tag}`);
     await expect(row).toBeVisible();
@@ -123,7 +123,7 @@ test("duplicating a configuration from the hub copies its whole node tree", asyn
     await row.getByRole("button", { name: "Duplicate", exact: true }).click();
 
     // duplicateConfig navigates straight into the copy.
-    await expect(frame.getByRole("button", { name: "Rename configuration" })).toBeVisible({ timeout: 30_000 });
+    await expect(frame.getByRole("button", { name: "Rename data model" })).toBeVisible({ timeout: 30_000 });
 
     copyId = await findIdByName(ENTITY_SET.tableConfig, "asx_name", "asx_tableconfigid", copyName);
     expect(copyId, `expected a configuration named "${copyName}"`).toBeTruthy();

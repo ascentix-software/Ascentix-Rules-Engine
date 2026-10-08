@@ -88,7 +88,7 @@ describe("RunDialog + nested record pickers (real product defect)", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Run Credit check" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Run preview" }));
-    await waitFor(() => expect(dryRun).toHaveBeenCalledWith("account", "g0", "OnUpdate"));
+    await waitFor(() => expect(dryRun).toHaveBeenCalledWith("account", "g0", "OnUpdate", undefined));
     expect(await within(dialog).findByText("Nothing would happen")).toBeInTheDocument();
   });
 });
