@@ -178,6 +178,18 @@ describe("RuleEditorApp Run menu (Apply / View runs / Preview), with a draft ope
     expect(screen.queryByRole("menuitem", { name: /Apply to records/ })).toBeNull();
   });
 
+  // asx_RunRules runs published rules only: an unpublished rule's last revision would preview as
+  // "Nothing would happen", so Preview offers only its draft (what would run once published).
+  it("previews only the draft of an unpublished rule, with no Live option", async () => {
+    const draft = draftGraph();
+    draft.rule.statusCode = 1;
+    const dryRun = vi.fn(async () => ({ isValid: true, changeSet: null, outcomes: [], actions: [] }));
+    renderApp({ dryRun }, draft);
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    const dialog = await screen.findByRole("dialog", { name: "Run Credit limit guard" });
+    expect(within(dialog).queryByRole("radiogroup", { name: "Version" })).toBeNull();
+  });
+
   it("offers Preview and View runs, but not Apply, on a Draft-status draft of a rule with a published revision", async () => {
     const draft = draftGraph();
     draft.rule.statusCode = 1;

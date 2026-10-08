@@ -857,9 +857,11 @@ export function RuleEditorApp({
               rule={{
                 id: working.rule.activeRuleId ?? working.rule.id, name: working.rule.name,
                 table: working.rule.tableLogicalName,
-                live: everPublished ? liveGraph ?? (working.rule.activeRuleId ? working : null) : null,
-                // A draft of a live rule, or a rule never published: Preview can run its saved rows.
-                draft: working.rule.activeRuleId || !everPublished ? working : null,
+                // Live only while the rule is published: asx_RunRules runs published rules only, so an
+                // unpublished rule's last revision would preview as "Nothing would happen".
+                live: published ? liveGraph ?? (working.rule.activeRuleId ? working : null) : null,
+                // A draft of a live rule, or a rule that isn't live: Preview runs its saved rows.
+                draft: working.rule.activeRuleId || !published ? working : null,
                 draftUnsaved: dirtyCount > 0,
                 liveVersion: version, canApply: canApply(published, runNowTriggers),
               }}
