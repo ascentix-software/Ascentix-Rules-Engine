@@ -14,7 +14,8 @@ namespace Ascentix.RulesEngine.Plugin
     /// demand and reports results (IsValid / FailedRuleCount / Results JSON), the change-set
     /// summary (ChangeSet) and, when IncludeOutcomes is true, each outcome's value (Outcomes
     /// JSON). Always non-enforcing: a fired Block is reported, never thrown. Throws only on
-    /// argument/usage errors.
+    /// argument/usage errors. An optional DraftRuleId previews a draft: its authored rows run in
+    /// place of the live revision it is a draft of. The caller must be able to read the draft.
     /// </summary>
     public class RunRulesApi : PluginBase
     {
@@ -38,6 +39,7 @@ namespace Ascentix.RulesEngine.Plugin
             var triggersRaw = GetString(context, "Triggers");
 
             var trigger = TriggerNames.Parse(triggersRaw, "asx_RunRules", RuleTrigger.OnDemand);
+            var selection = DraftSelection(context, userService);
             var (input, mode) = BuildInput(tableName, recordIdRaw, recordJson);
 
             var languageId = LanguageResolver.Resolve(systemService, context.InitiatingUserId);
@@ -49,7 +51,7 @@ namespace Ascentix.RulesEngine.Plugin
 
             var outcome = new RulesEngineRunner().Run(
                 systemService, userService, tableName, new List<RootInput> { input },
-                trigger, channel, languageId, mode, trace);
+                trigger, channel, languageId, mode, trace, selection);
 
             context.OutputParameters["IsValid"] = outcome.IsValid;
             context.OutputParameters["FailedRuleCount"] = outcome.FailedRuleCount;
@@ -69,6 +71,18 @@ namespace Ascentix.RulesEngine.Plugin
 
         private static string GetString(IPluginExecutionContext context, string name)
             => context.InputParameters.TryGetValue(name, out var v) ? v as string : null;
+
+        // A draft is read with the system service like every rule; this read as the caller
+        // throws if they can't see the draft, so a preview never reveals a draft they can't open.
+        private static RuleSelection DraftSelection(IPluginExecutionContext context, IOrganizationService userService)
+        {
+            if (!context.InputParameters.TryGetValue("DraftRuleId", out var raw) || raw == null) return null;
+            var id = raw is Guid g ? g : Guid.TryParse(raw as string, out var parsed) ? parsed : Guid.Empty;
+            if (id == Guid.Empty)
+                throw new InvalidPluginExecutionException($"asx_RunRules: DraftRuleId '{raw}' is not a valid GUID.");
+            userService.Retrieve("asx_rule", id, new Microsoft.Xrm.Sdk.Query.ColumnSet("asx_ruleid"));
+            return new RuleSelection { DraftRuleId = id };
+        }
 
         private static bool GetBool(IPluginExecutionContext context, string name)
             => context.InputParameters.TryGetValue(name, out var v) && v is bool b && b;

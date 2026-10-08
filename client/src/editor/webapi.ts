@@ -64,8 +64,9 @@ export interface WebApiPort {
   restoreRuleDraft?(ruleId: string): Promise<void>;
   /** PATCH the rule's statuscode back to Draft (1), the inverse of publishRule. */
   unpublishRule(ruleId: string): Promise<void>;
-  /** Call asx_RunRules (report-only) for one record and return its fired actions, change set and outcome values. */
-  dryRun?(table: string, recordId: string, triggers: string): Promise<DryRunResult>;
+  /** Call asx_RunRules (report-only) for one record and return its fired actions, change set and outcome values.
+   *  With draftRuleId, that draft's saved rows run in place of the live rule it is a draft of. */
+  dryRun?(table: string, recordId: string, triggers: string, draftRuleId?: string): Promise<DryRunResult>;
   /** asx_ApplyDataUpdates: "Status" for anyone with rule read; "Apply" for administrators (docs/Schema.md §10). */
   applyDataUpdates?(mode: "Status" | "Apply", options?: { retry?: number; failed?: { item: string; message: string } }): Promise<DataUpdateStatus>;
 }
@@ -150,9 +151,12 @@ export function createWebApiPort(): EditorApi {
       });
       return parseDataUpdateStatus(raw);
     },
-    async dryRun(table, recordId, triggers) {
+    async dryRun(table, recordId, triggers, draftRuleId) {
       // IncludeOutcomes: the Test run lists each outcome's value; other callers leave it off and get "[]".
-      return parseDryRun(await revisionRequest(base, "asx_RunRules", { TableName: table, RecordId: recordId, Triggers: triggers, IncludeOutcomes: true }));
+      return parseDryRun(await revisionRequest(base, "asx_RunRules", {
+        TableName: table, RecordId: recordId, Triggers: triggers, IncludeOutcomes: true,
+        ...(draftRuleId ? { DraftRuleId: draftRuleId } : {}),
+      }));
     },
     getClientUrl: () => base,
     async fetchJson(path) {

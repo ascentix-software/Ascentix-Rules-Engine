@@ -189,13 +189,15 @@ describe("RuleEditorApp Run menu (Apply / View runs / Preview), with a draft ope
   });
 
   // Preview runs the live version (asx_RunRules can't evaluate a draft), so there's nothing to run yet.
-  it("offers no Run actions for a rule that was never published", () => {
+  // asx_RunRules previews the saved draft, so a rule never published can still be previewed.
+  it("offers a plain Preview for a rule that was never published", async () => {
     const draft = draftGraph();
     draft.rule.statusCode = 1; draft.rule.publishedRevisionId = null; draft.rule.activeRuleId = undefined;
     renderApp({ dryRun: vi.fn() }, draft);
-    expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
     expect(screen.queryByRole("button", { name: "More run options" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    const dialog = await screen.findByRole("dialog", { name: "Run Credit limit guard" });
+    expect(within(dialog).queryByRole("tab", { name: "Apply to records" })).toBeNull();
   });
 
   it("the Run button opens the Run dialog on its Preview tab", async () => {

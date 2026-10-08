@@ -106,7 +106,7 @@ describe("RunDialog · Preview", () => {
   it("runs the chosen record as if updated and gives a verdict, outcomes and per-action results", async () => {
     const dryRun = vi.fn(async () => result);
     const { region } = await preview(dryRun);
-    expect(dryRun).toHaveBeenCalledWith("account", "g1", "OnUpdate");
+    expect(dryRun).toHaveBeenCalledWith("account", "g1", "OnUpdate", undefined);
     expect(within(region).getByText("Save would go through")).toBeInTheDocument();
     expect(within(region).getByText(/Change set: 0 creates, 9 updates/)).toBeInTheDocument();
     // Only this rule's outcomes, each with an icon and the word true or false.
@@ -166,7 +166,7 @@ describe("RunDialog · Preview of form actions", () => {
       fired({ message: "Check the deal", targetColumn: null, severity: "Information" }),
     ] }) as DryRunResult);
     const { region } = await preview(dryRun, formRule([2]));
-    expect(dryRun).toHaveBeenCalledWith("account", "g1", "OnForm");
+    expect(dryRun).toHaveBeenCalledWith("account", "g1", "OnForm", undefined);
     expect(within(region).getByText("Save would be held")).toBeInTheDocument();
     expect(within(region).getByText(/1 field message holds the save until it clears\. Shows 2 messages on the form\./)).toBeInTheDocument();
     expect(within(region).getByText("“Low probability” · on closeprobability · warning")).toBeInTheDocument();
@@ -189,6 +189,42 @@ describe("RunDialog · Preview of form actions", () => {
     const { region } = await preview(dryRun, formRule([4, 2]));
     expect(within(region).getByText("Nothing would happen")).toBeInTheDocument();
     expect(within(within(region).getByRole("list", { name: "Actions" })).getAllByRole("listitem")[0]).toHaveTextContent("Form only");
+  });
+});
+
+describe("RunDialog · Preview of a draft", () => {
+  const draftRule = (unsaved = false) => {
+    const live = rule().live!;
+    const draft = makeGraph({ actions: [update, block] });
+    draft.rule.id = "d1";
+    draft.rule.triggers = [4, 3];
+    return rule({ live, draft, draftUnsaved: unsaved });
+  };
+
+  it("previews the draft by default, sending its id; Live runs the live version", async () => {
+    const dryRun = vi.fn(async () => ({ ...result, actions: [{ ...result.actions[0], ruleId: "d1" }] }) as DryRunResult);
+    const { dialog, region } = await preview(dryRun, draftRule());
+    expect(dryRun).toHaveBeenLastCalledWith("account", "g1", "OnUpdate", "d1");
+    // The draft's results come back under its own id and still count as this rule's.
+    expect(within(region).getByText("Save would go through")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Live v3" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Run preview" }));
+    await waitFor(() => expect(dryRun).toHaveBeenLastCalledWith("account", "g1", "OnUpdate", undefined));
+  });
+
+  it("says unsaved edits aren't included", async () => {
+    await preview(vi.fn(async () => result), draftRule(true));
+    expect(screen.getByText("Previews the saved draft. Save to include your latest edits.")).toBeInTheDocument();
+  });
+
+  it("previews a rule that was never published through its draft, without a Version switch", async () => {
+    const draft = makeGraph({ actions: [update] });
+    draft.rule.id = "r1";
+    draft.rule.triggers = [4];
+    const dryRun = vi.fn(async () => result);
+    await preview(dryRun, rule({ live: null, draft, canApply: false }));
+    expect(dryRun).toHaveBeenLastCalledWith("account", "g1", "OnUpdate", "r1");
+    expect(screen.queryByRole("radiogroup", { name: "Version" })).toBeNull();
   });
 });
 

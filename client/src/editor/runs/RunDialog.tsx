@@ -45,12 +45,13 @@ export interface RunDialogRule {
   liveVersion: number;
   /** The live triggers include On demand and the rule is live. */
   canApply: boolean;
+  /** The draft has edits that aren't saved yet: previewing it runs the saved version. */
+  draftUnsaved?: boolean;
 }
 
 type RunApi = WebApiPort & Pick<BatchApi, "getClientUrl"> & {
-  dryRun?(table: string, recordId: string, triggers: string): Promise<DryRunResult>;
-  /** Set when asx_RunRules can evaluate a draft revision; until then Preview runs the live version. */
-  dryRunDraft?(table: string, recordId: string, triggers: string): Promise<DryRunResult>;
+  /** With draftRuleId, asx_RunRules runs that draft's saved rows in place of the live rule. */
+  dryRun?(table: string, recordId: string, triggers: string, draftRuleId?: string): Promise<DryRunResult>;
 };
 
 function currentUserName(): string | null {
@@ -119,11 +120,13 @@ function firedDetail(f: DryRunAction, field: (logical: string) => string): strin
 }
 
 function PreviewResults({ result, trigger, rule, graph }: { result: DryRunResult; trigger: number; rule: RunDialogRule; graph: RuleGraph }) {
+  // A draft's results come back under the draft's own id.
+  const ownIds = new Set([rule.id, graph.rule.id].map((x) => x.toLowerCase()));
   const [open, setOpen] = React.useState<Record<number, boolean>>({});
   const [showOthers, setShowOthers] = React.useState(false);
   const columns = useColumnLabels([rule.table]);
   const field = (logical: string) => columns.label(rule.table, logical) ?? logical;
-  const mineOf = (r: { ruleId: string }) => r.ruleId.toLowerCase() === rule.id.toLowerCase();
+  const mineOf = (r: { ruleId: string }) => ownIds.has(r.ruleId.toLowerCase());
   const mine = result.actions.filter(mineOf);
   const others = result.actions.filter((a) => !mineOf(a));
   const otherRules = new Set(others.map((a) => a.ruleId.toLowerCase())).size;
@@ -288,10 +291,10 @@ function usePreviewTab({ rule, api, version, setVersion, draftAvailable }: {
   React.useEffect(() => { if (!triggers.includes(trigger)) setTrigger(triggers[0]); }, [triggers.join(",")]);
   const run = async () => {
     if (!record) return;
-    const call = version === "draft" ? api.dryRunDraft : api.dryRun;
-    if (!call) return;
+    if (!api.dryRun) return;
+    const draftId = version === "draft" ? rule.draft?.rule.id : undefined;
     setRunning(true); setError(null);
-    try { setResult({ result: await call(rule.table, record.id, triggerName(trigger)), trigger }); }
+    try { setResult({ result: await api.dryRun(rule.table, record.id, triggerName(trigger), draftId), trigger }); }
     catch (e) { setError(formatError(e)); }
     finally { setRunning(false); }
   };
@@ -317,6 +320,9 @@ function usePreviewTab({ rule, api, version, setVersion, draftAvailable }: {
             </Field>
           )}
         </div>
+        {version === "draft" && rule.draftUnsaved && (
+          <span style={{ fontSize: 12.5, color: color.inkMuted }}>Previews the saved draft. Save to include your latest edits.</span>
+        )}
         {error && <Callout intent="danger">{error}</Callout>}
         {/* Mounted from the start, so the first result is announced as it arrives. */}
         <div aria-live="polite" data-testid="test-results" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -446,14 +452,15 @@ export function RunDialog({ open, api, rule, initialTab = "preview", onClose, on
   open: boolean; api: RunApi; rule: RunDialogRule; initialTab?: "preview" | "apply";
   onClose(): void; onViewRuns(): void; onChangeRuleSettings?(): void;
 }) {
-  const draftAvailable = !!api.dryRunDraft && !!rule.draft;
+  const draftAvailable = !!api.dryRun && !!rule.draft;
   const [tab, setTab] = React.useState<"preview" | "apply">(initialTab);
   const [version, setVersion] = React.useState<"live" | "draft">(rule.live ? "live" : "draft");
   const [runId, setRunId] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!open) return;
     setTab(initialTab === "apply" && rule.canApply ? "apply" : "preview");
-    setVersion(rule.live && !(draftAvailable && rule.draft && JSON.stringify(rule.draft.actions) !== JSON.stringify(rule.live.actions)) ? "live" : (draftAvailable ? "draft" : "live"));
+    // Editing a draft: preview it by default; the live version is one click away.
+    setVersion(draftAvailable || !rule.live ? "draft" : "live");
     setRunId(null);
   }, [open, rule.id]);
   if (!open) return null;

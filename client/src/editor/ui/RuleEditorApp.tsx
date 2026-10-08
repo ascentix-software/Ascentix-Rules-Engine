@@ -690,9 +690,8 @@ export function RuleEditorApp({
     : null;
   // Save shows in draft states, and on a live rule without a draft only to send schedule edits.
   const showSave = !updateLocked && !publishedView && (draftState || (needsDraft && scheduleOps.length > 0));
-  // Preview runs the live version (asx_RunRules can't evaluate a draft yet), so a rule that was
-  // never published has nothing to run.
-  const run = !publishedView && everPublished ? (
+  // A rule that was never published can still be previewed: asx_RunRules runs its saved draft.
+  const run = !publishedView && (everPublished || api.dryRun) ? (
     <RunMenuButton everPublished={everPublished} version={version}
       applyAvailable={canApply(published, runNowTriggers)}
       disabled={busy || loadingRunNow}
@@ -837,8 +836,10 @@ export function RuleEditorApp({
               rule={{
                 id: working.rule.activeRuleId ?? working.rule.id, name: working.rule.name,
                 table: working.rule.tableLogicalName,
-                live: liveGraph ?? (working.rule.activeRuleId ? working : null),
-                draft: working.rule.activeRuleId ? working : null,
+                live: everPublished ? liveGraph ?? (working.rule.activeRuleId ? working : null) : null,
+                // A draft of a live rule, or a rule never published: Preview can run its saved rows.
+                draft: working.rule.activeRuleId || !everPublished ? working : null,
+                draftUnsaved: dirtyCount > 0,
                 liveVersion: version, canApply: canApply(published, runNowTriggers),
               }}
               onClose={() => setRunTab(null)}
