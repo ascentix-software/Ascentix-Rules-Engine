@@ -29,6 +29,10 @@ jobs:
         shell: pwsh
         run: ./tests/pipelines/Test-RuleAuthoringRegistration.ps1
 
+      - name: Test the L2 wait for CI deploys
+        shell: pwsh
+        run: ./tests/pipelines/Test-WaitDevDeploys.ps1
+
       - name: Test the multi-outcome migration script
         shell: pwsh
         run: ./migrations/2026-10-multi-outcome/Test-ConvertRulesToOutcomes.ps1
