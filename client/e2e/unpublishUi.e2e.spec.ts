@@ -4,7 +4,7 @@ import { ENTITY_SET } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { ensureTableConfig, authorRule } from "../test-dev/ruleBehavior/authoring";
 import { resolveAppId, createThrowawayRule } from "./devHelpers";
-import { openRuleFromHub, toolbar, toast, publishRule, headerMenu } from "./editorHarness";
+import { openRuleFromHub, toolbar, toast, publishRule, headerMenu, saveRule } from "./editorHarness";
 import { loadPublishedGraph } from "../src/editor/load/publishedGraph";
 
 // The emergency brake, inside the Rule Builder: the Unpublish command on the editor toolbar.
@@ -54,8 +54,7 @@ test("Edit rule opens a working draft and publishes it without stopping the acti
     const revisedName = fixture.ruleName + " revised";
     await frame.getByLabel("Rule name", { exact: true }).fill(revisedName);
     await frame.getByLabel("Rule name", { exact: true }).press("Enter");
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
     expect((await header()).statuscode).toBe(PUBLISHED);
     expect((await published()).rule.name).toBe(fixture.ruleName);
     await publishRule(frame);

@@ -3,9 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createRuleFixture } from "./devHelpers";
-import {
-  openRuleFromHub, toolbar, pickFromCombobox, toast, unsavedCount, pickValueSource, valueSourceTab,
-} from "./editorHarness";
+import { openRuleFromHub, pickFromCombobox, unsavedCount, pickValueSource, valueSourceTab, saveRule } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The rich value sources (FieldReference, Text template and Date calculation; the condition
@@ -68,8 +66,7 @@ test("FieldReference value source: right-hand column persists and the literal Va
     await pickColumn(frame, "Other column", "credit", /· creditlimit$/);
 
     await expect(unsavedCount(frame)).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const c = await conditionOf(fixture.ruleId);
     expect(c.asx_comparisonvaluesource).toBe(2); // FieldReference
@@ -109,8 +106,7 @@ test("Text template value source: offered only for a text column, and Insert fie
 
     await expect(template).toHaveValue("ACME {root.accountnumber}");
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const c = await conditionOf(fixture.ruleId);
     expect(c.asx_comparisonvaluesource).toBe(3); // Template
@@ -149,8 +145,7 @@ test("Date calculation value source: builds the DateExprSpec JSON envelope Core 
     await unit.click();
     await frame.getByRole("option", { name: "Days" }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const c = await conditionOf(fixture.ruleId);
     expect(c.asx_comparisonvaluesource).toBe(4); // DateExpression

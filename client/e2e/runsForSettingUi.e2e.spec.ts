@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createZzRootConfig, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, toolbar, headerMenu, toast, addTrigger, removeTrigger } from "./editorHarness";
+import { openRuleFromHub, headerMenu, addTrigger, removeTrigger, saveRule } from "./editorHarness";
 
 // The "Runs for" field (RuleInspector.tsx): hidden unless the On demand trigger is ticked,
 // defaults to "A record it's given", and — per model/enums.ts's ON_DEMAND_SCOPE comment and
@@ -35,8 +35,7 @@ test("Runs for: hidden without On demand, defaults to 'A record it's given', and
     await all.check();
     await expect(all).toBeChecked();
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     await headerMenu(frame, /Reload from server/);
     await expect(all).toBeChecked();
@@ -46,8 +45,7 @@ test("Runs for: hidden without On demand, defaults to 'A record it's given', and
 
     await expect(runsFor).toHaveCount(0);
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const r = await api.retrieveMultipleRecords(
       ENTITY_SET.rule, `?$filter=asx_ruleid eq ${rule.ruleId}&$select=asx_ondemandscope`,

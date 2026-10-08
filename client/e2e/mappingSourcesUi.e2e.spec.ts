@@ -6,7 +6,7 @@ import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { configsVisible } from "../test-dev/ruleBehavior/settle";
 import { resolveAppId, createOrderConfigTree, deleteRuleCascade } from "./devHelpers";
-import { openRuleFromHub, toolbar, checkNoIssues, toast } from "./editorHarness";
+import { openRuleFromHub, checkNoIssues, saveRule } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // Three halves of FieldMappingDialog that a fixture DOM cannot reach: the `ref` source, the `node`
@@ -190,8 +190,7 @@ test("the ref source links the created row to a config node and persists { sourc
     await expect(mapDialog(frame).getByText("Ready to apply")).toBeVisible();
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const action = await actionOf(rule.ruleId);
     expect(action.asx_actiontype).toBe(5); // CreateRecord
@@ -265,8 +264,7 @@ test("the node source copies a related record's column and persists { source: no
     await expect(mapDialog(frame).getByText("Ready to apply")).toBeVisible();
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const mapping = JSON.parse(String((await actionOf(rule.ruleId)).asx_fieldmapping)) as MappingEntry[];
     expect(mapping.length).toBe(1);
@@ -347,8 +345,7 @@ test("an incomplete mapping row blocks Apply with an inline error, and completin
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
     await expect(mapDialog(frame), "with every row complete Apply must close the dialog").toBeHidden();
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     // BOTH rows persisted, in list order. This is the half that proves the refusal cost nothing:
     // the valid row typed before the block is still there, unmodified.

@@ -4,7 +4,7 @@ import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { ensureTableConfig, authorRule } from "../test-dev/ruleBehavior/authoring";
 import { resolveAppId } from "./devHelpers";
-import { openRuleFromHub, toast, headerMenu } from "./editorHarness";
+import { openRuleFromHub, headerMenu, saveRule } from "./editorHarness";
 
 // A lookup-valued condition ("Customer equals THIS record") through the
 // real LookupPicker → RecordPickerDialog against live data: quick-find search, GUID
@@ -51,8 +51,7 @@ test("lookup condition via the record picker persists the GUID and re-resolves t
     await picker.getByRole("radio", { name: `Select ${customerName}` }).check({ timeout: 30_000 });
     await picker.getByRole("button", { name: "Select", exact: true }).click();
 
-    await frame.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     // Persisted: the condition's literal comparison value carries the record's GUID.
     const conds = await api.retrieveMultipleRecords(

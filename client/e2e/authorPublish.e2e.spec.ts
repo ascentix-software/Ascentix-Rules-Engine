@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { resolveAppId, hubDeepLink, createThrowawayRule } from "./devHelpers";
-import { armReauthGuard, toolbar, checkNoIssues, toast, unsavedCount, publishRule, headerMenu } from "./editorHarness";
+import { armReauthGuard, toolbar, checkNoIssues, unsavedCount, publishRule, headerMenu, saveRule } from "./editorHarness";
 import { createDevApi } from "../test-dev/devApi";
 import { loadPublishedGraph } from "../src/editor/load/publishedGraph";
 
@@ -32,8 +32,7 @@ test("author → publish → edit live draft → republish preserves the active 
     await expect(unsavedCount(frame)).toBeVisible();
 
     // SAVE (real $batch to DEV).
-    await frame.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     // CHECK (⋯ › Check for issues: the same server check Publish… runs).
     await checkNoIssues(frame);
@@ -56,8 +55,7 @@ test("author → publish → edit live draft → republish preserves the active 
     await frame.getByRole("button", { name: "Rename rule" }).click();
     await nameBox.fill(secondName);
     await nameBox.press("Enter");
-    await frame.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
     await expect(frame.getByTestId("lifecycle-status").getByText("Editing draft", { exact: true })).toBeVisible();
     expect((await published()).rule.name).toBe(firstName);
     const firstHeader = await api.retrieveRecord("asx_rules", ruleId, "?$select=statuscode,asx_publishedversion");

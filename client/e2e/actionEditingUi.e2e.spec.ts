@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createRuleFixture, deleteRuleCascade, readFiresWhen, outcomesOf } from "./devHelpers";
-import { openRuleFromHub, toolbar, toast, unsavedCount, whenSection } from "./editorHarness";
+import { openRuleFromHub, unsavedCount, whenSection, saveRule } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The THEN band's own row controls, driven in a real browser: Move up / Move down (which rewrite
@@ -66,8 +66,7 @@ test("action row controls: severity, When, Active off, reorder and delete all pe
     // Active is a Switch; unchecking it must survive the round-trip as asx_isactive = false.
     await frame.getByRole("switch", { name: "Active" }).uncheck();
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     let rows = await actionsOf(fixture.ruleId);
     expect(rows.length).toBe(2);
@@ -102,8 +101,7 @@ test("action row controls: severity, When, Active off, reorder and delete all pe
     await secondRow.hover();
     await secondRow.getByRole("button", { name: "Move up" }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     rows = await actionsOf(fixture.ruleId);
     expect(rows.map((r) => String(r.asx_name))).toEqual([secondName, firstName]);
@@ -116,8 +114,7 @@ test("action row controls: severity, When, Active off, reorder and delete all pe
     await topRow.hover();
     await topRow.getByRole("button", { name: "Delete action" }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     rows = await actionsOf(fixture.ruleId);
     expect(rows.length).toBe(1);
@@ -146,8 +143,7 @@ test("localized message authored in the UI persists as an asx_localizedmessage c
     await frame.getByRole("textbox", { name: "French message", exact: true }).fill("ZZ_RB message en français");
 
     await expect(unsavedCount(frame)).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const acts = await api.retrieveMultipleRecords(
       ENTITY_SET.action,
