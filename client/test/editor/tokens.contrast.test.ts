@@ -64,7 +64,7 @@ describe("token contrast (WCAG 2.1 AA)", () => {
   // if someone re-widens color to Record<string,string>, typecheck goes quiet
   // and this stays green, so `npm run typecheck` is the gate, not this test.
   it("exposes every token it declares", () => {
-    expect(Object.keys(color)).toHaveLength(25);
+    expect(Object.keys(color)).toHaveLength(30);
   });
 });
 

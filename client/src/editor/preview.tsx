@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { RuleEditorApp } from "./ui/RuleEditorApp";
 import { TableConfigApp } from "./ui/TableConfigApp";
+import { HelpApp } from "./help/HelpApp";
 import { MetadataProvider } from "./ui/useMetadata";
 import { RecordSearchProvider } from "./ui/useRecordSearch";
 import { SystemChoicesProvider } from "./ui/useSystemChoices";
@@ -180,7 +181,11 @@ const TC_USAGE = {
 };
 
 const host = document.getElementById("root");
-if (host && new URLSearchParams(location.search).get("view") === "tableconfig") {
+// ?view=help: the docs viewer. Screenshots load from /WebResources/asx_/docs/images/ on the
+// server serving this page (copy docs/guide/images there).
+if (host && new URLSearchParams(location.search).get("view") === "help") {
+  createRoot(host).render(<HelpApp getClientUrl={() => ""} />);
+} else if (host && new URLSearchParams(location.search).get("view") === "tableconfig") {
   createRoot(host).render(
     <MetadataProvider service={metaStub}>
       <TableConfigApp initialGraph={TC_GRAPH} initialUsage={TC_USAGE} api={apiStub}

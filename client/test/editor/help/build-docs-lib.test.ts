@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFrontMatter, renderBody, rewriteImages, buildBundle } from "../../../scripts/build-docs-lib.mjs";
+import { parseFrontMatter, renderBody, rewriteImages, buildBundle, screenshotCaptions, wrapFigures } from "../../../scripts/build-docs-lib.mjs";
 
 describe("build-docs-lib", () => {
   it("parses YAML front-matter and returns the body", () => {
@@ -23,6 +23,19 @@ describe("build-docs-lib", () => {
     expect(html).toContain("<table");
     expect(html).not.toContain("<script");
     expect(html).toContain("<strong>bold</strong>");
+  });
+
+  it("reads each screenshot's caption from the front matter, by file name", () => {
+    const src = `---\ntitle: X\nsection: Building Rules\norder: 201\nslug: x\nscreenshots:\n  - file: images/02-01-a.png\n    caption: The hub.\n    alt: "Alt with: a colon"\n  - file: images/02-01-b.png\n    caption: The editor.\n---\nbody`;
+    expect(screenshotCaptions(src)).toEqual({ "02-01-a.png": "The hub.", "02-01-b.png": "The editor." });
+  });
+
+  it("wraps a standalone screenshot in a figure with its caption, as the website does", () => {
+    const html = renderBody("Text.\n\n![Alt](../images/02-01-a.png)\n\nMore.");
+    const out = wrapFigures(html, { "02-01-a.png": "The <hub>." });
+    expect(out).toContain(`<figure class="doc-figure"><img src="../images/02-01-a.png" alt="Alt"><figcaption>The &lt;hub&gt;.</figcaption></figure>`);
+    expect(out).not.toMatch(/<p>\s*<img/);
+    expect(wrapFigures(html, {})).toContain(`<figure class="doc-figure"><img src="../images/02-01-a.png" alt="Alt"></figure>`);
   });
 
   it("rewrites ../images refs to the docs web-resource path", () => {

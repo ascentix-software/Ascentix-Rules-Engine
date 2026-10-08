@@ -40,6 +40,12 @@ export const color = {
   warnTint: "#fdf6e3",
   danger: "#c8372d",
   dangerTint: "#fdeeef",
+  // in-app documentation, matching the product website's docs pages
+  docsHero: "#0e0f22",      // header band (website --pp-dark-1)
+  docsHeroEnd: "#161843",   // header band gradient end (website --pp-dark-2)
+  docsHeroInk: "#c9cbe8",   // secondary text on the header band (11.88:1)
+  codeBg: "#0a0b1c",        // code blocks (website --pp-code-bg)
+  codeInk: "#c7cbf5",       // code block text (12.33:1 on codeBg)
 } as const satisfies Record<string, string>;
 
 /**
@@ -73,6 +79,8 @@ export const roles = {
     danger: "dangerTint",
     warnInk: "warnTint",
     brandOnInk: "ink",
+    docsHeroInk: "docsHero",
+    codeInk: "codeBg",
   },
   /** Fills that convey state (buttons, accents, dots). WCAG 1.4.11, >= 3:1 on surface. */
   uiFill: ["brand", "warn", "execution", "validation", "action", "success", "danger"],
@@ -83,7 +91,7 @@ export const roles = {
   decorative: [
     "brandTint", "brandLine", "canvas", "surface", "fill", "line",
     "executionTint", "validationTint", "actionTint", "successTint",
-    "warnTint", "dangerTint",
+    "warnTint", "dangerTint", "docsHero", "docsHeroEnd", "codeBg",
   ],
   /** Exempt from 1.4.3: disabled controls and rest-state icons only. */
   disabled: ["inkDisabled"],
