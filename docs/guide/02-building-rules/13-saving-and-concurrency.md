@@ -63,9 +63,20 @@ replacing both saved and unsaved draft changes. It
 creates a private copy of the published data model so other rules' shared models
 are unaffected. You must publish again to change enforcement.
 
+**Discard draft…** (in the same **Published vN** group of the **More actions** menu) throws the
+draft away instead. A **Discard this draft?** confirmation reads *This deletes the draft,
+including saved and unsaved edits. vN stays live and unchanged.* Confirming with **Discard
+draft** deletes the draft (through `asx_DeleteRule` on the draft) and reopens the live rule,
+read-only, with **Edit rule** to start a new draft.
+
 API callers open the working draft before editing its records. Direct changes to published configuration are rejected. Shared-model
 changes affect a published rule only after that rule is republished. **Unpublish…**
 remains an explicit way to stop enforcement; it is not required for editing.
+
+To republish a rule that isn't live (the status pill reads **Not live · vN**) and has no draft
+open, the header shows **Publish…** as the main button with **Edit rule** beside it.
+**Publish…** opens the draft and goes straight to the usual save, check and confirm (see
+*Validating & Publishing*); choose **Edit rule** instead to change the rule first.
 
 ## No autosave
 

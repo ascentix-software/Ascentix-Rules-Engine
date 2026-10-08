@@ -5,11 +5,14 @@ order: 212
 slug: validating-and-publishing
 screenshots:
   - file: images/02-12-validating-and-publishing-01.png
-    caption: Check for issues lists every issue, and errors block publishing. Here two columns don't exist.
-    alt: Rule editor showing "Validation found 2 issues" and a Validation Issues panel with two META_COLUMN_NOT_FOUND errors (a condition's ComparisonColumn and an action's TargetColumn), an inline error on the condition row, and a disabled Publish button.
+    caption: Check for issues lists every issue, and errors block publishing. Here a condition's column doesn't exist.
+    alt: "The Issues drawer for “Draft: order contact tier check (needs work)”: Must fix to publish · 1, “Gold tier › sample_tier: Column 'sample_tier' does not exist on 'sample_customer'” (META_COLUMN_NOT_FOUND); the condition row carries an error icon."
   - file: images/02-12-validating-and-publishing-02.png
-    caption: When a rule is valid, the check finds no issues and Publish… can go ahead.
-    alt: Rule editor showing a green "Validation passed. The rule is valid" banner and an enabled blue Publish button on a Draft rule.
+    caption: When a rule is valid, Publish… checks it, finds no errors, and asks you to confirm.
+    alt: "The Publish v1? dialog: “Order total within credit limit will start running for new evaluations.”, No errors, a note that it includes this rule's copy of the shared data model, and Cancel and Publish v1."
+  - file: images/02-12-validating-and-publishing-03.png
+    caption: Preview on a record runs the rule against a real record without saving anything, and says what would happen.
+    alt: "The Run dialog's Preview on a record tab for “Order contact email must be valid”: a record with an invalid email, As if On form, the verdict “Save would be held: 1 field message holds the save until it clears. Shows 1 message on the form.”, the Valid email outcome as false, and Show message Fired with “Enter a valid email address.” on Contact Email."
 ---
 
 # Validating & Publishing
@@ -64,9 +67,18 @@ The editor also flags incomplete items as you build, worded as the next
 step to take, for example *Choose a column to compare.* or *Enter a value to
 compare against.*
 
-Below, a condition's **Column** and an action's **Target
-column** both reference columns that no longer exist, raising two
-`META_COLUMN_NOT_FOUND` errors.
+It also warns, under **Warnings**, about an active action whose type does
+nothing under the rule's triggers (`HINT_ACTION_NEVER_RUNS`; see *Building
+Actions*). A message or field change on a rule without **On form** or **On
+demand** reads *This action only works on the form. Add On form to the
+triggers, or choose another type.* A write action on a rule without a save
+trigger or **On demand** reads *This action only runs when a record is saved
+or run on demand. Add On create, On update, On delete or On demand to the
+triggers, or choose another type.* Like any warning, it doesn't block
+publishing.
+
+Below, a condition's **Column** references a column that doesn't exist on its
+table, raising a `META_COLUMN_NOT_FOUND` error.
 
 ## Outcome and Fires when checks
 
@@ -107,7 +119,7 @@ A set action's **row-source columns** (the columns a `row` mapping or a `{row.�
 checked only for existence and readability, the same as any other read; type compatibility with
 the target is the editor's own picker and the resolver's concern, not validation's.
 
-![Rule editor showing "Validation found 2 issues" and a Validation Issues panel with two META_COLUMN_NOT_FOUND errors (a condition's ComparisonColumn and an action's TargetColumn), an inline error on the condition row, and a disabled Publish button.](../images/02-12-validating-and-publishing-01.png)
+![The Issues drawer for “Draft: order contact tier check (needs work)”: Must fix to publish · 1, “Gold tier › sample_tier: Column 'sample_tier' does not exist on 'sample_customer'” (META_COLUMN_NOT_FOUND); the condition row carries an error icon.](../images/02-12-validating-and-publishing-01.png)
 
 Once every issue is resolved, **Check for issues** shows **No issues found**
 and **Publish…** can go ahead.
@@ -124,7 +136,7 @@ and **Publish…** can go ahead.
   (with **Review**). Confirm with **Publish vN**. A *vN is live* message then
   confirms the publish, with a **View runs** link.
 
-![Rule editor showing a green "Validation passed. The rule is valid" banner and an enabled blue Publish button on a Draft rule.](../images/02-12-validating-and-publishing-02.png)
+![The Publish v1? dialog: “Order total within credit limit will start running for new evaluations.”, No errors, a note that it includes this rule's copy of the shared data model, and Cancel and Publish v1.](../images/02-12-validating-and-publishing-02.png)
 
 ## Publishing is enforced
 
@@ -135,33 +147,54 @@ doesn't run. See *Rule Lifecycle* for the full Draft/Published/Archived
 flow, and *Runtime Enforcement* for how a published rule's actions are
 actually applied.
 
-## Testing a published rule against a record
+## Testing a rule against a record
 
-Once a rule has a published revision, the header shows a **Run** button (*Running Rules On
-Demand*): whenever the rule has ever been published, whether or not it's currently Published or
-has unsaved Draft edits. Clicking **Run** (or **Preview on a record…** in its **More run
-options** menu) opens the **Run** dialog on its **Preview on a record** tab. Pick a **Record**
-(type to search, or choose **Advanced search…**) and an **As if** trigger, then click **Run
-preview**. It reports what would fire — the same report-only, nothing-is-saved evaluation as
-`asx_RunRules`, always against the **published** version of the rule, never the unsaved draft
-you're looking at. See *Custom APIs* → `asx_RunRules` for the underlying report shape, including
-the `ChangeSet` summary the preview renders for set actions.
+Once a rule has been published, the header shows a **Run** button (*Running Rules On Demand*),
+whether or not it's currently live. A rule that has never been published shows a plain
+**Preview** button instead. Clicking **Run** (or **Preview on a record…** in its **More run
+options** menu) or **Preview** opens the **Run** dialog on its **Preview on a record** tab. Pick
+a **Record** (type to search, or choose **Advanced search…**) and an **As if** trigger, then
+click **Run preview**. It reports what would fire — the same report-only, nothing-is-saved
+evaluation as `asx_RunRules`. See *Custom APIs* → `asx_RunRules` for the underlying report
+shape, including the `ChangeSet` summary the preview renders for set actions.
 
-The result opens with a verdict: **Save would go through** (with how many messages and field
-changes the form would show, or a summary of what would be written), **Save would be held**
-(**As if** **On form** only: a message on a field holds the form's save until it clears),
-**Save would be blocked**, or **Nothing would happen** (no action of this rule fired, or only
-actions that don't run on that trigger did).
-When a Block fires on the record, from this rule or another rule on the same record, the verdict is
-**Save would be blocked**, with the Block's message and "Nothing would be written.", and this
-rule's write actions show **Skipped, blocked**.
+- **As if** offers the rule's triggers (**Created**, **Updated**, **Deleted**, **On form**, **Run
+  on demand**). It starts on **On form** when the rule runs on the form, where messages and field
+  changes show, and otherwise on the rule's first trigger.
+- **Version** chooses what runs: **Live vN** (the published version) or **Draft** (the draft's
+  saved rows, run in place of the live rule). It appears while you're editing the draft of a live
+  rule, and starts on **Draft**; a live rule with no draft open previews its live version.
+  **Live vN** is offered only while the rule is published: a rule that has never been published,
+  or has been unpublished, previews its draft only, with no switch. Previewing the draft runs what is saved, so with unsaved edits the dialog says
+  *Previews the saved draft. Save to include your latest edits.*
+
+The result opens with a verdict:
+
+- **Save would be blocked**: a Block fired on the record, from this rule or another rule on the
+  same record. It shows the Block's message and "Nothing would be written.", and this rule's write
+  actions show **Skipped, blocked**.
+- **Save would be held** (**As if** **On form** only): a message on a field holds the form's save
+  until it clears, for example "1 field message holds the save until it clears."
+- **Save would go through**: with how many messages and field changes the form would show (for
+  example "Shows 2 messages on the form. Changes 1 field on the form."), or, for a save or
+  on-demand trigger, the messages returned (**Run on demand**: "Returns 2 messages.") and a
+  summary of what would be written ("Change set: …") or "Nothing would be written."
+- **Nothing would happen**, with the reason: "No action of this rule fired.", or only actions
+  that don't run on that trigger fired. When only messages or field changes fired on a save
+  trigger, it says so and what to change, for example "3 messages fired, but messages only show
+  on the form. Add On form to the rule's triggers to show them." (or, when the rule already runs
+  on the form, "Choose As if On form to see them."). When only write actions fired **As if On
+  form**, it says they run when a record is saved or run on demand, not on the form.
+
+![The Run dialog's Preview on a record tab for “Order contact email must be valid”: a record with an invalid email, As if On form, the verdict “Save would be held: 1 field message holds the save until it clears. Shows 1 message on the form.”, the Valid email outcome as false, and Show message Fired with “Enter a valid email address.” on Contact Email.](../images/02-12-validating-and-publishing-03.png)
 
 Below the verdict, **OUTCOMES** lists this rule's outcomes, each with a tick or cross icon (true
 or false). The values are those of the normal run; a rule held back by its **Only if** conditions
 reports none. Then every action of the rule is listed in rule order, marked **Fired**, **Didn't
 fire**, **Skipped, blocked**, **Form only** (a message or field change when previewing a save) or
 **Not on the form** (a write when previewing **On form**). A fired message shows its text, where it
-appears (on a field, or as a banner) and its severity; a fired field change says what it does (for
-example "Makes Budget required"); a fired write action expands to show the rows it would write. If
+appears (on a field, or as a banner) and its severity; a fired field change says what it does
+("Shows Budget", "Hides Budget", "Makes Budget required" or "Makes Budget optional"); a fired
+Block shows its message; a fired write action expands to show the rows it would write. If
 other rules fired too, a line such as "2 other rules also fired on this record." lets you show
 them.

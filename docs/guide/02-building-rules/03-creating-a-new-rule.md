@@ -6,7 +6,7 @@ slug: creating-a-new-rule
 screenshots:
   - file: images/02-03-creating-a-new-rule-01.png
     caption: The New rule dialog, where you name the rule, pick its table and data model, and choose when it runs.
-    alt: New rule modal dialog with a Name field, a Data model radio choice (New configuration for a table / Use an existing configuration), a Configuration dropdown, Triggers checkboxes (On Create, On Form, On demand, On Update, On Delete), and Cancel/Create buttons.
+    alt: "The New rule dialog: Name “Flag large expedited orders”, Table Order (sample_order), Data model cards with Orders selected (4 tables, used by 6 rules), and Runs with While editing and Update ticked."
 ---
 
 # Creating a New Rule
@@ -14,7 +14,7 @@ screenshots:
 A rule starts with the table it runs on and the data model (table
 configuration) it will run against.
 
-![New rule modal dialog with a Name field, a Data model radio choice (New configuration for a table / Use an existing configuration), a Configuration dropdown, Triggers checkboxes (On Create, On Form, On demand, On Update, On Delete), and Cancel/Create buttons.](../images/02-03-creating-a-new-rule-01.png)
+![The New rule dialog: Name “Flag large expedited orders”, Table Order (sample_order), Data model cards with Orders selected (4 tables, used by 6 rules), and Runs with While editing and Update ticked.](../images/02-03-creating-a-new-rule-01.png)
 
 ## Steps
 

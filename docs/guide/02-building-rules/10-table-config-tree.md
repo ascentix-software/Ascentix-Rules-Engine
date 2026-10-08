@@ -6,21 +6,22 @@ slug: table-config-tree
 screenshots:
   - file: images/02-10-table-config-tree-01.png
     caption: The data-model editor, a traversal tree from a root table out to related lookup and child tables.
-    alt: 'Table configuration "Orders" (SHARED, root sample_order, 4 nodes, used by 6 rules) with a Traversal tree: ROOT Orders, LOOKUP sample_customer, CHILD sample_orderline, LOOKUP sample_product, each with "Add related", a legend (lookup = many-to-one, child = one-to-many; indentation = depth), and a node-editing panel.'
+    alt: "The Orders data model, used by 6 rules, 4 tables: the tree Orders (ROOT), Customer (LOOKS UP, via sample_customerid), Order lines (HAS MANY, linked by Order) and under it Product (LOOKS UP, via sample_productid); the panel reads “Select a table to edit it” with Add related table."
   - file: images/02-10-table-config-tree-02.png
     caption: Selecting a table shows its table, the column it's linked by, and its path from the root.
-    alt: Table config editor with the sample_customer lookup node selected; the Editing node panel shows Node name, Table (sample_customer), Relationship ("Lookup via parent column sample_customerid"), a "Reach from here" path (Orders → sample_customer), and Add related / Delete node.
+    alt: "Product selected in the Orders tree: its panel shows Name Product, Table Product · sample_product, Linked by Product · sample_productid, Path Orders › Order lines › Product, and Add related table and Delete."
 ---
 
 # Table Configuration Tree
 
-A **table configuration** (also called a **data map** or **traversal
-tree**) describes how the engine reaches related data starting from a
-**root table** out to whatever related tables a rule needs to look at.
-Every condition and action node picker in the earlier pages, and the
-data model chip shown in *Editor Layout*, are built on top of one of
-these trees. The rule editor and its dialogs call it the rule's **data
-model**.
+A **data model** (stored as a **table configuration**, and also called a
+**data map** or **traversal tree**) describes how the engine reaches
+related data starting from a **root table** out to whatever related tables
+a rule needs to look at. Every condition and action node picker in the
+earlier pages, and the data model chip shown in *Editor Layout*, are built
+on top of one of these trees. The Rule Builder calls it a **data model**
+throughout: the hub's **Data models** tab, the data-model editor, and the
+rule editor.
 
 ## Node types
 
@@ -28,7 +29,7 @@ Every node is one of three types, shown as a tag on its row in the tree
 (**ROOT**, **LOOKS UP**, **HAS MANY**):
 
 - **Root Table** (**ROOT**): the tree's starting point, and the table the
-  rule itself is bound to. There's exactly one per configuration.
+  rule itself is bound to. There's exactly one per data model.
 - **Lookup Table** (**LOOKS UP**): a **many-to-one** related table, reached
   through a parent lookup column on the current node's table (for example, an
   order reaching the customer it belongs to via its customer lookup). Its row
@@ -44,12 +45,12 @@ underneath a child node gives a multi-level path, as in
 Order → Order Line → Product, where Product hangs off the Order Line
 **child** node rather than off the root.
 
-![Table configuration "Orders" (SHARED, root sample_order, 4 nodes, used by 6 rules) with a Traversal tree: ROOT Orders, LOOKUP sample_customer, CHILD sample_orderline, LOOKUP sample_product, each with "Add related", a legend (lookup = many-to-one, child = one-to-many; indentation = depth), and a node-editing panel.](../images/02-10-table-config-tree-01.png)
+![The Orders data model, used by 6 rules, 4 tables: the tree Orders (ROOT), Customer (LOOKS UP, via sample_customerid), Order lines (HAS MANY, linked by Order) and under it Product (LOOKS UP, via sample_productid); the panel reads “Select a table to edit it” with Add related table.](../images/02-10-table-config-tree-01.png)
 
-## Configurations are shared
+## Data models are shared
 
-A table configuration is **shared and reusable**: more than one rule can
-point at the same root configuration. Editing a config's tree (adding a
+A data model is **shared and reusable**: more than one rule can
+point at the same data model. Editing a data model's tree (adding a
 related node, for example) affects **every rule** that uses it. The
 editor's header shows a **Used by N rules** chip (click it to list those
 rules, each marked **Live** or **Draft**, and open one) alongside the table
@@ -84,17 +85,21 @@ be deleted, and a table can't be deleted while it still has tables under
 it (*Delete the tables under it first.*) or while rules use it (*Can't
 delete: used by N rules.*).
 
-![Table config editor with the sample_customer lookup node selected; the Editing node panel shows Node name, Table (sample_customer), Relationship ("Lookup via parent column sample_customerid"), a "Reach from here" path (Orders → sample_customer), and Add related / Delete node.](../images/02-10-table-config-tree-02.png)
+![Product selected in the Orders tree: its panel shows Name Product, Table Product · sample_product, Linked by Product · sample_productid, Path Orders › Order lines › Product, and Add related table and Delete.](../images/02-10-table-config-tree-02.png)
 
-## Opening a table configuration
+## Opening a data model
 
-You can reach the table configuration editor three ways:
+You can reach the data-model editor three ways:
 
 - **Edit data model**: from the data model chip in a rule's editor,
-  opens that rule's root configuration.
-- **Table configurations**: a tab on the hub, listing every
-  configuration.
+  opens that rule's data model.
+- **Data models**: a tab on the hub, listing every data model (see
+  *The Hub*).
 - **Table Configs**: an entry in the app sitemap.
+
+In the editor, the breadcrumb (**Rules & data model** / **Data models**)
+leads back to the hub, and the pencil beside the name (**Rename data
+model**) renames it.
 
 See *Metadata Pickers* for how the "Add related table" relationship list is
 kept limited to relationships that actually exist, and *Building

@@ -6,13 +6,13 @@ slug: building-conditions
 screenshots:
   - file: images/02-05-building-conditions-01.png
     caption: An outcome (a top-level validation group) holding a direct condition and a nested Match all subgroup.
-    alt: Validation zone, titled WHEN · Outcomes, with an outcome (a top-level "ANY · OR" group) "Review triggers" containing a direct condition (sample_approvalnotes Is Null) and a nested "ALL · AND" subgroup "Expedited & high value" with two conditions (sample_isexpedited Equals Yes; sample_ordertotal Greater Than 1000).
+    alt: "The Credit check outcome selected: Match any, the condition “Order Total is at most Customer · Credit Limit”, and a nested Match all subgroup “Small order” with “Order Total is less than 500” and “Is Expedited is No”; the Outcome panel shows its name, True when it matches All/Any, and Used by Block save."
   - file: images/02-05-building-conditions-02.png
     caption: The condition panel, with the condition type switch, then the node, column, operator, Compare with tabs, and value.
-    alt: Condition editing panel for "sample_ordertotal > 1000" with fields Condition name, Table-config node (Orders), Condition type (Field Comparison), Comparison column (Order Total), Operator (Greater Than), Value source (Literal), Value (1000).
+    alt: "The condition panel for “Order Total is less than 500”: Compare selected among Compare, Count rows, Pattern and Calculation; On “This order”, column Order Total (Currency), operator “is less than”, Compare with “a value”, and the value 500."
   - file: images/02-05-building-conditions-03.png
     caption: A Calculation condition using the Expression editor with Insert field and Insert aggregate, compared by a numeric operator.
-    alt: 'Condition inspector with Condition type set to Calculation, showing an Expression field (placeholder "e.g. {quantity} * {price}: use Insert field, + - * / and ( )"), Insert field and Insert aggregate buttons, a numeric Operator (Less Than Or Equal), and a Value source.'
+    alt: "A Calculation condition on the Large order value outcome: the expression with Insert field and Insert aggregate, a preview reading “Sum of Order lines → Line Amount + Order Total”, an Aggregates block (sum of Order lines · Line Amount), and “is more than 5000”."
 ---
 
 # Building Conditions
@@ -67,7 +67,7 @@ removes their tests of it. An action whose only test was that outcome becomes **
 dialog says it will then never fire until you set its **When**.
 See *Building Actions*.
 
-![Validation zone, titled WHEN · Outcomes, with an outcome (a top-level "ANY · OR" group) "Review triggers" containing a direct condition (sample_approvalnotes Is Null) and a nested "ALL · AND" subgroup "Expedited & high value" with two conditions (sample_isexpedited Equals Yes; sample_ordertotal Greater Than 1000).](../images/02-05-building-conditions-01.png)
+![The Credit check outcome selected: Match any, the condition “Order Total is at most Customer · Credit Limit”, and a nested Match all subgroup “Small order” with “Order Total is less than 500” and “Is Expedited is No”; the Outcome panel shows its name, True when it matches All/Any, and Used by Block save.](../images/02-05-building-conditions-01.png)
 
 ## Condition types
 
@@ -149,7 +149,7 @@ Calculation field-mapping source; see the **Calculation** section in *Field
 Mapping* for detailed examples and guidance on aggregate functions and
 operand types.
 
-![Condition inspector with Condition type set to Calculation, showing an Expression field (placeholder "e.g. {quantity} * {price}: use Insert field, + - * / and ( )"), Insert field and Insert aggregate buttons, a numeric Operator (Less Than Or Equal), and a Value source.](../images/02-05-building-conditions-03.png)
+![A Calculation condition on the Large order value outcome: the expression with Insert field and Insert aggregate, a preview reading “Sum of Order lines → Line Amount + Order Total”, an Aggregates block (sum of Order lines · Line Amount), and “is more than 5000”.](../images/02-05-building-conditions-03.png)
 
 If a calculation cannot be computed (a null operand, a divide-by-zero, or an
 aggregate function returning an empty result such as `avg()` on an empty
@@ -183,7 +183,7 @@ default), and the value. The condition's name sits in the collapsed **More**
 section: **Condition name**, which you can leave blank to name the condition
 from what it checks.
 
-![Condition editing panel for "sample_ordertotal > 1000" with fields Condition name, Table-config node (Orders), Condition type (Field Comparison), Comparison column (Order Total), Operator (Greater Than), Value source (Literal), Value (1000).](../images/02-05-building-conditions-02.png)
+![The condition panel for “Order Total is less than 500”: Compare selected among Compare, Count rows, Pattern and Calculation; On “This order”, column Order Total (Currency), operator “is less than”, Compare with “a value”, and the value 500.](../images/02-05-building-conditions-02.png)
 
 See *Comparison Value Sources* for the rest of the value-source options, and
 *Building Actions* for how actions use outcomes.

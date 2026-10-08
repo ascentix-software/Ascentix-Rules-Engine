@@ -74,9 +74,20 @@ on-demand path, see `asx_ApplyRules` below.
 | `Triggers` | String | Yes | Single trigger name; defaults to `Manual`. Both `OnDemand` and the older `Manual` name are accepted for trigger value 3 (*Triggers & Channels*) |
 | `IncludeDiagnostics` | Boolean | Yes | When `true`, the response also carries `Diagnostics` (timings and fetch counts for this evaluation). Default `false` |
 | `IncludeOutcomes` | Boolean | Yes | When `true`, `Outcomes` carries each rule outcome's value. Default `false`: `Outcomes` is then `[]` |
+| `DraftRuleId` | Guid | Yes | Id of a draft `asx_rule` to preview: its saved rows run in place of the live rule it is a draft of. Omitted or empty means no draft |
 
 At least one of `RecordId` / `RecordJson` is required. Supplying both retrieves the
 persisted record and overlays the JSON fields on top of it.
+
+`DraftRuleId` previews what publishing a draft would do. The draft's saved rows (not any
+unsaved edits in an open editor) are evaluated in place of the live rule it is a draft of, or,
+for a rule that has never been published, alongside the published rules; every other published
+rule on the table runs as usual. The draft must be on `TableName`'s table, and the caller must be
+able to read the draft. Results and outcomes for it are reported under the **draft's** id, not
+the live rule's. Dataverse passes an omitted optional Guid as an empty Guid, which means no
+draft. The Rule Builder's **Preview on a record** sets it when its **Version** is **Draft**.
+The parameter is created by `pipelines/Configure-RuleAuthoring.ps1` when the deploy's Register
+phase runs.
 
 `RecordJson` values are encoded per attribute kind: a lookup is
 `{ "id": "<guid>", "logicalname": "<table>" }`; a multi-select choice is an array of

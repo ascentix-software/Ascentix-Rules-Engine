@@ -41,5 +41,5 @@ evaluated directly against your organization's **existing** tables.
 ## Where you author rules
 
 Rules are authored visually in the **Rule Builder**. See the *Building Rules*
-section for a full walkthrough of the Rule Builder, Table Config editor, and the
+section for a full walkthrough of the Rule Builder, data-model editor, and the
 WHEN/THEN authoring experience.

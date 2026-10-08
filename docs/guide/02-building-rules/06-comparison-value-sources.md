@@ -6,7 +6,7 @@ slug: comparison-value-sources
 screenshots:
   - file: images/02-06-comparison-value-sources-01.png
     caption: Comparing with another column compares a column against another column on a related node.
-    alt: Condition inspector with Value source set to "Field Reference" plus Right-hand node (sample_customer (lookup)) and Right-hand column (sample_creditlimit), comparing sample_ordertotal to the customer's credit limit.
+    alt: "The condition “Order Total is at most Customer · Credit Limit”: Compare with “another column”, the related record Customer, and the column Credit Limit."
 ---
 
 # Comparison Value Sources
@@ -40,7 +40,7 @@ Choosing **another column** shows two side-by-side pickers:
 > node reachable through a lookup chain. A node under a one-to-many/child
 > relationship isn't valid here.
 
-![Condition inspector with Value source set to "Field Reference" plus Right-hand node (sample_customer (lookup)) and Right-hand column (sample_creditlimit), comparing sample_ordertotal to the customer's credit limit.](../images/02-06-comparison-value-sources-01.png)
+![The condition “Order Total is at most Customer · Credit Limit”: Compare with “another column”, the related record Customer, and the column Credit Limit.](../images/02-06-comparison-value-sources-01.png)
 
 ## a text template (Text template)
 

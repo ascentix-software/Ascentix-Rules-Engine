@@ -6,7 +6,7 @@ slug: editor-layout
 screenshots:
   - file: images/02-04-editor-layout-01.png
     caption: The rule editor, showing the header actions, the Rule settings strip, the data model, and the Only if, Outcomes and Then bands.
-    alt: "Rule editor for 'Order total within credit limit': breadcrumb, Save/Reload/Validate/Publish actions, a properties band (Table sample_order, Triggers, Channels All), a DATA MAP row (Orders, sample_customer, sample_orderline, sample_product), a WHEN Execution conditions zone, a WHEN Outcomes zone with an 'Outcome · Credit check' ALL·AND group and one condition, and a THEN Actions zone with a 'Block save' action."
+    alt: "The rule editor for “Order total within credit limit”: Not live and Draft pills, Undo, Redo, Preview, Saved, Publish… and More actions; the Rule settings strip (Order · On create, On form, On update · All channels); the Orders data model chip; an Only if group “Has a customer”; a Credit check outcome; and a Then band with a Block save action; Rule settings open on the right."
 ---
 
 # Editor Layout
@@ -15,7 +15,7 @@ The editor has four regions: the header, the **Rule settings** strip, the
 data model chip, and the **Only if** / **Outcomes** / **Then** bands that
 hold the rule body.
 
-![Rule editor for "Order total within credit limit": breadcrumb, Save/Reload/Validate/Publish actions, a properties band (Table sample_order, Triggers, Channels All), a DATA MAP row (Orders, sample_customer, sample_orderline, sample_product), a WHEN Execution conditions zone, a WHEN Outcomes zone with an "Outcome · Credit check" ALL·AND group and one condition, and a THEN Actions zone with a "Block save" action.](../images/02-04-editor-layout-01.png)
+![The rule editor for “Order total within credit limit”: Not live and Draft pills, Undo, Redo, Preview, Saved, Publish… and More actions; the Rule settings strip (Order · On create, On form, On update · All channels); the Orders data model chip; an Only if group “Has a customer”; a Credit check outcome; and a Then band with a Block save action; Rule settings open on the right.](../images/02-04-editor-layout-01.png)
 
 ## Header
 
@@ -40,9 +40,10 @@ The header actions, left to right (actions that don't apply aren't shown):
   edits in a draft.
 - The **issues** button: shows the count of errors and warnings once there are
   any, and opens the **Issues** drawer. See *Validating & Publishing*.
-- **Run**: preview the live version on a record, apply it to records, or view
-  its runs. Not shown for a rule that has never been published. See *Running
-  Rules On Demand*.
+- **Run**: preview the rule on a record (its draft or the live version),
+  apply the live version to records, or view its runs. A rule that has never
+  been published shows a plain **Preview** button instead. See *Validating &
+  Publishing* and *Running Rules On Demand*.
 - **Save**: writes draft changes to the server while any published revision
   stays active. With nothing to save it shows a **Saved** status instead.
 - The one primary action, which depends on the state:
@@ -50,6 +51,9 @@ The header actions, left to right (actions that don't apply aren't shown):
     published rule stays active.
   - **Publish…** (draft): saves, checks the draft and, if it has no errors,
     makes it the next published revision.
+  - **Publish…** with **Edit rule** beside it (a rule that isn't live, with no
+    draft open): **Publish…** opens the draft and goes straight to the usual
+    save, check and confirm; **Edit rule** opens the draft to change it first.
   - **Back to draft** (viewing the published version): returns to the
     editable draft.
 - **More actions** (⋯):
@@ -57,8 +61,9 @@ The header actions, left to right (actions that don't apply aren't shown):
   - **Check for issues**: saves and runs the rule through the validator
     without publishing.
   - A **Published vN** group with **View published** (switches to the frozen
-    definition) and **Restore published to draft…** (replaces draft changes
-    after confirmation, without changing enforcement).
+    definition), **Restore published to draft…** (replaces draft changes
+    after confirmation, without changing enforcement) and **Discard draft…**
+    (deletes the draft after confirmation and reopens the live rule).
   - **Reload from server**: discards in-memory edits and re-fetches the rule
     from the server.
   - **Unpublish…**: explicitly stops enforcement.

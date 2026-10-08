@@ -37,6 +37,12 @@ Publishing captures the draft and its complete data-model configuration as a new
 revision. Shared-model edits take effect independently for each rule when republished.
 Business records and caller permissions remain live.
 
+To abandon a draft, choose **Discard draft…** in the Rule Builder's **More actions** (⋯) menu:
+it deletes the draft, including its saved and unsaved edits, and the published revision stays
+live and unchanged. A rule that has been unpublished keeps its last revision; to put it back in
+force, open it and choose **Publish…**, which opens its draft and runs the usual save, check and
+confirm. See *Saving & Recovery*.
+
 **View published** shows the active definition. Already-open business forms can retain
 the definition fetched when they loaded; reload them to pick up a new publication.
 The server uses the active revision for new evaluations.
