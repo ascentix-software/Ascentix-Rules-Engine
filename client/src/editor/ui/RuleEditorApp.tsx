@@ -534,6 +534,20 @@ export function RuleEditorApp({
     finally { setBusy(false); }
   }
 
+  // A rule that isn't live and has no draft: Publish… opens the draft (the server republishes
+  // only through one), then runs the usual save, check and confirm once the draft has loaded.
+  const [publishAfterOpen, setPublishAfterOpen] = React.useState(false);
+  async function onRepublish() {
+    if (busy || !api.openRuleDraft) return;
+    setBusy(true);
+    try {
+      await api.openRuleDraft(working.rule.id);
+      await acceptFresh(await reload());
+      setPublishAfterOpen(true);
+    } catch (e) { showSaveError(`Could not open the draft: ${formatError(e)}`); }
+    finally { setBusy(false); }
+  }
+
   async function onViewPublished() {
     if (publishedView) { setPublishedView(null); return; }
     if (!api.readPublishedRule) return;
@@ -701,8 +715,17 @@ export function RuleEditorApp({
   // ---- header ----
   const readOnlyView = lifecycle.kind === "liveReadOnly" || lifecycle.kind === "viewingPublished" || lifecycle.kind === "archived";
   const draftState = lifecycle.kind === "draftOfLive" || lifecycle.kind === "newDraft";
+  // Not live and no draft open: republishing is the likely intent, so Publish… leads and Edit
+  // rule sits beside it.
+  const republish = lifecycle.kind === "liveReadOnly" && !lifecycle.live && !updateLocked && !!api.openRuleDraft;
+  React.useEffect(() => {
+    if (!publishAfterOpen || busy || lifecycle.kind !== "draftOfLive") return;
+    setPublishAfterOpen(false);
+    void onPublishClick();
+  }, [publishAfterOpen, busy, lifecycle.kind]); // eslint-disable-line react-hooks/exhaustive-deps
   const primary: HeaderPrimary | null =
     lifecycle.kind === "viewingPublished" ? { kind: "backToDraft", onClick: onViewPublished, disabled: busy }
+    : republish ? { kind: "publish", onClick: () => void onRepublish(), busy: publishStage === "checking", disabled: busy }
     : lifecycle.kind === "liveReadOnly" ? (!updateLocked && api.openRuleDraft ? { kind: "edit", onClick: onEdit, disabled: busy } : null)
     : draftState && !updateLocked ? { kind: "publish", onClick: onPublishClick, busy: publishStage === "checking", disabled: busy || !!recovery.pending }
     : null;
@@ -779,6 +802,7 @@ export function RuleEditorApp({
               run={run}
               save={showSave ? { dirty, disabled: !canSave || busy, onSave } : null}
               primary={primary}
+              secondary={republish ? { label: "Edit rule", onClick: () => void onEdit(), disabled: busy } : null}
               overflow={overflow}
             />
             {saveError && (

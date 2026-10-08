@@ -25,7 +25,7 @@ export interface HeaderPrimary {
  */
 export function RuleHeader({
   name, lifecycle, publishedText, stacked, canRename, onRename,
-  history, issues, run, save, primary, overflow,
+  history, issues, run, save, primary, secondary, overflow,
 }: {
   name: string;
   lifecycle: Lifecycle;
@@ -39,6 +39,8 @@ export function RuleHeader({
   /** null hides Save entirely (read-only states). */
   save?: { dirty: boolean; disabled?: boolean; onSave(): void } | null;
   primary?: HeaderPrimary | null;
+  /** A second action beside the primary, as an outline button (e.g. Edit rule next to Publish…). */
+  secondary?: { label: string; onClick(): void; disabled?: boolean } | null;
   overflow?: React.ReactNode;
 }) {
   const [renaming, setRenaming] = React.useState(false);
@@ -112,6 +114,7 @@ export function RuleHeader({
               <Checkmark16Regular aria-hidden />Saved
             </span>
           ))}
+        {secondary && <Button style={fit} icon={<Edit16Regular />} disabled={secondary.disabled} onClick={secondary.onClick}>{secondary.label}</Button>}
         {primaryButton}
         {overflow}
       </div>

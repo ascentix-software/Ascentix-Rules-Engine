@@ -182,13 +182,21 @@ describe("RunDialog · Preview of form actions", () => {
     expect(within(region).getByText("Shows 1 message on the form.")).toBeInTheDocument();
   });
 
-  it("as if Updated: form messages are reported Form only, and nothing happens", async () => {
+  it("as if Updated on a rule that never runs on the form: messages are Form only, and the verdict says what to change", async () => {
     const dryRun = vi.fn(async () => ({ isValid: true, changeSet: null, outcomes: [], actions: [
       fired({ message: "Low probability", targetColumn: "closeprobability", severity: "Warning" }),
     ] }) as DryRunResult);
-    const { region } = await preview(dryRun, formRule([4, 2]));
+    const { region } = await preview(dryRun, formRule([4]));
+    expect(dryRun).toHaveBeenCalledWith("account", "g1", "OnUpdate", undefined);
     expect(within(region).getByText("Nothing would happen")).toBeInTheDocument();
+    expect(within(region).getByText("1 message fired, but messages only show on the form. Add On form to the rule's triggers to show them.")).toBeInTheDocument();
     expect(within(within(region).getByRole("list", { name: "Actions" })).getAllByRole("listitem")[0]).toHaveTextContent("Form only");
+  });
+
+  it("previews As if On form by default when the rule runs there", async () => {
+    const dryRun = vi.fn(async () => ({ isValid: true, changeSet: null, outcomes: [], actions: [] }) as DryRunResult);
+    await preview(dryRun, formRule([4, 2]));
+    expect(dryRun).toHaveBeenCalledWith("account", "g1", "OnForm", undefined);
   });
 });
 
