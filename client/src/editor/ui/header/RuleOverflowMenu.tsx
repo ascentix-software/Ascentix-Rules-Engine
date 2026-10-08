@@ -4,7 +4,7 @@ import {
 } from "@fluentui/react-components";
 import {
   MoreHorizontal20Regular, DocumentSearch20Regular, CheckmarkCircle20Regular, Eye20Regular,
-  ArrowReset20Regular, ArrowClockwise20Regular, PauseCircle20Regular,
+  ArrowReset20Regular, ArrowClockwise20Regular, PauseCircle20Regular, Delete20Regular,
 } from "@fluentui/react-icons";
 import { color } from "../tokens";
 
@@ -14,7 +14,7 @@ import { color } from "../tokens";
  */
 export function RuleOverflowMenu({
   dirtyCount, version, disabled,
-  onReviewChanges, onCheckIssues, onViewPublished, onRestoreDraft, onReload, onUnpublish,
+  onReviewChanges, onCheckIssues, onViewPublished, onRestoreDraft, onDiscardDraft, onReload, onUnpublish,
 }: {
   dirtyCount: number;
   version: number;
@@ -24,10 +24,12 @@ export function RuleOverflowMenu({
   onCheckIssues?: () => void;
   onViewPublished?: () => void;
   onRestoreDraft?: () => void;
+  /** Deletes the working draft of a live rule. */
+  onDiscardDraft?: () => void;
   onReload?: () => void;
   onUnpublish?: () => void;
 }) {
-  const publishedGroup = !!onViewPublished || !!onRestoreDraft;
+  const publishedGroup = !!onViewPublished || !!onRestoreDraft || !!onDiscardDraft;
   return (
     <Menu positioning="below-end">
       <MenuTrigger disableButtonEnhancement>
@@ -48,6 +50,11 @@ export function RuleOverflowMenu({
                 <MenuGroupHeader>Published v{version}</MenuGroupHeader>
                 {onViewPublished && <MenuItem icon={<Eye20Regular />} onClick={onViewPublished}>View published</MenuItem>}
                 {onRestoreDraft && <MenuItem icon={<ArrowReset20Regular />} onClick={onRestoreDraft}>Restore published to draft…</MenuItem>}
+                {onDiscardDraft && (
+                  <MenuItem icon={<Delete20Regular style={{ color: color.danger }} />} onClick={onDiscardDraft} style={{ color: color.danger }}>
+                    Discard draft…
+                  </MenuItem>
+                )}
               </MenuGroup>
             </>
           )}

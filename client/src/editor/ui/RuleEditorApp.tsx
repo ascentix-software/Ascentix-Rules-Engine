@@ -23,6 +23,7 @@ import { Breadcrumb } from "./Breadcrumb";
 import { navigate } from "./router";
 import { useUnsavedGuard } from "./useUnsavedGuard";
 import { ConfirmUnpublishDialog } from "./ConfirmUnpublishDialog";
+import { ConfirmDiscardDraftDialog } from "./ConfirmDiscardDraftDialog";
 import { ConfirmDeleteOutcomeDialog } from "./ConfirmDeleteOutcomeDialog";
 import { isOutcome, actionsUsingOutcome } from "../model/outcomes";
 import { makeValueLabelResolver, type ValueLabelSnapshot } from "../load/valueLabels";
@@ -119,6 +120,7 @@ export function RuleEditorApp({
   const [reviewOpen, setReviewOpen] = React.useState(false);
   const [publishedView, setPublishedView] = React.useState<RuleGraph | null>(null);
   const [restoreOpen, setRestoreOpen] = React.useState(false);
+  const [discardDraftOpen, setDiscardDraftOpen] = React.useState(false);
   const displayed = publishedView ?? working;
   const [saveError, setSaveError] = React.useState<SaveError | null>(null);
   const [panelOpen, setPanelOpen] = React.useState(false);
@@ -188,7 +190,7 @@ export function RuleEditorApp({
   const setWorking: React.Dispatch<React.SetStateAction<RuleGraph>> = (value) => {
     if (editable) history.set(value);
   };
-  const { confirmNavigate: guardNavigate, guardDialog } = useUnsavedGuard(dirty);
+  const { confirmNavigate: guardNavigate, leave, guardDialog } = useUnsavedGuard(dirty);
   const confirmNavigate = (action: () => void) => guardNavigate(() => {
     if (dirty) recovery.clear();
     action();
@@ -611,6 +613,22 @@ export function RuleEditorApp({
     finally { setBusy(false); }
   }
 
+  // Deletes the working draft (asx_DeleteRule on the draft keeps the live rule and its revision,
+  // and reclaims the draft's private data-model copy), then reopens the live rule.
+  async function onDiscardDraft() {
+    setDiscardDraftOpen(false);
+    const activeId = working.rule.activeRuleId;
+    if (!api.deleteRule || !activeId) return;
+    setBusy(true);
+    try {
+      await api.deleteRule(working.rule.id);
+      leave(() => navigate("rule", activeId));
+    } catch (e) {
+      showSaveError(`Couldn't discard the draft: ${formatError(e)}.`);
+      setBusy(false);
+    }
+  }
+
   async function onUnpublish() {
     setUnpublishOpen(false);
     if (busy || recovery.pending || !published) return;
@@ -704,6 +722,7 @@ export function RuleEditorApp({
       onCheckIssues={draftState && !(updateLocked && dirty) ? onCheckIssues : undefined}
       onViewPublished={everPublished && api.readPublishedRule && !publishedView ? onViewPublished : undefined}
       onRestoreDraft={editable && working.rule.activeRuleId && api.restoreRuleDraft ? () => setRestoreOpen(true) : undefined}
+      onDiscardDraft={editable && working.rule.activeRuleId && api.deleteRule && !recovery.pending ? () => setDiscardDraftOpen(true) : undefined}
       onReload={!publishedView ? () => guardNavigate(onReload) : undefined}
       onUnpublish={published && !updateLocked && !recovery.pending ? () => setUnpublishOpen(true) : undefined}
     />
@@ -790,6 +809,8 @@ export function RuleEditorApp({
               onEdit={() => confirmNavigate(() => navigate("tableconfig", working.rule.rootTableConfigId!))} />
           </div>
           {guardDialog}
+          <ConfirmDiscardDraftDialog open={discardDraftOpen} version={version}
+            onCancel={() => setDiscardDraftOpen(false)} onConfirm={() => void onDiscardDraft()} />
           <ConfirmUnpublishDialog
             open={unpublishOpen}
             name={working.rule.name || "(unnamed rule)"}
@@ -836,9 +857,11 @@ export function RuleEditorApp({
               rule={{
                 id: working.rule.activeRuleId ?? working.rule.id, name: working.rule.name,
                 table: working.rule.tableLogicalName,
-                live: everPublished ? liveGraph ?? (working.rule.activeRuleId ? working : null) : null,
-                // A draft of a live rule, or a rule never published: Preview can run its saved rows.
-                draft: working.rule.activeRuleId || !everPublished ? working : null,
+                // Live only while the rule is published: asx_RunRules runs published rules only, so an
+                // unpublished rule's last revision would preview as "Nothing would happen".
+                live: published ? liveGraph ?? (working.rule.activeRuleId ? working : null) : null,
+                // A draft of a live rule, or a rule that isn't live: Preview runs its saved rows.
+                draft: working.rule.activeRuleId || !published ? working : null,
                 draftUnsaved: dirtyCount > 0,
                 liveVersion: version, canApply: canApply(published, runNowTriggers),
               }}
