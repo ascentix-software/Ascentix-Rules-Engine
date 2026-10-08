@@ -77,9 +77,15 @@ namespace Ascentix.RulesEngine.Plugin
         private static RuleSelection DraftSelection(IPluginExecutionContext context, IOrganizationService userService)
         {
             if (!context.InputParameters.TryGetValue("DraftRuleId", out var raw) || raw == null) return null;
-            var id = raw is Guid g ? g : Guid.TryParse(raw as string, out var parsed) ? parsed : Guid.Empty;
-            if (id == Guid.Empty)
-                throw new InvalidPluginExecutionException($"asx_RunRules: DraftRuleId '{raw}' is not a valid GUID.");
+            // Dataverse passes an omitted optional Guid as Guid.Empty (as it does false for an
+            // omitted Boolean): that means no draft, and is every call but a draft preview.
+            if (raw is Guid g) return g == Guid.Empty ? null : Selection(g, userService);
+            if (Guid.TryParse(raw as string, out var parsed)) return parsed == Guid.Empty ? null : Selection(parsed, userService);
+            throw new InvalidPluginExecutionException($"asx_RunRules: DraftRuleId '{raw}' is not a valid GUID.");
+        }
+
+        private static RuleSelection Selection(Guid id, IOrganizationService userService)
+        {
             userService.Retrieve("asx_rule", id, new Microsoft.Xrm.Sdk.Query.ColumnSet("asx_ruleid"));
             return new RuleSelection { DraftRuleId = id };
         }

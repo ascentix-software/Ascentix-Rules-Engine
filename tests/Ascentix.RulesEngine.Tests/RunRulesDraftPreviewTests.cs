@@ -128,6 +128,25 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Contains("not on the account table", ex.Message);
         }
 
+        // Dataverse passes an omitted optional Guid as Guid.Empty: every call without a draft
+        // (the form library, Live previews) must run the published rules as before.
+        [Fact]
+        public void An_empty_DraftRuleId_means_no_draft()
+        {
+            var live = Guid.NewGuid();
+            var draft = Guid.NewGuid();
+            var ctx = new XrmFakedContext();
+            var rows = Rule(live, RuleStatus.Published, "Live", "Live says no");
+            rows.AddRange(Rule(draft, RuleStatus.Draft, "Draft", "Draft says no", draftOf: live));
+            ctx.Initialize(rows);
+
+            var result = Run(ctx, "Other", Guid.Empty);
+            Assert.False((bool)result.OutputParameters["IsValid"]);
+            var results = (string)result.OutputParameters["Results"];
+            Assert.Contains("Live says no", results);
+            Assert.DoesNotContain("Draft says no", results);
+        }
+
         [Fact]
         public void A_DraftRuleId_that_is_not_a_guid_is_rejected()
         {
