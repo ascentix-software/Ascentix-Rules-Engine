@@ -44,7 +44,8 @@ test("channels: default is All; Standard then +Portal persist as the asx_channel
       .or(frame.getByRole("option", { name: "Standard" })).first().click();
     await page.keyboard.press("Escape");
 
-    await expect(stripChannels(frame)).toContainText(/· Standard$/);
+    // The strip's visible text ends with its Edit/Editing link; its name ends with the channels.
+    await expect(stripChannels(frame)).toHaveAttribute("aria-label", /, Standard$/);
     await expect(unsavedCount(frame)).toBeVisible();
     await saveRule(frame);
 
@@ -76,7 +77,8 @@ test("channels: deselecting every channel writes null (back to All), not an empt
   await updateDevRecord(ENTITY_SET.rule, fixture.ruleId, { asx_channels: "1" });
   try {
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
-    await expect(stripChannels(frame)).toContainText(/· Standard$/);
+    // The strip's visible text ends with its Edit/Editing link; its name ends with the channels.
+    await expect(stripChannels(frame)).toHaveAttribute("aria-label", /, Standard$/);
 
     const channels = frame.getByRole("combobox", { name: "Channels" });
     await channels.click();
