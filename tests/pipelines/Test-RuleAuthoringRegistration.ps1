@@ -535,15 +535,17 @@ foreach ($interrupt in @($false, $true)) {
             $field = $fields["asx_rulediagnostic/$($spec[0])"]
             Assert ($null -ne $field -and $field['@odata.type'] -eq "Microsoft.Dynamics.CRM.$($spec[1])AttributeMetadata" -and $field.MaxLength -eq $spec[2]) "Incorrect Rule Diagnostic column $($spec[0])."
         }
-        Assert ($environmentVariables.Count -eq 1) 'Expected exactly one environment variable definition.'
+        Assert ($environmentVariables.Count -eq 2) 'Expected exactly two environment variable definitions (asx_CaptureDiagnostics, asx_BulkWrites).'
         $capture = $environmentVariables['asx_CaptureDiagnostics']
         Assert ($null -ne $capture -and $capture.type -eq 100000002 -and $capture.defaultvalue -eq 'no') 'asx_CaptureDiagnostics must be a Boolean (100000002) defaulting to no.'
         Assert (![string]::IsNullOrWhiteSpace($capture.displayname)) 'asx_CaptureDiagnostics needs a display name.'
+        $bulk = $environmentVariables['asx_BulkWrites']
+        Assert ($null -ne $bulk -and $bulk.type -eq 100000002 -and $bulk.defaultvalue -eq 'no') 'asx_BulkWrites must be a Boolean (100000002) defaulting to no.'
         # 54 before the diagnostics table, + 1 table (its primary name rides in the table body)
-        # + 5 columns + 1 environment variable definition (no value row), + 11 for the data update
+        # + 5 columns + 2 environment variable definitions (no value rows), + 11 for the data update
         # (1 table, 9 attributes, 1 lookup relationship), + 10 for the action condition tables
         # (2 tables, 4 attributes, 4 lookup relationships).
-        Assert ($schemaState.Writes -eq (82 + $views.Count)) 'Unexpected metadata write count.'
+        Assert ($schemaState.Writes -eq (83 + $views.Count)) 'Unexpected metadata write count.'
         $writes = $schemaState.Writes
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
         Assert ($schemaState.Writes -eq $writes) 'Schema retry changed already configured metadata.'

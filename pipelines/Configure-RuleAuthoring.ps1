@@ -260,6 +260,7 @@ if ($Phase -eq 'Schema') {
         EnsureField 'asx_rulediagnostic' $field
     }
     # Environment variable type Boolean = 100000002; Dataverse stores a Boolean value as yes/no.
+    EnsureEnvironmentVariableDefinition 'asx_BulkWrites' 'Bulk writes' 100000002 'no' 'When yes, the rules engine sends two or more creates or updates of one table as CreateMultiple or UpdateMultiple. Faster, but Microsoft does not support bulk messages in plug-in code. When no, every write is a single request.'
     EnsureEnvironmentVariableDefinition 'asx_CaptureDiagnostics' 'Capture diagnostics' 100000002 'no' 'When yes, every form save the rules engine evaluates writes one Rule Diagnostic row per saved record with its timings and counts. Leave it at no outside a measurement.'
     # Data updates (docs/Schema.md §2.20): one row per release data update, written only by asx_ApplyDataUpdates.
     EnsureTable 'asx_DataUpdate' 'Data Update'

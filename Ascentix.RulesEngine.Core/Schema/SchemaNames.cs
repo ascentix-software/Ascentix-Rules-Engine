@@ -145,6 +145,10 @@ namespace Ascentix.RulesEngine.Schema
         {
             /// <summary>Boolean, default false: form saves write asx_rulediagnostic rows while it is true.</summary>
             public const string CaptureDiagnostics = "CaptureDiagnostics";
+            /// <summary>Boolean, default false: two or more creates or updates of one table go as
+            /// CreateMultiple / UpdateMultiple while it is true (bulk messages in plug-in code are
+            /// unsupported by Microsoft, so it ships off).</summary>
+            public const string BulkWrites = "BulkWrites";
         }
 
         public static class TableConfig
