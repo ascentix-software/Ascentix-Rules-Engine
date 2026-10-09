@@ -7,120 +7,114 @@ slug: performance
 
 # Performance
 
-This page summarizes the Rules Engine's performance tests: how long the engine took at growing data
-volumes, what made it slower, and what that means for how you build rules.
+How long the engine takes as data grows, measured on release 0.1.0.2. These figures are the
+baseline later releases are compared against.
 
-All times were measured on our development (DEV) environment between 2026-09-30 and 2026-10-07.
-Your times will vary with your org's load, the other plug-ins on the same tables and the shape of
-your data.
+Measured on a Dataverse development environment in October 2026. Your times depend on your
+environment's load, the other plug-ins on the same tables, and your data.
 
-## What was measured
+## How it was measured
 
-The tests used a set of test tables: a parent table with related child tables and lookup tables.
-Each scenario raised the data volume step by step. The times are the engine's own time, from its
-diagnostics (see *Troubleshooting*). The platform's own work on a save, and the round trips between
-the pages of a run, come on top.
+The tests use a parent table with related child and lookup tables, and raise the data volume step
+by step. Times are the engine's own, from its diagnostics (*Troubleshooting*): the platform's own
+work on a save comes on top. Each save figure is the median of 5 or 10 records.
 
-| Scenario | What it measures |
+| Test | What it measures |
 |---|---|
-| S1 | Evaluating the rules for one save of a record with N related rows (a dry run, nothing written). 100 background rules plus 3 rules with date filters, a row count and a filtered total |
-| S2 | A real save that changes a lookup, with a rule that updates the parent and has **Also apply to the previous** turned on. 100 background rules, N related rows |
-| S3 | A real save whose rule runs set actions (Update, Deactivate, Delete, Create per row) over N related rows. No other rules |
-| S4 | An **On demand** run over **All records** of a table, up to 50,000 records: one rule that only reads, one that updates a related row per record. No other rules |
-| S5 | One scheduler wake-up (`asx_StartDueSchedules`) starting 1, 10 or 50 due schedules |
-| S6 | Evaluating date comparisons across 1 to 7 tables in one save |
+| Evaluating a save | One save of a record with N related rows, nothing written. The table has 100 other published rules, plus rules with date filters, a row count and a filtered total. |
+| Also apply to the previous | A real save that changes a lookup, with a rule that updates the parent and its previous value. 100 other published rules. |
+| Set actions | A real save whose rule updates, deactivates and deletes related rows, and creates a record per row. |
+| On demand runs | A run over every record of a table: one rule that only reads, one that updates a related row per record. |
+| Scheduler | One scheduler check starting 1, 10 or 50 due schedules. |
+| Date comparisons | Date conditions on 1 to 7 related tables in one save. |
 
-S1, S2 and S3 report the median of 5 or 10 sampled records per step.
+## Evaluating a save
 
-## Results
-
-### Evaluating rules for one save (S1)
-
-| Related rows per record | 2026-09-30 baseline | 2026-10-04 shared reads | 2026-10-07 round 2 |
-|---|---|---|---|
-| 100 | 4.6 s | 1.7 s | not run |
-| 500 | not run | 1.8 s | not run |
-| 2,000 | not run | 3.1 s | not run |
-| 5,000 | not run | 5.6 s | not run |
-| 10,000 | not run | 9.3 s | 10.2 s |
-
-Up to 500 related rows, a save's evaluation stayed under the 2-second target. At 10,000 rows,
-reading the related rows took 79% of the time. The 2026-10-07 run read the same rows as the
-2026-10-04 run (14,973); loading the rules took 1.3 s instead of 1.1 s.
-
-### A save with Also apply to the previous (S2)
-
-| Related rows per record | Baseline | 2026-10-04 shared reads | 2026-10-07 round 2 |
-|---|---|---|---|
-| 100 | 4.2 s (2026-09-30) | 1.5 s | not run |
-| 500 | 6.5 s (2026-09-30) | not run | not run |
-| 2,000 | 13.7 s (2026-09-30) | not run | not run |
-| 5,000 | 29.6 s (2026-09-30) | not run | not run |
-| 10,000 | 50.7 s (2026-10-03) | 3.6 s | 4.2 s |
-
-At 10,000 rows the baseline save read 510,192 rows. Since the shared-reads change it reads 10,027.
-
-### Set actions on save (S3)
-
-Measured on 2026-10-04.
-
-| Related rows per record | Writes sent | Median save |
+| Related rows | Median | Largest part |
 |---|---|---|
-| 100 | 134 | 3.0 s |
-| 2,000 | 2,667 | 56.9 s |
+| 100 | 1.8 s | loading rules (75%) |
+| 500 | 2.0 s | loading rules (61%) |
+| 2,000 | 3.1 s | reading related rows (58%) |
+| 5,000 | 5.7 s | reading related rows (73%) |
+| 10,000 | 9.5 s | reading related rows (83%) |
 
-Deleting rows took the largest share (59% at 2,000 rows). The 10,000-row step wasn't measured: the
-test setup lost its connection.
+Loading about 100 published rules costs about 1.3 seconds per save, whatever the data. Beyond a few
+hundred related rows, reading them takes over.
 
-### On demand run over 50,000 records (S4)
+## A save with Also apply to the previous
 
-Total engine time for the whole run: 100 pages of 500 records.
+| Related rows | Median save | Largest part |
+|---|---|---|
+| 100 | 1.6 s | loading rules (85%) |
+| 500 | 1.5 s | loading rules (78%) |
+| 2,000 | 2.0 s | loading rules (64%) |
+| 5,000 | 2.8 s | reading related rows (44%) |
+| 10,000 | 4.1 s | reading related rows (65%) |
 
-| Rule | 2026-10-04 shared reads | 2026-10-04 batched reads | 2026-10-05 batched writes |
-|---|---|---|---|
-| Reads only | 7.0 min | 1.8 min | 1.8 min |
-| Updates a row per record | 27.4 min | 19.1 min | 11.9 min |
+The save updates the parent and its previous value, but reads the related rows once: 10,027 rows at
+10,000. It stays under 2 seconds up to about 2,000 related rows. It's faster than *Evaluating a
+save* above because that test's extra rules (date filters, a row count, a filtered total) read more.
 
-On the 2026-10-05 run that is about 1.7 million records per hour of engine time for the read-only
-rule and about 252,000 for the updating rule. The slowest page took 1.4 s and 14.8 s, well inside a
-page's 60-second budget. On 2026-10-04 the rate held steady from 1,000 to 50,000 records (370,561
-to 426,399 records per hour read-only, 108,929 to 111,409 updating), so run time grows in proportion
-to the record count.
+## Set actions on a save
 
-### Scheduler and date comparisons (S5, S6)
+| Related rows | Rows written | Median save |
+|---|---|---|
+| 100 | 134 | 2.6 s |
+| 500 | 667 | 12.1 s |
+| 2,000 | 2,667 | 48.0 s |
+| 5,000 | 6,667 | about 2 minutes: over Dataverse's limit |
 
-On 2026-09-30 a scheduler wake-up took 0.9 s for 1 due schedule, 2.6 s for 10 and 11.5 s for 50,
-against a 60-second budget per call. That is the time to start the runs, not to run them. S6 was
-measured on the same day, before the shared-reads change, at one table only (4.0 s), so it isn't a
-current figure.
+Deletes take about half of the time. At 5,000 related rows a save wrote 6,667 rows in 113 seconds,
+and the next one ran past the **2-minute limit** Dataverse puts on a save's plug-ins, so it failed
+and was rolled back. Keep a save's set actions to about 2,000 rows; for more, use an **On demand**
+run.
 
-## What drives cost
+## On demand runs
 
-- **Related rows read.** In S1 and S2 the time grows with the related rows a save reads. At 10,000
-  rows, reading them took 79% (S1) and 61% (S2) of the time on 2026-10-07.
-- **Reading the same rows twice.** Before 2026-10-04 each rule read its related rows for itself, so
-  one S2 save at 10,000 rows read 510,192 rows. Now a save shares those reads across its rules.
-- **Loading the published rules.** With about 100 published rules, loading them took 1.1 to 1.4 s of
-  every evaluation, whatever the row count. At 100 rows it was the largest share (72% in S1, 81% in
-  S2, 2026-10-04).
-- **Writes.** Writes take most of the time when rules change rows: 74% of the updating S4 run, and
-  deletes 59% of the S3 save at 2,000 rows. Sending a run page's updates in groups (2,000 bulk
-  requests instead of 50,000 single ones) cut the S4 write time from 951 s to 529 s.
-- **Reads per run page.** Reading a page's rows in batches and loading the rules once per page cut
-  the read-only S4 run from 7.0 to 1.8 minutes: 2,000 queries instead of 28,899, and 2.2 s of rule
-  loading instead of 42 s.
+Engine time for the whole run, 500 records per page:
+
+| Records | Rule that only reads | Rule that updates a row per record |
+|---|---|---|
+| 1,000 | 2.8 s | 11.4 s |
+| 10,000 | 22.1 s | 1.8 min |
+| 50,000 | 1.9 min | 9.1 min |
+
+Time grows in line with the record count: about 1.6 million records an hour for a rule that only
+reads, and about 330,000 an hour for one that writes. The slowest page took 1.6 s and 6.7 s
+respectively, well inside a page's 60-second budget. The round trips between pages come on top.
+
+## Scheduler
+
+| Due schedules | One scheduler check |
+|---|---|
+| 1 | 0.8 s |
+| 10 | 2.1 s |
+| 50 | 12.7 s |
+
+That's the time to start the runs, not to run them. A check stops after about 60 seconds and leaves
+the rest for the next one.
+
+## Date comparisons across tables
+
+| Tables with a date condition | Median |
+|---|---|
+| 1 | 1.3 s |
+| 3 | 1.2 s |
+| 5 | 1.4 s |
+| 7 | 1.5 s |
+
+Comparing dates across more related tables adds little. About 80% of each save is loading the
+rules.
 
 ## Guidance
 
-- **Bound the related rows a save reads.** Use conditions and Rows filters so a save reads only the
-  rows it needs. In S1, 500 related rows took 1.8 s, 2,000 took 3.1 s and 10,000 about 10 s.
-  Microsoft recommends a 2-second budget for synchronous plug-ins.
-- **Keep set actions small.** A save that wrote 2,667 rows took about a minute; the platform's
-  limit for a synchronous save is 2 minutes. Use **Preview on a record** to see how many rows a
-  record would write.
-- **Plan large runs by record count.** An On demand run pages through the records 500 at a time,
-  and its time grows in proportion to the records. A rule that writes costs more than one that only
-  reads: about 12 minutes against 2 for 50,000 records. Allow extra time for the round trips
-  between pages.
-- **Measure on your own data.** Turn on **Capture diagnostics** (see *Troubleshooting*) to time
-  real saves in your org, and set it back to **No** when you're done.
+- **Keep related rows small per save.** Use conditions and Rows filters so a save reads only the
+  rows it needs. Microsoft recommends
+  [2 seconds](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/analyze-performance)
+  for a synchronous plug-in, which this release meets up to about 500 related rows.
+- **Keep set actions on a save to about 2,000 rows.** Larger sets risk Dataverse's 2-minute limit.
+  Use **Preview on a record** to see how many rows a record would write, and an **On demand** run for
+  bigger jobs.
+- **Plan runs by record count.** A rule that writes costs about five times one that only reads.
+- **Measure on your own data.** Turn on **Capture diagnostics** (*Troubleshooting*) to time real saves,
+  and turn it off when you're done.

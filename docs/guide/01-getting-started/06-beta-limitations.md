@@ -22,12 +22,11 @@ save**.
 
 With about 100 rules on the table (*Performance*), a save's rule evaluation stayed inside
 [Microsoft's 2-second budget for synchronous plug-ins](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/analyze-performance)
-up to about 500 related rows, and took about 5.6 seconds at 5,000. Your timings depend on the other
+up to about 500 related rows, and took about 5.7 seconds at 5,000. Your timings depend on the other
 plug-ins on the same events and on your data.
 
 - Bulk operations (`CreateMultiple`, `UpdateMultiple`) pay that cost for every record in the batch.
-- A save that changes a lookup used by an action with **Also apply to the previous** reads the
-  related records twice, so it costs about twice as much.
+- A save whose rule writes many related rows can reach Dataverse's 2-minute limit (§17).
 
 ## 3. Traversal row cap: 25,000. Fails, never truncates
 
@@ -139,6 +138,7 @@ it. It's reserved for future use.
 ## 17. No write limit on set actions
 
 A set action writes every filtered row, with no cap. A very large set can pass the platform's
-2-minute limit for a save, which fails the save. Bound sets with the Rows filter and the rule's
+2-minute limit for a save, which fails the save: in testing, 2,667 rows took 48 seconds and 6,667
+rows passed the limit (*Performance*). Bound sets with the Rows filter and the rule's
 conditions, and use **Preview on a record** to see how many rows a record would write. Rows are
 sent in bulk where the table allows it.
