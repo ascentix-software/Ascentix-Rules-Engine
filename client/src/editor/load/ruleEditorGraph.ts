@@ -1,6 +1,6 @@
 import type { WebApiPort } from "../webapi";
 import { loadRuleGraph } from "./index";
-import { ENTITY, RULE_SELECT } from "./odata";
+import { ENTITY, LOOKUP, RULE_SELECT } from "./odata";
 import { loadPublishedGraph } from "./publishedGraph";
 
 const FV = "@OData.Community.Display.V1.FormattedValue";
@@ -25,9 +25,12 @@ export async function loadRuleEditorGraph(api: WebApiPort, ruleId: string) {
     `?$select=asx_ruleid&$filter=_asx_draftof_value eq ${activeId}&$top=2`);
   if (drafts.entities.length > 1) throw new Error("This rule has more than one working draft.");
   const draftId = drafts.entities[0]?.asx_ruleid;
-  const graph = !draftId && (active.statuscode === 753840000 || active._asx_publishedrevision_value) && api.readPublishedRule
-    ? await loadPublishedGraph(await api.readPublishedRule(activeId), activeId)
+  const fromRevision = !draftId && !!(active.statuscode === 753840000 || active._asx_publishedrevision_value) && !!api.readPublishedRule;
+  const graph = fromRevision
+    ? await loadPublishedGraph(await api.readPublishedRule!(activeId), activeId)
     : await loadRuleGraph(api, draftId ?? activeId);
+  // A published version holds a frozen copy of its data model; editing goes to the shared one.
+  if (fromRevision) graph.rule.modelId = active[LOOKUP.ruleOfTableConfig] ?? null;
   graph.rule.publishedRevisionId = active._asx_publishedrevision_value ?? null;
   graph.rule.publishedVersion = active.asx_publishedversion ?? 0;
   graph.rule.statusCode = active.statuscode ?? null;

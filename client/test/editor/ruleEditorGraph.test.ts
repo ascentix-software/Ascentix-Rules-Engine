@@ -43,3 +43,26 @@ it("loads the latest revision of an unpublished rule while keeping enforcement s
   expect(api.openRuleDraft).not.toHaveBeenCalled();
   expect(graph.rule).toMatchObject({ statusCode: 1, publishedRevisionId: "revision-2", etag: 'W/"15"' });
 });
+
+it("points Edit data model at the shared model, not the published version's frozen copy", async () => {
+  const api = {
+    retrieveRecord: vi.fn(async () => ({ statuscode: 1, _asx_publishedrevision_value: "revision-2", _asx_roottableconfig_value: "live-model" })),
+    retrieveMultipleRecords: vi.fn(async () => ({ entities: [] })),
+    readPublishedRule: vi.fn(async () => publishedDefinition),
+  } as unknown as WebApiPort;
+  vi.mocked(loadRuleGraph).mockResolvedValue({ rule: { id: publishedRuleId, rootTableConfigId: "frozen-copy" } } as any);
+  const graph = await loadRuleEditorGraph(api, publishedRuleId);
+  expect(graph.rule.modelId).toBe("live-model");
+});
+
+it("leaves modelId unset for a working draft, whose own model is the shared one", async () => {
+  vi.mocked(loadRuleGraph).mockResolvedValue({ rule: { id: "draft", rootTableConfigId: "live-model" } } as any);
+  const api = {
+    retrieveRecord: vi.fn(async () => ({ statuscode: 753840000, _asx_roottableconfig_value: "live-model" })),
+    retrieveMultipleRecords: vi.fn(async () => ({ entities: [{ asx_ruleid: "draft" }] })),
+    readPublishedRule: vi.fn(),
+  } as unknown as WebApiPort;
+  const graph = await loadRuleEditorGraph(api, publishedRuleId);
+  expect(graph.rule.modelId).toBeUndefined();
+  expect(api.readPublishedRule).not.toHaveBeenCalled();
+});
