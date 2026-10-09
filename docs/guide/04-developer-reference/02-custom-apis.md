@@ -86,8 +86,6 @@ rule on the table runs as usual. The draft must be on `TableName`'s table, and t
 able to read the draft. Results and outcomes for it are reported under the **draft's** id, not
 the live rule's. Dataverse passes an omitted optional Guid as an empty Guid, which means no
 draft. The Rule Builder's **Preview on a record** sets it when its **Version** is **Draft**.
-The parameter is created by `pipelines/Configure-RuleAuthoring.ps1` when the deploy's Register
-phase runs.
 
 `RecordJson` values are encoded per attribute kind: a lookup is
 `{ "id": "<guid>", "logicalname": "<table>" }`; a multi-select choice is an array of
@@ -160,8 +158,7 @@ run only. A rule held back by its execution conditions reports no outcomes. `Res
 shape. Without `IncludeOutcomes` (or with `false`), `Outcomes` is always `[]`: the client form
 library doesn't ask for it, so a form's calls don't carry outcome names and values. The Rule
 Builder's **Preview on a record** sets `IncludeOutcomes` and lists the tested rule's outcomes from
-this output under **OUTCOMES**. The `Outcomes` output and the `IncludeOutcomes` parameter are created by
-`pipelines/Configure-RuleAuthoring.ps1` when the deploy's Register phase runs.
+this output under **OUTCOMES**.
 
 **`ChangeSet`** summarizes every write this evaluation would make, across every rule and action
 that fired, after writes to the same record are merged (see *Building Actions* → *Writing a set of
