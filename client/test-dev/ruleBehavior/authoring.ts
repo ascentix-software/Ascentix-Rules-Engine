@@ -239,7 +239,7 @@ export type WhenCfg = { all?: (WhenTest | WhenCfg)[]; any?: (WhenTest | WhenCfg)
 export interface ActionCfg {
   actionType: number; // 1 SetVisible | 2 SetRequired | 3 ShowMessage | 4 Block
   // Shorthand for the retired On match / On no match, translated to a Fires-when tree with the
-  // migration's mapping (migrations/2026-10-multi-outcome): 1 -> root ALL with every outcome "is
+  // mapping data update 1 uses (OutcomeConversionUpdate.cs): 1 -> root ALL with every outcome "is
   // true" (no outcomes -> empty ALL); 2 -> root ANY with every outcome "is false". 2 with no
   // outcomes would never fire, so the helper throws. Ignored when `when` is given.
   fireOn?: number; // 1 | 2

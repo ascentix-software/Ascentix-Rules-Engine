@@ -47,11 +47,14 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
         private readonly IReadOnlyList<IDataUpdate> _updates;
         private readonly DataUpdateLimits _limits;
         private readonly Func<DateTime> _utcNow;
+        private readonly IOrganizationService _writer;
 
+        /// <param name="writer">Writes rule configuration for an update (DataUpdateContext.Writer); default: the system service.</param>
         public DataUpdateProcessor(IOrganizationService system, ITracingService trace, Guid callerId,
-            IEnumerable<IDataUpdate> updates, DataUpdateLimits limits, Func<DateTime> utcNow)
+            IEnumerable<IDataUpdate> updates, DataUpdateLimits limits, Func<DateTime> utcNow, IOrganizationService writer = null)
         {
             _system = system;
+            _writer = writer;
             _trace = trace;
             _callerId = callerId;
             _updates = updates.OrderBy(u => u.Number).ToList();
@@ -81,11 +84,11 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
             var rows = DataUpdateRows.Load(_system);
             foreach (var update in _updates)
             {
-                if (!DataUpdateRows.IsPending(Find(rows, update.Number))) continue;
+                if (!DataUpdateRows.IsPending(Find(rows, update.Number), update, _system)) continue;
                 var row = Lock(update, Find(rows, update.Number));
                 if (!DataUpdateRows.IsPending(row)) continue;   // another caller finished it while we waited
 
-                var context = new DataUpdateContext(_system, _trace, _callerId);
+                var context = new DataUpdateContext(_system, _trace, _callerId, _writer);
                 while (true)
                 {
                     DataUpdateStep step;
@@ -203,7 +206,7 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
 
         private DataUpdateResult Result(Dictionary<int, DataUpdateRow> rows, bool canApply)
         {
-            var pending = _updates.Where(u => DataUpdateRows.IsPending(Find(rows, u.Number)))
+            var pending = _updates.Where(u => DataUpdateRows.IsPending(Find(rows, u.Number), u, _system))
                 .Select(u => new DataUpdateRef(u.Number, u.Title)).ToList();
             var latest = rows.Values
                 .OrderByDescending(r => r.LastPageOn ?? r.StartedOn ?? DateTime.MinValue)

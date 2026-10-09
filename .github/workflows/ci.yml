@@ -37,10 +37,6 @@ jobs:
         shell: pwsh
         run: ./tests/pipelines/Test-DeployWebResources.ps1
 
-      - name: Test the multi-outcome migration script
-        shell: pwsh
-        run: ./migrations/2026-10-multi-outcome/Test-ConvertRulesToOutcomes.ps1
-
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"

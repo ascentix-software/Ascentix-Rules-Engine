@@ -1,5 +1,6 @@
 using System;
 using Ascentix.RulesEngine.Plugin.DataUpdates;
+using Ascentix.RulesEngine.Plugin.Publication;
 using Ascentix.RulesEngine.Schema;
 using Microsoft.Xrm.Sdk;
 
@@ -31,13 +32,14 @@ namespace Ascentix.RulesEngine.Plugin
                 throw new InvalidPluginExecutionException($"asx_ApplyDataUpdates: unknown Mode '{mode}'. Expected Status or Apply.");
 
             var canApply = AdminPrivilege.Has(system, context.InitiatingUserId);
-            var processor = new DataUpdateProcessor(system, localPluginContext.TracingService, context.InitiatingUserId,
-                DataUpdateRegistry.All, new DataUpdateLimits(), () => DateTime.UtcNow);
+            DataUpdateProcessor Processor(IOrganizationService writer = null) => new DataUpdateProcessor(system,
+                localPluginContext.TracingService, context.InitiatingUserId, DataUpdateRegistry.All, new DataUpdateLimits(),
+                () => DateTime.UtcNow, writer);
 
-            DataUpdateResult result;
+            DataUpdateResult result = null;
             if (isStatus)
             {
-                result = processor.Status(canApply);
+                result = Processor().Status(canApply);
             }
             else
             {
@@ -47,7 +49,10 @@ namespace Ascentix.RulesEngine.Plugin
                 if (retry <= 0) retry = null;
                 var failedItem = Input(context, SchemaNames.ApplyDataUpdatesApi.ParamFailedItem) as string;
                 var failedMessage = Input(context, SchemaNames.ApplyDataUpdatesApi.ParamFailedMessage) as string;
-                result = processor.Apply(retry, string.IsNullOrWhiteSpace(failedItem) ? null : failedItem.Trim(), failedMessage);
+                // An update converts rule rows in place, including a Published rule's, which only the publish
+                // pipeline may write: its writes go past the draft and publish guards, as publishing's own do.
+                PublicationCoordinator.Internal(context, system, writer =>
+                    result = Processor(writer).Apply(retry, string.IsNullOrWhiteSpace(failedItem) ? null : failedItem.Trim(), failedMessage));
             }
 
             context.OutputParameters[SchemaNames.ApplyDataUpdatesApi.PropRequired] = result.Required;
