@@ -34,13 +34,10 @@ Handle with priority."). Select one to edit its **Column** and **Source** on the
 
 ![The Map columns dialog for an Update record action on Orders: Approval Notes from a Template and Handling Instructions from a Literal “Ship within 24 hours.”, with Add column, Edit as JSON, “Ready to apply”, Cancel and Apply.](../images/02-09-field-mapping-01.png)
 
-**Add column** adds an entry; **Remove column** removes the selected one. **Apply** saves the
-mapping to the action, **Cancel** discards it. **"Edit as JSON"** shows the stored field-mapping
+**"Edit as JSON"** shows the stored field-mapping
 JSON; switching back re-reads it.
 
 ## Calculation
-
-A calculation computes a number from an expression.
 
 | Element | Syntax |
 |---|---|
@@ -79,8 +76,7 @@ operand: `sum(node:<lines>.lineamount) * (1 + {root.taxrate})`.
 ### Filtering an aggregate
 
 Below the expression, the **Aggregates** card lists each aggregate with its function, collection
-and column. **"Only rows where…"** opens the same filter builder as condition filters; **Clear**
-removes the filter. Only aggregates can be filtered, not `{root.…}` or `{node:…}` operands.
+and column. **"Only rows where…"** opens the same filter builder as condition filters; Only aggregates can be filtered, not `{root.…}` or `{node:…}` operands.
 
 - Criteria use the same operators, and compare against a literal, another record's column or, for
   dates, a **Date expression** (*Filtering a Condition's Child Records*).

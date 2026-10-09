@@ -11,8 +11,7 @@ A rule that runs **On demand** for **All records that match "Only if"** can also
 A scheduled run is an ordinary **Rule Run**: it reads the same records as **Apply to records**
 (*Running Rules On Demand*) and shows in the same **Runs** dialog.
 
-Scheduling needs the optional **scheduler add-on** (below). Without it, nothing starts scheduled
-runs.
+Scheduling needs the optional **scheduler add-on** (below).
 
 ## Setting a schedule
 
@@ -35,8 +34,6 @@ Then **Save**. A schedule doesn't need a draft or a publish: it belongs to the p
 saving it leaves the published rule untouched. **Save** is refused while the schedule is On and
 incomplete; the section says what's missing.
 
-A rule set to **Records it's given** can't be scheduled, since a schedule has no records to give it.
-
 ### Who can set schedules
 
 The **Rules Engine Author** and **Reader** roles don't include it. Grant **Create**, **Read**,
@@ -47,7 +44,6 @@ schedules."
 ## When scheduled runs start
 
 The add-on checks every 15 minutes, so a run starts **within 15 minutes** of its scheduled time.
-Don't use a schedule for something that must happen at an exact minute.
 
 - **Missed runs aren't queued.** If the scheduler was off for a while, the next check starts one
   run and moves **Next** to the next time after now.
@@ -62,7 +58,6 @@ Don't use a schedule for something that must happen at an exact minute.
 |---|---|
 | The rule is unpublished, no longer On demand for all records, or has an unknown time zone | The schedule stays On, records **Rule not runnable**, and tries again next time. Fix the rule and it picks up. |
 | The schedule itself is invalid or lost its rule | It's turned **Off** with **Rule not runnable**. Fix it and turn it back On. |
-| The rule is deleted | Its schedule is deleted too. |
 
 ## Installing the scheduler add-on
 

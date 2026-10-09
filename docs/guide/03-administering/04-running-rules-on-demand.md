@@ -74,8 +74,7 @@ see each record (linked) and its message.
 | **Cancelled**, **Failed** | Stopped by someone, or by the 100-failure safety stop. |
 
 A rule has **one run at a time**. Starting another while one is Queued or Running is refused: "This
-rule already has a run in progress. Cancel or resume it first." A run can't be edited, only
-cancelled.
+rule already has a run in progress. Cancel or resume it first."
 
 ## Who can run rules
 

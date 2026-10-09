@@ -38,9 +38,6 @@ actions (*Custom APIs*).
 | Block (form-level) | Shows a form banner | No (no field for the platform to roll a notification up from) |
 | Create/Update/Delete Record | Ignored on the client | n/a (server-only) |
 
-Imports, API calls and other writes that don't go through the form are enforced on save by the
-server plugin, whatever the client shows.
-
 ## Wiring it onto a form
 
 On each model-driven form that should run rules:
@@ -49,7 +46,7 @@ On each model-driven form that should run rules:
 2. Register one `OnLoad` handler: function `Ascentix.RulesEngine.onLoad`, with **Pass execution
    context as first parameter** checked.
 
-That's the only handler to add. The library registers its own change handlers from `onLoad`.
+The library registers its own change handlers from `onLoad`.
 
 > `asx_authoringforms.js` is a separate bundle for the engine's own configuration forms, not for
 > rules on your tables.

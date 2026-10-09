@@ -23,7 +23,7 @@ The 12 tables are `asx_rule`, `asx_conditiongroup`, `asx_rulecondition`, `asx_ta
 - **Authors can publish.** Publishing is a Write on `asx_rule`; what stops a rule going live is
   validation, not a role (*Rule Lifecycle*). Authors need nothing on platform tables such as
   `sdkmessageprocessingstep`: the engine registers steps itself.
-- **Reader** is for people who look at rules without editing them. Nothing at runtime needs it.
+- Nothing at runtime needs **Reader**.
 
 ## Enforcement doesn't depend on these roles
 
@@ -45,11 +45,10 @@ Grant these separately, for example with a small role on top:
 | Apply a data update | System Administrator or System Customizer |
 
 - Without Read on Rule Schedule, the Schedule section shows "You don't have access to rule
-  schedules. Ask an administrator." With Read but not Create or Write, saving a schedule fails.
+  schedules. Ask an administrator."
 - The account that drives schedules (the scheduler add-on's connection, or your own caller) needs
   only the run privileges.
-- Everyone who can open the Rule Builder sees a pending data update; only an administrator can apply
-  it (*Data Updates*).
+- Everyone who can open the Rule Builder sees a pending data update (*Data Updates*).
 
 See *Running Rules On Demand* and *Scheduling Rules*.
 

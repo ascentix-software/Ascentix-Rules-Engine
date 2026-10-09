@@ -63,8 +63,7 @@ administrator then sees:
 
 ![The hub's notice “Update 1 · Convert action conditions to outcomes finished with 1 failed item(s).”, listing a rule id and the reason (its published version still uses On match / On no match; publish it from the Rule Builder, then Retry failed items), with Retry failed items and Dismiss. New rule is back.](../images/03-07-data-updates-03.png)
 
-It lists each failed item with the reason (the first 50). A failed item is left as it was, and rules
-are editable again. Fix the cause the reason names, then choose **Retry failed items**: the update
+It lists each failed item with the reason (the first 50). Rules are editable again. Fix the cause the reason names, then choose **Retry failed items**: the update
 runs again from the start. **Dismiss** hides the notice until the next apply finishes or the Rule
 Builder is reopened. An update whose items all fail finishes the same way (*Troubleshooting*).
 

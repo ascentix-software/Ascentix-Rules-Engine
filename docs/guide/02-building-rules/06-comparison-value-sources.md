@@ -36,8 +36,7 @@ child collection.
 
 Combine text with tokens: `{root.<column>}` for the record being checked, `{node:<node>.<column>}`
 for a related record, the same syntax as Text template field mappings (*Field Mapping*). Use
-**Insert field** to add tokens; a preview shows the result. The template is filled in when the rule
-runs.
+**Insert field** to add tokens; a preview shows the result.
 
 If a token is malformed, names an unknown node, or reaches more than one record, the rule stops
 with a configuration error instead of comparing against unfilled text. (Message tokens behave

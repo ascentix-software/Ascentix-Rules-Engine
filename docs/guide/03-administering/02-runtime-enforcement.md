@@ -21,14 +21,13 @@ a form* below).
 This is the enforcement that counts: it covers every save, from forms, the Web API, integrations and
 imports.
 
-- Every matching rule is evaluated and its fired actions are collected.
 - **Block wins.** If any Block fires, on any rule, the save fails before anything is written. None of
   the fired write actions (Create, Update, Delete or Deactivate Record, on one record or a set) are
   applied.
 - Otherwise the fired writes are applied in the save's own transaction. A write that fails rolls the
   whole save back.
 - Writes made by rules don't trigger further rules.
-- **On Delete** works the same way: a Block stops the delete and the row stays.
+- **On Delete** works the same way: a Block stops the delete.
 - **Channels** apply (*Triggers & Channels*): a Power Pages save is **Portal**, everything else is
   **Standard**.
 

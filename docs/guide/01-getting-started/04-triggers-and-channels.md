@@ -44,7 +44,7 @@ read:
 > check whether the order is locked. Without `sample_lineamount` as a trigger column, editing a
 > line amount never re-runs the rule and the total goes stale.
 
-Trigger columns apply to **On update** only. Create and Delete always run.
+Create and Delete always run.
 
 ## Channels
 

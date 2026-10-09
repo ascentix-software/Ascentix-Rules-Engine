@@ -67,6 +67,5 @@ table…**, **Rename** and **Delete**. You can't delete the **Root**, a table wi
 - The hub's **Data models** tab (*The Hub*).
 - **Table Configs** in the app sitemap.
 
-The breadcrumb (**Rules & data model** / **Data models**) leads back to the hub. The pencil
-(**Rename data model**) renames it. See *Metadata Pickers* for the relationship list, and *Building
+See *Metadata Pickers* for the relationship list, and *Building
 Conditions* for picking a condition's node.

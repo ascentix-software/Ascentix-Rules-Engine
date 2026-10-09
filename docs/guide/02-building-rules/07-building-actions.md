@@ -11,7 +11,7 @@ screenshots:
 
 # Building Actions
 
-Actions are what a rule does: the **Then** band. Add one with **Add action**.
+Actions are what a rule does: the **Then** band.
 
 ## Action types
 
@@ -34,7 +34,7 @@ form**, it doesn't hold the save (*Runtime Enforcement*).
 
 ## The action panel
 
-Select an action to open its panel. The summary at the top says what it will do, for example "When
+The summary at the top says what it will do, for example "When
 **Credit check** is false, blocks the save with “…”."
 
 | Field | Use |
@@ -67,7 +67,7 @@ warns on it (*Validating & Publishing*).
 
 The **When** section tests the rule's outcomes (*Building Conditions*):
 
-- A **test** reads "<outcome> **is true**" or "<outcome> **is false**". **Add test** adds one.
+- A **test** reads "<outcome> **is true**" or "<outcome> **is false**".
 - A **group** is **All** or **Any** of its tests (the root's toggle reads **When matches**). **Add
   group** nests one.
 - An empty root **All** reads **Always, when the rule runs**, the default for a new action.
@@ -78,15 +78,13 @@ The **When** section tests the rule's outcomes (*Building Conditions*):
 Until the rule has an outcome, **Add test** and **Add group** are replaced by "Add an outcome to test
 it here." An empty group other than the root **All** is refused at publish (`ACTION_EMPTY_GROUP`).
 
-The action row sums it up, for example "When High value and (At risk or Critical case is false)". A
-validation rule usually pairs **Block save** with "its *valid* outcome is false".
+A validation rule usually pairs **Block save** with "its *valid* outcome is false".
 
 ## Dynamic message text
 
 A message and its translations can include `{root.<column>}` (the record being saved) and
 `{node:<node>.<column>}` (a related record), filled in when the action fires. Use **Insert field**;
-the **Message** label's info tip previews the result. **Add translation** adds a version for
-another language.
+the **Message** label's info tip previews the result.
 
 If a token can't be filled (unknown node, malformed token, a related record that's gone), the
 message shows the raw text instead of failing the rule. A comparison template fails instead

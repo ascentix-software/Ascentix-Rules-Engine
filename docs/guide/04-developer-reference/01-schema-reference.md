@@ -100,7 +100,7 @@ A leaf check inside a Condition Group.
 ### Rule Action (`asx_ruleaction`)
 
 An action fires only when its *Fires when* tree holds (the next two tables); with no tree it never
-fires. Columns that don't apply to the Action Type are blank.
+fires.
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
@@ -125,7 +125,7 @@ A node of an action's *Fires when* tree: outcome tests combined with ALL or ANY.
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
-| Rule Action | `asx_ruleaction` | Lookup → `asx_ruleaction` | Yes | The action the node belongs to. Every node carries it, not just the root. Deleting the action deletes its tree |
+| Rule Action | `asx_ruleaction` | Lookup → `asx_ruleaction` | Yes | The action the node belongs to. Every node carries it, not just the root |
 | Parent Group | `asx_parentgroup` | Lookup → `asx_actionconditiongroup` | No | Blank = the root. An action has at most one root |
 | Logical Operator | `asx_logicaloperator` | Choice | Yes | ALL = 1 (every child must hold), ANY = 2 (at least one must hold) |
 | Order | `asx_order` | Whole Number | No | Position among siblings |
@@ -138,7 +138,7 @@ A leaf of a *Fires when* tree: "this outcome is true" or "this outcome is false"
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
-| Group | `asx_actionconditiongroup` | Lookup → `asx_actionconditiongroup` | Yes | The group the test is in. Deleting the group deletes its tests |
+| Group | `asx_actionconditiongroup` | Lookup → `asx_actionconditiongroup` | Yes | The group the test is in |
 | Outcome | `asx_outcome` | Lookup → `asx_conditiongroup` | Yes | A top-level validation group of the same rule. Deleting the outcome removes the link, and publishing then reports an error |
 | Expected | `asx_expected` | Yes/No | Yes | Yes = "is true" (default), No = "is false" |
 | Order | `asx_order` | Whole Number | No | Position among siblings |
@@ -219,8 +219,7 @@ cancelling it (Status from Queued or Running to Cancelled). See *Running Rules O
 
 ### Rule Schedule (`asx_ruleschedule`)
 
-At most one per rule; it starts or continues the rule's Rule Runs (*Scheduling Rules*). Deleting
-the rule deletes it.
+At most one per rule; it starts or continues the rule's Rule Runs (*Scheduling Rules*).
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|

@@ -43,8 +43,7 @@ minimum that can never pass at Create (`STRUCT_ROWCOUNT_ON_CREATE`).
 
 After a check finds issues, the header shows an issues button with the counts (for example **2
 errors**). The drawer lists errors under **Must fix to publish** and warnings under **Warnings**,
-each with its message, code and the field it applies to; select one to go there. **Check again**
-re-runs the check. After an edit it says *You've edited since this check. Results may be out of
+each with its message, code and the field it applies to; select one to go there. After an edit it says *You've edited since this check. Results may be out of
 date.* Errors also show an icon on the row.
 
 While you build, incomplete items say what to do next, for example *Choose a column to compare.*

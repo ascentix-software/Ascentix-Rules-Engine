@@ -9,8 +9,7 @@ slug: custom-apis
 
 The engine's **unbound Custom APIs** integrate with rules outside the save enforcement and form
 behavior in *How Rules Run*. Call them through the Dataverse Web API (`Xrm.WebApi.online.execute`
-from client code, or plain HTTP from a server). Results come back as JSON in the response
-parameters.
+from client code, or plain HTTP from a server).
 
 | API | Does |
 |---|---|
@@ -134,8 +133,7 @@ Enums are string names; fields that don't apply to the action type are `null`. W
 | `unchangedCount` | Set target | How many of `writeCount` already hold the mapped values |
 | `previousOf` | "Also apply to the previous" fired | The id of the root-level lookup node. Only in a dry run of an Update (`Triggers` = `OnUpdate`, with both `RecordId` and `RecordJson`), and never on a set target |
 
-`asx_RunRules` only reports writes; the server engine applies them on Create/Update/Delete
-(*Runtime Enforcement*). `writeCount` differs from `asx_ApplyRules`' `WriteCount`, which counts
+`writeCount` differs from `asx_ApplyRules`' `WriteCount`, which counts
 only rows actually written.
 
 ```json
@@ -332,7 +330,7 @@ async function runRuleForRecord(ruleId, recordId) {
 ## `asx_ApplyDataUpdates`: report or apply data updates
 
 Reports a release's data updates and applies the pending ones. The Rule Builder uses it for the
-pending-update bar and **Apply now**; a script or pipeline can call it the same way.
+pending-update bar and **Apply now**.
 
 | Request | Type | Optional | Notes |
 |---|---|---|---|
@@ -541,8 +539,7 @@ Content-Type: application/json
 `RuleId` is a required String; the caller needs the rule Delete privilege. In one transaction it
 removes the rule, its working draft, its conditions and actions, its revisions, and private data
 models no other rule uses. Shared models stay. Deleting only a working draft keeps the published
-rule. A rule that doesn't exist succeeds without changes. There are no response properties. The
-Rule Builder uses it to delete rules.
+rule. A rule that doesn't exist succeeds without changes. There are no response properties.
 
 A native `DELETE asx_rules(id)` (what the standard Rules grid uses) removes the same graph in its
 transaction; the API adds idempotent deletion of an already-absent rule.

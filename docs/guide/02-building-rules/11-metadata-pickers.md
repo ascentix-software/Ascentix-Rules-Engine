@@ -38,4 +38,4 @@ or filtering by more than the name:
 - A **view selector**: the view sets the base filter and the grid's columns.
 - A **text search** within the view.
 - An **advanced filter**: an AND/OR builder over any column.
-- A **results grid** with **Load more**. Select a row, then **Select**.
+- A **results grid** with **Load more**.

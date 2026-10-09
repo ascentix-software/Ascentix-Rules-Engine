@@ -38,7 +38,7 @@ instead** (or **Match all instead**), **Duplicate** and **Delete group** (**Rena
 ## Outcomes
 
 Each top-level group in **Outcomes** is an outcome: a named result, true or false, that actions test.
-Click **Add outcome** to add one. Its panel has a **Name**, a **True when it matches** **All** /
+Its panel has a **Name**, a **True when it matches** **All** /
 **Any** toggle, and a **Used by** list of the actions that test it.
 
 - The name is required, unique in the rule (ignoring case), and at most 100 characters.

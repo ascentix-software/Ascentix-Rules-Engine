@@ -25,18 +25,15 @@ no filtering attributes, so every create, update and delete of a rule or action 
 | `asx_rule` | Create, Update, Delete |
 | `asx_ruleaction` | Create, Update, Delete |
 
-These six steps ship with the solution, as do the publish gate and revision guards below.
-
 ## Generated steps
 
 When you create, edit, activate or delete a rule, `RuleRegistrationPlugin` reconciles the
 `RulesEnginePlugin` step on **your** table: it creates it, updates its message and filtering when
-the rule changed, or removes it when no rule needs it. Delete every rule on a table and its steps
-go too.
+the rule changed, or removes it when no rule needs it.
 
 Generated steps are named `Ascentix.RulesEngine: {table} {message}` (for example
-`Ascentix.RulesEngine: account Update`) and show in the Plug-in Registration Tool like any other
-step. Where the environment supports them, they also cover `CreateMultiple` / `UpdateMultiple`.
+`Ascentix.RulesEngine: account Update`). Where the environment supports them, they also cover
+`CreateMultiple` / `UpdateMultiple`.
 
 ## Publish gate
 

@@ -22,7 +22,6 @@ rule settings.
   user. A Row Count minimum can pass for a user who sees fewer rows and block an administrator, or
   the reverse.
 - **Writes**: a fired Create, Update or Delete Record action runs as the same identity.
-- It's set **per rule**, so one rule on a table can stay with the user while another runs as System.
 
 Rule configuration itself is always read as the system user, whatever this setting says (*Security
 Roles*).

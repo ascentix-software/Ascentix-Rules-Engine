@@ -28,7 +28,7 @@ pill, and the actions.
 | **Editing draft** | A draft of a published rule is open (with its unsaved change count). |
 | **Draft** | Never published (shown with **Not live**). |
 | **Viewing live vN** | The published version, read-only. |
-| **Archived** | Archived. |
+| **Archived** | Retired; never enforced. |
 
 Actions, left to right (only the ones that apply are shown):
 
@@ -45,8 +45,7 @@ Actions, left to right (only the ones that apply are shown):
 
 **Check for issues** saves and validates without publishing. **Restore published to draft…**
 replaces the draft's changes; **Discard draft…** deletes the draft and reopens the live rule. Neither
-changes what's enforcing. **Reload from server** drops unsaved edits. Confirmations (*Saved*, *No
-issues found*, *vN is live*) appear as short notices.
+changes what's enforcing. **Reload from server** drops unsaved edits.
 
 ## Rule settings strip
 
