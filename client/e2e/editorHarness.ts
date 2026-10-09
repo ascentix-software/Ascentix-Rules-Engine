@@ -88,11 +88,13 @@ export function armReauthGuard(page: Page): () => Promise<void> {
   };
 }
 
-export async function openHub(page: Page, appId: string): Promise<FrameLocator> {
+// `readOnly`: a pending data update hides New rule, so wait for the rule search instead.
+export async function openHub(page: Page, appId: string, opts: { readOnly?: boolean } = {}): Promise<FrameLocator> {
   const settle = armReauthGuard(page);
   await page.goto(hubDeepLink(appId));
   const frame = editorFrame(page);
-  await expect(frame.getByRole("button", { name: "New rule" })).toBeVisible({ timeout: 60_000 });
+  const ready = opts.readOnly ? frame.getByPlaceholder("Search rules") : frame.getByRole("button", { name: "New rule" });
+  await expect(ready).toBeVisible({ timeout: 60_000 });
   await settle();
   return frame;
 }
