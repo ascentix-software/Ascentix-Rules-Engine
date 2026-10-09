@@ -8,7 +8,8 @@ slug: data-updates
 # Data Updates
 
 Some releases change how rules are stored, so the rules you already have must be converted once. The
-release ships that conversion as a numbered **data update**. Most releases carry none.
+release ships that conversion as a numbered **data update**. Most releases carry none, and an
+update only appears where it has something to convert: a new installation never sees one.
 
 A data update is applied from the Rule Builder, not on import. Importing the new solution is safe on
 its own: published rules keep enforcing the whole time.
