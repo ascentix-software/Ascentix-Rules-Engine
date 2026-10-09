@@ -7,66 +7,54 @@ slug: plugin-registration
 
 # Plugin Registration
 
-The server-side enforcement described in *Runtime Enforcement* is implemented as a
-Dataverse plugin, but you don't register that plugin against your tables by hand.
+Server-side enforcement (*Runtime Enforcement*) is a Dataverse plugin, but you never register it
+against your tables by hand. The one signed assembly has two plugins that matter here:
 
-## Two plugins that matter for enforcement registration
-
-The engine ships one signed plugin assembly.
-
-- **`RulesEnginePlugin`**: the evaluator and enforcer (see *Runtime Enforcement*).
-  Its steps against your own tables are **generated at runtime**, not shipped as part
-  of the solution.
-- **`RuleRegistrationPlugin`**: keeps those generated steps in sync with your rule
-  configuration. This is the one piece that *is* shipped and registered up front.
+| Plugin | Role | Registered |
+|---|---|---|
+| **`RulesEnginePlugin`** | Evaluates and enforces rules | Its steps on your tables are **generated at runtime** |
+| **`RuleRegistrationPlugin`** | Keeps those generated steps in sync with your rules | Shipped with the solution |
 
 ## Shipped bootstrap steps
 
-`RuleRegistrationPlugin` is registered once, as pre-operation synchronous steps, on
-the engine's own configuration tables:
+`RuleRegistrationPlugin` runs as pre-operation synchronous steps on the engine's own tables, with
+no filtering attributes, so every create, update and delete of a rule or action passes through it:
 
 | Table | Messages |
 |---|---|
 | `asx_rule` | Create, Update, Delete |
 | `asx_ruleaction` | Create, Update, Delete |
 
-These six `RuleRegistrationPlugin` steps travel with the solution, as does the
-publish gate and the revision guards described below. No filtering
-attributes are applied to the six: every create, update, and delete against a
-rule or an action passes through `RuleRegistrationPlugin`.
+These six steps ship with the solution, as do the publish gate and revision guards below.
 
 ## Generated steps
 
-Whenever you create, edit, activate, or delete a rule, `RuleRegistrationPlugin`
-reconciles the corresponding `RulesEnginePlugin` step on **your** table: creating it
-if it doesn't exist, updating its filtering/message registration if the rule
-changed, or removing it when the rule no longer targets that message. Delete every
-rule on a table and that table's generated steps go with them.
+When you create, edit, activate or delete a rule, `RuleRegistrationPlugin` reconciles the
+`RulesEnginePlugin` step on **your** table: it creates it, updates its message and filtering when
+the rule changed, or removes it when no rule needs it. Delete every rule on a table and its steps
+go too.
 
-Generated steps are named `Ascentix.RulesEngine: {table} {message}` (for example,
-`Ascentix.RulesEngine: account Update`) and are visible like any other step in the
-Plug-in Registration Tool. Where the environment supports it, they also cover
-Dataverse's bulk `CreateMultiple` / `UpdateMultiple` messages.
+Generated steps are named `Ascentix.RulesEngine: {table} {message}` (for example
+`Ascentix.RulesEngine: account Update`) and show in the Plug-in Registration Tool like any other
+step. Where the environment supports them, they also cover `CreateMultiple` / `UpdateMultiple`.
 
 ## Publish gate
 
-A rule only enforces once it's **Published** (see *Rule Lifecycle*). A shipped step
-on `asx_rule` runs the same validation as *Validating & Publishing* and blocks the
-Draft → Published transition if the rule is invalid.
+A rule enforces only once **Published** (*Rule Lifecycle*). A shipped step on `asx_rule` runs the
+same validation as *Validating & Publishing* and blocks Draft → Published for an invalid rule.
 
-Every explicit publication, including republishing a live rule, captures the saved
-draft and its data model. Configuration guards execute first (order 1), the
-publisher next (20), and registration reconciliation last (30), all synchronously
-in pre-operation. Guards cover Create/Update/Delete of the twelve configuration tables
-plus legacy SetState on rules. Revision-table access uses platform permissions. Native rule Delete captures
-ownership in PreValidation and cleans up in PreOperation/PostOperation inside the
-delete transaction. Both the Rules grid and Rule Builder list support deletion.
-Draft edits preserve the
-registrations required by the published snapshot.
+- Every publish, including republishing a live rule, captures the saved draft and its data model.
+- All steps run synchronously in pre-operation: configuration guards first (order 1), then the
+  publisher (20), then registration reconciliation (30).
+- Guards cover Create/Update/Delete on the twelve configuration tables, plus legacy SetState on
+  rules. Revision-table access uses platform permissions.
+- A native rule Delete captures ownership in PreValidation and cleans up in
+  PreOperation/PostOperation, inside the delete transaction. Both the Rules grid and the Rule
+  Builder can delete.
+- Draft edits keep the registrations the published snapshot needs.
 
 ## Drift repair
 
-If steps drift out of sync with your rules (for example, if rules were edited while
-the registration plugin was temporarily disabled), use `asx_SyncSteps` with
-`Mode = "Sync"` (see *Custom APIs*). This reconciles generated steps without
-unpublishing rules or changing their published definitions.
+If steps drift from your rules (for example, rules edited while the registration plugin was
+disabled), call `asx_SyncSteps` with `Mode = "Sync"` (*Custom APIs*). It reconciles the steps
+without unpublishing rules or changing their published definitions.

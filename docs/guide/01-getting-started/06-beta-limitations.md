@@ -7,193 +7,138 @@ slug: beta-limitations
 
 # Beta Limitations
 
-The Ascentix Rules Engine is in **open beta**. Everything inside the supported
-boundary described below is expected to work as documented. If it doesn't, please
-[open a GitHub issue](https://github.com/ascentix-software/Ascentix-Rules-Engine/issues).
+The engine is in **open beta**. Everything inside the boundary below should work as documented; if
+it doesn't, [open a GitHub issue](https://github.com/ascentix-software/Ascentix-Rules-Engine/issues).
 
 ## 1. What "open beta" means here
 
-The engine is **free and Apache-2.0 licensed**, built and maintained by a
-single maintainer. During the beta it is intended for **non-production
-environments**. There is no SLA and no warranty: the software is provided
-as-is under the Apache-2.0 licence.
+Free and Apache-2.0 licensed, built by a single maintainer, and meant for **non-production
+environments** during the beta. No SLA and no warranty.
 
 ## 2. Supported scale and performance budget
 
-The supported ceiling for the beta: about **100 published rules per
-environment**, and about **5,000 traversed related rows per save**.
+Supported: about **100 published rules per environment** and about **5,000 related rows read per
+save**.
 
-Measured on our development environment with about 100 rules on the table (see
-*Performance*), a save's rule evaluation stayed inside the
-[2-second budget Microsoft recommends for synchronous plug-ins](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/analyze-performance)
-up to about 500 related rows; at 5,000 related rows it took about 5.6 seconds.
-Those tests were not run in your environment; real-world timings depend on the
-number of other processes registered on the same events and the volume of data.
-Bulk operations (`CreateMultiple`/`UpdateMultiple`) incur that per-record
-evaluation cost for every record in the batch. When a save changes a lookup that a rule's ticked
-"Also apply to the previous" action depends on, the rule's related records are read a second time
-for the previous record, so that save costs about twice as much.
+With about 100 rules on the table (*Performance*), a save's rule evaluation stayed inside
+[Microsoft's 2-second budget for synchronous plug-ins](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/analyze-performance)
+up to about 500 related rows, and took about 5.6 seconds at 5,000. Your timings depend on the other
+plug-ins on the same events and on your data.
 
-Beyond this envelope the engine may still work, but it's outside what the beta
-has verified. Rule filters are pushed into the Dataverse queries where provably
-safe, with column-pruned fetches and per-evaluation caching. Deeper performance
-work (cross-execution caching, trigger/channel query filtering) is not part
-of the beta.
+- Bulk operations (`CreateMultiple`, `UpdateMultiple`) pay that cost for every record in the batch.
+- A save that changes a lookup used by an action with **Also apply to the previous** reads the
+  related records twice, so it costs about twice as much.
 
 ## 3. Traversal row cap: 25,000. Fails, never truncates
 
-A single rule evaluation will load at most **25,000 matching rows per
-related node**. Exceeding the cap **fails the save with a named error**
-(identifying the node, the cap, and the root table) rather than silently
-evaluating against partial data. Rule filters count toward "matching": a
-well-filtered rule works fine against multi-million-row tables as long as the
-rows the rule needs stay under the cap. The cap is fixed during the beta and is
-not configurable.
+One evaluation loads at most **25,000 matching rows per related node**. Past that, the save fails
+with an error naming the node, the cap and the table; it never evaluates partial data. The cap is
+fixed during the beta.
 
-Some filter criteria are applied in the Dataverse query; the rest are applied
-after the rows are loaded, and those rows count toward the cap. Applied in the
-query:
+Only rows that pass the filters applied in the Dataverse query count toward "matching". Applied in
+the query:
 
 - **Is Null** and **Is Not Null**.
-- **Equals** a literal value (for a date, see below).
-- **Not Equals** and the before/after operators (**Greater Than**,
-  **Less Than** and their "or equal" forms) against a literal number.
-- In a collection filter on a date column, every one of those operators (Equals and Not Equals
-  included) against a literal date, "now" ± an interval, or a date on the rule's own record or
-  a record it looks up (± an interval) — that anchor record must be outside the filtered
-  collection's own branch; an anchor inside it stays in memory.
-- In a Row Count condition's own search criteria, the before/after operators against a
-  literal date. Equals and Not Equals on a date there are applied after loading.
+- **Equals** a literal value.
+- **Not Equals** and **Greater Than** / **Less Than** (and "or equal") against a literal number.
+- In a collection filter on a date column: all of those operators against a literal date, "now" ±
+  an interval, or a date on the rule's own record or a record it looks up (± an interval), as long
+  as that record is outside the filtered collection's own branch.
+- In a Row Count condition's own search criteria: the before/after operators against a literal
+  date.
 
-Everything else is applied after loading, including **Contains** and
-**Does Not Contain**, **Not Equals** and before/after on text, a value that reads as a date
-(such as `2026-09-01`) compared with a column that is not a date in a collection filter, a comparison with another
-column of the same row or
-with a field reference, and an OR group that contains any of these. When a rule has
-criteria that stay out of the query, publishing it shows a `TRAV_PUSHDOWN`
-warning: that warning is the per-rule signal to check against the cap. It reads each column's
-date behavior and the rule's time zone the way the save does, so it appears exactly when a
-criterion stays out of the query.
+Everything else is applied after loading, and those rows count toward the cap: **Contains**, **Does
+Not Contain**, **Not Equals** and before/after on text, a date-like value compared with a non-date
+column, a comparison with another column or a field reference, and any OR group containing one of
+these. Publishing such a rule shows a `TRAV_PUSHDOWN` warning: check that rule against the cap.
 
 ## 4. Related-record changes don't re-fire rules
 
-Rules evaluate when the **root table** of the rule is written. Editing a
-related record (a child line, a looked-up customer) does **not** re-evaluate
-rules whose conditions read that record. The outcome refreshes on the next
-root-table write, so put the trigger on the table whose writes should be gated.
+Rules run when the rule's **own table** is written. Editing a related record (an order line, a
+looked-up customer) doesn't re-run rules that read it; the result refreshes on the next write to the
+rule's table.
 
 ## 5. System-context write actions bypass field-level security
 
-A rule configured with **System** evaluation context performs its
-Create/Update/Delete actions as SYSTEM, which bypasses field-level security
-profiles. Trusted Authors may publish these rules without separate business-table
-privilege checks. This is deliberate delegation: assign the Author role to users
-who should be able to decide when System-context actions run.
+A rule with **System** evaluation context writes as SYSTEM, which bypasses field-level security.
+Authors can publish these without business-table privilege checks, so give the Author role only to
+people trusted to decide that.
 
 ## 6. Enforcement-step drift and recovery
 
-The engine generates its enforcement steps automatically as rules are
-published and unpublished. If steps drift from configuration (e.g. rules were
-changed while the registration plugin was disabled), the **`asx_SyncSteps`
-Custom API** (`Mode=Sync`) reconciles every table in one call and reports any
-steps an administrator deactivated, without re-enabling them.
+If enforcement steps drift from the published rules (for example, rules changed while the
+registration plug-in was off), call `asx_SyncSteps` with `Mode=Sync`. It reconciles every table and
+reports steps an administrator deactivated, without turning them back on.
 
 ## 7. Uninstalling requires step cleanup first
 
-Generated steps reference the engine's plugin type, so uninstalling the
-managed solution is dependency-blocked until they're removed. Run
-`asx_SyncSteps` with `Mode=RemoveAll` immediately before uninstalling
-(*Administering → Installing, Verifying & Uninstalling*).
+Run `asx_SyncSteps` with `Mode=RemoveAll` right before uninstalling, or the uninstall is blocked
+(*Installing, Verifying & Uninstalling*).
 
 ## 8. Portal (Power Pages) channel testing
 
-The verification environment has no Power Pages site, so the **Portal** gate is
-proven by exclusion only: a Standard caller (a form save, a Web API write) is
-shown NOT to be blocked by a Portal-only rule, and the resolver's Portal
-branch is unit-tested against a faked execution context. A rule *firing* for a
-real portal submission has not been exercised live. Verify Portal-gated rules
+The **Portal** channel hasn't been tested against a live Power Pages site. Verify Portal-only rules
 in your own environment.
 
 ## 9. Browser support
 
-The editor and form library are verified on **Chromium-class browsers**
-(Edge, Chrome). Other browsers are untested during the beta.
+Verified on **Edge and Chrome**. Other browsers are untested during the beta.
 
 ## 10. No telemetry
 
-By design, the engine collects no data from your environments: no usage data,
-no error reports. **A filed issue is the only signal there is.**
+The engine collects nothing from your environments. **A filed issue is the only signal there is.**
 
 ## 11. No rule transport between environments
 
-There is no supported dev→test→prod promotion of rule configuration during the
-beta, and no GUID-preserving transport path. General-purpose data movement
-tools such as the Configuration Migration Tool or the XrmToolBox Data
-Transporter can move rule records between environments. Neither has been tested
-against the engine's schema, so treat that route as unverified and confirm the
-results in a sandbox first.
+There's no supported way to promote rules from dev to test to prod. Tools such as the Configuration
+Migration Tool or XrmToolBox's Data Transporter can copy rule records, but neither has been tested
+with the engine's tables; check the result in a sandbox first.
 
 ## 12. Upgrade history is short
 
-The managed-upgrade path is executed once per release cycle on a fresh
-verification org. Each beta release is verified to upgrade from its immediate
-predecessor only; no upgrade path beyond that is documented.
+Each beta release is verified to upgrade from the release just before it, and no further back.
 
 ## 13. How this is verified
 
-Unit and contract suites run in CI on every change. Automated and manual
-testing runs against a live environment each release, along with a scripted
-fresh-org install/verify/uninstall run.
+Automated suites run on every change, and each release is tested against a live environment,
+including a fresh install, verify and uninstall.
 
 ## 14. Localization
 
-The engine stores and renders localized rule messages, and each release is
-spot-checked on one non-English base-language org. Localization is not
-systematically verified across languages during the beta.
+Localized rule messages are supported. Each release is spot-checked on one non-English org, not
+across all languages.
 
 ## 15. On-demand Rule Run limits
 
-A Rule Run (*Administering → Running Rules On Demand*) processes at most **500
-records** or **60 seconds** per `asx_ProcessRunPage` call, whichever comes first,
-and keeps only its **first 50** Blocked/Failed records, each message cut to
-**1,000 characters**. A write that fails rolls its whole page back: one extra
-call records the failure, and the page is then processed again without that
-record, so a page with many failing writes is processed many times over and
-takes many calls to finish. A **Records it's given** run
-is capped at **250** record ids. A rule can have at most **one** run Queued or
-Running at a time; starting a second is refused until the first is cancelled or
-reaches a terminal status. An **All records that match “Only if”** run's execution conditions are
-**not** pushed into the Dataverse query during the beta — the run reads the whole
-table, a page at a time, and relies on the execution conditions (evaluated
-per record, same as any other rule evaluation) to skip records it shouldn't
-touch, rather than a server-side pre-filter. Scope such a rule with a tight
-execution condition on a large table.
+| Limit | Value |
+|---|---|
+| Records per `asx_ProcessRunPage` call | 500, or 60 seconds, whichever comes first |
+| Blocked/Failed records kept per run | the first 50, each message cut to 1,000 characters |
+| Record ids in a **Records it's given** run | 250 |
+| Active runs per rule | 1 (a second is refused until the first is cancelled or finishes) |
 
-A rule **schedule** (*Administering → Scheduling Rules*) starts or continues a Rule
-Run the same way **Apply to records** does, so the limits above apply equally to a scheduled run.
-On top of those: a schedule fires **within 15 minutes** of its scheduled time, not at
-the exact minute, since the shipped scheduler add-on's flow calls
-`asx_StartDueSchedules` on that interval. Each call to `asx_StartDueSchedules`
-takes at most **50** due schedules and stops taking more after about **60 seconds**; a
-larger backlog is picked up across further calls. The add-on's flow budgets about **12
-minutes** per wake-up to drive the runs it started or continued before ending, so it
-finishes a large backlog of due schedules or slow-running rules across more than one
-wake-up rather than blocking indefinitely. Each wake-up drives the runs it just started
-first, then the runs it continued, then leftovers, so one very long run can't hold up
-newly started ones. A rule can have at most **one** schedule.
+- A failed write rolls back its whole page, which then runs again without that record. A page with
+  many failing writes takes many calls.
+- An **All records that match "Only if"** run reads the **whole table**, a page at a time; **Only
+  if** is checked per record, not in the query. On a large table, keep **Only if** tight.
+
+**Schedules** (*Scheduling Rules*) start ordinary Rule Runs, so the same limits apply, plus:
+
+- a scheduled run starts **within 15 minutes** of its time;
+- each `asx_StartDueSchedules` call takes at most **50** due schedules and about **60 seconds**; the
+  rest wait for the next call;
+- the add-on drives runs for about **12 minutes** per check, so a large backlog spans several
+  checks;
+- a rule has at most **one** schedule.
 
 ## 16. The "apply inverse" flag is reserved
 
-The `asx_applyinversewhennotfired` column exists in the schema and is settable,
-on a Set Visible or Set Required action's classic form and through the API, but
-nothing reads it: no runtime behaviour depends on its value. The Rule Builder
-does not show it. It is reserved for possible future use.
+`asx_applyinversewhennotfired` can be set but nothing reads it, and the Rule Builder doesn't show
+it. It's reserved for future use.
 
 ## 17. No write limit on set actions
 
-A set action writes every filtered row of its collection, and nothing caps how many. A very large set
-can exceed the platform's 2-minute limit for a synchronous save, which fails the save. Keep sets
-bounded with the Rows filter and the rule's conditions, and use the Rule Builder's **Preview on a
-record** to see how many rows a record would write. Update, Delete, Create and Deactivate Record all send their rows
-in bulk where the target table supports it (proven on DEV 2026-09-29: `UpdateMultiple` accepts a
-state change).
+A set action writes every filtered row, with no cap. A very large set can pass the platform's
+2-minute limit for a save, which fails the save. Bound sets with the Rows filter and the rule's
+conditions, and use **Preview on a record** to see how many rows a record would write. Rows are
+sent in bulk where the table allows it.

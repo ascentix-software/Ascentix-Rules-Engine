@@ -7,95 +7,60 @@ slug: security-roles
 
 # Security Roles
 
-Two solution-owned security roles control who can work with rules and their
-configuration in Dataverse.
+The solution ships two roles for working with rules.
 
-## The two roles
-
-| Role | Tables | Privileges |
+| Role | Privileges | On |
 |---|---|---|
-| **Rules Engine Author** | the 12 config tables (`asx_rule`, `asx_conditiongroup`, `asx_rulecondition`, `asx_tableconfig`, `asx_searchcriteriagroup`, `asx_searchcriterion`, `asx_nodefiltergroup`, `asx_nodefiltercriterion`, `asx_ruleaction`, `asx_localizedmessage`, `asx_actionconditiongroup`, `asx_actionconditiontest`) | Create, Read, Write, Delete, Append, AppendTo |
-| **Rules Engine Reader** | the same 12 config tables | Read |
+| **Rules Engine Author** | Create, Read, Write, Delete, Append, Append To | The 12 configuration tables |
+| **Rules Engine Reader** | Read | The same 12 tables |
 
-Both roles are **additive**: Dataverse unions privileges across a user's
-roles, so assign either one on top of whatever roles a user already has. All
-privileges are at **Organization** depth, because rule configuration is
-org-wide reference data.
+The 12 tables are `asx_rule`, `asx_conditiongroup`, `asx_rulecondition`, `asx_tableconfig`,
+`asx_searchcriteriagroup`, `asx_searchcriterion`, `asx_nodefiltergroup`, `asx_nodefiltercriterion`,
+`asx_ruleaction`, `asx_localizedmessage`, `asx_actionconditiongroup` and `asx_actionconditiontest`.
 
-## Who can author vs. publish
+- Both roles are **additive**: assign them on top of a user's existing roles.
+- All privileges are at **Organization** depth, since rule configuration is org-wide.
+- **Authors can publish.** Publishing is a Write on `asx_rule`; what stops a rule going live is
+  validation, not a role (*Rule Lifecycle*). Authors need nothing on platform tables such as
+  `sdkmessageprocessingstep`: the engine registers steps itself.
+- **Reader** is for people who look at rules without editing them. Nothing at runtime needs it.
 
-There is no separate "publisher" role. Moving a rule from **Draft** to
-**Published** is a **Write** on `asx_rule`, so anyone holding **Rules Engine
-Author** can both author and publish. What gates a rule from actually reaching
-Published is not a security role but the rule **validator**: publishing is
-blocked until the rule passes validation, regardless of who is doing the
-publishing. See *Rule Lifecycle* for what Draft, Published, and Archived mean
-at runtime.
+## Enforcement doesn't depend on these roles
 
-Beyond the privileges in the table: Authors need no privileges on Dataverse
-platform tables like `sdkmessageprocessingstep`, because the engine's own
-registration plugin runs as the system user and handles step registration on
-their behalf. Reader is for a user who needs to see rules without editing them.
-No part of the engine's runtime requires it: the enforcement plugin,
-`asx_RunRules` and `asx_ReadRules` all read configuration as system (see
-below), so the client form library reaches configuration without it. The
-component that reads configuration in the calling user's own context is the
-Rule Builder, whose users hold Author.
+The engine reads rule configuration as the system user, so rules apply to every user's saves
+whatever roles they hold. The roles only control who can read or edit the configuration in views,
+the Rule Builder and the `asx_RunRules` / `asx_ReadRules` APIs.
 
-## Applying data updates
+The business data a rule reads is controlled per rule by its **Evaluation Context**, not by these
+roles (*Evaluation Context*).
 
-Applying a release's data update (see *Data Updates*) needs a System Administrator or System
-Customizer; the plug-in checks it. The shipped roles grant nothing on the Data Update table
-(`asx_dataupdate`): everyone who can open the Rule Builder can see that an update is pending, and
-only an administrator can apply it.
+## Privileges the roles don't include
 
-## Running and scheduling rules
+Grant these separately, for example with a small role on top:
 
-Neither role grants the privileges to run or schedule rules; an administrator
-grants those separately, typically with a small role assigned on top:
+| To | Grant |
+|---|---|
+| Run rules (Run now, Apply to records, `asx_ApplyRules`, `asx_ProcessRunPage`) | Create, Read, Append, Write on **Rule Run** (`asx_rulerun`); Append To on **Rule** |
+| Set schedules | Create, Read, Write, Append on **Rule Schedule** (`asx_ruleschedule`); Append To on **Rule** |
+| Apply a data update | System Administrator or System Customizer |
 
-- **Running rules** (Run now / Apply to records, `asx_ApplyRules`, `asx_ProcessRunPage`): **Create**,
-  **Read**, **Append** and **Write** on **Rule Run** (`asx_rulerun`), and **Append
-  To** on **Rule** (`asx_rule`). See *Running Rules On Demand*.
-- **Setting schedules** in the Rule Builder: **Create**, **Read**, **Write** and
-  **Append** on **Rule Schedule** (`asx_ruleschedule`), and **Append To** on **Rule**
-  (`asx_rule`). An author without **Read** sees "You don't have access to rule
-  schedules. Ask an administrator." in the Schedule section; one with Read but
-  without Create or Write gets an error when saving the schedule. See *Scheduling Rules*.
+- Without Read on Rule Schedule, the Schedule section shows "You don't have access to rule
+  schedules. Ask an administrator." With Read but not Create or Write, saving a schedule fails.
+- The account that drives schedules (the scheduler add-on's connection, or your own caller) needs
+  only the run privileges.
+- Everyone who can open the Rule Builder sees a pending data update; only an administrator can apply
+  it (*Data Updates*).
 
-The account that drives schedules (the scheduler add-on's connection, or your own
-caller) needs only the run privileges: `asx_StartDueSchedules` writes Rule Schedule
-and Scheduler Status itself.
+See *Running Rules On Demand* and *Scheduling Rules*.
 
-## Rule-config reads run as system
+## Skipping enforcement
 
-`RulesEnginePlugin` loads the config tables (`asx_rule`, `asx_conditiongroup`,
-`asx_rulecondition`, `asx_tableconfig`, `asx_ruleaction`, and the
-search/node-filter tables) using the **system user** service, not the
-calling user's. Without that, a caller lacking read access to `asx_rule` would
-load zero rules and enforcement would silently not apply. Because the plugin
-always reads config as system, a user's Reader/Author role assignment has no
-bearing on whether rules are enforced for that user's writes. It only controls
-whether *that user* can read or edit the configuration directly (through a
-view, the Rule Builder, or the `asx_RunRules`/`asx_ReadRules` APIs).
+The engine has no on/off switch. To skip it, use what the platform provides:
 
-The **business data** a rule's conditions traverse is a separate concern,
-controlled per rule by the **Evaluation Context** setting rather than by these
-two roles. See *Evaluation Context*.
-
-## Administrative bypass
-
-The engine has no on/off switch. To run a migration or bulk import without
-rule enforcement, admins use platform-native mechanisms instead:
-
-- An admin holding the `prvBypassCustomBusinessLogic` privilege can set
-  **`BypassCustomPluginExecution`** on a request (from the SDK, Configuration
-  Migration, or bulk import tooling) to skip custom plugins (including this
-  engine) for that operation.
-- **Channels** is not an integration bypass. Its only distinction is
-  **Portal** versus **Standard**, because Dataverse does not reliably tell a
-  human apart from an application user. See *Triggers & Channels*. Use
-  `BypassCustomPluginExecution` to exempt an integration.
-- A rule can be kept in **Draft** or **Archived**, or scheduled outside its
-  effective window, to suppress it without deleting it. See *Rule
-  Lifecycle*.
+- For a migration or bulk import, an admin with `prvBypassCustomBusinessLogic` sets
+  **`BypassCustomPluginExecution`** on the requests. That skips custom plug-ins, this engine
+  included.
+- **Channels** isn't a way to exempt an integration: it only tells **Portal** from **Standard**
+  (*Triggers & Channels*).
+- To pause one rule without deleting it, unpublish it, archive it, or set its active period
+  (*Rule Lifecycle*).
