@@ -246,24 +246,53 @@ export function whenSection(frame: FrameLocator): Locator {
   return frame.getByRole("group", { name: "When", exact: true });
 }
 
-// Save from the header, then wait for the Saved toast.
+// Closes every open toast. A toast stays up 5 s, so waiting for "Saved" right after a second
+// save would otherwise match the first save's toast and race ahead of the save in flight
+// (hit as rows read before the save landed, and a cleanup deleting a rule mid-save).
+// A toast still sliding in never counts as stable, so the click is forced; and the toaster pauses
+// on hover, so the mouse leaves the toasts before each check or the next one never times out.
+export async function dismissToasts(frame: FrameLocator): Promise<void> {
+  const toasts = frame.getByTestId("toast");
+  await expect(async () => {
+    if ((await toasts.count()) > 0) {
+      await toasts.last().getByRole("button", { name: "Dismiss" }).click({ timeout: 2_000, force: true }).catch(() => {});
+    }
+    await frame.locator("body").hover({ position: { x: 1, y: 1 }, force: true });
+    expect(await toasts.count()).toBe(0);
+  }).toPass({ timeout: 20_000, intervals: [250, 500, 1_000] });
+}
+
+// Save from the header, then wait for this save's Saved toast.
 export async function saveRule(frame: FrameLocator): Promise<void> {
+  await dismissToasts(frame);
   await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
   await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 }
 
-// ⋯ › Check for issues (saves first when dirty), expecting a clean result.
+// ⋯ › Check for issues (saves first when dirty), expecting no errors. Warnings don't block
+// publishing: with only warnings the check opens the Issues drawer instead of the
+// "No issues found" toast, so either outcome passes as long as it reports 0 errors.
 export async function checkNoIssues(frame: FrameLocator): Promise<void> {
+  await dismissToasts(frame);
   await headerMenu(frame, "Check for issues");
-  await expect(toast(frame, "No issues found")).toBeVisible({ timeout: 30_000 });
+  const drawer = frame.getByRole("dialog", { name: "Issues" });
+  await expect(toast(frame, "No issues found").or(drawer)).toBeVisible({ timeout: 30_000 });
+  if (await drawer.isVisible()) {
+    await expect(frame.getByTestId("issues-status")).toHaveText(/^0 errors/);
+    await drawer.getByRole("button", { name: "Close issues" }).click();
+  }
 }
 
 // Publish… saves any edits, runs the server check, and opens the confirm; Publish vN publishes.
+// Waits for that version's "vN is live" toast, never an earlier publish's.
 export async function publishRule(frame: FrameLocator): Promise<void> {
+  await dismissToasts(frame);
   await toolbar(frame).getByRole("button", { name: "Publish…", exact: true }).click();
   const dialog = frame.getByRole("dialog");
-  await dialog.getByRole("button", { name: /^Publish v\d+$/ }).click({ timeout: 30_000 });
-  await expect(toast(frame, /^v\d+ is live/)).toBeVisible({ timeout: 30_000 });
+  const confirm = dialog.getByRole("button", { name: /^Publish v\d+$/ });
+  const version = ((await confirm.textContent({ timeout: 30_000 })) ?? "").replace(/^Publish /, "").trim();
+  await confirm.click();
+  await expect(toast(frame, new RegExp(`^${version} is live`))).toBeVisible({ timeout: 30_000 });
 }
 
 // The proven Save → Publish… sequence.

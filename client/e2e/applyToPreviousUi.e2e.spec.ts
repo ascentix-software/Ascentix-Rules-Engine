@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createZzRootConfig, addLookupNode, createRuleOnConfig, deleteRuleCascade } from "./devHelpers";
-import { openRuleFromHub, toolbar, toast } from "./editorHarness";
+import { openRuleFromHub, saveRule } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The "Also apply to the previous <lookup node> when it changes" switch (ActionInspector.tsx),
@@ -61,8 +61,7 @@ test("Also apply to the previous switch: visible and saved only while the target
     await expect(applySwitch).toBeVisible();
     await applySwitch.check();
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     let action = await actionOf(rule.ruleId);
     expect(action.asx_applytoprevious).toBe(true);
@@ -79,8 +78,7 @@ test("Also apply to the previous switch: visible and saved only while the target
 
     await expect(frame.getByRole("switch", { name: /Also apply to the previous/ })).toHaveCount(0);
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     action = await actionOf(rule.ruleId);
     expect(action.asx_applytoprevious).toBe(false);

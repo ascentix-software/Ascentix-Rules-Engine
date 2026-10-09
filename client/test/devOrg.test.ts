@@ -107,12 +107,26 @@ describe("user tokens", () => {
     expect(devOrg("user", opts).tokenSync()).toBe("az-tok"); // a second handle hits the cache
     expect(exec).toHaveBeenCalledTimes(1);
     const [file, args, execOpts] = (exec.mock.calls as any)[0];
-    expect(file).toBe("az");
-    expect(args).toEqual(["account", "get-access-token", "--resource", URL, "-o", "json"]);
-    expect(execOpts.shell).toBe(process.platform === "win32");
+    if (process.platform === "win32") {
+      // One quoted command line through the shell, no args array (DEP0190).
+      expect(file).toBe(`az "account" "get-access-token" "--resource" "${URL}" "-o" "json"`);
+      expect(args).toEqual([]);
+      expect(execOpts.shell).toBe(true);
+    } else {
+      expect(file).toBe("az");
+      expect(args).toEqual(["account", "get-access-token", "--resource", URL, "-o", "json"]);
+      expect(execOpts.shell).toBeUndefined();
+    }
     // Another url is another cache entry.
     expect(devOrg("user", { ...opts, url: "https://other.crm.dynamics.com" }).tokenSync()).toBe("az-tok");
     expect(exec).toHaveBeenCalledTimes(2);
+  });
+
+  it("az mint: refuses a resource that isn't a plain https URL (it goes on a command line)", () => {
+    const exec = vi.fn(() => "tok");
+    expect(() => devOrg("user", { env: { DATAVERSE_URL: 'https://x.crm.dynamics.com" & calc' }, envFile: null, exec }).tokenSync())
+      .toThrow(/plain https URL/);
+    expect(exec).not.toHaveBeenCalled();
   });
 
   it("az mint: an expired cache entry re-mints; a plain (tsv) token is accepted; failure names az login", () => {

@@ -87,6 +87,22 @@ export function groupUsedBy(rules: { rootConfigId: string | null }[]): Map<strin
 }
 
 // Four bulk queries, each followed to the last page; all counts derived client-side.
+// Revisions per query: their ids go in the URL, and a definition can be large.
+const REVISIONS_PER_QUERY = 25;
+
+/** Each published revision's definition (asx_definition JSON), by revision id, in a few bulk
+ *  queries rather than one asx_ReadPublishedRule per rule. */
+async function loadRevisionDefinitions(api: WebApiPort, revisionIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < revisionIds.length; i += REVISIONS_PER_QUERY) {
+    const ids = revisionIds.slice(i, i + REVISIONS_PER_QUERY).map((id) => `'${id}'`).join(",");
+    const r = await retrieveAll(api, "asx_rulerevision",
+      `?$select=asx_rulerevisionid,asx_definition&$filter=Microsoft.Dynamics.CRM.In(PropertyName='asx_rulerevisionid',PropertyValues=[${ids}])`);
+    for (const e of r.entities) if (e.asx_definition) out.set(String(e.asx_rulerevisionid).toLowerCase(), e.asx_definition);
+  }
+  return out;
+}
+
 export async function loadHubData(api: WebApiPort): Promise<HubData> {
   const [ruleResp, actionResp, nodeResp, scheduleResp] = await Promise.all([
     retrieveAll(api, ENTITY.rule,
@@ -129,10 +145,17 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
     }
   }
 
+  // Published rules show their live definition. It's read from the revisions in a few bulk
+  // queries: one asx_ReadPublishedRule per rule, all at once, exceeded Dataverse's limit of 100
+  // concurrent requests and failed the whole hub on an org with 100+ published rules. A revision
+  // that's missing or doesn't parse falls back to the rule's own row.
+  const definitions = await loadRevisionDefinitions(api,
+    ruleResp.entities.map((r) => r._asx_publishedrevision_value).filter((id): id is string => !!id));
+  // No requests in here: the definitions are already loaded.
   const rules: RuleListItem[] = await Promise.all(ruleResp.entities.map(async (r) => {
     const rootConfigId = r[LOOKUP.ruleOfTableConfig] ?? null;
-    const published = r._asx_publishedrevision_value && api.readPublishedRule
-      ? await loadPublishedGraph(await api.readPublishedRule(r.asx_ruleid), r.asx_ruleid) : null;
+    const definition = r._asx_publishedrevision_value ? definitions.get(String(r._asx_publishedrevision_value).toLowerCase()) : undefined;
+    const published = definition ? await loadPublishedGraph(definition, r.asx_ruleid).catch(() => null) : null;
     const publishedRoot = published?.rule.rootTableConfigId;
     return {
       id: r.asx_ruleid, name: published?.rule.name ?? r.asx_name, tableLogicalName: r.asx_tablelogicalname,

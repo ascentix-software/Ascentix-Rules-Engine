@@ -5,9 +5,7 @@ import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { configsVisible } from "../test-dev/ruleBehavior/settle";
 import { resolveAppId, createZzRootConfig, deleteRuleCascade } from "./devHelpers";
-import {
-  openRuleFromHub, toolbar, pickFromCombobox, checkNoIssues, toast, unsavedCount, pickValueSource,
-} from "./editorHarness";
+import { openRuleFromHub, pickFromCombobox, checkNoIssues, unsavedCount, pickValueSource, saveRule } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // A condition's RIGHT-HAND SIDE pointed at a related node and saved from a real browser, so that
@@ -136,8 +134,7 @@ test("a condition authored in the editor with a related right-hand node persists
     await pickFromCombobox(frame, "Other column", "creditlimit", /· sample_creditlimit$/, { exact: true });
 
     await expect(unsavedCount(frame)).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const c = await conditionOf(rule.ruleId);
     expect(c.asx_comparisonvaluesource).toBe(2); // FieldReference
@@ -200,8 +197,7 @@ test("re-pointing an already-persisted condition at a related node emits the bin
     await frame.getByRole("option", { name: `${NAME}_parent`, exact: true }).click();
 
     await expect(unsavedCount(frame)).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const after = await conditionOf(rule.ruleId);
     expect(sameGuid(after[LOOKUP.comparisonValueNode], cfg.parentId), "the update branch (save/diff.ts:655) must PATCH asx_ComparisonValueNode; a null here means the editor reported 'Saved.' over a change it never sent").toBe(true);

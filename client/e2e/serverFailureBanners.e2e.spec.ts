@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET } from "../src/editor/load/odata";
 import { resolveAppId, createRuleFixture } from "./devHelpers";
-import { openRuleFromHub, toolbar, checkNoIssues, toast, unsavedCount, publishRule } from "./editorHarness";
+import { openRuleFromHub, toolbar, checkNoIssues, unsavedCount, publishRule, saveRule } from "./editorHarness";
 
 // The generic 5xx save/publish failure banners, driven against the real editor bundle. Those
 // paths are also unit-tested in jsdom against a fake api object; the distance between the two is
@@ -54,7 +54,7 @@ test("a 5xx on save shows the failure banner and KEEPS the edit dirty and recove
 
     // The documented surface: an error banner naming the failure, never a silent no-op and
     // never a raw "[object Object]" (the error-containment contract).
-    await expect(frame.getByText(/Save (or refresh )?failed:/)).toBeVisible({ timeout: 30_000 });
+    await expect(frame.getByRole("alert").filter({ hasText: "Couldn't save." })).toBeVisible({ timeout: 30_000 });
     await expect(frame.getByText(/\[object Object\]/)).toHaveCount(0);
     expect(injected).toBeGreaterThan(0);
 
@@ -76,8 +76,7 @@ test("a 5xx on save shows the failure banner and KEEPS the edit dirty and recove
     // RECOVERY: once the server is healthy the same click must succeed. A banner that leaves the
     // editor wedged (busy stuck, button disabled) would pass every assertion above.
     await page.unroute("**/api/data/**/$batch");
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const after = await api.retrieveMultipleRecords(
       ENTITY_SET.rule,

@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createOrderConfigTree, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, toolbar, checkNoIssues, toast, unsavedCount, pickConditionType } from "./editorHarness";
+import { openRuleFromHub, checkNoIssues, unsavedCount, pickConditionType, saveRule } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // Authoring all four condition types in a real browser: the Condition type switch (Compare /
@@ -74,8 +74,7 @@ test("RowCount authored in the UI: 'has at least 1' persists min=1/max=null", as
     await frame.getByRole("spinbutton", { name: "Minimum rows" }).fill("1");
 
     await expect(unsavedCount(frame)).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const [c] = await conditionsOf(rule.ruleId);
     expect(c.asx_conditiontype).toBe(2); // RowCount
@@ -118,8 +117,7 @@ test("RowCount 'has between' authored in the UI persists both bounds", async ({ 
     await frame.getByRole("spinbutton", { name: "Maximum rows" }).fill("5");
     await frame.getByRole("spinbutton", { name: "Minimum rows" }).fill("2");
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const [c] = await conditionsOf(rule.ruleId);
     expect(c.asx_conditiontype).toBe(2);
@@ -151,8 +149,7 @@ test("RegexMatch authored in the UI persists the column and the pattern", async 
 
     await frame.getByRole("textbox", { name: "Pattern", exact: true }).fill(PATTERN);
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const [c] = await conditionsOf(rule.ruleId);
     expect(c.asx_conditiontype).toBe(3); // RegexMatch
@@ -193,8 +190,7 @@ test("Expression authored in the UI: Insert aggregate builds a sum() token that 
     await frame.getByRole("option", { name: CHOICE.operator.greaterThan, exact: true }).click();
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const [c] = await conditionsOf(rule.ruleId);
     expect(c.asx_conditiontype).toBe(4); // Expression
@@ -207,8 +203,7 @@ test("Expression authored in the UI: Insert aggregate builds a sum() token that 
     await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     await frame.getByRole("textbox", { name: "Show-message message" }).fill("ZZ_RB aggregate condition fired");
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     await checkNoIssues(frame);
   } finally {
@@ -253,8 +248,7 @@ test("RowCount 'has between' keeps both inputs while the minimum is typed up to 
     await expect(frame.getByRole("spinbutton", { name: "Maximum rows" })).toBeVisible();
 
     await frame.getByRole("spinbutton", { name: "Maximum rows" }).fill("5");
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const [c] = await conditionsOf(rule.ruleId);
     expect(c.asx_minexpectedrows).toBe(2);

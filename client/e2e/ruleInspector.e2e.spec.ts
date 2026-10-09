@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createRuleFixture } from "./devHelpers";
-import { openRuleFromHub, toast, unsavedCount, addTrigger, openSettingsSection } from "./editorHarness";
+import { openRuleFromHub, unsavedCount, addTrigger, openSettingsSection, saveRule } from "./editorHarness";
 
 // The rule inspector's triggers / trigger-columns / effective-window edits determine WHEN
 // rules fire. This drives them through the real UI → $batch → server encoding round-trip
@@ -37,8 +37,7 @@ test("triggers, trigger columns, and effective-from edited in the inspector pers
     await starts.fill("2026-01-01T17:30");
 
     await expect(unsavedCount(frame)).toBeVisible();
-    await frame.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const api = createDevApi();
     const r = await api.retrieveMultipleRecords(

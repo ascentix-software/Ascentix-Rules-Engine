@@ -122,15 +122,20 @@ function cached(key) {
 // Mirrors pipelines/client-ci.yml's Deploy stage: a short-lived Dataverse token for the
 // signed-in az user. Requires a local `az login` with access to the org. Synchronous.
 export function mintAzToken(resource, { exec = execFileSync } = {}) {
+  const url = resource.replace(/\/+$/, "");
+  // The resource goes on a command line: allow only a plain https URL (no quotes, spaces or
+  // shell metacharacters), so quoting it below is safe on every shell.
+  if (!/^https:\/\/[A-Za-z0-9.-]+(:\d+)?(\/[A-Za-z0-9._~\/-]*)?$/.test(url)) {
+    throw new Error(`devOrg: DATAVERSE_URL must be a plain https URL, got ${JSON.stringify(resource)}`);
+  }
+  const args = ["account", "get-access-token", "--resource", url, "-o", "json"];
   try {
-    const out = exec(
-      "az",
-      ["account", "get-access-token", "--resource", resource.replace(/\/+$/, ""), "-o", "json"],
-      // On Windows, `az` resolves to `az.cmd`; spawnSync cannot exec a .cmd directly without a
-      // shell (ENOENT / EINVAL under the CVE-2024-27980 mitigation), so opt into the shell there.
-      // Args are fixed flags plus our own trusted .env value, not user input.
-      { encoding: "utf8", shell: process.platform === "win32" },
-    );
+    const out = process.platform === "win32"
+      // On Windows, `az` resolves to `az.cmd`, which spawnSync can only run through a shell
+      // (CVE-2024-27980 mitigation). Node deprecates passing an args array with shell: true
+      // (DEP0190: it concatenates them unescaped), so pass the one command line we built.
+      ? exec(`az ${args.map((a) => `"${a}"`).join(" ")}`, [], { encoding: "utf8", shell: true })
+      : exec("az", args, { encoding: "utf8" });
     const text = String(out).trim();
     if (!text) throw new Error("empty token");
     let token = text;

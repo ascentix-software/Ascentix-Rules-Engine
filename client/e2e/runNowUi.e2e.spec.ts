@@ -83,7 +83,7 @@ test("Run now, all records: the dialog reads the Only if condition, Apply runs i
 
     const applied = frame.getByRole("dialog", { name: `Applied ${rule.ruleName}` });
     await expect(applied).toBeVisible({ timeout: 570_000 });
-    await expect(applied.getByRole("status")).toHaveText("Completed");
+    await expect(applied.getByRole("status")).toHaveText(/^Completed[\d,]+ records checked$/); // label, then the count
     // Exact counts for the fenced orders; Didn't match is NOT asserted (other DEV orders are skipped).
     const tile = (label: string) => applied.getByText(label, { exact: true }).locator("xpath=..");
     await expect(tile("Changed")).toContainText(String(matchIds.length));

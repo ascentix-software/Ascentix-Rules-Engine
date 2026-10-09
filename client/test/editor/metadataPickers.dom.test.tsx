@@ -26,6 +26,25 @@ describe("ColumnPicker custom-columns filter placement", () => {
   });
 });
 
+describe("ColumnPicker in a condition sentence", () => {
+  // The column's type shows beside its name and hides while the list is open. Hiding it once
+  // remounted the Combobox mid-click: focus fell to the page and the list never opened.
+  it("opens on the first click with a column already chosen, keeping the same focused input", async () => {
+    renderWithMeta(
+      <ColumnPicker sentence table="account" context="read" value="name" onChange={() => {}} ariaLabel="Column" />,
+      fakeMetadata({ account: ACCOUNT }),
+    );
+    const combo = await screen.findByRole("combobox", { name: "Column" });
+    expect(combo).toHaveValue("Account name");
+    combo.focus();
+    fireEvent.click(combo);
+    expect(await screen.findByRole("option", { name: "Account name · name" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Column" })).toBe(combo);
+    expect(combo).toHaveAttribute("aria-expanded", "true");
+    expect(document.activeElement).toBe(combo);
+  });
+});
+
 describe("ValueEditor accessible name", () => {
   it("forwards aria-label to a boolean value control", async () => {
     renderWithMeta(

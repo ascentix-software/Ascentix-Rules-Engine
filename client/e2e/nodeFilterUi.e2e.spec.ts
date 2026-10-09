@@ -3,7 +3,7 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createOrderConfigTree, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, toolbar, checkNoIssues, toast, pickConditionType } from "./editorHarness";
+import { openRuleFromHub, checkNoIssues, pickConditionType, saveRule } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // "Only count rows where" (the NodeFilterDialog, titled "Only consider records where…") authored
@@ -127,11 +127,10 @@ test("node filter authored in the UI persists a criterion row the engine can rea
 
     // The panel summary now reads the criterion as a phrase ("<column> is more than 100"), and
     // the section's button has turned into "Edit".
-    await expect(frame.getByText(/^sample_lineamount is more than 100$/)).toBeVisible();
+    await expect(frame.getByText(/^Line Amount is more than 100$/)).toBeVisible();
     await expect(frame.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const tree = await filterTreeOf(rule.ruleId);
     expect(tree.groups.length).toBe(1);
@@ -153,8 +152,7 @@ test("node filter authored in the UI persists a criterion row the engine can rea
     await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     await frame.getByRole("textbox", { name: "Show-message message" }).fill("ZZ_RB filtered row count");
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
     await checkNoIssues(frame);
   } finally {
     await rule.cleanup();
@@ -173,9 +171,9 @@ test("node filter: OR toggle and a second criterion persist on the same filter g
     const dialog = await openFilterDialog(frame);
     await dialog.getByRole("button", { name: "Add filter" }).click();
 
-    // Flip the root match from AND to OR before adding anything: the toggle is a pair of
-    // buttons ("AND" / "OR"), not a dropdown.
-    await dialog.getByRole("button", { name: "OR", exact: true }).click();
+    // Flip the root match from All to Any before adding anything: the toggle is the "Match"
+    // radio pair ("All" / "Any"), not a dropdown.
+    await dialog.getByTestId("nf-root").getByRole("radio", { name: "Any", exact: true }).first().click();
 
     // Row 0 is the SEEDED leaf; row 1 is added. Fill each row completely before adding the next:
     // the "Filter value" editor only mounts once that row has a valued operator, so value boxes
@@ -198,10 +196,9 @@ test("node filter: OR toggle and a second criterion persist on the same filter g
 
     await dialog.getByRole("button", { name: "Apply", exact: true }).click();
     // The summary shows the first criterion and counts the rest.
-    await expect(frame.getByText(/^sample_lineamount is more than 100\s*\+ 1 more$/)).toBeVisible();
+    await expect(frame.getByText(/^Line Amount is more than 100\s*\+ 1 more$/)).toBeVisible();
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const tree = await filterTreeOf(rule.ruleId);
     expect(tree.groups.length).toBe(1);
@@ -265,8 +262,7 @@ test("an untouched seeded filter row is not persisted as a blank criterion", asy
     await dialog.getByRole("textbox", { name: "Filter value" }).first().fill("1");
 
     await dialog.getByRole("button", { name: "Apply", exact: true }).click();
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     // Only the filled criterion may reach the server: a null-column/null-operator row is exactly
     // what NodeFilterEvaluator throws on.

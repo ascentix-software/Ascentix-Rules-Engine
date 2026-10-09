@@ -62,12 +62,12 @@ test("a set Update with a Rows filter reports its row counts in Test", async ({ 
     await toolbar(frame).getByRole("button", { name: "Run", exact: true }).click();
     const test = frame.getByRole("dialog", { name: /^Run / });
     await expect(test.getByRole("tab", { name: "Preview on a record", selected: true })).toBeVisible();
-    await test.getByRole("combobox", { name: "Record" }).click();
-    await test.getByRole("option", { name: "Advanced search…" }).click();
-    const picker = frame.getByRole("dialog").last();
-    await picker.getByRole("textbox", { name: "Search records" }).fill(orderName);
-    await picker.getByRole("radio", { name: `Select ${orderName}` }).check();
-    await picker.getByRole("button", { name: "Select", exact: true }).click();
+    // The Record box searches as you type; the order's unique name narrows it to that one row.
+    const record = test.getByRole("combobox", { name: "Record" });
+    await record.click();
+    await record.pressSequentially(orderName, { delay: 10 });
+    await frame.getByRole("option", { name: orderName, exact: true }).click({ timeout: 30_000 });
+    await expect(record).toHaveValue(orderName);
     await test.getByRole("button", { name: "Run preview" }).click();
     await expect(test.getByText("Save would go through")).toBeVisible({ timeout: 60_000 });
     await expect(test.getByText("Update sample_orderline × 2 (1 unchanged)")).toBeVisible({ timeout: 60_000 });

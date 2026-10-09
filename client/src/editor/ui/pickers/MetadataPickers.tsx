@@ -172,17 +172,21 @@ export function ColumnPicker({
       ))}
     </Combobox>
   );
-  if (!typeText) return combo;
+  if (!sentence) return combo;
   // The type sits after the name, inside the control's frame (decorative: the name is the value).
+  // The wrapper stays while the type hides on open: dropping it would remount the Combobox
+  // mid-click, losing focus and closing the list the click just opened.
   return (
     <div style={{ position: "relative", width: "100%" }}>
       {combo}
-      <span aria-hidden style={{
-        position: "absolute", right: 34, top: "50%", transform: "translateY(-50%)", pointerEvents: "none",
-        fontSize: 12, color: tokens.colorNeutralForeground3,
-      }}>
-        {typeText}
-      </span>
+      {typeText && (
+        <span aria-hidden style={{
+          position: "absolute", right: 34, top: "50%", transform: "translateY(-50%)", pointerEvents: "none",
+          fontSize: 12, color: tokens.colorNeutralForeground3,
+        }}>
+          {typeText}
+        </span>
+      )}
     </div>
   );
 }

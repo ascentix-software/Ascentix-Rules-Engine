@@ -72,6 +72,9 @@ test("rename config, add child node via Add related, save; in-use node delete is
     });
 
     await headerMenu(frame, /Reload from server/);
+    // The reload has landed once the header counts the guard rule; a node picked before then
+    // is unselected when the reloaded model replaces the old one.
+    await expect(frame.getByRole("button", { name: "Used by 1 rule" })).toBeVisible({ timeout: 30_000 });
     // The node panel names why Delete is unavailable, under the buttons and in the tooltip.
     await frame.getByRole("treeitem", { name: /ZZ_RB_tcui_line/ }).click({ timeout: 30_000 });
     const guardedDelete = frame.getByTestId("inspector-body").getByRole("button", { name: /^Delete/ });

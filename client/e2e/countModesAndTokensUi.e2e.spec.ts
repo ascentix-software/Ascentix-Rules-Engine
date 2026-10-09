@@ -7,9 +7,7 @@ import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import {
   resolveAppId, createZzRootConfig, createOrderConfigTree, createRuleOnConfig, deleteRuleCascade,
 } from "./devHelpers";
-import {
-  openRuleFromHub, toolbar, checkNoIssues, toast, unsavedCount, pickConditionType, setConditionName,
-} from "./editorHarness";
+import { openRuleFromHub, checkNoIssues, unsavedCount, pickConditionType, setConditionName, saveRule } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // Two authoring surfaces driven through real Fluent controls: the Count rows editor's "Count"
@@ -149,8 +147,7 @@ test("each Count op (has no / at least / at most / between, incl. exactly N) per
     }
 
     await expect(unsavedCount(frame)).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const rows = await conditionsOf(rule.ruleId);
     expect(rows.length).toBe(5);
@@ -261,8 +258,7 @@ test("Insert field splices a {root.x} token at the caret in a message body and i
     await expect(frInput, "the translation row splices off its own textarea's selectionStart").toHaveValue(FRENCH);
 
     await expect(unsavedCount(frame)).toBeVisible();
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     // --- the oracle: both messages VERBATIM on the rows the engine renders from ---------------
     const api = createDevApi();

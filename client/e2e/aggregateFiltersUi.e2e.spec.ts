@@ -5,7 +5,7 @@ import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { resolveAppId, createOrderConfigTree, deleteRuleCascade } from "./devHelpers";
-import { openRuleFromHub, toolbar, checkNoIssues, toast } from "./editorHarness";
+import { openRuleFromHub, checkNoIssues, saveRule } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
 // The Aggregates chip row and AggregateFilterDialog, driven in a real browser. Both surfaces only
@@ -262,8 +262,7 @@ test("a filtered aggregate authored in the Map columns dialog persists expressio
     await expect(mapDialog(frame).getByText("Ready to apply")).toBeVisible();
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const action = await actionOf(rule.ruleId);
     expect(action.asx_actiontype).toBe(6); // UpdateRecord
@@ -382,8 +381,7 @@ test("the Aggregates chip row rewrites the aggregate in place, including across 
     await expect(mapDialog(frame).getByText("Ready to apply")).toBeVisible();
     await mapDialog(frame).getByRole("button", { name: "Apply", exact: true }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const mapping = JSON.parse(String((await actionOf(rule.ruleId)).asx_fieldmapping)) as MappingEntry[];
     expect(mapping.length).toBe(1);

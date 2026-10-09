@@ -4,7 +4,7 @@ import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { authorRule } from "../test-dev/ruleBehavior/authoring";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId } from "./devHelpers";
-import { openRuleFromHub, openHub, toolbar, headerMenu, toast } from "./editorHarness";
+import { openRuleFromHub, openHub, toolbar, headerMenu, saveRule } from "./editorHarness";
 
 // The Schedule section (client/src/editor/schedule/ScheduleSection.tsx), end to end: tick a
 // Published On demand/all-records rule's schedule On — directly on the published rule, with no
@@ -67,8 +67,7 @@ test("Schedule: set Daily at 02:00, verify via the API, reload, and see it in th
     await frame.getByRole("option", { name: "Daily", exact: true }).click();
     await frame.getByLabel("Time of day").fill("02:00");
 
-    await toolbar(frame).getByRole("button", { name: "Save", exact: true }).click();
-    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
     // Still the published rule, not a draft: nothing but the schedule was saved.
     await expect(editRule).toBeVisible();
 
