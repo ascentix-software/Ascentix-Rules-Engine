@@ -141,4 +141,16 @@ A set action writes every filtered row, with no cap. A very large set can pass t
 2-minute limit for a save, which fails the save: in testing, 2,667 rows took 48 seconds and 6,667
 rows passed the limit (*Performance*). Bound sets with the Rows filter and the rule's
 conditions, and use **Preview on a record** to see how many rows a record would write. Rows are
-sent in bulk where the table allows it.
+sent one request at a time unless **Bulk writes** is on (§18).
+
+## 18. Bulk writes are off by default
+
+The engine can send two or more creates or updates of one table as a single `CreateMultiple` or
+`UpdateMultiple` request. That makes set actions and **On demand** runs faster, but Microsoft
+[doesn't support bulk messages in plug-in code](https://learn.microsoft.com/en-us/power-apps/developer/data-platform/bulk-operations#not-supported-for-use-in-plug-ins).
+So it ships off, and every write is a single request.
+
+To use it, set the **Bulk writes** environment variable (`asx_BulkWrites`) to **Yes**. It applies
+to the whole environment within a minute. Turning it on means accepting Microsoft's support
+position for those writes.
+

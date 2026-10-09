@@ -36,6 +36,13 @@ Administrators need no extra role. Publishing a **System**-context rule that wri
 publisher to hold the matching privileges org-wide on each target table (*Evaluation Context*). See
 *Security Roles* for exactly what each role grants.
 
+## Optional settings
+
+| Environment variable | Default | What it does |
+|---|---|---|
+| **Bulk writes** (`asx_BulkWrites`) | No | Yes sends several creates or updates of one table as one request: faster, but unsupported by Microsoft in plug-in code (*Beta Limitations §18*). |
+| **Capture diagnostics** (`asx_CaptureDiagnostics`) | No | Yes records each save's timings, for troubleshooting (*Troubleshooting*). |
+
 ## Verify the install
 
 1. **Solution:** the Solutions list shows *Ascentix Rules Engine*, managed, at your version.

@@ -57,6 +57,9 @@ save* above because that test's extra rules (date filters, a row count, a filter
 
 ## Set actions on a save
 
+Measured with **Bulk writes** on (*Beta Limitations §18*). With it off, the default, each row is
+its own request and the writes take longer.
+
 | Related rows | Rows written | Median save |
 |---|---|---|
 | 100 | 134 | 2.6 s |
@@ -71,7 +74,7 @@ run.
 
 ## On demand runs
 
-Engine time for the whole run, 500 records per page:
+Engine time for the whole run, 500 records per page, with **Bulk writes** on:
 
 | Records | Rule that only reads | Rule that updates a row per record |
 |---|---|---|
