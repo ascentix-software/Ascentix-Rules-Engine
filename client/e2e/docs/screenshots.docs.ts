@@ -38,8 +38,8 @@ async function shoot(page: Page, file: string, clip?: { x: number; y: number; wi
   await page.screenshot({ path: resolve(IMAGES, file), clip });
 }
 
-async function openHubFiltered(page: Page): Promise<FrameLocator> {
-  const frame = await openHub(page, appId);
+async function openHubFiltered(page: Page, opts: { readOnly?: boolean } = {}): Promise<FrameLocator> {
+  const frame = await openHub(page, appId, opts);
   await frame.getByPlaceholder("Search rules").fill(DOC_HUB_FILTER);
   await expect(hubRow(frame, DOC_RULES.credit)).toBeVisible({ timeout: 30_000 });
   return frame;
@@ -239,4 +239,45 @@ test("narrow viewport", async ({ page }) => {
   const frame = await openRule(page, DOC_RULES.credit);
   await fitHeight(page, frame, 1165);
   await shoot(page, "02-14-accessibility-responsive-01.png");
+});
+
+// Data updates: no release so far ships one, so these stub asx_ApplyDataUpdates' Status answer for
+// this page only. Everything else is the deployed Rule Builder on DEV; nothing is applied (Apply
+// mode is refused, and the confirm dialog is cancelled).
+const SAMPLE_UPDATE = { number: 1, title: "Convert action conditions to outcomes" };
+async function stubDataUpdates(page: Page, status: Record<string, unknown>): Promise<void> {
+  await page.route("**/api/data/v9.2/asx_ApplyDataUpdates", async (route) => {
+    if (JSON.parse(route.request().postData() ?? "{}").Mode !== "Status") return route.abort();
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(status) });
+  });
+}
+
+test("data update waiting", async ({ page }) => {
+  await stubDataUpdates(page, {
+    Required: 1, Pending: JSON.stringify([SAMPLE_UPDATE]), Latest: null, CanApply: true, Done: false,
+  });
+  const frame = await openHubFiltered(page, { readOnly: true });
+  await expect(frame.getByText(`Read-only until Update ${SAMPLE_UPDATE.number} is applied.`)).toBeVisible({ timeout: 30_000 });
+  await fitHeight(page, frame);
+  await shoot(page, "03-07-data-updates-01.png");
+  await frame.getByRole("button", { name: "Apply now" }).click();
+  const confirm = frame.getByRole("dialog", { name: `Apply update ${SAMPLE_UPDATE.number}?` });
+  await expect(confirm).toBeVisible();
+  await shoot(page, "03-07-data-updates-02.png");
+  await confirm.getByRole("button", { name: "Cancel" }).click();
+});
+
+test("data update finished with failures", async ({ page }) => {
+  await stubDataUpdates(page, {
+    Required: 1, Pending: "[]", CanApply: true, Done: true,
+    Latest: JSON.stringify({
+      ...SAMPLE_UPDATE, status: 3, succeeded: 41, failed: 1,
+      // The update's own message for the one item it can't convert (OutcomeConversionUpdate.cs).
+      failures: [{ item: "6f1d2c9a-8b4e-4f7a-9c3d-2e5b7a1f0c84", message: "The published version of rule 'Order total within credit limit' still uses On match / On no match. Open the rule in the Rule Builder and publish it, then choose Retry failed items." }],
+    }),
+  });
+  const frame = await openHubFiltered(page);
+  await expect(frame.getByText(/finished with 1 failed item/)).toBeVisible({ timeout: 30_000 });
+  await fitHeight(page, frame);
+  await shoot(page, "03-07-data-updates-03.png");
 });

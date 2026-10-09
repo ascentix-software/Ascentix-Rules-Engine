@@ -23,6 +23,8 @@ namespace Ascentix.RulesEngine.Tests
             public ItemsUpdate(int number, int items, Action onItem = null) { Number = number; _items = items; _onItem = onItem; }
             public int Number { get; }
             public string Title => "Test update " + Number;
+            public bool IsNeeded(IOrganizationService system) => Needed;
+            public bool Needed { get; set; } = true;
             public Func<string, bool> Fails { get; set; } = _ => false;
             public int Slices { get; private set; }
 
@@ -91,6 +93,32 @@ namespace Ascentix.RulesEngine.Tests
                 }
             }
             throw new InvalidOperationException("did not finish");
+        }
+
+        [Fact]
+        public void An_update_with_nothing_to_convert_is_not_pending_and_apply_leaves_no_row()
+        {
+            var update = new ItemsUpdate(1, 3) { Needed = false };
+            var processor = Processor(update);
+
+            Assert.Empty(processor.Status(canApply: true).Pending);
+            Assert.True(processor.Apply(null, null, null).Done);
+            Assert.Equal(0, update.Slices);
+            Assert.Empty(DataUpdateRows.Load(_service));
+            Assert.Null(DataUpdateGate.FirstPending(_service, new IDataUpdate[] { update }));
+        }
+
+        [Fact]
+        public void A_started_update_stays_pending_even_once_nothing_is_left_to_convert()
+        {
+            // IsNeeded is asked only before the update has a row: a Running row is finished, not dropped.
+            var update = new ItemsUpdate(1, 3);
+            var processor = Processor(new DataUpdateLimits { Budget = TimeSpan.Zero }, update);
+            Assert.False(processor.Apply(null, null, null).Done);
+            update.Needed = false;
+
+            Assert.Equal(new[] { 1 }, processor.Status(canApply: true).Pending.Select(p => p.Number));
+            Assert.Same(update, DataUpdateGate.FirstPending(_service, new IDataUpdate[] { update }));
         }
 
         [Fact]

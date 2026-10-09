@@ -13,7 +13,7 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
             if (updates.Count == 0) return null;
             var rows = DataUpdateRows.LoadStates(system);
             return updates.OrderBy(u => u.Number)
-                .FirstOrDefault(u => DataUpdateRows.IsPending(rows.TryGetValue(u.Number, out var row) ? row : null));
+                .FirstOrDefault(u => DataUpdateRows.IsPending(rows.TryGetValue(u.Number, out var row) ? row : null, u, system));
         }
 
         public static string PublishRefusal(int number) =>

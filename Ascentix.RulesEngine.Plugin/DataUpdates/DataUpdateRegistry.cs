@@ -9,6 +9,6 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
     /// </summary>
     public static class DataUpdateRegistry
     {
-        public static IReadOnlyList<IDataUpdate> All { get; } = Array.Empty<IDataUpdate>();
+        public static IReadOnlyList<IDataUpdate> All { get; } = new IDataUpdate[] { new OutcomeConversionUpdate() };
     }
 }

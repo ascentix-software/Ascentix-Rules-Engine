@@ -3,12 +3,23 @@ title: Data Updates
 section: Administering
 order: 307
 slug: data-updates
+screenshots:
+  - file: images/03-07-data-updates-01.png
+    caption: While an update is waiting, the bar names it and the Rule Builder is read-only. An administrator sees Apply now.
+    alt: "The hub with a yellow bar: “Read-only until Update 1 is applied. Convert action conditions to outcomes”, an info tip and Apply now. New rule and each row's Duplicate and Delete are hidden."
+  - file: images/03-07-data-updates-02.png
+    caption: Apply now asks you to confirm and names the update it will apply.
+    alt: "The Apply update 1? dialog: “Convert action conditions to outcomes. This converts existing rules for this release. It can take a few minutes; keep this tab open until it finishes.”, with Cancel and Apply."
+  - file: images/03-07-data-updates-03.png
+    caption: An update that finished with failed items lists each one with the reason, and offers Retry failed items.
+    alt: "The hub's notice “Update 1 · Convert action conditions to outcomes finished with 1 failed item(s).”, listing a rule id and the reason (its published version still uses On match / On no match; publish it from the Rule Builder, then Retry failed items), with Retry failed items and Dismiss. New rule is back."
 ---
 
 # Data Updates
 
 Some releases change how rules are stored, so the rules you already have must be converted once. The
-release ships that conversion as a numbered **data update**. Most releases carry none.
+release ships that conversion as a numbered **data update**. Most releases carry none, and an
+update only appears where it has something to convert: a new installation never sees one.
 
 A data update is applied from the Rule Builder, not on import. Importing the new solution is safe on
 its own: published rules keep enforcing the whole time.
@@ -19,6 +30,8 @@ While an update is waiting, the Rule Builder shows a slim bar on the hub and in 
 followed by the update's title:
 
 > Read-only until Update N is applied.
+
+![The hub with a yellow bar: “Read-only until Update 1 is applied. Convert action conditions to outcomes”, an info tip and Apply now. New rule and each row's Duplicate and Delete are hidden.](../images/03-07-data-updates-01.png)
 
 ## Who can apply it
 
@@ -43,6 +56,8 @@ is applied:
 3. When it finishes, the dialog reports *N converted, N failed*. Choose **Close**. The page
    reloads, the bar is gone and rules are editable again.
 
+![The Apply update 1? dialog: “Convert action conditions to outcomes. This converts existing rules for this release. It can take a few minutes; keep this tab open until it finishes.”, with Cancel and Apply.](../images/03-07-data-updates-02.png)
+
 If you close the tab part way, nothing is lost: the update saves its position after every step.
 Open the Rule Builder and choose **Apply now** again to carry on from there.
 
@@ -54,6 +69,8 @@ A data update converts items one at a time. If an item can't be converted, the u
 skips it and carries on. When it ends with any failed item, an administrator sees a notice:
 
 > Update N · title finished with N failed item(s).
+
+![The hub's notice “Update 1 · Convert action conditions to outcomes finished with 1 failed item(s).”, listing a rule id and the reason (its published version still uses On match / On no match; publish it from the Rule Builder, then Retry failed items), with Retry failed items and Dismiss. New rule is back.](../images/03-07-data-updates-03.png)
 
 It lists each failed item with the reason. A failed item is left as it was, and rules are editable
 again. Fix the cause the reason names, then choose **Retry failed items**. The update runs again from

@@ -82,6 +82,10 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
         public static bool IsPending(DataUpdateRow row) =>
             row == null || row.State == DataUpdateState.Running;
 
+        /// <summary>Pending for this environment: running, or not started and needed (<see cref="IDataUpdate.IsNeeded"/>).</summary>
+        public static bool IsPending(DataUpdateRow row, IDataUpdate update, IOrganizationService system) =>
+            row == null ? update.IsNeeded(system) : row.State == DataUpdateState.Running;
+
         /// <summary>Every row by number. <paramref name="columns"/> narrows the read (default: all columns).</summary>
         public static Dictionary<int, DataUpdateRow> Load(IOrganizationService system, ColumnSet columns = null)
         {

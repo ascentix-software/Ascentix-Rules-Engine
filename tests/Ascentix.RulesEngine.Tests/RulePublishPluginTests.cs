@@ -100,6 +100,8 @@ namespace Ascentix.RulesEngine.Tests
         {
             public int Number => 1;
             public string Title => "Convert";
+            public bool IsNeeded(IOrganizationService system) => Needed;
+            public bool Needed { get; set; } = true;
             public DataUpdateStep RunStep(DataUpdateContext context, string cursor, Func<bool> overBudget) => new DataUpdateStep(cursor, true, 0);
             public string Skip(string cursor, string item) => cursor;
         }

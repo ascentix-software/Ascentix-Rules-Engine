@@ -14,8 +14,10 @@ only, so the version an administrator sees in their org can never carry the word
   update. The Rule Builder shows a banner while one is pending; a System Administrator or System
   Customizer applies it with **Apply now** (others see the Rule Builder read-only, and publishing
   is refused until it has run). Progress and failed items are recorded in the new **Data Update**
-  table (`asx_dataupdate`) and reported by the new `asx_ApplyDataUpdates` Custom API. This release
-  carries no data updates. See *Administering → Data Updates*.
+  table (`asx_dataupdate`) and reported by the new `asx_ApplyDataUpdates` Custom API. An update
+  is pending only where it has something to convert, so a new install never sees one. This release
+  carries update 1, which converts On match / On no match to outcomes (below). See *Administering →
+  Data Updates*.
 - **On demand runs.** An On demand rule can now be run outside the editor: **Run now** (in the
   hub and the Rule Builder) evaluates and enforces it against the records you choose (up to
   250), or against every record that passes its execution conditions, depending on the rule's
@@ -77,10 +79,10 @@ only, so the version an administrator sees in their org can never carry the word
   publish checks for outcome names and Fires when conditions). An action with no condition never fires;
   "always" is an empty ALL group. **Breaking:** `asx_RunRules` and `asx_ReadRules` no longer
   return `fireOn` on each action. The column `asx_fireon` is retired: the engine no longer reads
-  it, and it is removed in the next release. Run the one-time script
-  `migrations/2026-10-multi-outcome/Convert-RulesToOutcomes.ps1` after upgrading (see
-  *Administering → Installation → Upgrading*); until it has run, actions on rules published
-  before the upgrade do not fire. The Rule Builder edits outcomes and each action's Fires when:
+  it, and it is removed in the next release. After upgrading, a System Administrator or System
+  Customizer applies **data update 1, Convert action conditions to outcomes** from the Rule
+  Builder (see *Administering → Installation → Upgrading*); until it has run, actions on rules
+  published before the upgrade do not fire. The Rule Builder edits outcomes and each action's Fires when:
   the validation band is titled **WHEN · Outcomes** with a **+ Add outcome** button, names are
   required, unique (ignoring case) and at most 100 characters, and deleting an outcome that
   actions test removes those tests. New publish errors: `OUTCOME_UNNAMED`,

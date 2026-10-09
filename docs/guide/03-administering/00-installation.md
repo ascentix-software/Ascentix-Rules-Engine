@@ -90,35 +90,24 @@ import; a System Administrator or System Customizer applies it from there (see
 
 This release replaces each action's **On match / On no match** setting with **outcomes** (the
 named top-level validation groups of a rule) and a **Fires when** condition on each action. The
-upgraded engine no longer reads On match / On no match, so a one-time script converts your
-existing rules. Until it has run, actions on rules published before the upgrade do not fire:
-nothing is blocked wrongly, but nothing fires either. The script is
-[`migrations/2026-10-multi-outcome/README.md`](../../../migrations/2026-10-multi-outcome/README.md).
+upgraded engine no longer reads On match / On no match, so the release ships **data update 1,
+Convert action conditions to outcomes**, which converts your existing rules. Until it is applied,
+actions on rules published before the upgrade do not fire: nothing is blocked wrongly, but nothing
+fires either.
 
-Before you import the new version:
+After you import the new version, a System Administrator or System Customizer opens the Rule Builder
+and chooses **Apply now** in the bar at the top (see *Data Updates*). Do it straight away. For each
+rule, the update:
 
-1. Run the script with `-WhatIf` (it writes nothing) to see what it would change.
-2. Every rule that has ever been published from the Rule Builder keeps a working draft. The script
-   republishes enforcing rules from their drafts, so it first checks each draft and lists, under
-   **Drafts with edits since the last publish** (the first list of its summary), only the drafts
-   changed since their last publish. Open each listed rule and **Publish…** its changes, or
-   discard them with **Restore published to draft…** (in the **More actions** (⋯) menu).
+- names each outcome: a blank name becomes "Outcome 1", "Outcome 2" and so on, and a repeated name
+  gets " (2)", " (3)";
+- gives each action a Fires when condition: **On match** becomes *all outcomes are true*, and
+  **On no match** becomes *any outcome is false*. An On no match action on a rule with no outcomes
+  never fired, so it is turned off.
 
-After you import it, sign in as a System Administrator or System Customizer and run
-`Convert-RulesToOutcomes.ps1` straight away. It names each outcome, builds each action's Fires
-when condition, and republishes the rules that are currently enforcing. It skips any enforcing
-rule whose draft has edits since the last publish, writes nothing to it, and lists it under
-**Drafts with edits since the last publish (skipped: publish or discard them, then re-run)**. The
-actions of a skipped rule do not fire until its draft is published or discarded and the script is
-run again (or run with `-PublishDraftEdits`), so deal with this list straight away. For
-each listed rule, open it and Discard the draft changes, or Publish them (the upgraded Rule
-Builder first asks you to choose when each of its actions fires), then run the script again. Or,
-once you have checked them, run it again with `-PublishDraftEdits` to convert and publish those
-rules with their changes. A rule published before published versions were kept has nothing to
-compare its draft with: it is converted and published as it is, and listed under **Drafts not
-checked (no published version to compare): review them by hand**. It is safe to run again if a
-run is interrupted. The retired
-`asx_fireon` column stays in the solution for this release and is removed in the next one.
+The converted rules keep enforcing as they did, with no publish needed. A rule the update can't
+convert is listed with the reason when it finishes; fix it and choose **Retry failed items**. The
+retired `asx_fireon` column stays in the solution for this release and is removed in the next one.
 
 The `asx_RunRules` and `asx_ReadRules` results no longer include `fireOn` on each action. This is
 a breaking change for any caller that reads it.

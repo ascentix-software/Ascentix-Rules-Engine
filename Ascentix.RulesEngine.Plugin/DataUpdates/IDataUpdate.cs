@@ -15,6 +15,13 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
         string Title { get; }
 
         /// <summary>
+        /// Whether this environment has anything for the update to convert. Asked only while the update has no
+        /// row yet: an update that isn't needed is never pending, so a fresh install or an environment converted
+        /// some other way never sees it. Must be a cheap read.
+        /// </summary>
+        bool IsNeeded(IOrganizationService system);
+
+        /// <summary>
         /// Does work from <paramref name="cursor"/> (null = from the start) until done or
         /// <paramref name="overBudget"/> returns true. Throws DataUpdateItemException for an item that
         /// fails; the caller re-calls and the processor records it through <see cref="Skip"/>.
@@ -27,14 +34,17 @@ namespace Ascentix.RulesEngine.Plugin.DataUpdates
 
     public sealed class DataUpdateContext
     {
-        public DataUpdateContext(IOrganizationService system, ITracingService trace, Guid callerId)
+        public DataUpdateContext(IOrganizationService system, ITracingService trace, Guid callerId, IOrganizationService writer = null)
         {
             System = system;
             Trace = trace;
             CallerId = callerId;
+            Writer = writer ?? system;
         }
 
         public IOrganizationService System { get; }
+        /// <summary>Writes rule configuration rows past the draft and publish guards (PublicationCoordinator.Internal).</summary>
+        public IOrganizationService Writer { get; }
         public ITracingService Trace { get; }
         public Guid CallerId { get; }
     }
