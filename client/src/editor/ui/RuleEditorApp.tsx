@@ -830,7 +830,7 @@ export function RuleEditorApp({
               editing={wide ? rulePanel : panelOpen}
               onOpen={() => { setSelection({ kind: "rule" }); if (!wide) setPanelOpen(true); }} />
             <DataModelChip graph={displayed} sharedBy={sharedBy} editDisabled={!!publishedView}
-              onEdit={() => confirmNavigate(() => navigate("tableconfig", working.rule.rootTableConfigId!))} />
+              onEdit={() => confirmNavigate(() => navigate("tableconfig", working.rule.modelId ?? working.rule.rootTableConfigId!))} />
           </div>
           {guardDialog}
           <ConfirmDiscardDraftDialog open={discardDraftOpen} version={version}

@@ -11,6 +11,9 @@ export interface RuleHeader {
   tableLogicalName: string;
   statusCode: number | null;
   publishedRevisionId?: string | null;
+  /** The shared data model the rule's row points at, which **Edit data model** opens. Set when the graph is
+   *  a published version, whose rootTableConfigId is that version's frozen copy and not an editable record. */
+  modelId?: string | null;
   publishedVersion?: number;
   /** When and by whom the live revision was published (the revision row); display only, never saved. */
   publishedOn?: string | null;
