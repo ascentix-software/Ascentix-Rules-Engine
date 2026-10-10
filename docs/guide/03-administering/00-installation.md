@@ -9,125 +9,102 @@ slug: installation
 
 ## Before you install
 
-- A Dataverse environment. During the beta, use a **non-production**
-  environment (see *Beta Limitations §1*).
-- **System Administrator** on that environment to import the solution.
-- The managed solution zip,
-  `AscentixRulesEngine_0.0.0.N_managed.zip` (N = the beta
-  number), from the
-  [download page](https://ascentix.ca/power-platform/rules-engine/download),
-  which also lists the file's SHA-256. Only the managed package is
-  supported.
+- A Dataverse environment. During the beta, use a **non-production** one (*Beta Limitations §1*).
+- **System Administrator** on that environment.
+- The managed solution, `AscentixRulesEngine_<version>_managed.zip`, from the
+  [download page](https://ascentix.ca/power-platform/rules-engine/download), which also lists its
+  SHA-256. Only the managed package is supported.
 
 ## Install
 
-1. Open the [Power Platform admin center](https://admin.powerplatform.microsoft.com)
-   → your environment → **Solutions** (or [make.powerapps.com](https://make.powerapps.com)
-   → **Solutions**) and choose **Import solution**.
-2. Select the managed zip and import. No settings or connection references
-   are prompted. The engine has no external dependencies.
+1. In the [Power Platform admin center](https://admin.powerplatform.microsoft.com) → your
+   environment → **Solutions** (or [make.powerapps.com](https://make.powerapps.com) →
+   **Solutions**), choose **Import solution**.
+2. Select the managed zip and import. Nothing is prompted, and there are no external dependencies.
 
-Everything ships in the solution: the rule configuration tables, the plug-in
-assembly with its bootstrap registration steps, the Custom APIs, the model-driven app, the Rule Builder web resources, and the two security roles.
-Existing rules work after import. Open a published rule and choose **Edit rule**
-to create or resume its working draft. The published rule continues enforcing
-until you publish the draft. Internal coordination and configuration preservation
-are handled automatically. A release that must convert existing rules ships a *data
-update*: after importing it, a System Administrator or System Customizer applies it
-from the Rule Builder (see *Data Updates*).
+The solution holds everything: the configuration tables, the plug-in, the Custom APIs, the
+model-driven app, the Rule Builder and the two security roles.
 
 ## Assign roles
 
-Assign the shipped roles (see *Security Roles* for exactly what they grant):
+| Role | For |
+|---|---|
+| **Rules Engine Author** | People who create and edit rules. |
+| **Rules Engine Reader** | People or service accounts that only read rule configuration. |
 
-- **Rules Engine Author**: for people who create and edit rules.
-- **Rules Engine Reader**: for people (or service accounts) that only read
-  rule configuration.
+Administrators need no extra role. Publishing a **System**-context rule that writes needs the
+publisher to hold the matching privileges org-wide on each target table (*Evaluation Context*). See
+*Security Roles* for exactly what each role grants.
 
-Administrators need no extra role. Publishing a **System-context** rule with
-write actions requires the publisher to hold the matching privileges org-wide
-on each target table (*Evaluation Context*).
+## Optional settings
 
-## Post-import verification checklist
+| Environment variable | Default | What it does |
+|---|---|---|
+| **Bulk writes** (`asx_BulkWrites`) | No | Yes sends several creates or updates of one table as one request: faster, but unsupported by Microsoft in plug-in code (*Beta Limitations §18*). |
+| **Capture diagnostics** (`asx_CaptureDiagnostics`) | No | Yes records each save's timings, for troubleshooting (*Troubleshooting*). |
 
-1. **Solution present:** the solution list shows *Ascentix Rules Engine*
-   at the version you installed, managed.
-2. **App opens:** launch the **Ascentix Rules Engine** model-driven
-   app; the sitemap shows the Authoring and Configuration groups.
-3. **Hub loads:** open the Rule Builder. The hub renders its Rules and Table
-   configurations tabs, both empty, without errors.
-4. **Author a test rule:** in the hub, create a rule on any test table with
-   a new data model; add one condition that a test record will violate
-   and a **Block save** action that fires when the outcome is false, with a recognizable
-   message; runs on **Create** (under **When saved**).
-5. **Check & publish:** **Check for issues** finds no issues; **Publish…** succeeds.
-6. **Enforcement is live:** create a violating record → the save is blocked
-   with *"This record could not be saved:"* and your message. Fix the value
-   → the save succeeds.
-7. **Report-only works:** call `asx_RunRules` for the table and a record id
-   (see *Custom APIs*). It returns a verdict without writing anything.
-8. **Unpublish releases:** choose **Unpublish…** in the rule's **More actions**
-   (⋯) menu → the previously blocked save now succeeds.
-9. **Clean up:** delete the test rule and configuration; delete the test
-    records.
+## Verify the install
 
-If any step fails,
-[open a GitHub issue](https://github.com/ascentix-software/Ascentix-Rules-Engine/issues).
+1. **Solution:** the Solutions list shows *Ascentix Rules Engine*, managed, at your version.
+2. **App:** the **Ascentix Rules Engine** app opens with the Authoring and Configuration groups.
+3. **Hub:** the Rule Builder opens with empty Rules and Data models tabs, and no errors.
+4. **Test rule:** create a rule on a test table with a new data model. Add one condition a test
+   record will break, and a **Block save** action, with a recognizable message, that fires when the
+   outcome is false. Have it run on **Create**.
+5. **Publish:** **Check for issues** finds none, and **Publish…** succeeds.
+6. **Enforcement:** creating a breaking record fails with *"This record could not be saved:"* and
+   your message. Fix the value and the save succeeds.
+7. **Report-only:** `asx_RunRules` for the table and a record id returns a verdict and writes
+   nothing (*Custom APIs*).
+8. **Unpublish:** **Unpublish…** in the rule's **More actions** (⋯) menu lets the blocked save
+   through.
+9. **Clean up:** delete the test rule, its data model and the test records.
+
+If a step fails, [open a GitHub issue](https://github.com/ascentix-software/Ascentix-Rules-Engine/issues).
 
 ## Upgrading
 
-Import the newer managed zip over the installed one (the default **Upgrade**
-behavior). Published rules, their configurations, and their generated
-enforcement steps are unaffected. Each beta release is verified to upgrade
-from its immediate predecessor (*Beta Limitations §12*); don't skip versions
-without testing in a sandbox first.
+Import the newer managed zip over the installed one (the default **Upgrade**). Published rules and
+their enforcement keep working. Each beta is tested as an upgrade from the one before it
+(*Beta Limitations §12*); test in a sandbox before skipping versions.
 
-If the release carries a *data update*, the Rule Builder shows a read-only bar after the
-import; a System Administrator or System Customizer applies it from there (see
-*Data Updates*).
+If the release carries a *data update*, the Rule Builder shows a read-only bar after the import, and
+a System Administrator or System Customizer applies it there (*Data Updates*).
 
 ### Upgrading to outcomes and "Fires when"
 
-This release replaces each action's **On match / On no match** setting with **outcomes** (the
-named top-level validation groups of a rule) and a **Fires when** condition on each action. The
-upgraded engine no longer reads On match / On no match, so the release ships **data update 1,
-Convert action conditions to outcomes**, which converts your existing rules. Until it is applied,
-actions on rules published before the upgrade do not fire: nothing is blocked wrongly, but nothing
-fires either.
+This release replaces each action's **On match / On no match** setting with **outcomes** (the named
+top-level validation groups of a rule) and a **Fires when** condition on each action. The engine no
+longer reads On match / On no match, so the release ships **data update 1, Convert action conditions
+to outcomes**. Until it's applied, actions on rules published before the upgrade don't fire: nothing
+is blocked wrongly, but nothing fires either.
 
-After you import the new version, a System Administrator or System Customizer opens the Rule Builder
-and chooses **Apply now** in the bar at the top (see *Data Updates*). Do it straight away. For each
-rule, the update:
+Right after the import, a System Administrator or System Customizer opens the Rule Builder and
+chooses **Apply now** (*Data Updates*). For each rule, the update:
 
 - names each outcome: a blank name becomes "Outcome 1", "Outcome 2" and so on, and a repeated name
   gets " (2)", " (3)";
-- gives each action a Fires when condition: **On match** becomes *all outcomes are true*, and
-  **On no match** becomes *any outcome is false*. An On no match action on a rule with no outcomes
-  never fired, so it is turned off.
+- gives each action a Fires when condition: **On match** becomes *all outcomes are true*, **On no
+  match** becomes *any outcome is false*. An On no match action on a rule with no outcomes never
+  fired, so it's turned off.
 
-The converted rules keep enforcing as they did, with no publish needed. A rule the update can't
-convert is listed with the reason when it finishes; fix it and choose **Retry failed items**. The
-retired `asx_fireon` column stays in the solution for this release and is removed in the next one.
+Converted rules keep enforcing as before, with no publish needed. A rule the update can't convert is
+listed with the reason; fix it and choose **Retry failed items**. The retired `asx_fireon` column
+stays in this release and is removed in the next.
 
-The `asx_RunRules` and `asx_ReadRules` results no longer include `fireOn` on each action. This is
-a breaking change for any caller that reads it.
+**Breaking:** `asx_RunRules` and `asx_ReadRules` no longer return `fireOn` on each action.
 
 ## Uninstalling
 
-The engine's generated enforcement steps live outside the
-solution (they're created at publish time in your environment) and reference
-the engine's plug-in type, so a straight solution delete is
-**dependency-blocked** while any exist.
+The engine's enforcement steps are created in your environment when rules are published, outside the
+solution, so they block a straight solution delete.
 
-1. Call the **`asx_SyncSteps`** Custom API with `Mode = "RemoveAll"` (System
-   Administrator or System Customizer; see *Custom APIs*). This deletes every
-   engine-generated step, including any you deactivated. It is recoverable:
-   your rules are not touched.
-2. Delete the managed solution from the Solutions list. Rules, configurations
-   and the engine's tables are removed with it. **This is not recoverable.**
+1. Call `asx_SyncSteps` with `Mode = "RemoveAll"` (System Administrator or System Customizer;
+   *Custom APIs*). It deletes every engine-generated step, deactivated ones included. Your rules are
+   untouched, so this is reversible.
+2. Delete the managed solution. Rules, data models and the engine's tables go with it. **This can't
+   be undone.**
 
-If you deleted the solution first and got a dependency error naming
-`Ascentix.RulesEngine` steps, run step 1, then delete again. If you run
-`RemoveAll` but *don't* uninstall, one `asx_SyncSteps` call with
-`Mode = "Sync"` (or any rule publish) regenerates the steps from your
-published rules.
+If you deleted the solution first and got a dependency error naming `Ascentix.RulesEngine` steps,
+run step 1 and delete again. If you run `RemoveAll` and then decide to keep the engine, call
+`asx_SyncSteps` with `Mode = "Sync"`, or publish any rule, to rebuild the steps.

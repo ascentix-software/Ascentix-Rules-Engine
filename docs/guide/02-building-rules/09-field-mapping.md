@@ -11,192 +11,79 @@ screenshots:
 
 # Field Mapping
 
-**Create Record** and **Update Record** actions write values onto the
-target record's columns, configured through the **Map columns** dialog,
-opened from the **"Edit columns…"** button under **Columns to set** in the
-action panel. **Deactivate Record** uses the same dialog (under **Status
-reason (optional)**), but only to set the optional **Status Reason**
-(`statuscode`) column; leave it unmapped and the table's default inactive
-status applies.
+**Create Record** and **Update Record** actions set the target's columns in the **Map columns**
+dialog: **"Edit columns…"** under **Columns to set** in the action panel. **Deactivate Record**
+uses the same dialog (under **Status reason (optional)**) only to set **Status Reason**
+(`statuscode`); left unmapped, the table's default inactive status applies.
 
 ## The Map columns dialog
 
-The dialog is a **master–detail** layout: a narrow list rail on the left
-and a detail pane on the right.
+The left rail lists each mapped column with a **Source · value** summary (for example "Literal ·
+Handle with priority."). Select one to edit its **Column** and **Source** on the right.
 
-The rail lists one entry per mapped target column: its display name, a
-small colored dot for the source type, and a one-line **Source · value**
-summary (for example, "Literal · Handle with priority."). Selecting an
-entry loads that column into the detail pane.
-
-The detail pane sets the mapped **Column** and its **Source**:
-
-- **Literal**: a constant value, typed in the editor for the target
-  column's type (text box, date picker, choice dropdown, and so on).
-- **From this record**: a column's value from the triggering record.
-- **From related record**: a column's value from a related table-config
-  node.
-- **Current row** (set actions only): a column's value from the row of the collection this
-  write is for — the source available on a set Update/Delete/Deactivate action's mapping, or on a
-  Create Record's mapping when it creates **For each row of** a collection. For a lookup-family
-  target, a **"Link to the current row itself"** switch replaces the column picker: it points the
-  lookup at the row record itself rather than one of its column values, for example a follow-up
-  task's Regarding lookup pointing back at the contact row that produced it.
-- **Text template**: literal text combined with `{root.<column>}` /
-  `{node:<tableconfig-guid>.<column>}` / `{row.<column>}` tokens (`{row.…}` only where a **Current
-  row** source is available). A live preview beneath the template shows the rendered result as you
-  type.
-- **Date calculation**, for DateTime targets only: an anchor (either "now"
-  or a date column) plus or minus an amount and a unit.
-- **Link to a record**, for lookup-family targets only (Lookup,
-  Customer, or Owner columns): sets the column to a chosen record's own
-  reference rather than one of that record's column values, for example a
-  note whose Regarding lookup points back at the root record. Pick "this
-  record" for the root record, or any related table-config node that
-  resolves to exactly one record. Stored as
-  `{ "target": "objectid", "source": "ref", "node": "<tableConfigId>" }`,
-  where `node` is the table-config id of the chosen record (the root
-  node's id for "this record").
-- **Calculation**, for numeric targets only (integer or decimal columns):
-  an arithmetic expression over numeric operands. See *Calculation* below.
+| Source | Sets the column to |
+|---|---|
+| **Literal** | A value typed in an editor that fits the column's type |
+| **From this record** | A column of the triggering record |
+| **From related record** | A column of a related table-config node |
+| **Current row** | A column of the row this write is for. Only on set Update, Delete or Deactivate actions, and Create Record **For each row of** a collection. For a lookup, **"Link to the current row itself"** points it at the row record (a follow-up task's Regarding pointing back at the contact row) |
+| **Text template** | Text with `{root.<column>}`, `{node:<tableconfig-guid>.<column>}` and, where **Current row** is available, `{row.<column>}` tokens. A preview shows the result as you type |
+| **Date calculation** | Date columns only: "now" or a date column, plus or minus an amount and unit |
+| **Link to a record** | Lookup, Customer or Owner columns only: a chosen record's own reference, such as a note's Regarding pointing at the root record. Pick "this record" or a related node that resolves to one record. Stored as `{ "target": "objectid", "source": "ref", "node": "<tableConfigId>" }` |
+| **Calculation** | Integer or decimal columns only: an arithmetic expression (below) |
 
 ![The Map columns dialog for an Update record action on Orders: Approval Notes from a Template and Handling Instructions from a Literal “Ship within 24 hours.”, with Add column, Edit as JSON, “Ready to apply”, Cancel and Apply.](../images/02-09-field-mapping-01.png)
 
-## Adding and removing columns
-
-**Add column** appends an entry to the rail and selects it. Each column has
-its own **Remove column** button in the detail pane. **Apply** saves the
-mapping back onto the action, **Cancel** discards it.
-
-## Edit as JSON
-
-An **"Edit as JSON"** link in the dialog's footer switches to a raw JSON
-view of the underlying field-mapping data, the same structure the engine
-stores and executes. Switching back to the list/detail view re-parses
-whatever's in the JSON editor.
+**"Edit as JSON"** shows the stored field-mapping
+JSON; switching back re-reads it.
 
 ## Calculation
 
-**Calculation** (in the engine code, `mathexpr`) computes a numeric result
-from an arithmetic expression.
+| Element | Syntax |
+|---|---|
+| Columns | `{root.<column>}` (triggering record), `{node:<tableconfig-guid>.<column>}` (related record) |
+| Numbers | `42`, `3.5` |
+| Operators | `+`, `-`, `*`, `/`, parentheses, and a leading `-` |
 
-### Writing a calculation expression
+Example: `{root.sample_quantity} * {node:<product>.sample_price}`.
 
-Expressions use the same token syntax as text templates:
-
-- `{root.<column>}`: a column from the triggering record.
-- `{node:<tableconfig-guid>.<column>}`: a column from a related record.
-- Numeric literals (e.g., `42`, `3.5`).
-
-**Example:** `{root.sample_quantity} * {node:<product>.sample_price}`
-multiplies the order quantity by the product's unit price.
-
-### Operators and syntax
-
-- **Arithmetic:** `+`, `-`, `*`, `/`.
-- **Grouping:** parentheses `(` and `)`.
-- **Unary minus:** a leading `-` before an operand (e.g., `-{root.sample_value}`).
-
-### Target and operand types
-
-- The **target column** must be numeric (an integer or decimal column).
-- **Operands** must resolve to numeric values: numeric columns or numeric
-  literals. A non-numeric operand fails during rule execution with
-  "calculation operand 'X' is not a numeric value".
-
-### Nulls, division by zero, and rounding
-
-If **any operand is null**, or a **division by zero** occurs during
-evaluation, the target column is **left unchanged**; no write occurs.
-Fractional results are rounded to the **nearest whole number** when writing
-to an integer target. Decimal targets preserve the full precision.
+- Operands must be numeric. A non-numeric one fails the rule with "calculation operand 'X' is not a
+  numeric value".
+- If any operand is empty, or the expression divides by zero, the column is **left unchanged**.
+- Integer targets round to the nearest whole number; decimal targets keep full precision.
 
 ### Aggregates over child collections
 
-Calculations can also aggregate values over a **child collection** (a
-one-to-many related table), for example an order's line-item amounts.
+| Function | Result |
+|---|---|
+| `sum(node:<guid>.<column>)` | The total of the column across the collection |
+| `avg(node:<guid>.<column>)` | The average |
+| `min(node:<guid>.<column>)` | The smallest value |
+| `max(node:<guid>.<column>)` | The largest value |
+| `count(node:<guid>)` | The number of rows (no column) |
 
-#### Aggregate functions
+- The collection must be a **child collection** (one-to-many), not a single related record or the
+  root.
+- The column must be numeric; any other type fails at run time.
+- Empty cells are ignored.
+- On an empty collection, `sum` and `count` give `0`. `avg`, `min` and `max` give no value, so the
+  column is left unchanged.
 
-- **`sum(node:<guid>.<column>)`**: sums the column's numeric values across
-  all rows in the collection.
-- **`avg(node:<guid>.<column>)`**: averages them.
-- **`min(node:<guid>.<column>)`**: the smallest value in the column.
-- **`max(node:<guid>.<column>)`**: the largest value in the column.
-- **`count(node:<guid>)`**: the number of rows in the collection; takes no
-  column.
+**Insert aggregate** in the calculation editor asks for the **Function**, the **Collection** and
+(except for `count`) the **Column**, and inserts it at the cursor. Aggregates combine like any
+operand: `sum(node:<lines>.lineamount) * (1 + {root.taxrate})`.
 
-On an empty collection, `sum` and `count` return `0`, while `avg`, `min`,
-and `max` have no value: the calculation then produces no value and the
-target is left unchanged (no write occurs).
+### Filtering an aggregate
 
-#### Aggregate operand requirements
+Below the expression, the **Aggregates** card lists each aggregate with its function, collection
+and column. **"Only rows where…"** opens the same filter builder as condition filters; Only aggregates can be filtered, not `{root.…}` or `{node:…}` operands.
 
-- The **collection must be a child collection** (a one-to-many related
-  table picked as a table-config node). Single-related collections or the
-  root record cannot be aggregated.
-- The **column being aggregated must be numeric** (integer or decimal).
-  Text, choice, date, and other non-numeric columns are errors at runtime.
-- **Null cells are ignored** during aggregation: they contribute nothing to
-  the sum, are skipped when computing average, and do not affect min/max.
+- Criteria use the same operators, and compare against a literal, another record's column or, for
+  dates, a **Date expression** (*Filtering a Condition's Child Records*).
+- **Related-rows filter** adds an existence check on another collection: only sum lines whose order
+  also has an expedited shipment.
+- A filter that matches no rows counts as an empty collection.
 
-#### Building aggregates in the editor
+Example: `sum(node:<lines>.amount)` with the filter `status Equals Active` sums active lines only.
 
-**Insert aggregate**, in the calculation editor, prompts for **Function**
-(`sum`, `avg`, `min`, `max`, or `count`), **Collection** (the child
-table-config node), and, for every function except `count`, **Column** (the
-numeric column to aggregate). The expression is inserted at the cursor
-position.
-
-#### Composing aggregates with other operands
-
-Aggregates are operands, like column references and literals, and combine
-with arithmetic operators:
-
-**Example:** `sum(node:<lines>.lineamount) * (1 + {root.taxrate})`
-multiplies the sum of all line amounts by a tax factor derived from the
-triggering record's tax rate.
-
-#### Filtering an aggregate
-
-An aggregate can be filtered to reduce only the child rows that match
-specific criteria. Below the calculation expression, a teal **Aggregates**
-card shows one chip row per aggregate in your expression: its function,
-collection, and (for every function except `count`) column, each as its own
-dropdown. Each row's **"Only rows where…"** button opens the filter builder
-used for condition filters, where you add AND/OR criteria on the child
-collection's columns. A **Clear** button appears next to it once a filter is
-set.
-
-Criteria support the same operators as condition filters:
-
-- Equals, not equals, greater than, greater than or equal, less than, less
-  than or equal.
-- Contains, does not contain.
-- Is null / Is not null.
-
-A criterion compares against a **literal value** or **reads from another
-record** (for example, a line's amount against the order's maximum
-threshold). On a date column it can also compare against a **Date
-expression**: a point in time relative to when the rule runs ("now minus 30
-days") or to another date, such as the row's own estimated close date or the
-order's date plus a few days. A row whose anchor date is empty simply doesn't
-match. See *Filtering a Condition's Child Records* → *Comparison values*.
-The filter's **Add** menu also offers a **Related-rows filter**,
-the existence check that tests whether a *different* related collection has
-a matching count of rows: only sum lines whose order also has an expedited
-shipment, for instance. See *Filtering a Condition's Child Records* → *Has
-related rows… (existence filtering)*.
-
-**Example:** on an order, set a field to `sum(node:<lines>.amount)` where
-each line's `status` equals "Active". Only active lines contribute to the
-sum.
-
-A filter that matches no rows behaves like an empty collection.
-
-Filtering does not change when the rule fires or which other actions run.
-Only **aggregates** can be filtered; single-record operands like
-`{root.…}` and `{node:…}` cannot.
-
-See *Building Actions* for how Create Record and Update Record fit among
-the other action types.
+See *Building Actions* for the other action types.

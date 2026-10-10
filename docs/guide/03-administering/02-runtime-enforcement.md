@@ -7,78 +7,54 @@ slug: runtime-enforcement
 
 # Runtime Enforcement
 
-What a published rule does when it fires depends on *which action type* fired
-and *where* the rule ran, not on severity alone.
+What a fired rule does depends on the **action type** and **where it ran**.
 
-## Severity is a message level, not a block switch
+## Severity doesn't block
 
-Severity (**Information**, **Warning**, or **Error**) is set per action
-(see *Core Concepts*) and controls the notification level a message is
-shown at. It does **not**, by itself, determine whether an operation is
-blocked: on the server a **Show Message** is always informational, at any
-severity. On a form, a Show Message targeted at a field does stop the save,
-for the reason given under *On form* below.
+Severity (**Information**, **Warning**, **Error**) sets how a message is shown. Only a fired
+**Block** action stops a save, at any severity: a Warning Block blocks exactly like an Error one. On
+the server, a **Show Message** never blocks. On a form, a field-targeted Show Message does (see *On
+a form* below).
 
-What blocks an operation is the action **type**. Only a fired **Block**
-action stops the save, and severity is not consulted when deciding whether to
-block: a **Warning**-severity `Block` blocks and rolls back the save exactly
-like an Error-severity one.
+## On create, update and delete (server)
 
-## On create / update / delete (server, authoritative)
+This is the enforcement that counts: it covers every save, from forms, the Web API, integrations and
+imports.
 
-When a Create, Update, or Delete against a rule's table matches the rule's
-trigger:
+- **Block wins.** If any Block fires, on any rule, the save fails before anything is written. None of
+  the fired write actions (Create, Update, Delete or Deactivate Record, on one record or a set) are
+  applied.
+- Otherwise the fired writes are applied in the save's own transaction. A write that fails rolls the
+  whole save back.
+- Writes made by rules don't trigger further rules.
+- **On Delete** works the same way: a Block stops the delete.
+- **Channels** apply (*Triggers & Channels*): a Power Pages save is **Portal**, everything else is
+  **Standard**.
 
-- The plugin evaluates every applicable rule and dispatches its fired
-  actions.
-- If **any** `Block` action fires (across any rule on that record), the
-  plugin throws before any writes happen. **No** part of the operation
-  commits, including any `Create Record` / `Update Record` / `Delete
-  Record` / `Deactivate Record` write actions that also fired, on one
-  record or on a set of rows: **block wins**.
-- If no `Block` fires, any fired write actions (`Create Record`, `Update
-  Record`, `Delete Record`, `Deactivate Record`, each on a single record or
-  on a set of rows) are applied atomically in the same transaction as the
-  triggering operation. A write failure throws and rolls back the whole
-  operation.
-- Write actions don't cascade into rules triggered by their own writes; they
-  execute only at the top level of the operation.
-- This holds identically across all three triggers, including **On
-  Delete**: a `Block` that fires when a matching record is deleted throws
-  before the delete is applied, and the row survives.
-- Enforcement also respects the rule's **Channels** gate (see *Triggers &
-  Channels*): a write through a Power Pages portal resolves to **Portal**,
-  every other origin to **Standard**, and each is enforced (or excluded) as
-  such. The engine does not distinguish a human from an integration.
+### How writes go out
 
-**How the writes go out.** The writes of one record's evaluation are
-collected first and merged, as *Building Actions* → *Writing a set of rows*
-describes:
+As *Building Actions* → *Writing a set of rows* describes:
 
-- Two writes of the same record in the same evaluation context (User or
-  System) become one write, the later action winning per column; an update
-  and a delete of the same record become the delete. A row that already holds
-  the values is skipped, so saving again with nothing changed writes nothing.
-- An update of the record being saved, whether from a single-record action or
-  from a set whose rows include that record, is applied to the record in
-  place, as part of the save itself.
-- The rest are sent as creates, then updates, then deletes, each grouped per
-  table, rather than one at a time in action order. Two or more creates or
-  updates of the same table (and evaluation context) go as one
-  `CreateMultiple` / `UpdateMultiple` where the table supports it; deletes
-  are always sent one at a time.
+- Two writes of the same record (in the same evaluation context) merge into one, the later action
+  winning per column. An update and a delete of the same record become the delete.
+- A row that already holds the values is skipped, so saving again with nothing changed writes
+  nothing.
+- An update of the record being saved is applied to it in place, as part of the save.
+- The rest go out as creates, then updates, then deletes, grouped by table. Two or more creates or
+  updates of one table go as one `CreateMultiple` / `UpdateMultiple` where the table supports it.
+  Deletes go one at a time.
 
-**Write failure messages.** A failed write rolls the save back and names what
-failed. A single request names the operation, the table and the first action
-that wrote it (its name, or its id when it has none): `Update contact (action
-"Stop bulk email"): <error>`. A bulk
-request names the operation and the table only, because it carries rows from
-several actions: `UpdateMultiple contact: <error>`. A Rule Run records the same
-text (shortened if long) for a Failed record.
+### Error messages
 
-**Block message format.** The exception message aggregates **every** fired
-`Block` message across all rules on the record as a deduped, bulleted list
-under a header, for example:
+A failed write names what failed:
+
+- A single write: `Update contact (action "Stop bulk email"): <error>` (the action's id if it has no
+  name).
+- A bulk write: `UpdateMultiple contact: <error>`, since it carries rows from several actions.
+
+A Rule Run records the same text for a Failed record.
+
+A blocked save lists every fired Block message, across all rules, once each:
 
 ```
 This record could not be saved:
@@ -86,53 +62,30 @@ This record could not be saved:
  • Amount must be positive.
 ```
 
-A `Block` action with no configured message falls back to a default block
-message. On a bulk operation, the plugin evaluates **every** record rather
-than failing fast, and throws once with every failing record's messages and
-id included, so the caller sees every problem in a single round trip.
+A Block with no message shows a default one. A bulk operation checks every record and fails once,
+listing each failing record's id and messages.
 
-## On form (client, advisory)
+## On a form (client)
 
-The client form library never calls `preventDefault` on a save. It has no `OnSave`
-handler and only *surfaces* what a rule would do, giving the person filling
-out the form early feedback before they save:
+The form library gives early feedback. It never cancels a save itself:
 
-- `Set Visible` and `Set Required` are applied directly to the form.
-- A **form-level** `Show Message` sets a form notification at its configured
-  severity and does not block.
-- A **field-targeted** `Show Message` is added to the control instead. The
-  platform renders control notifications at Error only, and an Error control
-  notification stops the save through native field validation. So a Show
-  Message on a field blocks until its condition stops matching, whatever
-  severity it carries. Use a form-level Show Message for advice that must not
-  stop anyone.
-- A **field-targeted** `Block` shows as an inline notification on that
-  field only. On save, the platform's own validation rolls that
-  notification up to the form header and stops the save at that point,
-  through native field validation rather than through the rules engine.
-- A **form-level `Block`** (not targeted at a specific field) shows as a
-  form banner instead, since there's no field to attach it to.
+| Action | On the form |
+|---|---|
+| Set Visible, Set Required | Applied to the field. |
+| Show Message, form-level | A form notification at its severity. Doesn't block. |
+| Show Message, on a field | A field notification. The platform shows these as errors, so it **stops the save** until its condition stops matching, whatever its severity. Use a form-level message for advice. |
+| Block, on a field | A field notification. The platform's own field validation stops the save. |
+| Block, form-level | A form banner. |
 
-The server backstops the client for any write that doesn't go through this
-form (bulk import, API calls, other integrations).
+Saves that don't go through a form (imports, API calls, integrations) are still enforced by the
+server.
 
 ## On demand
 
-The **On demand** trigger has two different invocations with different
-enforcement (see *How Rules Run*):
+| Called through | Enforces? |
+|---|---|
+| `asx_RunRules` | **No.** Nothing is blocked or written. Fired actions come back as data: `IsValid` is `true` only when no Block fired, and `FailedRuleCount` counts the rules that fired one. |
+| `asx_ApplyRules` | **Yes**, like a save: a Block fails the call with no writes; otherwise the fired writes are applied. |
+| **Apply to records** (**Run now**) and Rule Runs | **Yes**, per record, and the run keeps going. A blocked record gets no writes and is counted **Blocked** with its message. A page of records shares one transaction: a failed write rolls the page back, that record is counted **Failed**, and the page runs again without it. |
 
-- A rule invoked through `asx_RunRules` never blocks, regardless of what
-  fires. Every fired action, including `Block`, is reported back to the
-  caller as data instead: the response's `IsValid` flag is `true` only when
-  no `Block` action fired, and `FailedRuleCount` counts the distinct rules
-  that fired one. Nothing is thrown and no write actually happens.
-- `asx_ApplyRules` **does** enforce, exactly like *On create / update /
-  delete* above: a fired `Block` throws and applies no writes; otherwise every
-  fired write action is applied inside the call's transaction.
-- **Apply to records** (the hub's **Run now**) and a **Rule Run** enforce too, per record, but a run keeps
-  going: a record that fires a `Block` gets no writes and is **counted**
-  Blocked (with its message) instead of stopping the run, and every other
-  record's fired writes are applied. The records of one page share one
-  transaction: a write that fails rolls the whole page back, the failing record
-  is counted Failed, and the page is processed again without it. See *Running
-  Rules On Demand* for what a run records.
+See *How Rules Run* and *Running Rules On Demand*.

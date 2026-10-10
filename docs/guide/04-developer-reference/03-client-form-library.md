@@ -7,29 +7,24 @@ slug: client-form-library
 
 # Client Form Library
 
-`asx_rulesengine.js` is the JavaScript web resource that gives rules their on-form
-behavior with no custom JavaScript of your own: the *On form (client, advisory)* path
-described in *Runtime Enforcement*. The client is advisory only. The server plugin is
-the authoritative enforcer of every rule, and everything below assumes that.
+`asx_rulesengine.js` is the web resource that gives rules their on-form behavior with no custom
+JavaScript: the *On form (client, advisory)* path in *Runtime Enforcement*. The client is advisory
+only; the server plugin enforces every rule.
 
 ## What it does
 
 On form load, the library:
 
-1. Calls `asx_ReadRules` once for the form's table (requesting the `OnForm`
-   trigger), caches the rule definitions, and derives which columns the rules depend
-   on and which columns/messages the rules can target.
-2. Snapshots the baseline visibility and required-level of every control the rules
-   might touch.
-3. Registers a change handler on each dependency column present on the form. It
-   registers **no** save handler: the client never blocks or triggers a save.
-4. Runs an initial evaluate-then-apply pass.
+1. Calls `asx_ReadRules` once for the form's table (trigger `OnForm`), caches the rules, and works
+   out which columns they depend on and which columns and messages they can target.
+2. Records the baseline visibility and required level of every control the rules might touch.
+3. Adds a change handler to each dependency column on the form. It adds **no** save handler: the
+   client never blocks or triggers a save.
+4. Runs a first evaluate-and-apply cycle.
 
-Each subsequent evaluate-then-apply cycle (on load, and again on every relevant field
-change) serializes the current form values for the dependency columns, calls
-`asx_RunRules` for the table with those values, resets every previously-touched
-control back to its baseline, and applies the actions the response reports as fired.
-See *Custom APIs*.
+Each cycle (on load, then on every relevant field change) sends the dependency columns' current
+values to `asx_RunRules`, resets every touched control to its baseline, and applies the fired
+actions (*Custom APIs*).
 
 ## Action mapping
 
@@ -42,34 +37,25 @@ See *Custom APIs*.
 | Block (field-targeted) | Adds an inline notification on that field only | Yes, via the platform's own field validation: it rolls the field notification up to the form header on save and blocks there |
 | Block (form-level) | Shows a form banner | No (no field for the platform to roll a notification up from) |
 | Create/Update/Delete Record | Ignored on the client | n/a (server-only) |
-Bulk imports, API calls, and other writes that never pass through this form are
-gated on save by the server plugin regardless of what the client shows.
 
 ## Wiring it onto a form
 
-On each model-driven form that should run the rules engine:
+On each model-driven form that should run rules:
 
 1. Add the `asx_rulesengine` web resource as a **form library**.
-2. Register one event handler:
-   - **Event:** `OnLoad`
-   - **Function:** `Ascentix.RulesEngine.onLoad`
-   - **Pass execution context as first parameter:** checked
+2. Register one `OnLoad` handler: function `Ascentix.RulesEngine.onLoad`, with **Pass execution
+   context as first parameter** checked.
 
-That is the only handler to register by hand. From inside `onLoad` the library
-self-registers change handlers on the dependency columns it discovers from
-`asx_ReadRules`.
+The library registers its own change handlers from `onLoad`.
 
-> `asx_authoringforms.js` is a separate bundle: it drives conditional visibility on
-> the engine's own configuration forms inside the Rules Engine app, not rules running
-> on your own tables.
+> `asx_authoringforms.js` is a separate bundle for the engine's own configuration forms, not for
+> rules on your tables.
 
-## Graceful degradation
+## When something fails
 
-The library never breaks or freezes a form on its own failure:
+The library never breaks or freezes a form:
 
-- If `asx_ReadRules` fails on load (network error, the caller lacks read access, or
-  the API isn't available), the library logs the error, skips all wiring, and leaves
-  the form usable as-is with no end-user error banner.
-- If `asx_RunRules` fails mid-cycle, the library logs the error and keeps the last
-  successful cycle's state rather than wiping the form or fabricating a block
-  notification.
+- If `asx_ReadRules` fails on load (network error, no read access, or the API missing), it logs the
+  error, wires nothing, and leaves the form as it is, with no error banner.
+- If `asx_RunRules` fails mid-cycle, it logs the error and keeps the last successful cycle's state,
+  rather than clearing the form or inventing a block.

@@ -67,7 +67,8 @@ const inspector = (frame: FrameLocator) => frame.getByTestId("inspector-body");
 
 test("opening the rule builder", async ({ page }) => {
   await openHubFiltered(page);
-  await shoot(page, "02-01-opening-the-rule-builder-01.png", { x: 0, y: 48, width: 200, height: 852 });
+  // Landscape: the sitemap entry beside the hub it opens (the sitemap alone renders as a tall strip).
+  await shoot(page, "02-01-opening-the-rule-builder-01.png", { x: 0, y: 0, width: 960, height: 540 });
 });
 
 test("hub", async ({ page }) => {
