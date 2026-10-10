@@ -38,7 +38,8 @@ namespace Ascentix.RulesEngine.Plugin
                 ? new RunDiagnostics()
                 : null;
             var result = new RunPageProcessor(system, local.CurrentUserService, languageId, local.TracingService,
-                    PluginReentry.IsEngineInitiated(context), new RunPageLimits(), () => DateTime.UtcNow, diagnostics)
+                    PluginReentry.IsEngineInitiated(context), new RunPageLimits(), () => DateTime.UtcNow, diagnostics,
+                    new WriteActionExecutor(context.OrganizationId))
                 .Process(runId, failedRecordId, failedMessage);
             if (diagnostics != null) diagnostics.TotalMs = overall.ElapsedMilliseconds;
 

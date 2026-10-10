@@ -83,7 +83,7 @@ namespace Ascentix.RulesEngine.Plugin
 
                 // No block, so apply any fired write actions (atomic, depth-guarded). The outcome's
                 // records are in input order, so each pairs with its own Target by position.
-                new WriteActionExecutor().Execute(
+                new WriteActionExecutor(context.OrganizationId).Execute(
                     outcome, inputs.Select(inp => inp.Overlay).ToList(), userService, systemService,
                     PluginReentry.IsEngineInitiated(context), trace, outcome.Diagnostics);
             }
