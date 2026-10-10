@@ -7,16 +7,14 @@ slug: schema-reference
 
 # Schema Reference
 
-The rule model is stored as ordinary Dataverse records in a small set of
-`asx_`-prefixed tables. The default publisher prefix is `asx`, and every logical name
-below assumes it. Every table carries the standard `asx_name` primary column in
-addition to the columns listed here. For what these objects mean, see *Core
+Rules are ordinary Dataverse records in `asx_`-prefixed tables (the default publisher prefix).
+Every table also has the standard `asx_name` primary column. For what the objects mean, see *Core
 Concepts*.
 
 ## Global choices
 
-All choices are **global** and single-select unless marked multi-select. Values are
-stable integers. Do not assume label text; match on the value.
+Global and single-select unless marked. Values are stable integers: match on the value, not the
+label.
 
 | Choice | Schema name | Values |
 |---|---|---|
@@ -38,9 +36,8 @@ stable integers. Do not assume label text; match on the value.
 
 ### Rule (`asx_rule`)
 
-The top-level object. Lifecycle uses the standard Dataverse `statecode`/`statuscode`
-pair rather than a custom field. See *Rule Lifecycle* for what Draft, Published, and
-Archived mean.
+Lifecycle is the standard `statecode`/`statuscode` pair (*Rule Lifecycle*: Draft, Published,
+Archived).
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
@@ -56,7 +53,7 @@ Archived mean.
 
 ### Table Config (`asx_tableconfig`)
 
-A node in the traversal tree. Self-referential via Parent Table.
+A node in the traversal tree, self-referential through Parent Table.
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
@@ -79,11 +76,12 @@ An AND/OR node in a rule's condition tree (self-referential).
 | Is Execution Condition | `asx_isexecutioncondition` | Yes/No | Yes | Marks a group as a rule gate, evaluated before the validation groups |
 | Name | `asx_name` | Text | No | Outcome name for a top-level validation group: required, unique in the rule |
 
-A top-level validation group is an **outcome**. Actions choose when to fire by testing outcomes (see *Action Condition Group* below).
+A top-level validation group is an **outcome**; actions test outcomes to decide when to fire
+(*Action Condition Group*).
 
 ### Rule Condition (`asx_rulecondition`)
 
-A single leaf check inside a Condition Group.
+A leaf check inside a Condition Group.
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
@@ -101,13 +99,14 @@ A single leaf check inside a Condition Group.
 
 ### Rule Action (`asx_ruleaction`)
 
-What the rule does. An action fires only when its *Fires when* tree holds (see the two tables below); an action with no tree never fires. Columns not relevant to a given Action Type are left blank.
+An action fires only when its *Fires when* tree holds (the next two tables); with no tree it never
+fires.
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
 | Rule | `asx_rule` | Lookup → `asx_rule` | Yes | Parent rule |
 | Action Type | `asx_actiontype` | Choice → `asx_actiontype` | Yes | What to do |
-| Fire On | `asx_fireon` | Choice → `asx_actionfireon` | No | Retired: not read by the engine; read once by the multi-outcome migration script; removed in the next release |
+| Fire On | `asx_fireon` | Choice → `asx_actionfireon` | No | Retired: the engine doesn't read it; data update 1 converts and clears it (*Data Updates*); removed in the next release |
 | Target Column | `asx_targetcolumn` | Text | No | Set Visible / Set Required target; blank on a form-level Block |
 | Value | `asx_valuebool` | Yes/No | No | Set Visible: show; Set Required: required |
 | Apply Inverse When Not Fired | `asx_applyinversewhennotfired` | Yes/No | No | Reserved: not consumed by the current runtime and not shown in the visual editor |
@@ -122,16 +121,16 @@ What the rule does. An action fires only when its *Fires when* tree holds (see t
 
 ### Action Condition Group (`asx_actionconditiongroup`)
 
-A node of an action's *Fires when* tree: a group of outcome tests combined with ALL or ANY.
+A node of an action's *Fires when* tree: outcome tests combined with ALL or ANY.
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
-| Rule Action | `asx_ruleaction` | Lookup → `asx_ruleaction` | Yes | The action the node belongs to. Every node carries it, not just the root. Deleting the action deletes its tree |
+| Rule Action | `asx_ruleaction` | Lookup → `asx_ruleaction` | Yes | The action the node belongs to. Every node carries it, not just the root |
 | Parent Group | `asx_parentgroup` | Lookup → `asx_actionconditiongroup` | No | Blank = the root. An action has at most one root |
 | Logical Operator | `asx_logicaloperator` | Choice | Yes | ALL = 1 (every child must hold), ANY = 2 (at least one must hold) |
 | Order | `asx_order` | Whole Number | No | Position among siblings |
 
-A root ALL group with no children always holds: "Always, when the rule runs".
+A root ALL group with no children always holds ("Always, when the rule runs").
 
 ### Action Condition Test (`asx_actionconditiontest`)
 
@@ -139,32 +138,26 @@ A leaf of a *Fires when* tree: "this outcome is true" or "this outcome is false"
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
-| Group | `asx_actionconditiongroup` | Lookup → `asx_actionconditiongroup` | Yes | The group the test is in. Deleting the group deletes its tests |
+| Group | `asx_actionconditiongroup` | Lookup → `asx_actionconditiongroup` | Yes | The group the test is in |
 | Outcome | `asx_outcome` | Lookup → `asx_conditiongroup` | Yes | A top-level validation group of the same rule. Deleting the outcome removes the link, and publishing then reports an error |
 | Expected | `asx_expected` | Yes/No | Yes | Yes = "is true" (default), No = "is false" |
 | Order | `asx_order` | Whole Number | No | Position among siblings |
 
 ## Value nodes
 
-`asx_comparisonvaluenode` (on a condition) and `asx_targetnode` (on an action) are
-both lookups into the same `asx_tableconfig` tree the rule's conditions traverse.
+`asx_comparisonvaluenode` (condition) and `asx_targetnode` (action) both point into the rule's
+`asx_tableconfig` tree.
 
-`asx_comparisonvaluenode` must resolve to a **single-cardinality** node: the Root node (the
-triggering record) or a Lookup node (one related record), never a Child node.
-
-`asx_targetnode` on an Update Record, Delete Record or Deactivate Record action accepts either
-kind of node: a single-cardinality node (Root or Lookup — the action writes that one record, as
-before), or a **collection** node (a Child node, or a node reached through a Child step further
-down the tree) — the action then writes **every** row of that collection that passes its Rows
-filter (a **set action**; see *Building Actions* → *Writing a set of rows*). Create Record's
-`asx_targetnode` is optional; when set it must be a collection node, and the action creates one
-record per filtered row instead of one record overall.
+| Lookup | Accepts |
+|---|---|
+| `asx_comparisonvaluenode` | A **single-cardinality** node only: Root (the triggering record) or Lookup (one related record), never Child |
+| `asx_targetnode` on Update, Delete or Deactivate Record | A single-cardinality node (writes that one record), or a **collection** node (a Child node, or any node below a Child step): writes **every** row that passes the Rows filter, a **set action** (*Building Actions* → *Writing a set of rows*) |
+| `asx_targetnode` on Create Record | Optional. When set, a collection node: one record per filtered row |
 
 ## Node filters
 
-Node filters narrow which rows at a given `asx_tableconfig` node participate in
-evaluation: for example, restricting a Row Count condition's child collection to
-rows matching a criterion, or gating an "at least N related rows exist" check.
+Node filters narrow which rows at an `asx_tableconfig` node take part: for example, only some of a
+Row Count condition's child rows, or an "at least N related rows exist" check.
 
 ### Node Filter Group (`asx_nodefiltergroup`)
 
@@ -180,12 +173,12 @@ An AND/OR node in a node filter's tree (self-referential).
 | Owning Criterion | `asx_owningcriterion` | Lookup → `asx_nodefiltercriterion` | No | Exists sub-filter root: this group is the collection's filter |
 | Rule Action | `asx_ruleaction` | Lookup → `asx_ruleaction` | No | A set action's Rows filter: set on every group of the action's filter tree (root and nested). Such a group has no condition group and no condition; its `asx_tableconfignode` is the action's target node |
 
-An EXISTS sub-filter inside a Rows filter hangs off its criterion (`asx_owningcriterion`) as
+An EXISTS sub-filter in a Rows filter hangs off its criterion (`asx_owningcriterion`), as
 elsewhere. An action owns at most one top-level group.
 
 ### Node Filter Criterion (`asx_nodefiltercriterion`)
 
-A single leaf check inside a Node Filter Group.
+A leaf check inside a Node Filter Group.
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
@@ -203,16 +196,13 @@ A single leaf check inside a Node Filter Group.
 
 ## Other tables
 
-`asx_searchcriteriagroup` / `asx_searchcriterion` hold the in-memory filter used by
-Row Count conditions. `asx_localizedmessage` holds per-language overrides of an
-action's default message.
+- `asx_searchcriteriagroup` / `asx_searchcriterion`: the in-memory filter of Row Count conditions.
+- `asx_localizedmessage`: per-language overrides of an action's message.
 
 ### Rule Run (`asx_rulerun`)
 
-One row per **Apply to records** / Rule Run started against an On demand rule, created by
-Apply to records (or a caller) and driven to completion by repeated calls to
-`asx_ProcessRunPage` (see *Custom APIs*). Deleting the owning rule deletes its
-runs.
+One row per run of an On demand rule, created by **Apply to records** (or a caller) and driven by
+repeated `asx_ProcessRunPage` calls (*Custom APIs*). Deleting the rule deletes its runs.
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
@@ -223,16 +213,13 @@ runs.
 | Evaluated / Changed / Blocked / Failed / Skipped | `asx_evaluated` / `asx_changed` / `asx_blocked` / `asx_failed` / `asx_skipped` | Whole Number | No | Running totals, updated after each processed page |
 | Failures | `asx_failures` | Multiline text (100,000) | No | JSON array of the first 50 `{recordId, kind, message}` |
 
-The engine keeps these columns itself: once a run is created, the only change
-anyone else can make is cancelling it (Status from Queued or Running to
-Cancelled). See *Running Rules On Demand* for what these mean in practice, and
-`docs/Schema.md` (§2.13/§7) in the repository for the full per-page state
-machine.
+The engine maintains these columns. Once a run exists, the only change anyone else can make is
+cancelling it (Status from Queued or Running to Cancelled). See *Running Rules On Demand*, and
+`docs/Schema.md` (§2.13/§7) in the repository for the per-page state machine.
 
 ### Rule Schedule (`asx_ruleschedule`)
 
-At most one row per rule, driving the schedule that starts or continues its Rule Runs
-(see *Scheduling Rules*). Deleting the owning rule deletes its schedule.
+At most one per rule; it starts or continues the rule's Rule Runs (*Scheduling Rules*).
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
@@ -248,16 +235,13 @@ At most one row per rule, driving the schedule that starts or continues its Rule
 | Last Run | `asx_lastrun` | Lookup → `asx_rulerun` | No | The most recent Rule Run this schedule drove |
 | Last Outcome | `asx_lastoutcome` | Choice (local) | No | Started a run (1), Continued the active run (2), Rule not runnable (3) |
 
-`asx_nextrunon`, `asx_lastrunon`, `asx_lastrun` and `asx_lastoutcome` are engine-owned:
-a plug-in on Create/Update recomputes or strips them from any caller-supplied value, so
-only the schedule itself (via `asx_StartDueSchedules`) ever sets them. See *Scheduling
-Rules* for how the pattern, precision and catch-up behavior work in practice.
+`asx_nextrunon`, `asx_lastrunon`, `asx_lastrun` and `asx_lastoutcome` are engine-owned: a plug-in
+recomputes or strips any value a caller supplies, so only `asx_StartDueSchedules` sets them.
 
 ### Scheduler Status (`asx_schedulerstatus`)
 
-A single, organization-wide heartbeat row for whatever calls `asx_StartDueSchedules` on
-a timer (the scheduler add-on, or your own caller — *Scheduling Rules*), read by the
-hub's status chip. The engine itself never reads it.
+One organization-wide heartbeat row for whatever calls `asx_StartDueSchedules` (*Scheduling
+Rules*). Only the hub's status chip reads it.
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|
@@ -267,9 +251,9 @@ hub's status chip. The engine itself never reads it.
 
 ### Rule Diagnostic (`asx_rulediagnostic`)
 
-Opt-in timings for form saves. While the **Capture diagnostics** environment variable
-(`asx_CaptureDiagnostics`, Yes/No, default No) is Yes, every save the engine evaluates
-writes one row per saved record; see *Troubleshooting*. The engine itself never reads it.
+Opt-in save timings. While the **Capture diagnostics** environment variable
+(`asx_CaptureDiagnostics`, Yes/No, default No) is Yes, every save the engine evaluates writes one
+row per saved record (*Troubleshooting*). The engine never reads it.
 
 | Column | Schema name | Type | Required | Notes |
 |---|---|---|---|---|

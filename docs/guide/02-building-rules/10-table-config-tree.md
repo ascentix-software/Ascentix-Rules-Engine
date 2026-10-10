@@ -14,94 +14,58 @@ screenshots:
 
 # Table Configuration Tree
 
-A **data model** (stored as a **table configuration**, and also called a
-**data map** or **traversal tree**) describes how the engine reaches
-related data starting from a **root table** out to whatever related tables
-a rule needs to look at. Every condition and action node picker in the
-earlier pages, and the data model chip shown in *Editor Layout*, are built
-on top of one of these trees. The Rule Builder calls it a **data model**
-throughout: the hub's **Data models** tab, the data-model editor, and the
-rule editor.
+A **data model** (stored as a **table configuration**) is the tree of tables a rule can reach,
+starting from its **root table**. Every node picker in conditions and actions, and the data model
+chip in *Editor Layout*, come from it.
 
 ## Node types
 
-Every node is one of three types, shown as a tag on its row in the tree
-(**ROOT**, **LOOKS UP**, **HAS MANY**):
+The tree, **Tables this model can reach**, tags each table:
 
-- **Root Table** (**ROOT**): the tree's starting point, and the table the
-  rule itself is bound to. There's exactly one per data model.
-- **Lookup Table** (**LOOKS UP**): a **many-to-one** related table, reached
-  through a parent lookup column on the current node's table (for example, an
-  order reaching the customer it belongs to via its customer lookup). Its row
-  reads, for example, "via Customer (sample_customerid)".
-- **Child Table** (**HAS MANY**): a **one-to-many** related table, reached
-  through a child link field back to the current node. Its row reads, for
-  example, "Order Line, linked by Order".
+| Tag | Node | Reached through |
+|---|---|---|
+| **ROOT** | The rule's own table; one per data model | — |
+| **LOOKS UP** | A many-to-one table, such as an order's customer | A lookup column, shown as "via Customer (sample_customerid)" |
+| **HAS MANY** | A one-to-many table, such as an order's lines | A link column back to the parent, shown as "Order Line, linked by Order" |
 
-The tree is titled **Tables this model can reach**. Indentation in the tree
-shows **traversal depth**, and the tree works from the keyboard: arrow keys
-move between tables (Right and Left expand and collapse), and Enter selects. A lookup reached from
-underneath a child node gives a multi-level path, as in
-Order → Order Line → Product, where Product hangs off the Order Line
-**child** node rather than off the root.
+Indentation shows depth. Lookups can hang off child nodes, as in Order → Order Line → Product. The
+tree works from the keyboard: arrows move (Right and Left expand and collapse), Enter selects.
 
 ![The Orders data model, used by 6 rules, 4 tables: the tree Orders (ROOT), Customer (LOOKS UP, via sample_customerid), Order lines (HAS MANY, linked by Order) and under it Product (LOOKS UP, via sample_productid); the panel reads “Select a table to edit it” with Add related table.](../images/02-10-table-config-tree-01.png)
 
 ## Data models are shared
 
-A data model is **shared and reusable**: more than one rule can
-point at the same data model. Editing a data model's tree (adding a
-related node, for example) affects **every rule** that uses it. The
-editor's header shows a **Used by N rules** chip (click it to list those
-rules, each marked **Live** or **Draft**, and open one) alongside the table
-count.
+Several rules can use one data model, so editing it affects **every rule** that uses it. The header
+shows **Used by N rules**; click it to list them, each marked **Live** or **Draft**.
 
-Clicking **Save…** doesn't save straight away: a **Save shared data
-model?** confirmation names your change and lists every rule that uses the
-model, saying which tables of it each one reads (for example, "reads
-Customer in 2 conditions") or **not affected**. Live rules keep their
-published copy until they are republished.
+**Save…** asks first: **Save shared data model?** names your change and lists each rule with the
+tables it reads (for example "reads Customer in 2 conditions") or **not affected**. Live rules keep
+their published copy until they're republished.
 
-## Selecting a node
+## Editing a table
 
-Clicking a table in the tree opens its panel, showing:
+Click a table to open its panel:
 
-- **Name**: an editable label for the node, shown in condition and action
-  pickers in every rule that uses this model.
-- **Table**: the Dataverse table the node resolves to.
-- **Linked by**: the column this node is reached through from its parent
-  (the parent's lookup column, or the child's link field).
-- **Path**: the full path from the root down to this node.
-- **Used by N rules**: the rules that read this table, with how many of
-  their conditions and actions do.
+| Field | Shows |
+|---|---|
+| **Name** | An editable label, shown in the pickers of every rule using the model |
+| **Table** | The Dataverse table |
+| **Linked by** | The column it's reached through from its parent |
+| **Path** | The path from the root |
+| **Used by N rules** | The rules that read it, with how many conditions and actions |
 
-The panel also has an **Add related table** button, which attaches a
-further lookup or child table underneath it and is how multi-level paths
-get built, and a **Delete** button. The same actions are on each row's ⋯
-menu (**Add related table…**, **Rename**, **Delete**). **Add related
-table** opens a searchable list of the table's relationships, grouped
-**LOOKS UP · ONE RECORD** and **HAS MANY · ROWS**. The **Root** node can't
-be deleted, and a table can't be deleted while it still has tables under
-it (*Delete the tables under it first.*) or while rules use it (*Can't
-delete: used by N rules.*).
+**Add related table** attaches a lookup or child table underneath, from a searchable list grouped
+**LOOKS UP · ONE RECORD** and **HAS MANY · ROWS**. Each row's ⋯ menu also has **Add related
+table…**, **Rename** and **Delete**. You can't delete the **Root**, a table with tables under it
+(*Delete the tables under it first.*), or a table rules use (*Can't delete: used by N rules.*).
 
 ![Product selected in the Orders tree: its panel shows Name Product, Table Product · sample_product, Linked by Product · sample_productid, Path Orders › Order lines › Product, and Add related table and Delete.](../images/02-10-table-config-tree-02.png)
 
 ## Opening a data model
 
-You can reach the data-model editor three ways:
+- **Edit data model** on a rule's data model chip.
+- The hub's **Data models** tab (*The Hub*).
+- **Table Configs** in the app sitemap.
 
-- **Edit data model**: from the data model chip in a rule's editor,
-  opens that rule's data model.
-- **Data models**: a tab on the hub, listing every data model (see
-  *The Hub*).
-- **Table Configs**: an entry in the app sitemap.
-
-In the editor, the breadcrumb (**Rules & data model** / **Data models**)
-leads back to the hub, and the pencil beside the name (**Rename data
-model**) renames it.
-
-See *Metadata Pickers* for how the "Add related table" relationship list is
-kept limited to relationships that actually exist, and *Building
-Conditions* for how a condition picks which node in the tree it
-evaluates against.
+See *Metadata Pickers* for the relationship list, and *Building
+Conditions* for picking a condition's node.

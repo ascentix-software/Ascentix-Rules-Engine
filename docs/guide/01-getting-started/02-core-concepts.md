@@ -9,61 +9,49 @@ slug: core-concepts
 
 ## Rule
 
-A **Rule** is the top-level object you author. It is scoped to a single Dataverse
-table and is the parent of everything else: its condition tree and its actions. A
-rule also declares which **Triggers** invoke it and, optionally, which **Channels**
-it applies to (covered in *Triggers & Channels*).
+The top-level object you author. A rule belongs to one Dataverse table, owns its conditions and
+actions, and declares its **Triggers** and, optionally, **Channels** (*Triggers & Channels*).
 
 ## Conditions (WHEN)
 
-The WHEN side of a rule is a tree of **Condition Groups**. Each group combines its
-children with a **Logical Operator**, either **And** or **Or**. Each leaf in the
-tree is a **Condition**, which has a **Condition Type**:
+Conditions sit in **Condition Groups** that combine their children with **And** or **Or**. Each
+condition has a type:
 
-- **Field Comparison**: compares a field's value against a literal or another
-  field, using a **Comparison Operator**: Equals, Not Equals, Greater Than, Greater
-  Than Or Equal, Less Than, Less Than Or Equal, Contains, Does Not Contain, Is Null,
-  Is Not Null.
-- **Row Count**: counts related child records (optionally filtered) and checks the
-  count against a minimum and/or maximum.
-- **Regex Match**: tests a field's value against a regular expression pattern.
-- **Calculation**: evaluates a math expression (aggregates over a child
-  collection plus arithmetic) and compares the numeric result against a value.
+| Type | What it checks |
+|---|---|
+| **Field Comparison** | A field against a value or another field: Equals, Not Equals, Greater Than, Greater Than Or Equal, Less Than, Less Than Or Equal, Contains, Does Not Contain, Is Null, Is Not Null |
+| **Row Count** | How many related child records there are (optionally filtered), against a minimum and/or maximum |
+| **Regex Match** | A field against a regular expression |
+| **Calculation** | A math expression (totals over child records plus arithmetic) against a value |
 
-Each top-level validation group is an **outcome**: it has a required name, and it is
-either true (its conditions are met) or false. A rule can have several outcomes, such as
-"High value" and "At risk". Every outcome is evaluated. Actions test outcomes by name to
-decide when they fire. Execution groups (the Rule Builder's **Only if** band) are not
-outcomes; they gate the whole rule.
+Each top-level validation group is an **outcome**: it has a required name and is either true or
+false. A rule can have several, such as "High value" and "At risk", and all are evaluated. The
+**Only if** groups are not outcomes; they decide whether the rule runs at all.
 
 ## Actions (THEN)
 
-The THEN side of a rule is one or more **Actions**. Each action has an **Action
-Type**: Set Visible, Set Required, Show Message, Block, Create Record, Update
-Record, or Delete Record. Each action has a **Fires when** condition (the **When** section
-of the action's panel in the Rule Builder): a small tree of
-tests such as "High value is true" or "At risk is false", joined by ALL or ANY. A new
-action fires **Always, when the rule runs**; you narrow it by testing outcomes. A
-validation rule typically pairs a *Block* action with a test that its "valid" outcome is
-**false**; a form-behavior rule typically pairs *Set Visible* or *Set Required* with a
-test that an outcome is **true**.
+Each action has a type: Set Visible, Set Required, Show Message, Block, Create Record, Update
+Record, Delete Record or Deactivate Record.
+
+Each action also has a **Fires when** condition (the **When** section of its panel): tests such as
+"High value is true", joined by ALL or ANY. A new action fires **Always, when the rule runs** until
+you add tests. Typical pairings:
+
+- Validation: *Block* when the "valid" outcome is **false**.
+- Form behavior: *Set Visible* or *Set Required* when an outcome is **true**.
 
 ## Table Config
 
-A rule's conditions and field-reference values don't have to stay on the triggering
-record. A **Table Config** is a tree, rooted at the rule's own table, that describes
-how to traverse outward to related data: a **Lookup Table** node follows a lookup to
-a single related record, and a **Child Table** node follows a one-to-many
-relationship to a set of related records. Conditions and actions reference specific
-nodes in this tree to say *which* record or rows they're evaluating. A Table Config
-tree can be shared across multiple rules.
+A tree, rooted at the rule's table, that says how to reach related data:
 
-## Severity & outcomes
+- a **Lookup Table** node follows a lookup to one related record;
+- a **Child Table** node follows a one-to-many relationship to a set of records.
 
-Severity (**Information**, **Warning**, or **Error**) is set **per action**, not
-per rule. A single rule can carry actions at different severities (a *Show Message*
-at Warning alongside a *Block* at Error), and different rules on the same table can
-disagree about how serious an outcome is. Severity sets the message's level, not
-whether the action blocks. A Warning-severity **Block** still blocks and rolls back
-the save, exactly like an Error-severity one. See *Runtime Enforcement* for the
-full mechanics.
+Conditions and actions point at a node to say which record or rows they use. Several rules can
+share one tree.
+
+## Severity
+
+Severity (**Information**, **Warning** or **Error**) is set **per action** and sets the message's
+level only. It doesn't decide whether a save is blocked: a Warning-severity **Block** still blocks.
+See *Runtime Enforcement*.

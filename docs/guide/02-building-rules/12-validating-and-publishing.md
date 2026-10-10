@@ -17,184 +17,122 @@ screenshots:
 
 # Validating & Publishing
 
-Publishing is **gated** on validity: a **Draft** rule only becomes
-**Published** if it validates cleanly. **Check for issues**, in the header's
-**More actions** (⋯) menu, reports what is standing in the way.
+A **Draft** rule becomes **Published** only if it validates cleanly.
 
-When there are unsaved edits, **Check for issues** first saves the Draft, then
-validates the persisted result. If nothing is wrong, a *No issues found* message
-appears; otherwise the **Issues** drawer opens. Published rules remain active while
-you edit and save their draft. Check the draft, then **Publish…** to replace the live
-revision. **Publish…** itself saves and checks first (the button reads **Checking…**
-meanwhile), so publication always revalidates the current saved configuration,
-including shared data models. Changes since a previous check do not block publication
-when the current definition is valid. See *Saving & Recovery*.
+- **Check for issues** (header **More actions** (⋯) menu) saves any edits, then validates. It shows
+  *No issues found*, or opens the **Issues** drawer.
+- **Publish…** saves and checks too (the button reads **Checking…**), so publishing always
+  validates the current saved rule, including shared data models.
+- A published rule keeps running while you edit and save its draft, until you publish the draft.
+  See *Saving & Recovery*.
 
-## Validation layers
+## What's checked
 
-Validation runs three layers of checks, in order, collecting every issue
-found rather than stopping at the first one:
+Every issue is collected, not just the first.
 
-- **Structural**, the rule's basic shape: it has at least one condition
-  and one action, no condition group is empty, and every condition/action
-  has the fields its type requires.
-- **Traversal integrity**: every table-config node a condition or action
-  points at exists in the rule's tree and is reachable from the root, and
-  single-cardinality requirements (like the node of an **another column** comparison)
-  are respected.
-- **Metadata-aware**: every referenced table and column actually exists,
-  and is creatable, updatable, or readable as needed for how it's used
-  (for example, a Create Record mapping target must be creatable; a
-  comparison column must be readable).
+| Layer | Checks |
+|---|---|
+| **Structural** | The rule has a condition and an action, no group is empty, and every condition and action has its required fields |
+| **Traversal** | Every node a condition or action uses exists in the rule's tree and is reachable, and nodes that must be a single record are (such as the node of an **another column** comparison) |
+| **Metadata** | Every table and column exists and can be read, created or updated as its use needs (a Create Record target must be creatable) |
 
-All three layers report **errors**, which block publishing. Issues can also
-carry a **Warning** severity, which is advisory and does not block: a Row
-Count minimum that can never pass at Create (`STRUCT_ROWCOUNT_ON_CREATE`).
+These report **errors**, which block publishing. **Warnings** don't block, for example a Row Count
+minimum that can never pass at Create (`STRUCT_ROWCOUNT_ON_CREATE`).
 
-## Reading the Issues drawer
+## The Issues drawer
 
-Once a check has found issues, the header shows an issues button with the
-error count (and a warning count), for example **2 errors**. It opens the
-**Issues** drawer, which lists errors under **Must fix to publish** and
-warnings under **Warnings** (warnings don't block publishing). Each issue
-shows a human-readable **message**, its **code**, and the **field or node**
-it applies to; select one to go to that field. **Check again** re-runs the
-check. If you edit after a check, the drawer says *You've edited since this
-check. Results may be out of date.* Errors are also marked **inline** with an
-issue icon on the offending row.
+After a check finds issues, the header shows an issues button with the counts (for example **2
+errors**). The drawer lists errors under **Must fix to publish** and warnings under **Warnings**,
+each with its message, code and the field it applies to; select one to go there. After an edit it says *You've edited since this check. Results may be out of
+date.* Errors also show an icon on the row.
 
-The editor also flags incomplete items as you build, worded as the next
-step to take, for example *Choose a column to compare.* or *Enter a value to
-compare against.*
+While you build, incomplete items say what to do next, for example *Choose a column to compare.*
+or *Enter a value to compare against.*
 
-It also warns, under **Warnings**, about an active action whose type does
-nothing under the rule's triggers (`HINT_ACTION_NEVER_RUNS`; see *Building
-Actions*). A message or field change on a rule without **On form** or **On
-demand** reads *This action only works on the form. Add On form to the
-triggers, or choose another type.* A write action on a rule without a save
-trigger or **On demand** reads *This action only runs when a record is saved
-or run on demand. Add On create, On update, On delete or On demand to the
-triggers, or choose another type.* Like any warning, it doesn't block
-publishing.
+**`HINT_ACTION_NEVER_RUNS`** (warning) flags an active action that can't run under the rule's
+triggers (*Building Actions*):
 
-Below, a condition's **Column** references a column that doesn't exist on its
-table, raising a `META_COLUMN_NOT_FOUND` error.
+- A message or field change without **On form** or **On demand**: *This action only works on the
+  form. Add On form to the triggers, or choose another type.*
+- A write action without a save trigger or **On demand**: *This action only runs when a record is
+  saved or run on demand. Add On create, On update, On delete or On demand to the triggers, or
+  choose another type.*
 
-## Outcome and Fires when checks
-
-Outcomes (the top-level validation groups) and each action's Fires when condition (its **When**
-section) get their own checks:
-
-- **`OUTCOME_UNNAMED`** (error): "Name this outcome."
-- **`OUTCOME_DUPLICATE_NAME`** (error): "Another outcome is already named "<name>"." Names are
-  compared ignoring upper and lower case.
-- **`ACTION_NO_TREE`** (error): "Choose when this action fires." The action's **When** section is
-  not set.
-- **`ACTION_TEST_UNKNOWN_OUTCOME`** (error): "A test in "Fires when" refers to an outcome this
-  rule doesn't have."
-- **`ACTION_EMPTY_GROUP`** (error): "A group in "Fires when" has no tests or groups." An empty
-  root **All** group is fine; it means "Always, when the rule runs".
-- **`OUTCOME_UNUSED`** (warning): "No active action uses this outcome. It is still evaluated and
-  reported." Only active actions count, so an outcome tested only by an inactive action gets it
-  too. It does not block publishing.
-
-## Set-action errors
-
-A set action (Update Record, Delete Record or Deactivate Record on a collection, or Create Record
-creating **For each row of** one) adds a few checks of its own, all Error severity:
-
-- **`STRUCT_ACTION_FILTER_TARGET`**: a Rows filter must filter the action's own target rows, and
-  only a set action can have a Rows filter at all.
-- **`STRUCT_ROW_SOURCE_NOT_SET`**: the **Current row** source — a field mapping's `row` source, or
-  a `{row.<column>}` token anywhere it can appear (a Show Message/Block message, one of its
-  per-language translations, or a Template condition's comparison value) — can only be used by an
-  action that writes a set of rows.
-- **`STRUCT_DEACTIVATE_MAPPING`**: Deactivate Record's field mapping may only set **Status
-  Reason**; any other mapped column is refused.
-- **`META_TABLE_NOT_DEACTIVATABLE`**: Deactivate Record's target table can't be deactivated by a
-  rule — either it has no `statecode`, or it changes state only through its own dedicated message
-  (Opportunity, Case, Quote, Order and Invoice are refused outright).
-
-A set action's **row-source columns** (the columns a `row` mapping or a `{row.…}` token reads) are
-checked only for existence and readability, the same as any other read; type compatibility with
-the target is the editor's own picker and the resolver's concern, not validation's.
+Below, a condition's **Column** doesn't exist on its table (`META_COLUMN_NOT_FOUND`).
 
 ![The Issues drawer for “Draft: order contact tier check (needs work)”: Must fix to publish · 1, “Gold tier › sample_tier: Column 'sample_tier' does not exist on 'sample_customer'” (META_COLUMN_NOT_FOUND); the condition row carries an error icon.](../images/02-12-validating-and-publishing-01.png)
 
-Once every issue is resolved, **Check for issues** shows **No issues found**
-and **Publish…** can go ahead.
+### Outcome and Fires when checks
 
-## The Publish dialog
+| Code | Message |
+|---|---|
+| `OUTCOME_UNNAMED` | "Name this outcome." |
+| `OUTCOME_DUPLICATE_NAME` | "Another outcome is already named "<name>"." (ignoring case) |
+| `ACTION_NO_TREE` | "Choose when this action fires." (its **When** isn't set) |
+| `ACTION_TEST_UNKNOWN_OUTCOME` | "A test in "Fires when" refers to an outcome this rule doesn't have." |
+| `ACTION_EMPTY_GROUP` | "A group in "Fires when" has no tests or groups." An empty root **All** group is fine: it means "Always, when the rule runs" |
+| `OUTCOME_UNUSED` (warning) | "No active action uses this outcome. It is still evaluated and reported." |
 
-**Publish…** saves the draft, checks it, and then opens a dialog:
+### Set-action checks
 
-- If there are errors, the dialog is titled **Fix N errors to publish** and
-  lists them, each with a **Go to field** link; **Open issues** opens the
-  **Issues** drawer.
-- Otherwise it is titled **Publish vN?**, notes **No errors**, any warnings
-  (with **View**), and how many changes there are since the live version
-  (with **Review**). Confirm with **Publish vN**. A *vN is live* message then
-  confirms the publish, with a **View runs** link.
+These apply to Update, Delete or Deactivate Record on a collection, and Create Record **For each row
+of** one. All are errors.
+
+| Code | Meaning |
+|---|---|
+| `STRUCT_ACTION_FILTER_TARGET` | A Rows filter must filter the action's own target rows, and only a set action can have one |
+| `STRUCT_ROW_SOURCE_NOT_SET` | **Current row** (a `row` mapping, or a `{row.<column>}` token in a message, its translations, or a Template condition value) only works in an action that writes a set of rows |
+| `STRUCT_DEACTIVATE_MAPPING` | Deactivate Record's mapping may only set **Status Reason** |
+| `META_TABLE_NOT_DEACTIVATABLE` | The table has no `statecode`, or changes state through its own message (Opportunity, Case, Quote, Order and Invoice are refused) |
+
+Columns read through **Current row** are checked for existence and readability only.
+
+## Publishing
+
+**Publish…** saves, checks, then opens a dialog:
+
+- With errors: **Fix N errors to publish**, each with **Go to field**, and **Open issues**.
+- Otherwise: **Publish vN?** with **No errors**, any warnings (**View**) and the changes since the
+  live version (**Review**). **Publish vN** confirms, and *vN is live* appears with **View runs**.
 
 ![The Publish v1? dialog: “Order total within credit limit will start running for new evaluations.”, No errors, a note that it includes this rule's copy of the shared data model, and Cancel and Publish v1.](../images/02-12-validating-and-publishing-02.png)
 
-## Publishing is enforced
+Publishing creates a numbered revision and enables the rule; republishing replaces the live
+revision in one step. Only **Published** rules are enforced. See *Rule Lifecycle* and *Runtime
+Enforcement*.
 
-Publishing creates a numbered revision and enables the rule. Republishing a live
-rule atomically replaces its active revision. Only
-**Published** rules are enforced at runtime; a Draft rule, however valid,
-doesn't run. See *Rule Lifecycle* for the full Draft/Published/Archived
-flow, and *Runtime Enforcement* for how a published rule's actions are
-actually applied.
+## Previewing a rule on a record
 
-## Testing a rule against a record
+A rule that has been published shows **Run** in the header (*Running Rules On Demand*); one that
+never has shows **Preview**. **Run** (or **Preview on a record…** in **More run options**) or
+**Preview** opens the **Run** dialog on **Preview on a record**:
 
-Once a rule has been published, the header shows a **Run** button (*Running Rules On Demand*),
-whether or not it's currently live. A rule that has never been published shows a plain
-**Preview** button instead. Clicking **Run** (or **Preview on a record…** in its **More run
-options** menu) or **Preview** opens the **Run** dialog on its **Preview on a record** tab. Pick
-a **Record** (type to search, or choose **Advanced search…**) and an **As if** trigger, then
-click **Run preview**. It reports what would fire — the same report-only, nothing-is-saved
-evaluation as `asx_RunRules`. See *Custom APIs* → `asx_RunRules` for the underlying report
-shape, including the `ChangeSet` summary the preview renders for set actions.
+1. Pick a **Record** (type to search, or **Advanced search…**).
+2. Pick **As if**: one of the rule's triggers (**Created**, **Updated**, **Deleted**, **On form**,
+   **Run on demand**). It starts on **On form** when the rule runs there, otherwise on its first
+   trigger.
+3. Pick a **Version** when editing a live rule's draft: **Draft** (the default; the draft's saved
+   rows run in place of the live rule) or **Live vN**. A rule that isn't published previews its
+   draft only. With unsaved edits it says *Previews the saved draft. Save to include your latest
+   edits.*
+4. Click **Run preview**. Nothing is saved; it's the same evaluation as `asx_RunRules` (*Custom
+   APIs*).
 
-- **As if** offers the rule's triggers (**Created**, **Updated**, **Deleted**, **On form**, **Run
-  on demand**). It starts on **On form** when the rule runs on the form, where messages and field
-  changes show, and otherwise on the rule's first trigger.
-- **Version** chooses what runs: **Live vN** (the published version) or **Draft** (the draft's
-  saved rows, run in place of the live rule). It appears while you're editing the draft of a live
-  rule, and starts on **Draft**; a live rule with no draft open previews its live version.
-  **Live vN** is offered only while the rule is published: a rule that has never been published,
-  or has been unpublished, previews its draft only, with no switch. Previewing the draft runs what is saved, so with unsaved edits the dialog says
-  *Previews the saved draft. Save to include your latest edits.*
-
-The result opens with a verdict:
-
-- **Save would be blocked**: a Block fired on the record, from this rule or another rule on the
-  same record. It shows the Block's message and "Nothing would be written.", and this rule's write
-  actions show **Skipped, blocked**.
-- **Save would be held** (**As if** **On form** only): a message on a field holds the form's save
-  until it clears, for example "1 field message holds the save until it clears."
-- **Save would go through**: with how many messages and field changes the form would show (for
-  example "Shows 2 messages on the form. Changes 1 field on the form."), or, for a save or
-  on-demand trigger, the messages returned (**Run on demand**: "Returns 2 messages.") and a
-  summary of what would be written ("Change set: …") or "Nothing would be written."
-- **Nothing would happen**, with the reason: "No action of this rule fired.", or only actions
-  that don't run on that trigger fired. When only messages or field changes fired on a save
-  trigger, it says so and what to change, for example "3 messages fired, but messages only show
-  on the form. Add On form to the rule's triggers to show them." (or, when the rule already runs
-  on the form, "Choose As if On form to see them."). When only write actions fired **As if On
-  form**, it says they run when a record is saved or run on demand, not on the form.
+| Verdict | Means |
+|---|---|
+| **Save would be blocked** | A Block fired, from this rule or another on the record. Shows its message and "Nothing would be written."; this rule's writes show **Skipped, blocked** |
+| **Save would be held** | **On form** only: a field message holds the save until it clears ("1 field message holds the save until it clears.") |
+| **Save would go through** | With what the form would show ("Shows 2 messages on the form. Changes 1 field on the form.") or, for a save or on-demand trigger, the messages returned ("Returns 2 messages.") and "Change set: …" or "Nothing would be written." |
+| **Nothing would happen** | "No action of this rule fired.", or only actions that don't run on that trigger fired, with what to change ("3 messages fired, but messages only show on the form. Add On form to the rule's triggers to show them." or "Choose As if On form to see them."). Writes previewed **As if On form** say they run on save or on demand |
 
 ![The Run dialog's Preview on a record tab for “Order contact email must be valid”: a record with an invalid email, As if On form, the verdict “Save would be held: 1 field message holds the save until it clears. Shows 1 message on the form.”, the Valid email outcome as false, and Show message Fired with “Enter a valid email address.” on Contact Email.](../images/02-12-validating-and-publishing-03.png)
 
-Below the verdict, **OUTCOMES** lists this rule's outcomes, each with a tick or cross icon (true
-or false). The values are those of the normal run; a rule held back by its **Only if** conditions
-reports none. Then every action of the rule is listed in rule order, marked **Fired**, **Didn't
-fire**, **Skipped, blocked**, **Form only** (a message or field change when previewing a save) or
-**Not on the form** (a write when previewing **On form**). A fired message shows its text, where it
-appears (on a field, or as a banner) and its severity; a fired field change says what it does
-("Shows Budget", "Hides Budget", "Makes Budget required" or "Makes Budget optional"); a fired
-Block shows its message; a fired write action expands to show the rows it would write. If
-other rules fired too, a line such as "2 other rules also fired on this record." lets you show
-them.
+Below the verdict:
+
+- **OUTCOMES** lists each outcome as true or false (none if **Only if** held the rule back).
+- Every action, in order, is marked **Fired**, **Didn't fire**, **Skipped, blocked**, **Form only**
+  (a message or field change when previewing a save) or **Not on the form** (a write when
+  previewing **On form**). Fired messages show text, placement and severity; field changes say what
+  they do ("Shows Budget", "Hides Budget", "Makes Budget required", "Makes Budget optional"); writes
+  expand to the rows they'd write.
+- If other rules fired, "2 other rules also fired on this record." lets you show them.
