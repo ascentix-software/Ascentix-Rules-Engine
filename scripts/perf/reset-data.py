@@ -64,7 +64,9 @@ def _batch_delete(entityset, ids, attempts=4):
     backoff -- 27k single DELETEs tripped WinError 10060 timeouts on 2026-08-22; batching cuts the
     call count ~100x. Individual part failures surface as a non-2xx part status in the body; a 404 part
     is a row already gone (a retry after a client timeout re-sends deletes the server already did), so it
-    counts as deleted."""
+    counts as deleted. odata.continue-on-error makes every part run and report: without it Dataverse stops at
+    the first failed part and fails the whole batch, so one row already gone (a cascade, or a delete done
+    before a dropped connection) aborted the reset."""
     boundary = f"batch_{uuid.uuid4().hex}"
     lines = []
     for i, rid in enumerate(ids):
@@ -77,7 +79,8 @@ def _batch_delete(entityset, ids, attempts=4):
         try:
             # _dv.send also retries once with a fresh token on 401 (a long reset outlives a token).
             _, raw = _dv.send("POST", f"{_dv.BASE}/$batch", body, write=True,
-                              content_type=f"multipart/mixed; boundary={boundary}", timeout=300)
+                              content_type=f"multipart/mixed; boundary={boundary}", timeout=300,
+                              headers={"Prefer": "odata.continue-on-error"})
             failed = [ln for ln in raw.splitlines() if ln.startswith("HTTP/1.1")
                       and not ln.startswith(("HTTP/1.1 2", "HTTP/1.1 404"))]
             if failed:

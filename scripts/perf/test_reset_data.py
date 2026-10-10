@@ -26,6 +26,7 @@ class _FakeDv(types.ModuleType):
 
     def send(self, method, url, body, **kw):
         self.sent.append(body)
+        self.headers = kw.get("headers")
         return None, self.responses.pop(0)
 
     def get(self, path):
@@ -63,6 +64,13 @@ def test_a_row_already_gone_counts_as_deleted():
     fake.responses = [_batch_response("204 No Content", "404 Not Found", "204 No Content")]
     rd._batch_delete("perf_child1s", ["a", "b", "c"])
     assert len(fake.sent) == 1
+
+
+def test_every_part_runs_even_after_one_fails():
+    # Without continue-on-error Dataverse stops the batch at a 404 part and fails the whole request.
+    fake.responses = [_batch_response("204 No Content")]
+    rd._batch_delete("perf_child1s", ["a"])
+    assert fake.headers == {"Prefer": "odata.continue-on-error"}
 
 
 def test_any_other_failed_part_still_stops_the_reset():

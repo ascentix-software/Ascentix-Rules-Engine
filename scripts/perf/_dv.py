@@ -61,19 +61,20 @@ IDEMPOTENT_METHODS = ("GET", "PATCH", "PUT", "DELETE")
 CONNECTION_ATTEMPTS = 3
 
 
-def send(method, url, data=None, *, write=False, solution=False, content_type=None, timeout=None):
+def send(method, url, data=None, *, write=False, solution=False, content_type=None, timeout=None, headers=None):
     """Every harness HTTP call goes through here: one call with the current token, retried once with a
     fresh token on 401 (a long load or ladder outlives a token), and up to CONNECTION_ATTEMPTS times in all
     when the connection drops without a response on an idempotent method. The headers are rebuilt per
-    attempt so a retry carries the current token. Returns (response headers, body text); any other
+    attempt so a retry carries the current token. `headers` adds to (or overrides) the defaults. Returns (response headers, body text); any other
     HTTPError propagates, as does a second 401 or the last dropped connection."""
     global _token
     refreshed, drops = False, 0
     while True:
-        headers = _headers(write, solution)
+        sent = _headers(write, solution)
         if content_type:
-            headers["Content-Type"] = content_type
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+            sent["Content-Type"] = content_type
+        sent.update(headers or {})
+        req = urllib.request.Request(url, data=data, headers=sent, method=method)
         try:
             with _urlopen(req, timeout=timeout) as r:
                 return r.headers, r.read().decode("utf-8")
