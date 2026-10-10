@@ -32,14 +32,18 @@ namespace Ascentix.RulesEngine.Plugin
         private readonly IWriteRequestSender _sender;
         private IBulkWriteSupport _support;
 
-        public WriteActionExecutor() : this(null, null) { }
+        public WriteActionExecutor() : this(Guid.Empty) { }
+
+        /// <summary>Bulk messages only while the organization's asx_BulkWrites switch is on.</summary>
+        public WriteActionExecutor(Guid organizationId)
+            : this(service => BulkWrites.Support(BulkWrites.Shared, service, organizationId, null), null) { }
 
         /// <param name="supportFactory">Builds the bulk-support answer from the system service, once per
-        /// executor (one plug-in execution); default: sdkmessagefilter.</param>
+        /// executor (one plug-in execution); default: none (every write single).</param>
         /// <param name="sender">Sends each request; default: IOrganizationService.Execute.</param>
         public WriteActionExecutor(Func<IOrganizationService, IBulkWriteSupport> supportFactory, IWriteRequestSender sender)
         {
-            _supportFactory = supportFactory ?? (service => new SdkMessageFilterBulkSupport(service));
+            _supportFactory = supportFactory ?? (_ => NoBulkSupport.Instance);
             _sender = sender ?? new ServiceWriteRequestSender();
         }
 

@@ -47,7 +47,7 @@ namespace Ascentix.RulesEngine.Plugin
             // so with IncludeDiagnostics false the write path pays no extra cost.
             var includeDiagnostics = DiagnosticsOutput.Requested(context, SchemaNames.ApplyRulesApi.ParamIncludeDiagnostics);
             var diagnostics = includeDiagnostics ? outcome.Diagnostics : null;
-            var writes = new WriteActionExecutor().ExecuteRecord(record, null, user, system,
+            var writes = new WriteActionExecutor(context.OrganizationId).ExecuteRecord(record, null, user, system,
                 PluginReentry.IsEngineInitiated(context), trace, diagnostics);
 
             context.OutputParameters[SchemaNames.ApplyRulesApi.PropIsValid] = true;

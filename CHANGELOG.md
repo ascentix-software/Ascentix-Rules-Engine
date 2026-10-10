@@ -10,6 +10,11 @@ only, so the version an administrator sees in their org can never carry the word
 
 ### Added
 
+- **Bulk writes switch.** A new environment variable, **Bulk writes** (`asx_BulkWrites`, Yes/No,
+  default **No**), decides whether the engine sends two or more creates or updates of one table as
+  `CreateMultiple` / `UpdateMultiple`. Microsoft doesn't support bulk messages in plug-in code, so
+  the default sends every write as a single request; an administrator who accepts that position can
+  turn it on for faster set actions and On demand runs. See *Beta Limitations §18*.
 - **Data updates.** A release that needs existing rules converted now ships a numbered data
   update. The Rule Builder shows a banner while one is pending; a System Administrator or System
   Customizer applies it with **Apply now** (others see the Rule Builder read-only, and publishing
