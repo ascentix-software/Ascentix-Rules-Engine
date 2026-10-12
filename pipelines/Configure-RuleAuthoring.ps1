@@ -51,21 +51,29 @@ function WaitForTable([string]$Table, [int]$TimeoutSeconds = 120) {
     }
     throw "Table $Table was created but is still not visible after $TimeoutSeconds seconds; wait a few minutes and run the Schema phase again."
 }
-function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'OrganizationOwned', [string]$EntitySetName = '') {
+function LabelText($Label) {
+    if ($Label.UserLocalizedLabel) { return $Label.UserLocalizedLabel.Label }
+    return (@($Label.LocalizedLabels) | Where-Object { $_.LanguageCode -eq 1033 } | Select-Object -First 1).Label
+}
+function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'OrganizationOwned', [string]$EntitySetName = '', [string]$CollectionName = '') {
     $logical = $Name.ToLowerInvariant()
     $setName = if ($EntitySetName) { $EntitySetName } else { $logical + 's' }
-    $existing = Request GET "EntityDefinitions?`$select=LogicalName,EntitySetName,MetadataId&`$filter=LogicalName eq '$logical'"
+    $plural = if ($CollectionName) { $CollectionName } else { $Display + 's' }
+    $existing = Request GET "EntityDefinitions?`$select=LogicalName,EntitySetName,DisplayCollectionName,MetadataId&`$filter=LogicalName eq '$logical'"
     if ($existing.value.Count -gt 0) {
-        # An explicit set name converges an existing table created under the default one; the
-        # PublishXml at the end of the phase publishes it.
+        # An explicit set name or plural converges an existing table created under the default
+        # one; the PublishXml at the end of the phase publishes it.
         $table = @($existing.value)[0]
-        if ($EntitySetName -and $table.EntitySetName -cne $EntitySetName) {
+        $setWrong = $EntitySetName -and $table.EntitySetName -cne $EntitySetName
+        $pluralWrong = $CollectionName -and (LabelText $table.DisplayCollectionName) -cne $CollectionName
+        if ($setWrong -or $pluralWrong) {
             $current = Request GET "EntityDefinitions($($table.MetadataId))"
             $definition = [ordered]@{ '@odata.type' = 'Microsoft.Dynamics.CRM.EntityMetadata' }
             foreach ($property in $current.PSObject.Properties) {
                 if (!$property.Name.StartsWith('@odata.')) { $definition[$property.Name] = $property.Value }
             }
-            $definition.EntitySetName = $EntitySetName
+            if ($setWrong) { $definition.EntitySetName = $EntitySetName }
+            if ($pluralWrong) { $definition.DisplayCollectionName = (Label $CollectionName) }
             Request PUT "EntityDefinitions($($table.MetadataId))" $definition @{ 'MSCRM.MergeLabels' = 'true' } | Out-Null
         }
         return
@@ -74,7 +82,7 @@ function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'Orga
     $primary.FormatName = @{ Value = 'Text' }
     Request POST 'EntityDefinitions' @{
         '@odata.type' = 'Microsoft.Dynamics.CRM.EntityMetadata'; SchemaName = $Name; EntitySetName = $setName;
-        DisplayName = (Label $Display); DisplayCollectionName = (Label ($Display + 's'));
+        DisplayName = (Label $Display); DisplayCollectionName = (Label $plural);
         OwnershipType = $Ownership; HasActivities = $false; HasNotes = $false;
         IsActivity = $false; IsAuditEnabled = @{ Value = $false }; Attributes = @($primary)
     } | Out-Null
@@ -188,7 +196,7 @@ if ($Phase -eq 'Schema') {
     EnsureField 'asx_rule' $onDemandScope
     EnsureOptionLabel 'asx_triggers' 3 'On demand'
     EnsureTable 'asx_RuleSchedule' 'Rule Schedule'
-    EnsureTable 'asx_SchedulerStatus' 'Scheduler Status' -EntitySetName 'asx_schedulerstatuses'
+    EnsureTable 'asx_SchedulerStatus' 'Scheduler Status' -EntitySetName 'asx_schedulerstatuses' -CollectionName 'Scheduler Statuses'
     $on = Field 'asx_On' 'Boolean' 'On'
     $on.DefaultValue = $true
     $on.OptionSet = @{ '@odata.type' = 'Microsoft.Dynamics.CRM.BooleanOptionSetMetadata';

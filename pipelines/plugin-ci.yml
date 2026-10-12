@@ -52,6 +52,8 @@ stages:
         steps:
           - pwsh: ./tests/pipelines/Test-RuleAuthoringRegistration.ps1
             displayName: Test authoring schema, views, API registration and retry
+          - pwsh: ./tests/pipelines/Test-AssertReleaseVersion.ps1
+            displayName: Test the release version check
           - task: UseDotNet@2
             inputs: { packageType: sdk, version: '10.x' }
             displayName: Use .NET SDK
