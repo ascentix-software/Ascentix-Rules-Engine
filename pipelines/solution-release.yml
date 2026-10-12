@@ -252,7 +252,9 @@ stages:
               git diff --cached --quiet
               if ($LASTEXITCODE -eq 0) { Write-Host "No solution changes to commit."; exit 0 }
               $branch = "solution/sync-$(Build.BuildId)"
-              git commit -m "chore(solution): sync unpacked DEV solution (build $(Build.BuildId)) [skip ci]"
+              # No skip marker: no pipeline triggers on solution/* pushes, and a marker would stop
+              # the mirror PR's required GitHub checks from ever running.
+              git commit -m "chore(solution): sync unpacked DEV solution (build $(Build.BuildId))"
               git push origin "HEAD:refs/heads/$branch"
               Write-Host "Solution mirror pushed to $branch. Open a pull request to land it."
             workingDirectory: $(Build.SourcesDirectory)
