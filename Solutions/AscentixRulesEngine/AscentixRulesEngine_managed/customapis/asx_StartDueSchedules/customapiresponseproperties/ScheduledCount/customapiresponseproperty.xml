@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="ScheduledCount">
+  <description default="Number of due schedules processed by this call.">
+    <label description="Number of due schedules processed by this call." languagecode="1033" />
+  </description>
+  <displayname default="ScheduledCount">
+    <label description="ScheduledCount" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>ScheduledCount</name>
+  <type>7</type>
+</customapiresponseproperty>

@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="RecordId">
+  <description default="Identifier of the persisted record to evaluate the rule against.">
+    <label description="Identifier of the persisted record to evaluate the rule against." languagecode="1033" />
+  </description>
+  <displayname default="RecordId">
+    <label description="RecordId" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>0</isoptional>
+  <name>RecordId</name>
+  <type>12</type>
+</customapirequestparameter>

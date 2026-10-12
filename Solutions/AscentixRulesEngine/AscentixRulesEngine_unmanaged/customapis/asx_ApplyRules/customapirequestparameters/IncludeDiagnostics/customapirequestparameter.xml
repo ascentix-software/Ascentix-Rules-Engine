@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="IncludeDiagnostics">
+  <description default="When true, the response also carries Diagnostics: timings and counts for this call.">
+    <label description="When true, the response also carries Diagnostics: timings and counts for this call." languagecode="1033" />
+  </description>
+  <displayname default="IncludeDiagnostics">
+    <label description="IncludeDiagnostics" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>IncludeDiagnostics</name>
+  <type>0</type>
+</customapirequestparameter>

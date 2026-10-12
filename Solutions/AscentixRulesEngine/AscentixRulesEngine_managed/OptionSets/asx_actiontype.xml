@@ -43,5 +43,10 @@
         <label description="Delete Record" languagecode="1033" />
       </labels>
     </option>
+    <option value="8" IsHidden="0">
+      <labels>
+        <label description="Deactivate Record" languagecode="1033" />
+      </labels>
+    </option>
   </options>
 </optionset>

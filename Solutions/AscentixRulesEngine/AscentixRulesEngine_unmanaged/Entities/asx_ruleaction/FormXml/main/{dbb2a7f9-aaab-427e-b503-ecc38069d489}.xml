@@ -5,7 +5,7 @@
     <IntroducedVersion>1.0.0.0</IntroducedVersion>
     <FormPresentation>1</FormPresentation>
     <FormActivationState>1</FormActivationState>
-    <form>
+    <form headerdensity="HighWithControls">
       <tabs>
         <tab verticallayout="true" id="{3083a6b8-f329-4666-932b-9a5f9640d82a}" IsUserDefined="1">
           <labels>
@@ -63,14 +63,6 @@
                           <label description="Action Type" languagecode="1033" />
                         </labels>
                         <control id="asx_actiontype" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_actiontype" />
-                      </cell>
-                    </row>
-                    <row>
-                      <cell id="{267f92c4-5742-7fda-9029-95816fd84803}">
-                        <labels>
-                          <label description="Fire On" languagecode="1033" />
-                        </labels>
-                        <control id="asx_fireon" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_fireon" />
                       </cell>
                     </row>
                     <row>
@@ -160,6 +152,14 @@
                         <control id="asx_targetnode" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="asx_targetnode" />
                       </cell>
                     </row>
+                    <row>
+                      <cell id="{35cfff5d-5288-49ed-8431-23a5daa8ac40}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Also Apply To Previous" languagecode="1033" />
+                        </labels>
+                        <control id="asx_applytoprevious" classid="{67FAC785-CD58-4f9f-ABB3-4B7DDC6ED5ED}" datafieldname="asx_applytoprevious" disabled="false" />
+                      </cell>
+                    </row>
                   </rows>
                 </section>
               </sections>
@@ -224,6 +224,51 @@
           </Handlers>
         </event>
       </events>
+      <header id="{b6c4b388-330c-4bef-a935-3ace2f7c6745}" celllabelposition="Top" columns="111" labelwidth="115" celllabelalignment="Left">
+        <rows>
+          <row>
+            <cell id="{e03ddcdf-8069-45dc-acb9-4cda37135c54}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{5c4cde40-2519-4e51-b3c1-c0adc8c2fda0}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{6e08301f-eb16-40cd-9b16-1e3c7b22a5bb}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+          </row>
+        </rows>
+      </header>
+      <footer id="{68ab23bf-737f-4888-ad5b-7680006cff97}" celllabelposition="Top" columns="111" labelwidth="115" celllabelalignment="Left">
+        <rows>
+          <row>
+            <cell id="{1aaddd4f-465b-42aa-809d-ed08063cfb0f}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{5b954ccc-798a-4bbd-b87e-98bf1a62120b}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+            <cell id="{57e86274-9fa9-468b-8796-1862f10fed97}" showlabel="false">
+              <labels>
+                <label description="" languagecode="1033" />
+              </labels>
+            </cell>
+          </row>
+        </rows>
+      </footer>
+      <DisplayConditions Order="0" FallbackForm="true">
+        <Everyone />
+      </DisplayConditions>
     </form>
     <IsCustomizable>1</IsCustomizable>
     <CanBeDeleted>1</CanBeDeleted>

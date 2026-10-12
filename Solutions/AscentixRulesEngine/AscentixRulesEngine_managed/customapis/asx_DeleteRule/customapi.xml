@@ -1,0 +1,19 @@
+<customapi uniquename="asx_DeleteRule">
+  <allowedcustomprocessingsteptype>0</allowedcustomprocessingsteptype>
+  <bindingtype>0</bindingtype>
+  <description default="Delete a rule, its working draft and owned configuration in one transaction before platform cascading begins.">
+    <label description="Delete a rule, its working draft and owned configuration in one transaction before platform cascading begins." languagecode="1033" />
+  </description>
+  <displayname default="asx_DeleteRule">
+    <label description="asx_DeleteRule" languagecode="1033" />
+  </displayname>
+  <executeprivilegename>prvDeleteasx_rule</executeprivilegename>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>0</isfunction>
+  <isprivate>0</isprivate>
+  <name>asx_DeleteRule</name>
+  <plugintypeid>
+    <plugintypeexportkey>6d1d3b7d-57ae-f111-aaac-70a8a5acb5f7</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>

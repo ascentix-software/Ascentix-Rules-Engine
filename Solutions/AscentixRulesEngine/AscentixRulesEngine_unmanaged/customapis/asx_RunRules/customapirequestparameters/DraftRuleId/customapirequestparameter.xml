@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="DraftRuleId">
+  <description default="Previews a draft: its authored rows run in place of the live rule it is a draft of.">
+    <label description="Previews a draft: its authored rows run in place of the live rule it is a draft of." languagecode="1033" />
+  </description>
+  <displayname default="DraftRuleId">
+    <label description="DraftRuleId" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>DraftRuleId</name>
+  <type>12</type>
+</customapirequestparameter>

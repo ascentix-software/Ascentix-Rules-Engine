@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="IncludeOutcomes">
+  <description default="When true, Outcomes carries each rule outcome per record; otherwise it is an empty JSON array.">
+    <label description="When true, Outcomes carries each rule outcome per record; otherwise it is an empty JSON array." languagecode="1033" />
+  </description>
+  <displayname default="IncludeOutcomes">
+    <label description="IncludeOutcomes" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>IncludeOutcomes</name>
+  <type>0</type>
+</customapirequestparameter>

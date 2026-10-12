@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="ChangeSet">
+  <description default="JSON change-set summary: creates, updates, deletes and unchanged rows.">
+    <label description="JSON change-set summary: creates, updates, deletes and unchanged rows." languagecode="1033" />
+  </description>
+  <displayname default="ChangeSet">
+    <label description="ChangeSet" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>ChangeSet</name>
+  <type>10</type>
+</customapiresponseproperty>

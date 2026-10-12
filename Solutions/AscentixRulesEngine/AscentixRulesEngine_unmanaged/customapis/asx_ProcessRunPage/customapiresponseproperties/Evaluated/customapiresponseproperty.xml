@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Evaluated">
+  <description default="Running total of records evaluated.">
+    <label description="Running total of records evaluated." languagecode="1033" />
+  </description>
+  <displayname default="Evaluated">
+    <label description="Evaluated" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Evaluated</name>
+  <type>7</type>
+</customapiresponseproperty>

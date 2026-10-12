@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Outcomes">
+  <description default="JSON per record: each rule outcome (name and true or false).">
+    <label description="JSON per record: each rule outcome (name and true or false)." languagecode="1033" />
+  </description>
+  <displayname default="Outcomes">
+    <label description="Outcomes" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Outcomes</name>
+  <type>10</type>
+</customapiresponseproperty>

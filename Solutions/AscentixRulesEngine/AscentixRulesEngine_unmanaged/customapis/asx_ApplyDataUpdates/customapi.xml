@@ -1,0 +1,19 @@
+<customapi uniquename="asx_ApplyDataUpdates">
+  <allowedcustomprocessingsteptype>0</allowedcustomprocessingsteptype>
+  <bindingtype>0</bindingtype>
+  <description default="Reports or applies the data updates this release needs.">
+    <label description="Reports or applies the data updates this release needs." languagecode="1033" />
+  </description>
+  <displayname default="Apply Data Updates">
+    <label description="Apply Data Updates" languagecode="1033" />
+  </displayname>
+  <executeprivilegename>prvReadasx_rule</executeprivilegename>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>0</isfunction>
+  <isprivate>0</isprivate>
+  <name>asx_ApplyDataUpdates</name>
+  <plugintypeid>
+    <plugintypeexportkey>4b9d39c0-dcc0-f111-aaaf-70a8a50c8422</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>

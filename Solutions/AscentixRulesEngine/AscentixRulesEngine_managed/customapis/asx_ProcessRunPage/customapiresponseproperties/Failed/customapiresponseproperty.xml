@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Failed">
+  <description default="Running total of records that failed with an error.">
+    <label description="Running total of records that failed with an error." languagecode="1033" />
+  </description>
+  <displayname default="Failed">
+    <label description="Failed" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Failed</name>
+  <type>7</type>
+</customapiresponseproperty>

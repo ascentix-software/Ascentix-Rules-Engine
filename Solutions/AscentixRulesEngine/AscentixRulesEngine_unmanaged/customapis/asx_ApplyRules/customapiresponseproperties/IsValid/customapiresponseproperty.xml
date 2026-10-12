@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="IsValid">
+  <description default="True when no Block action fired.">
+    <label description="True when no Block action fired." languagecode="1033" />
+  </description>
+  <displayname default="IsValid">
+    <label description="IsValid" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>IsValid</name>
+  <type>0</type>
+</customapiresponseproperty>

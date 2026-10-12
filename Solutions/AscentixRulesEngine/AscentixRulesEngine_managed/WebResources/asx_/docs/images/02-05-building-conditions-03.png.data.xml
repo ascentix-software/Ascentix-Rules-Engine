@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<WebResource xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <WebResourceId>{33947c32-18c3-f111-aaaf-70a8a50c8422}</WebResourceId>
+  <Name>asx_/docs/images/02-05-building-conditions-03.png</Name>
+  <DisplayName>Rules Engine docs: 02-05-building-conditions-03.png</DisplayName>
+  <WebResourceType>5</WebResourceType>
+  <IntroducedVersion>1.0</IntroducedVersion>
+  <IsEnabledForMobileClient>0</IsEnabledForMobileClient>
+  <IsAvailableForMobileOffline>0</IsAvailableForMobileOffline>
+  <IsCustomizable>1</IsCustomizable>
+  <CanBeDeleted>1</CanBeDeleted>
+  <IsHidden>0</IsHidden>
+  <FileName>/WebResources/asx_docsimages02-05-building-conditions-03png33947C32-18C3-F111-AAAF-70A8A50C8422</FileName>
+</WebResource>

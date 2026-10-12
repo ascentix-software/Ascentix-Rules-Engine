@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="RunId">
+  <description default="Identifier of the Rule Run to process.">
+    <label description="Identifier of the Rule Run to process." languagecode="1033" />
+  </description>
+  <displayname default="RunId">
+    <label description="RunId" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>0</isoptional>
+  <name>RunId</name>
+  <type>12</type>
+</customapirequestparameter>

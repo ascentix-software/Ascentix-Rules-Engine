@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="WriteCount">
+  <description default="Number of write actions applied.">
+    <label description="Number of write actions applied." languagecode="1033" />
+  </description>
+  <displayname default="WriteCount">
+    <label description="WriteCount" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>WriteCount</name>
+  <type>7</type>
+</customapiresponseproperty>

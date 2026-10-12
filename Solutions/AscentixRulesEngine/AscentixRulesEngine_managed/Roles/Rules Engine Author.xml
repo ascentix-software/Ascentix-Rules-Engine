@@ -3,6 +3,8 @@
   <IsCustomizable>1</IsCustomizable>
   <IsAutoAssigned>0</IsAutoAssigned>
   <RolePrivileges>
+    <RolePrivilege name="prvAppendasx_ActionConditionGroup" level="Global" />
+    <RolePrivilege name="prvAppendasx_ActionConditionTest" level="Global" />
     <RolePrivilege name="prvAppendasx_conditiongroup" level="Global" />
     <RolePrivilege name="prvAppendasx_LocalizedMessage" level="Global" />
     <RolePrivilege name="prvAppendasx_nodefiltercriterion" level="Global" />
@@ -13,6 +15,8 @@
     <RolePrivilege name="prvAppendasx_searchcriteriagroup" level="Global" />
     <RolePrivilege name="prvAppendasx_searchcriterion" level="Global" />
     <RolePrivilege name="prvAppendasx_tableconfig" level="Global" />
+    <RolePrivilege name="prvAppendToasx_ActionConditionGroup" level="Global" />
+    <RolePrivilege name="prvAppendToasx_ActionConditionTest" level="Global" />
     <RolePrivilege name="prvAppendToasx_conditiongroup" level="Global" />
     <RolePrivilege name="prvAppendToasx_LocalizedMessage" level="Global" />
     <RolePrivilege name="prvAppendToasx_nodefiltercriterion" level="Global" />
@@ -23,6 +27,8 @@
     <RolePrivilege name="prvAppendToasx_searchcriteriagroup" level="Global" />
     <RolePrivilege name="prvAppendToasx_searchcriterion" level="Global" />
     <RolePrivilege name="prvAppendToasx_tableconfig" level="Global" />
+    <RolePrivilege name="prvCreateasx_ActionConditionGroup" level="Global" />
+    <RolePrivilege name="prvCreateasx_ActionConditionTest" level="Global" />
     <RolePrivilege name="prvCreateasx_conditiongroup" level="Global" />
     <RolePrivilege name="prvCreateasx_LocalizedMessage" level="Global" />
     <RolePrivilege name="prvCreateasx_nodefiltercriterion" level="Global" />
@@ -34,6 +40,8 @@
     <RolePrivilege name="prvCreateasx_searchcriterion" level="Global" />
     <RolePrivilege name="prvCreateasx_tableconfig" level="Global" />
     <RolePrivilege name="prvCreateSharePointData" level="Global" />
+    <RolePrivilege name="prvDeleteasx_ActionConditionGroup" level="Global" />
+    <RolePrivilege name="prvDeleteasx_ActionConditionTest" level="Global" />
     <RolePrivilege name="prvDeleteasx_conditiongroup" level="Global" />
     <RolePrivilege name="prvDeleteasx_LocalizedMessage" level="Global" />
     <RolePrivilege name="prvDeleteasx_nodefiltercriterion" level="Global" />
@@ -44,6 +52,8 @@
     <RolePrivilege name="prvDeleteasx_searchcriteriagroup" level="Global" />
     <RolePrivilege name="prvDeleteasx_searchcriterion" level="Global" />
     <RolePrivilege name="prvDeleteasx_tableconfig" level="Global" />
+    <RolePrivilege name="prvReadasx_ActionConditionGroup" level="Global" />
+    <RolePrivilege name="prvReadasx_ActionConditionTest" level="Global" />
     <RolePrivilege name="prvReadasx_conditiongroup" level="Global" />
     <RolePrivilege name="prvReadasx_LocalizedMessage" level="Global" />
     <RolePrivilege name="prvReadasx_nodefiltercriterion" level="Global" />
@@ -56,6 +66,8 @@
     <RolePrivilege name="prvReadasx_tableconfig" level="Global" />
     <RolePrivilege name="prvReadSharePointData" level="Global" />
     <RolePrivilege name="prvReadSharePointDocument" level="Global" />
+    <RolePrivilege name="prvWriteasx_ActionConditionGroup" level="Global" />
+    <RolePrivilege name="prvWriteasx_ActionConditionTest" level="Global" />
     <RolePrivilege name="prvWriteasx_conditiongroup" level="Global" />
     <RolePrivilege name="prvWriteasx_LocalizedMessage" level="Global" />
     <RolePrivilege name="prvWriteasx_nodefiltercriterion" level="Global" />

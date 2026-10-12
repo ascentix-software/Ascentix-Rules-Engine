@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="CanApply">
+  <description default="True when the caller may apply data updates.">
+    <label description="True when the caller may apply data updates." languagecode="1033" />
+  </description>
+  <displayname default="CanApply">
+    <label description="CanApply" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>CanApply</name>
+  <type>0</type>
+</customapiresponseproperty>
