@@ -11,7 +11,7 @@ Free, Apache-2.0 licensed, currently in **open beta**.
 [Download](https://ascentix.ca/power-platform/rules-engine/download) ·
 [Beta limitations](https://ascentix.ca/power-platform/rules-engine/beta-limitations)
 
-![Rule editor for "Order total within credit limit": breadcrumb, Save/Reload/Validate/Publish actions, a properties band (Table sample_order, Triggers, Channels All), a DATA MAP row (Orders, sample_customer, sample_orderline, sample_product), a WHEN Execution conditions zone, a WHEN Validation conditions zone with a "Credit check" ALL·AND group and one condition, and a THEN Actions zone with a "Block save" action.](docs/guide/images/02-04-editor-layout-01.png)
+![The rule editor for “Order total within credit limit”: Not live and Draft pills, Undo, Redo, Preview, Saved, Publish… and More actions; the Rule settings strip (Order · On create, On form, On update · All channels); the Orders data model chip; an Only if group “Has a customer”; a Credit check outcome; and a Then band with a Block save action; Rule settings open on the right.](docs/guide/images/02-04-editor-layout-01.png)
 
 ## What it does
 
@@ -31,24 +31,25 @@ different pieces of code:
   without stopping them.
 
 A rule is scoped to a table, declares a tree of conditions (WHEN) and a set of actions (THEN),
-and reaches lookup and child records through a reusable **Table Config** tree that several rules
-can share. The conditions that block a bad save are the same ones that drive a field's visibility
+and reaches lookup and child records through a reusable **data model** that several rules can
+share. The conditions that block a bad save are the same ones that drive a field's visibility
 or write a related record. You choose by picking the action, not by writing a different kind of
 code.
 
-Rules are Draft until published, and unpublishing takes effect in the same transaction, which is
-the supported emergency stop. The engine's configuration lives in its own `asx_` tables and adds
+Rules are Draft until published, and editing a published rule changes a draft while the published
+version keeps enforcing. Unpublishing takes effect in the same transaction, which is the supported
+emergency stop. The engine's configuration lives in its own `asx_` tables and adds
 no columns to yours.
 
 [Core Concepts](https://ascentix.ca/power-platform/rules-engine/core-concepts) covers the
-vocabulary: rules, conditions, actions, Table Configs and severity.
+vocabulary: rules, conditions, outcomes, actions and data models.
 [Triggers & Channels](https://ascentix.ca/power-platform/rules-engine/triggers-and-channels)
 covers when a rule fires, and
-[Custom APIs](https://ascentix.ca/power-platform/rules-engine/custom-apis) documents the four.
+[Custom APIs](https://ascentix.ca/power-platform/rules-engine/custom-apis) documents them all.
 
 ## Status: open beta
 
-Current release **`0.0.0.1`** (2026-08-28), detailed in [CHANGELOG.md](CHANGELOG.md). Intended for
+Current release **`0.1.0.2`** (2026-10-12), detailed in [CHANGELOG.md](CHANGELOG.md). Intended for
 non-production environments. The supported envelope is roughly 100 published rules per
 environment and 5,000 traversed related rows per save. Rules re-evaluate on root-table writes
 only, and there is no supported rule transport between environments.
@@ -68,7 +69,7 @@ upgrade path, and the uninstall sequence.
 
 Rules are then authored in the **Rules & data model** hub inside the shipped model-driven app:
 
-![Rules & data model hub: Rules and Table configurations tabs, a New rule button, search box, Table and Status filters, and a list with one rule "Order total within credit limit" on sample_order, status Draft, triggers On Create/On Form/On Update.](docs/guide/images/02-02-the-hub-01.png)
+![The Rules & data model hub on its Rules tab, searched for “Order”: New rule, Table and Status filters, and six Draft rules on sample_order that use the Orders data model, each with its triggers, action count and last modified time.](docs/guide/images/02-02-the-hub-01.png)
 
 ### Verifying a release
 

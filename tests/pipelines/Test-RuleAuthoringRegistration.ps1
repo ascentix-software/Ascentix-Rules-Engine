@@ -358,7 +358,8 @@ foreach ($interrupt in @($false, $true)) {
                     $name = $record.SchemaName.ToLowerInvariant()
                     Assert (!$tables.ContainsKey($name)) 'Duplicate table creation.'
                     $tables[$name] = @{ LogicalName = $name; SchemaName = $record.SchemaName; OwnershipType = $record.OwnershipType;
-                        EntitySetName = $record.EntitySetName; MetadataId = [guid]::NewGuid().ToString() }
+                        EntitySetName = $record.EntitySetName; DisplayCollectionName = $record.DisplayCollectionName;
+                        MetadataId = [guid]::NewGuid().ToString() }
                     $schemaState.Hidden[$name] = 2
                     $schemaState.Writes++
                     return
@@ -412,6 +413,7 @@ foreach ($interrupt in @($false, $true)) {
             Assert ($record['@odata.type'] -eq 'Microsoft.Dynamics.CRM.EntityMetadata' -and !$record.ContainsKey('@odata.context')) 'A table update must send a clean EntityMetadata body.'
             Assert ($record.MetadataId -eq $id -and $record.SchemaName -eq $table[0].SchemaName -and $record.OwnershipType -eq $table[0].OwnershipType) 'A table update must carry the full existing definition.'
             $table[0].EntitySetName = $record.EntitySetName
+            $table[0].DisplayCollectionName = $record.DisplayCollectionName
             $schemaState.TableUpdates++
             $schemaState.Writes++
             return
@@ -582,6 +584,18 @@ foreach ($interrupt in @($false, $true)) {
         Assert ($tables['asx_schedulerstatus'].EntitySetName -ceq 'asx_schedulerstatuses') 'The mismatched Scheduler Status set name was not reconciled.'
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
         Assert ($schemaState.Writes -eq $writes + 14 -and $schemaState.TableUpdates -eq 1) 'Set-name reconciliation is not idempotent.'
+        # The plural is "Scheduler Statuses", not the appended-s "Scheduler Statuss" that earlier
+        # environments were created with; one table update repairs it, then nothing on a re-run.
+        $plural = { @($tables['asx_schedulerstatus'].DisplayCollectionName.LocalizedLabels)[0].Label }
+        Assert ((& $plural) -ceq 'Scheduler Statuses') "A new Scheduler Status table must be created as Scheduler Statuses, got $(& $plural)."
+        Assert (@($tables['asx_ruleschedule'].DisplayCollectionName.LocalizedLabels)[0].Label -ceq 'Rule Schedules') 'Other tables keep the appended-s plural.'
+        $tables['asx_schedulerstatus'].DisplayCollectionName = @{ LocalizedLabels = @(@{ Label = 'Scheduler Statuss'; LanguageCode = 1033 }) }
+        & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
+        Assert ($schemaState.Writes -eq $writes + 15 -and $schemaState.TableUpdates -eq 2) 'Expected exactly one table update for the misspelled plural.'
+        Assert ((& $plural) -ceq 'Scheduler Statuses') "The Scheduler Status plural was not repaired, got $(& $plural)."
+        Assert ($tables['asx_schedulerstatus'].EntitySetName -ceq 'asx_schedulerstatuses') 'Repairing the plural must keep the set name.'
+        & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
+        Assert ($schemaState.Writes -eq $writes + 15 -and $schemaState.TableUpdates -eq 2) 'Plural repair is not idempotent.'
         Write-Host "PASS: schema and shipped views, filter preservation, idempotent retry (interrupted=$interrupt)."
     }
     # A created table that never becomes visible stops the run with the timeout message instead of waiting forever.

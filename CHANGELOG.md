@@ -2,13 +2,35 @@
 
 Notable changes to the Ascentix Rules Engine.
 
-Beta releases ship as solution version `0.0.0.N`. Dataverse solution versions are numeric
-only, so the version an administrator sees in their org can never carry the word "beta".
-`1.0.0.0` is reserved for the first full release.
+Beta releases ship as solution versions below `1.0.0.0` (`0.0.0.1`, then `0.1.0.2`). Dataverse
+solution versions are numeric only, so the version an administrator sees in their org can never
+carry the word "beta". `1.0.0.0` is reserved for the first full release.
 
-## Unreleased
+## 0.1.0.2 (2026-10-12)
+
+**Breaking:** after upgrading, a System Administrator or System Customizer applies **data update
+1** from the Rule Builder, which converts On match / On no match to outcomes. Until then, actions
+on rules published before the upgrade do not fire. See *Administering → Installation →
+Upgrading*.
 
 ### Added
+
+- **Working drafts and published versions.** Every rule has an editable draft. Editing a
+  published rule changes its draft while the published version keeps enforcing; **Publish…**
+  captures the draft, with its own copy of the data model, as a new version (new table
+  `asx_rulerevision`). **Discard draft…** deletes a draft's edits, and **View published** shows
+  what is live. See *Getting Started → Rule Lifecycle*.
+- **Preview on a record.** Runs the draft or the published version of a rule against a record
+  you pick, without saving, and shows the verdict, each outcome and every action in rule order. A
+  rule that has never been published can be previewed too. `asx_RunRules` takes a new optional
+  `DraftRuleId` parameter for this.
+- **A redesigned Rule Builder.** One header holds the rule's status and a single primary action:
+  **Publish…** saves, runs the server check and confirms in one step. Conditions read as
+  sentences with display names, an **Issues** drawer lists what blocks publishing, and
+  confirmations appear as short notices with Undo where it applies. Table configurations are now
+  called **data models**, and the hub lists rules and data models side by side.
+- **Shared reads.** One save, or one page of a Rule Run, reads each set of related rows once and
+  shares it across every rule it runs, instead of once per rule.
 
 - **Bulk writes switch.** A new environment variable, **Bulk writes** (`asx_BulkWrites`, Yes/No,
   default **No**), decides whether the engine sends two or more creates or updates of one table as
@@ -69,11 +91,10 @@ only, so the version an administrator sees in their org can never carry the word
   target a related collection and write every row that passes the action's **Rows** filter;
   Create Record can create one record **for each row** of a collection, with values from the
   **Current row** (`row` source, `{row.<column>}` tokens). One record's writes are merged, rows
-  that already hold the values are skipped, and the rest are sent in bulk (creates, then updates,
-  then deletes). New column `asx_nodefiltergroup.asx_ruleaction`, action type 8, and the
-  `asx_RunRules` output `ChangeSet`. The Rule Builder's new **Test** runs a published rule
-  against a record without saving. Writes now go out in that order rather than one at a time in
-  action order; only other plug-ins reacting to each write can observe the difference.
+  that already hold the values are skipped, and the rest are sent creates first, then updates,
+  then deletes. New column `asx_nodefiltergroup.asx_ruleaction`, action type 8, and the
+  `asx_RunRules` output `ChangeSet`. Writes now go out in that order rather than in action order;
+  only other plug-ins reacting to each write can observe the difference.
 
 ### Changed
 
@@ -93,8 +114,8 @@ only, so the version an administrator sees in their org can never carry the word
   actions test removes those tests. New publish errors: `OUTCOME_UNNAMED`,
   `OUTCOME_DUPLICATE_NAME`, `ACTION_NO_TREE`, `ACTION_TEST_UNKNOWN_OUTCOME`,
   `ACTION_EMPTY_GROUP`; new warning: `OUTCOME_UNUSED`.
-- **Test run shows outcomes; `asx_RunRules` returns `Outcomes`.** The Rule Builder's **Test**
-  lists the rule's outcomes as true or false. `asx_RunRules` has a new `Outcomes` output
+- **Preview shows outcomes; `asx_RunRules` returns `Outcomes`.** **Preview on a record** lists
+  the rule's outcomes as true or false. `asx_RunRules` has a new `Outcomes` output
   (string JSON per record: `recordId`, `ruleId`, `outcomeId`, `name`, `value`), filled only when
   the call sets the new optional `IncludeOutcomes` parameter to `true` and `[]` otherwise;
   `Results` is unchanged. The output and the parameter are created when the deploy's Register
@@ -120,14 +141,16 @@ only, so the version an administrator sees in their org can never carry the word
   Row Count condition's own search criteria compare dates as text and keep the widened form:
   before/after comparisons are applied in the query, equals and not equals after the rows are
   loaded.
-- Writes of the same table in one evaluation are sent in bulk. An existing rule whose fired
-  actions create, or update, two or more records of the same table in one save (two Create
-  Record actions on task, or updates of two different contacts through two lookups) now sends
-  them as one `CreateMultiple` / `UpdateMultiple` where the table supports it, instead of one
-  request each; deletes are still sent one at a time. A plug-in registered on the bulk message
-  sees one execution for them. A failed bulk request names the operation and the table rather
-  than the action, for example `UpdateMultiple contact: <error>`; a single request reads
-  `Update contact (action "<action name>"): <error>`.
+- With **Bulk writes** on (above), two or more creates, or updates, of the same table in one
+  evaluation (two Create Record actions on task, or updates of two different contacts through two
+  lookups) are sent as one `CreateMultiple` / `UpdateMultiple` where the table supports it;
+  deletes are always sent one at a time. A plug-in registered on the bulk message sees one
+  execution for them. A failed bulk request names the operation and the table rather than the
+  action, for example `UpdateMultiple contact: <error>`; a single request reads
+  `Update contact (action "<action name>"): <error>`. With it off, the default, every write is
+  its own request.
+- A rule runs the data model captured when it was published. A change to a shared data model
+  reaches each rule that uses it only when that rule is republished.
 - A Create Record action that already holds a collection target (`asx_targetnode` pointing at a
   child-collection node, which only the API could set; the Rule Builder never did) becomes a
   **Create per row** on upgrade: it creates one record for each row of that collection instead
