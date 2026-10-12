@@ -1,0 +1,135 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<forms xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <systemform>
+    <formid>{c352ba8a-421e-41ea-91f4-95b9beba4397}</formid>
+    <IntroducedVersion>0.0.0.2</IntroducedVersion>
+    <FormPresentation>1</FormPresentation>
+    <FormActivationState>1</FormActivationState>
+    <form>
+      <tabs>
+        <tab verticallayout="true" id="{566a6ee4-4f40-4b43-8504-cd22aee261ff}" IsUserDefined="1">
+          <labels>
+            <label description="General" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="false" showbar="false" IsUserDefined="0" id="{03b03171-b365-4599-bc41-bb4a1ed31f5a}">
+                  <labels>
+                    <label description="General" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{27237b40-917f-45c5-a459-b8dd11d25560}">
+                        <labels>
+                          <label description="Name" languagecode="1033" />
+                        </labels>
+                        <control id="asx_name" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_name" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{963d743d-b58a-4f62-b074-fd816980d89c}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Rule" languagecode="1033" />
+                        </labels>
+                        <control id="asx_rule" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="asx_rule" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{14ad9d8a-f98d-4c47-abf6-b400bbcd39fb}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="On" languagecode="1033" />
+                        </labels>
+                        <control id="asx_on" classid="{67FAC785-CD58-4f9f-ABB3-4B7DDC6ED5ED}" datafieldname="asx_on" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{200a3969-33f6-44cf-8b58-32f04c024b58}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Pattern" languagecode="1033" />
+                        </labels>
+                        <control id="asx_pattern" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_pattern" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{6de8f372-6ad3-4140-b755-874a06600c14}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Every" languagecode="1033" />
+                        </labels>
+                        <control id="asx_every" classid="{C6D124CA-7EDA-4a60-AEA9-7FB8D318B68F}" datafieldname="asx_every" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{28a59ed0-0ccc-475e-be36-d0eae16ea0c4}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Time of day" languagecode="1033" />
+                        </labels>
+                        <control id="asx_timeofday" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_timeofday" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{e9056b81-4653-4695-b53e-8f5f140b0385}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Days of week" languagecode="1033" />
+                        </labels>
+                        <control id="asx_daysofweek" classid="{4AA28AB7-9C13-4F57-A73D-AD894D048B5F}" datafieldname="asx_daysofweek" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{4c39249b-d7e6-4689-bb37-bd21c8c2a901}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Day of month" languagecode="1033" />
+                        </labels>
+                        <control id="asx_dayofmonth" classid="{C6D124CA-7EDA-4a60-AEA9-7FB8D318B68F}" datafieldname="asx_dayofmonth" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{beabf66d-ef02-4832-ba66-e73ae1acd836}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Next run on" languagecode="1033" />
+                        </labels>
+                        <control id="asx_nextrunon" classid="{5B773807-9FB2-42db-97C3-7A91EFF8ADFF}" datafieldname="asx_nextrunon" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{5d920e17-5e5e-4498-8dfd-4deb3c4edb71}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Last run on" languagecode="1033" />
+                        </labels>
+                        <control id="asx_lastrunon" classid="{5B773807-9FB2-42db-97C3-7A91EFF8ADFF}" datafieldname="asx_lastrunon" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{8f999d77-c9eb-4d94-9ba0-2a379f4451ba}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Last run" languagecode="1033" />
+                        </labels>
+                        <control id="asx_lastrun" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="asx_lastrun" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{da1891ca-6ac0-49c8-be01-8566b55e6fc8}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Last outcome" languagecode="1033" />
+                        </labels>
+                        <control id="asx_lastoutcome" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_lastoutcome" disabled="false" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+      </tabs>
+    </form>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <LocalizedNames>
+      <LocalizedName description="Information" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="A form for this entity." languagecode="1033" />
+    </Descriptions>
+  </systemform>
+</forms>

@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Required">
+  <description default="Highest data update number this release carries.">
+    <label description="Highest data update number this release carries." languagecode="1033" />
+  </description>
+  <displayname default="Required">
+    <label description="Required" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Required</name>
+  <type>7</type>
+</customapiresponseproperty>

@@ -1,0 +1,19 @@
+<customapi uniquename="asx_OpenRuleDraft">
+  <allowedcustomprocessingsteptype>0</allowedcustomprocessingsteptype>
+  <bindingtype>0</bindingtype>
+  <description default="Open a separate working draft while the published rule continues enforcing.">
+    <label description="Open a separate working draft while the published rule continues enforcing." languagecode="1033" />
+  </description>
+  <displayname default="asx_OpenRuleDraft">
+    <label description="asx_OpenRuleDraft" languagecode="1033" />
+  </displayname>
+  <executeprivilegename>prvWriteasx_rule</executeprivilegename>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>0</isfunction>
+  <isprivate>0</isprivate>
+  <name>asx_OpenRuleDraft</name>
+  <plugintypeid>
+    <plugintypeexportkey>6d1d3b7d-57ae-f111-aaac-70a8a5acb5f7</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>

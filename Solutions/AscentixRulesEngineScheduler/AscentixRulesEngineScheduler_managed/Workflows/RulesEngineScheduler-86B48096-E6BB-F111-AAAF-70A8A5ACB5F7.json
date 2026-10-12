@@ -1,0 +1,573 @@
+{
+  "properties": {
+    "connectionReferences": {
+      "shared_commondataserviceforapps": {
+        "runtimeSource": "embedded",
+        "connection": {
+          "connectionReferenceLogicalName": "asx_SchedulerDataverse"
+        },
+        "api": {
+          "name": "shared_commondataserviceforapps"
+        }
+      }
+    },
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        },
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        }
+      },
+      "triggers": {
+        "Recurrence": {
+          "recurrence": {
+            "frequency": "Minute",
+            "interval": 15
+          },
+          "metadata": {
+            "operationMetadataId": "d7c21f59-ff07-45c9-a1d1-3ddb290923cd"
+          },
+          "type": "Recurrence",
+          "runtimeConfiguration": {
+            "concurrency": {
+              "runs": 1
+            }
+          }
+        }
+      },
+      "actions": {
+        "Initialize_start": {
+          "runAfter": {},
+          "metadata": {
+            "operationMetadataId": "e9fb3561-fa81-46d1-a6e6-7ee776471d62"
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "start",
+                "type": "string",
+                "value": "@{utcNow()}"
+              }
+            ]
+          }
+        },
+        "Initialize_done": {
+          "runAfter": {
+            "Initialize_start": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "9884927d-f29f-450a-9351-6128e8301681"
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "done",
+                "type": "boolean",
+                "value": false
+              }
+            ]
+          }
+        },
+        "Initialize_failed_record_id": {
+          "runAfter": {
+            "Initialize_done": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "5c527b33-af5d-4f3f-8809-2e7795a9041a"
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "failedRecordId",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          }
+        },
+        "Initialize_failed_message": {
+          "runAfter": {
+            "Initialize_failed_record_id": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "b8cc320c-b79c-416e-8dad-a0654d9936a0"
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "failedMessage",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          }
+        },
+        "Initialize_error_text": {
+          "runAfter": {
+            "Initialize_failed_message": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "970ac390-5b25-4eb8-82c0-992cfccdb823"
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "errorText",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          }
+        },
+        "Start_due_schedules": {
+          "runAfter": {
+            "Initialize_error_text": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "4571d544-d850-4468-8c3e-47e5edeb5b2c"
+          },
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "connectionName": "shared_commondataserviceforapps",
+              "operationId": "PerformUnboundAction",
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps"
+            },
+            "parameters": {
+              "actionName": "asx_StartDueSchedules"
+            },
+            "authentication": "@parameters('$authentication')",
+            "retryPolicy": {
+              "type": "none"
+            }
+          }
+        },
+        "Parse_run_ids": {
+          "runAfter": {
+            "Start_due_schedules": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "357ed9a5-cbb7-4def-85f2-415a75b7e161"
+          },
+          "type": "Compose",
+          "inputs": "@json(coalesce(outputs('Start_due_schedules')?['body/RunIds'], '[]'))"
+        },
+        "For_each_run": {
+          "foreach": "@outputs('Parse_run_ids')",
+          "actions": {
+            "Reset_done": {
+              "runAfter": {},
+              "metadata": {
+                "operationMetadataId": "fbb31cb6-0965-46b9-98f3-facdf5b38655"
+              },
+              "type": "SetVariable",
+              "inputs": {
+                "name": "done",
+                "value": false
+              }
+            },
+            "Reset_failed_record_id": {
+              "runAfter": {
+                "Reset_done": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "a459fac2-ce83-443d-93aa-339698a7c713"
+              },
+              "type": "SetVariable",
+              "inputs": {
+                "name": "failedRecordId",
+                "value": "@{null}"
+              }
+            },
+            "Reset_failed_message": {
+              "runAfter": {
+                "Reset_failed_record_id": [
+                  "Succeeded"
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "fe232eb2-156e-4f28-8039-66853c094835"
+              },
+              "type": "SetVariable",
+              "inputs": {
+                "name": "failedMessage",
+                "value": "@{null}"
+              }
+            },
+            "Within_budget": {
+              "actions": {
+                "Drive_run": {
+                  "actions": {
+                    "Process_page": {
+                      "runAfter": {},
+                      "metadata": {
+                        "operationMetadataId": "f766b5c6-49e7-4feb-873c-5c4f59d3b57f"
+                      },
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "host": {
+                          "connectionName": "shared_commondataserviceforapps",
+                          "operationId": "PerformUnboundAction",
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps"
+                        },
+                        "parameters": {
+                          "actionName": "asx_ProcessRunPage",
+                          "item/RunId": "@items('For_each_run')",
+                          "item/FailedRecordId": "@if(empty(variables('failedRecordId')), null, variables('failedRecordId'))",
+                          "item/FailedMessage": "@variables('failedMessage')"
+                        },
+                        "authentication": "@parameters('$authentication')",
+                        "retryPolicy": {
+                          "type": "none"
+                        }
+                      }
+                    },
+                    "Page_processed": {
+                      "actions": {
+                        "Clear_failed_record_id": {
+                          "runAfter": {},
+                          "metadata": {
+                            "operationMetadataId": "41b7c0ef-c37c-4d82-bff7-04bda12ba247"
+                          },
+                          "type": "SetVariable",
+                          "inputs": {
+                            "name": "failedRecordId",
+                            "value": "@{null}"
+                          }
+                        },
+                        "Clear_failed_message": {
+                          "runAfter": {
+                            "Clear_failed_record_id": [
+                              "Succeeded"
+                            ]
+                          },
+                          "metadata": {
+                            "operationMetadataId": "d9dda8cc-32ea-4098-b59a-7c298efc3f0d"
+                          },
+                          "type": "SetVariable",
+                          "inputs": {
+                            "name": "failedMessage",
+                            "value": "@{null}"
+                          }
+                        },
+                        "Set_done_from_page": {
+                          "runAfter": {
+                            "Clear_failed_message": [
+                              "Succeeded"
+                            ]
+                          },
+                          "metadata": {
+                            "operationMetadataId": "d90cf79b-6f87-43ba-bcf3-f21b5d331b47"
+                          },
+                          "type": "SetVariable",
+                          "inputs": {
+                            "name": "done",
+                            "value": "@equals(outputs('Process_page')?['body/Done'], true)"
+                          }
+                        }
+                      },
+                      "runAfter": {
+                        "Process_page": [
+                          "Succeeded"
+                        ]
+                      },
+                      "metadata": {
+                        "operationMetadataId": "883a0266-fe3a-467a-b2ec-dd62e2f338a2"
+                      },
+                      "type": "Scope"
+                    },
+                    "Page_failed": {
+                      "actions": {
+                        "Error_body": {
+                          "runAfter": {},
+                          "metadata": {
+                            "operationMetadataId": "625f7132-e36a-4745-ba32-25ea57441e94"
+                          },
+                          "type": "Compose",
+                          "inputs": "@coalesce(actions('Process_page')?['outputs']?['body'], '')"
+                        },
+                        "Read_error_text": {
+                          "actions": {
+                            "Error_text_from_json": {
+                              "runAfter": {},
+                              "metadata": {
+                                "operationMetadataId": "d76a0efb-cb55-443b-ac87-1aef002c5b11"
+                              },
+                              "type": "SetVariable",
+                              "inputs": {
+                                "name": "errorText",
+                                "value": "@{coalesce(outputs('Error_body')?['error']?['message'], string(outputs('Error_body')))}"
+                              }
+                            }
+                          },
+                          "runAfter": {
+                            "Error_body": [
+                              "Succeeded"
+                            ]
+                          },
+                          "else": {
+                            "actions": {
+                              "Error_text_from_text": {
+                                "runAfter": {},
+                                "metadata": {
+                                  "operationMetadataId": "2c732b70-4936-4a50-9685-800e680c054f"
+                                },
+                                "type": "SetVariable",
+                                "inputs": {
+                                  "name": "errorText",
+                                  "value": "@{outputs('Error_body')}"
+                                }
+                              }
+                            }
+                          },
+                          "expression": {
+                            "and": [
+                              {
+                                "startsWith": [
+                                  "@string(outputs('Error_body'))",
+                                  "{"
+                                ]
+                              }
+                            ]
+                          },
+                          "metadata": {
+                            "operationMetadataId": "9a57ca92-2ae0-4748-a862-43a36ad02ab4"
+                          },
+                          "type": "If"
+                        },
+                        "Marker_at": {
+                          "runAfter": {
+                            "Read_error_text": [
+                              "Succeeded"
+                            ]
+                          },
+                          "metadata": {
+                            "operationMetadataId": "294b3fe3-c735-4ebb-b545-1f9f3bdf8ccc"
+                          },
+                          "type": "Compose",
+                          "inputs": "@indexOf(variables('errorText'), 'asx_ProcessRunPage:record-failed:')"
+                        },
+                        "Is_record_failed": {
+                          "actions": {
+                            "Failed_record_id": {
+                              "runAfter": {},
+                              "metadata": {
+                                "operationMetadataId": "afe6a5c1-5bff-4967-8f78-0d0a2053f59e"
+                              },
+                              "type": "Compose",
+                              "inputs": "@{substring(variables('errorText'), add(outputs('Marker_at'), 33), 36)}"
+                            },
+                            "Is_repeat": {
+                              "actions": {
+                                "Stop_on_repeated_failure": {
+                                  "runAfter": {},
+                                  "metadata": {
+                                    "operationMetadataId": "9c9f2d52-66d6-438b-ab1b-d7fb2b59a1d2"
+                                  },
+                                  "type": "SetVariable",
+                                  "inputs": {
+                                    "name": "done",
+                                    "value": true
+                                  }
+                                }
+                              },
+                              "runAfter": {
+                                "Failed_record_id": [
+                                  "Succeeded"
+                                ]
+                              },
+                              "else": {
+                                "actions": {
+                                  "Set_failed_record_id": {
+                                    "runAfter": {},
+                                    "metadata": {
+                                      "operationMetadataId": "6b542abd-f93f-4887-91ba-0b032dc3f490"
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                      "name": "failedRecordId",
+                                      "value": "@{outputs('Failed_record_id')}"
+                                    }
+                                  },
+                                  "Set_failed_message": {
+                                    "runAfter": {
+                                      "Set_failed_record_id": [
+                                        "Succeeded"
+                                      ]
+                                    },
+                                    "metadata": {
+                                      "operationMetadataId": "446b49b6-6fad-412b-a160-8d8bbffd070e"
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                      "name": "failedMessage",
+                                      "value": "@{substring(variables('errorText'), min(add(outputs('Marker_at'), 70), length(variables('errorText'))), max(0, sub(length(variables('errorText')), add(outputs('Marker_at'), 70))))}"
+                                    }
+                                  }
+                                }
+                              },
+                              "expression": {
+                                "and": [
+                                  {
+                                    "equals": [
+                                      "@toLower(outputs('Failed_record_id'))",
+                                      "@toLower(coalesce(variables('failedRecordId'), ''))"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "metadata": {
+                                "operationMetadataId": "a20bf8d6-cde0-4514-bfc6-c906bec2cca3"
+                              },
+                              "type": "If"
+                            }
+                          },
+                          "runAfter": {
+                            "Marker_at": [
+                              "Succeeded"
+                            ]
+                          },
+                          "else": {
+                            "actions": {
+                              "Leave_run_for_next_wake_up": {
+                                "runAfter": {},
+                                "metadata": {
+                                  "operationMetadataId": "f0b0b37f-371c-485b-a950-0d740ca3a256"
+                                },
+                                "type": "SetVariable",
+                                "inputs": {
+                                  "name": "done",
+                                  "value": true
+                                }
+                              }
+                            }
+                          },
+                          "expression": {
+                            "and": [
+                              {
+                                "contains": [
+                                  "@variables('errorText')",
+                                  "asx_ProcessRunPage:record-failed:"
+                                ]
+                              },
+                              {
+                                "greaterOrEquals": [
+                                  "@length(variables('errorText'))",
+                                  "@add(outputs('Marker_at'), 69)"
+                                ]
+                              }
+                            ]
+                          },
+                          "metadata": {
+                            "operationMetadataId": "81d2b457-ed64-4ea3-ab5d-7e5eec02e5af"
+                          },
+                          "type": "If"
+                        }
+                      },
+                      "runAfter": {
+                        "Process_page": [
+                          "Failed",
+                          "TimedOut"
+                        ]
+                      },
+                      "metadata": {
+                        "operationMetadataId": "1434064e-25c9-4648-baa5-1c731df37c9b"
+                      },
+                      "type": "Scope"
+                    },
+                    "Stop_driving_run": {
+                      "runAfter": {
+                        "Page_failed": [
+                          "Failed",
+                          "TimedOut"
+                        ]
+                      },
+                      "metadata": {
+                        "operationMetadataId": "133de231-e0b0-4e05-8390-3bcddd471940"
+                      },
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "done",
+                        "value": true
+                      }
+                    }
+                  },
+                  "runAfter": {},
+                  "expression": "@or(equals(variables('done'), true), less(ticks(addMinutes(variables('start'), 12)), ticks(utcNow())))",
+                  "limit": {
+                    "count": 500,
+                    "timeout": "PT12M"
+                  },
+                  "metadata": {
+                    "operationMetadataId": "5709a3dd-b303-4271-9c55-e4a31cf38d9c"
+                  },
+                  "type": "Until"
+                }
+              },
+              "runAfter": {
+                "Reset_failed_message": [
+                  "Succeeded"
+                ]
+              },
+              "expression": {
+                "and": [
+                  {
+                    "less": [
+                      "@ticks(utcNow())",
+                      "@ticks(addMinutes(variables('start'), 12))"
+                    ]
+                  }
+                ]
+              },
+              "metadata": {
+                "operationMetadataId": "14ca73c2-5678-4f4e-9103-383c4c3d0521"
+              },
+              "type": "If"
+            }
+          },
+          "runAfter": {
+            "Parse_run_ids": [
+              "Succeeded"
+            ]
+          },
+          "metadata": {
+            "operationMetadataId": "ddfa2e00-069f-4437-a6da-ce21263b1b5b"
+          },
+          "type": "Foreach",
+          "runtimeConfiguration": {
+            "concurrency": {
+              "repetitions": 1
+            }
+          }
+        }
+      }
+    },
+    "templateName": ""
+  },
+  "schemaVersion": "1.0.0.0"
+}

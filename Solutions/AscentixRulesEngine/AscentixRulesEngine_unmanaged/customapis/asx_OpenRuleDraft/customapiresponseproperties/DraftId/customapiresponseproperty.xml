@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="DraftId">
+  <description default="Identifier of the existing or newly created working draft.">
+    <label description="Identifier of the existing or newly created working draft." languagecode="1033" />
+  </description>
+  <displayname default="DraftId">
+    <label description="DraftId" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>DraftId</name>
+  <type>10</type>
+</customapiresponseproperty>

@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Changed">
+  <description default="Running total of records that had at least one write applied.">
+    <label description="Running total of records that had at least one write applied." languagecode="1033" />
+  </description>
+  <displayname default="Changed">
+    <label description="Changed" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Changed</name>
+  <type>7</type>
+</customapiresponseproperty>

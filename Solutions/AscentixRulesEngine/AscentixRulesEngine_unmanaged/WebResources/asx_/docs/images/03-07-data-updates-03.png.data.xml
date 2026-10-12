@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<WebResource xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <WebResourceId>{14d6d10f-98c3-f111-aaad-70a8a5acb5f7}</WebResourceId>
+  <Name>asx_/docs/images/03-07-data-updates-03.png</Name>
+  <DisplayName>Rules Engine docs: 03-07-data-updates-03.png</DisplayName>
+  <WebResourceType>5</WebResourceType>
+  <IntroducedVersion>1.0</IntroducedVersion>
+  <IsEnabledForMobileClient>0</IsEnabledForMobileClient>
+  <IsAvailableForMobileOffline>0</IsAvailableForMobileOffline>
+  <IsCustomizable>1</IsCustomizable>
+  <CanBeDeleted>1</CanBeDeleted>
+  <IsHidden>0</IsHidden>
+  <FileName>/WebResources/asx_docsimages03-07-data-updates-03png14D6D10F-98C3-F111-AAAD-70A8A5ACB5F7</FileName>
+</WebResource>

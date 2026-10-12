@@ -1,0 +1,14 @@
+<environmentvariabledefinition schemaname="asx_BulkWrites">
+  <defaultvalue>no</defaultvalue>
+  <description default="When yes, the rules engine sends two or more creates or updates of one table as CreateMultiple or UpdateMultiple. Faster, but Microsoft does not support bulk messages in plug-in code. When no, every write is a single request.">
+    <label description="When yes, the rules engine sends two or more creates or updates of one table as CreateMultiple or UpdateMultiple. Faster, but Microsoft does not support bulk messages in plug-in code. When no, every write is a single request." languagecode="1033" />
+  </description>
+  <displayname default="Bulk writes">
+    <label description="Bulk writes" languagecode="1033" />
+  </displayname>
+  <introducedversion>0.0.0.2</introducedversion>
+  <iscustomizable>1</iscustomizable>
+  <isrequired>0</isrequired>
+  <secretstore>0</secretstore>
+  <type>100000002</type>
+</environmentvariabledefinition>

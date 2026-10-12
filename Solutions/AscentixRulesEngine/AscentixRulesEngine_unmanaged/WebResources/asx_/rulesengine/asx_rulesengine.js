@@ -389,7 +389,7 @@
       const applier = new Applier(xrm, baseline, universe);
       const anyNeedsExternal = env.rules.some((r) => classify(r) === "NeedsExternal");
       let sequence = 0;
-      const cycle = () => __async(this, null, function* () {
+      const cycle = () => __async(null, null, function* () {
         const mine = ++sequence;
         if (!anyNeedsExternal) {
           applier.apply([]);

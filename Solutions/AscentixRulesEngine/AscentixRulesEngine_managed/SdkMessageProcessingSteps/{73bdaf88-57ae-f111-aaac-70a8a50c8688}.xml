@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<SdkMessageProcessingStep Name="Ascentix revision guard: * Associate" SdkMessageProcessingStepId="{73bdaf88-57ae-f111-aaac-70a8a50c8688}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <SdkMessageId>16e7c888-3b24-448b-b7da-ebfe9b681762</SdkMessageId>
+  <PluginTypeName>Ascentix.RulesEngine.Plugin.RuleRevisionGuardPlugin, Ascentix.RulesEngine.Plugin, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67f2dcfd2e8488af</PluginTypeName>
+  <PluginTypeId>6c1d3b7d-57ae-f111-aaac-70a8a5acb5f7</PluginTypeId>
+  <AsyncAutoDelete>0</AsyncAutoDelete>
+  <FilteringAttributes></FilteringAttributes>
+  <InvocationSource>0</InvocationSource>
+  <Mode>0</Mode>
+  <Rank>1</Rank>
+  <EventHandlerTypeCode>4602</EventHandlerTypeCode>
+  <Stage>20</Stage>
+  <IsCustomizable>1</IsCustomizable>
+  <IsHidden>0</IsHidden>
+  <SupportedDeployment>0</SupportedDeployment>
+  <IntroducedVersion>0.0.0.2</IntroducedVersion>
+  <SdkMessageProcessingStepImages />
+</SdkMessageProcessingStep>

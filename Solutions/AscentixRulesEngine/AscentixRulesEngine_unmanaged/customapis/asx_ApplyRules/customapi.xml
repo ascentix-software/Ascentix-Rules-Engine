@@ -1,0 +1,19 @@
+<customapi uniquename="asx_ApplyRules">
+  <allowedcustomprocessingsteptype>0</allowedcustomprocessingsteptype>
+  <bindingtype>0</bindingtype>
+  <description default="Evaluates one On demand rule for one record and applies its results (enforcing).">
+    <label description="Evaluates one On demand rule for one record and applies its results (enforcing)." languagecode="1033" />
+  </description>
+  <displayname default="Apply Rules">
+    <label description="Apply Rules" languagecode="1033" />
+  </displayname>
+  <executeprivilegename>prvCreateasx_RuleRun</executeprivilegename>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>0</isfunction>
+  <isprivate>0</isprivate>
+  <name>asx_ApplyRules</name>
+  <plugintypeid>
+    <plugintypeexportkey>952b5402-5fbb-f111-aaaf-70a8a5acb5f7</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>

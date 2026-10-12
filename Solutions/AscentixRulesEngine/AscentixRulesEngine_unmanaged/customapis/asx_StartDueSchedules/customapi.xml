@@ -1,0 +1,19 @@
+<customapi uniquename="asx_StartDueSchedules">
+  <allowedcustomprocessingsteptype>0</allowedcustomprocessingsteptype>
+  <bindingtype>0</bindingtype>
+  <description default="Starts or continues runs for due rule schedules and returns the run ids to drive.">
+    <label description="Starts or continues runs for due rule schedules and returns the run ids to drive." languagecode="1033" />
+  </description>
+  <displayname default="Start Due Schedules">
+    <label description="Start Due Schedules" languagecode="1033" />
+  </displayname>
+  <executeprivilegename>prvCreateasx_RuleRun</executeprivilegename>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>0</isfunction>
+  <isprivate>0</isprivate>
+  <name>asx_StartDueSchedules</name>
+  <plugintypeid>
+    <plugintypeexportkey>c8c69753-e6bb-f111-aaaf-70a8a5acb5f7</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>

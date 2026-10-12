@@ -4,6 +4,8 @@
   <IsAutoAssigned>0</IsAutoAssigned>
   <RolePrivileges>
     <RolePrivilege name="prvCreateSharePointData" level="Global" />
+    <RolePrivilege name="prvReadasx_ActionConditionGroup" level="Global" />
+    <RolePrivilege name="prvReadasx_ActionConditionTest" level="Global" />
     <RolePrivilege name="prvReadasx_conditiongroup" level="Global" />
     <RolePrivilege name="prvReadasx_LocalizedMessage" level="Global" />
     <RolePrivilege name="prvReadasx_nodefiltercriterion" level="Global" />
