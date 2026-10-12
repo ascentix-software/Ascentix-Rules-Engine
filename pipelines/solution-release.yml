@@ -149,11 +149,18 @@ stages:
                   foreach ($field in @('asx_draftof','asx_draftbaseversion','asx_isprivate','asx_publishedrevision','asx_publishedversion','asx_draftstamp','asx_publishhash')) {
                     if (!$xml.SelectSingleNode("//attribute[Name='$field']")) { throw "Package is missing $field" }
                   }
+                  # Entity names are schema names (asx_RuleRevision), so compare without case.
+                  $entities = @($xml.SelectNodes('//Entity/Name') | ForEach-Object InnerText)
                   foreach ($table in @('asx_rulerevision','asx_publicationlock')) {
-                    if (!$xml.SelectSingleNode("//Entity[Name='$table']")) { throw "Package is missing $table" }
+                    if ($entities -notcontains $table) { throw "Package is missing $table" }
                   }
+                  # Custom APIs are packaged as customapis/<name>/customapi.xml, not in customizations.xml.
                   foreach ($name in @('asx_OpenRuleDraft','asx_ReadPublishedRule','asx_RestoreRuleDraft','asx_CopyRule')) {
-                    if (!$xml.SelectSingleNode("//customapi[@uniquename='$name']/plugintypeid")) { throw "Package is missing authoring API $name" }
+                    $entry = $zip.GetEntry("customapis/$name/customapi.xml")
+                    if (!$entry) { throw "Package is missing authoring API $name" }
+                    $apiReader = [IO.StreamReader]::new($entry.Open())
+                    try { [xml]$api = $apiReader.ReadToEnd() } finally { $apiReader.Dispose() }
+                    if (!$api.SelectSingleNode('/customapi/plugintypeid')) { throw "Authoring API $name has no plug-in type" }
                   }
                   $guards = @($xml.SelectNodes('//SdkMessageProcessingStep') | Where-Object { $_.PluginTypeName -like 'Ascentix.RulesEngine.Plugin.RuleRevisionGuardPlugin,*' -and $_.Stage -eq '20' -and $_.Mode -eq '0' -and $_.Rank -eq '1' })
                   # Configure-RuleAuthoring.ps1: Create/Update/Delete on 12 rule-owned tables (asx_rule
