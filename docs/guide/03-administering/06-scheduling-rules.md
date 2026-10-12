@@ -66,7 +66,9 @@ Engine Scheduler**. Every 15 minutes it starts the due runs and drives them to c
 
 1. Install the core **Ascentix Rules Engine** solution first (*Installing, Verifying &
    Uninstalling*).
-2. Import `AscentixRulesEngineScheduler` into the same environment.
+2. Import the add-on's managed solution, `AscentixRulesEngineScheduler_<version>_managed.zip`
+   from the [download page](https://ascentix.ca/power-platform/rules-engine/download), into the
+   same environment.
 3. In the maker portal, bind a **Dataverse** connection to its connection reference
    (`asx_SchedulerDataverse`). Use a **dedicated service account**, so schedules don't depend on
    one person's license and **Runs** shows one recognizable caller.
