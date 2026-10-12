@@ -1,8 +1,8 @@
 import * as React from "react";
-import { Dropdown, Option, Input, Spinner, Combobox, Checkbox, Button } from "@fluentui/react-components";
+import { Dropdown, Option, Input, Spinner, Combobox, Checkbox, Button, tokens } from "@fluentui/react-components";
 import { useMetadataService } from "../useMetadata";
 import { filterColumns, filterTables } from "../columnFilters";
-import { columnKind, type ColumnKind } from "../columnKind";
+import { columnKind, columnTypeLabel, type ColumnKind } from "../columnKind";
 import { parseCsvValues, serializeCsvValues } from "../valueFormat";
 import {
   columnsForContext, type ColumnContext, type ColumnMeta, type OptionMeta, type TableMeta,
@@ -13,7 +13,29 @@ import { RecordPickerDialog } from "./RecordPickerDialog";
 import { OutsideField } from "../fieldScope";
 import { color } from "../tokens";
 
-export function TablePicker({ value, onChange }: { value: string | null; onChange(v: string): void }) {
+// The listbox treats a click inside it as picking an option and cancels it, so a checkbox in the
+// popup's header never toggled. Stop the click (and the mousedown that moves focus) here.
+// Room for a muted label drawn over the input's right end (the type, or the logical name): about
+// 6.5px a character at 12px, plus a gap.
+const reserveFor = (label: string) => Math.ceil(label.length * 6.5) + 10;
+
+// A long list scrolls inside its popup instead of running off the screen.
+// autoSize shrinks the popup to the room left on screen; 360px caps it on a tall one.
+const LISTBOX = {
+  listbox: { style: { maxHeight: 360, overflowY: "auto" as const } },
+  positioning: { autoSize: "height" as const },
+};
+
+const KEEP_CLICKS = {
+  onClick: (e: React.MouseEvent) => e.stopPropagation(),
+  onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
+};
+
+export function TablePicker({ value, onChange, sentence, ariaLabel, invalid }: {
+  value: string | null; onChange(v: string): void;
+  /** Shows the display name with the logical name after it (muted); options "Display · logical". */
+  sentence?: boolean; ariaLabel?: string; invalid?: boolean;
+}) {
   const svc = useMetadataService();
   const [tables, setTables] = React.useState<TableMeta[] | null>(null);
   const [query, setQuery] = React.useState("");
@@ -23,13 +45,20 @@ export function TablePicker({ value, onChange }: { value: string | null; onChang
   if (!tables) return <Spinner size="tiny" />;
 
   const selected = tables.find((t) => t.logicalName === value) ?? null;
-  const selectedText = selected ? `${selected.displayName} (${selected.logicalName})` : value ?? "";
+  const optionText = (t: TableMeta) => (sentence ? `${t.displayName} · ${t.logicalName}` : `${t.displayName} (${t.logicalName})`);
+  const selectedText = selected ? (sentence ? selected.displayName : optionText(selected)) : value ?? "";
   const matches = filterTables(tables, { query: open ? query : "", customOnly });
+  const after = sentence && selected && !open ? selected.logicalName : "";
 
-  return (
-    <Combobox
+  const combo = (
+    <Combobox {...LISTBOX}
       freeform
-      style={{ width: "100%" }}
+      aria-label={ariaLabel}
+      aria-invalid={invalid || undefined}
+      // minWidth 0: Fluent's default minimum would push the picker past a narrow grid cell.
+      style={{ width: "100%", minWidth: 0 }}
+      // The logical name sits over the input's right end: keep the display name clear of it.
+      input={after ? { style: { paddingRight: reserveFor(after), textOverflow: "ellipsis" } } : undefined}
       value={open ? query : selectedText}
       selectedOptions={value ? [value] : []}
       placeholder="Type to filter tables"
@@ -37,7 +66,7 @@ export function TablePicker({ value, onChange }: { value: string | null; onChang
       onInput={(e) => { setOpen(true); setQuery((e.target as HTMLInputElement).value); }}
       onOptionSelect={(_e, d) => { if (d.optionValue) onChange(d.optionValue); setOpen(false); setQuery(""); }}
     >
-      <div style={{ position: "sticky", top: 0, zIndex: 1, background: color.surface,
+      <div {...KEEP_CLICKS} style={{ position: "sticky", top: 0, zIndex: 1, background: color.surface,
         padding: "6px 10px", borderBottom: `1px solid ${color.line}` }}>
         {/* OutsideField: this checkbox lives inside the Combobox popup, which React-renders
             inside whatever <Field> wraps the picker; without the barrier it would claim that
@@ -48,22 +77,39 @@ export function TablePicker({ value, onChange }: { value: string | null; onChang
         </OutsideField>
       </div>
       {matches.map((t) => (
-        <Option key={t.logicalName} value={t.logicalName} text={`${t.displayName} (${t.logicalName})`}>
-          {`${t.displayName} (${t.logicalName})`}
+        <Option key={t.logicalName} value={t.logicalName} text={optionText(t)}>
+          {optionText(t)}
         </Option>
       ))}
     </Combobox>
   );
+  if (!after) return combo;
+  return (
+    <div style={{ position: "relative", width: "100%" }}>
+      {combo}
+      <span aria-hidden style={{
+        position: "absolute", right: 34, top: "50%", transform: "translateY(-50%)", pointerEvents: "none",
+        fontSize: 12, color: tokens.colorNeutralForeground3,
+      }}>
+        {after}
+      </span>
+    </div>
+  );
 }
 
 export function ColumnPicker({
-  table, context, value, onChange, allowEmpty, emptyLabel = "(form-level)", compatibleWith, excludeColumns, ariaLabel,
+  table, context, value, onChange, allowEmpty, emptyLabel = "(form-level)", compatibleWith, excludeColumns, onlyColumns, ariaLabel,
+  sentence,
 }: {
   table: string | null; context: ColumnContext; value: string | null;
   onChange(v: string): void; allowEmpty?: boolean; emptyLabel?: string;
   compatibleWith?: ColumnKind | null;
   excludeColumns?: string[];
+  /** Offer only these columns (e.g. Deactivate's status reason). */
+  onlyColumns?: string[];
   ariaLabel?: string;
+  /** Condition sentences: shows the display name with its type after it; options read "Display · logical". */
+  sentence?: boolean;
 }) {
   const svc = useMetadataService();
   const [cols, setCols] = React.useState<ColumnMeta[] | null>(null);
@@ -84,10 +130,12 @@ export function ColumnPicker({
   }
   if (!cols) return <Spinner size="tiny" />;
 
-  const inContext = columnsForContext(cols, context);
+  const inContext = columnsForContext(cols, context).filter((c) => !onlyColumns || onlyColumns.includes(c.logicalName));
   const selected = inContext.find((c) => c.logicalName === value) ?? null;
-  const selectedText = selected ? `${selected.displayName} (${selected.logicalName})` : value ?? "";
+  const optionText = (c: ColumnMeta) => (sentence ? `${c.displayName} · ${c.logicalName}` : `${c.displayName} (${c.logicalName})`);
+  const selectedText = selected ? (sentence ? selected.displayName : optionText(selected)) : value ?? "";
   const displayValue = open ? query : selectedText;
+  const typeText = sentence && selected && !open ? columnTypeLabel(selected.attributeType) : "";
   const matches = filterColumns(inContext, {
     query: open ? query : "",
     customOnly,
@@ -95,11 +143,12 @@ export function ColumnPicker({
     exclude: excludeColumns,
   });
 
-  return (
-    <Combobox
+  const combo = (
+    <Combobox {...LISTBOX}
       freeform
       aria-label={ariaLabel}
-      style={{ width: "100%" }}
+      style={{ width: "100%", minWidth: 0 }}
+      input={typeText ? { style: { paddingRight: reserveFor(typeText), textOverflow: "ellipsis" } } : undefined}
       value={displayValue}
       selectedOptions={value ? [value] : allowEmpty ? [""] : []}
       placeholder="Type to filter columns"
@@ -107,7 +156,7 @@ export function ColumnPicker({
       onInput={(e) => { setOpen(true); setQuery((e.target as HTMLInputElement).value); }}
       onOptionSelect={(_e, d) => { onChange(d.optionValue ?? ""); setOpen(false); setQuery(""); }}
     >
-      <div style={{ position: "sticky", top: 0, zIndex: 1, background: color.surface,
+      <div {...KEEP_CLICKS} style={{ position: "sticky", top: 0, zIndex: 1, background: color.surface,
         padding: "6px 10px", borderBottom: `1px solid ${color.line}` }}>
         {/* OutsideField: see TablePicker above. The popup is inside the Field's React tree. */}
         <OutsideField>
@@ -117,11 +166,28 @@ export function ColumnPicker({
       </div>
       {allowEmpty && <Option value="" text={emptyLabel}>{emptyLabel}</Option>}
       {matches.map((c) => (
-        <Option key={c.logicalName} value={c.logicalName} text={`${c.displayName} (${c.logicalName})`}>
-          {`${c.displayName} (${c.logicalName})`}
+        <Option key={c.logicalName} value={c.logicalName} text={optionText(c)}>
+          {optionText(c)}
         </Option>
       ))}
     </Combobox>
+  );
+  if (!sentence) return combo;
+  // The type sits after the name, inside the control's frame (decorative: the name is the value).
+  // The wrapper stays while the type hides on open: dropping it would remount the Combobox
+  // mid-click, losing focus and closing the list the click just opened.
+  return (
+    <div style={{ position: "relative", width: "100%" }}>
+      {combo}
+      {typeText && (
+        <span aria-hidden style={{
+          position: "absolute", right: 34, top: "50%", transform: "translateY(-50%)", pointerEvents: "none",
+          fontSize: 12, color: tokens.colorNeutralForeground3,
+        }}>
+          {typeText}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -152,7 +218,7 @@ export function MultiColumnPicker({
   const text = value.map(labelFor).join(", ");
 
   return (
-    <Combobox
+    <Combobox {...LISTBOX}
       multiselect
       aria-label={ariaLabel}
       style={{ width: "100%" }}
@@ -178,7 +244,7 @@ export function OptionSetPicker({
   React.useEffect(() => { svc.optionSet(table, column).then(setOpts); }, [svc, table, column]);
   if (!opts) return <Spinner size="tiny" />;
   return (
-    <Dropdown
+    <Dropdown {...LISTBOX}
       aria-label={ariaLabel}
       value={value ?? ""}
       selectedOptions={value ? [value] : []}
@@ -207,7 +273,7 @@ export function MultiSelectPicker({
     .map((v) => opts.find((o) => String(o.value) === v)?.label ?? v)
     .join(", ");
   return (
-    <Combobox
+    <Combobox {...LISTBOX}
       multiselect
       aria-label={ariaLabel}
       placeholder="Select values"
@@ -235,7 +301,7 @@ export function BooleanPicker({
   if (!labels) return <Spinner size="tiny" />;
   const text = value === "true" ? labels.trueLabel : value === "false" ? labels.falseLabel : "";
   return (
-    <Dropdown
+    <Dropdown {...LISTBOX}
       aria-label={ariaLabel}
       value={text}
       selectedOptions={value ? [value] : []}
@@ -301,7 +367,7 @@ export function LookupPicker({
         // Secondary control: the Combobox below is the one the enclosing <Field> labels, so this
         // dropdown must not also claim that Field's generated id. It names itself instead.
         <OutsideField>
-          <Dropdown
+          <Dropdown {...LISTBOX}
             aria-label="Target table"
             placeholder="Choose target table"
             value={target ?? ""}
@@ -313,7 +379,7 @@ export function LookupPicker({
         </OutsideField>
       )}
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <Combobox
+        <Combobox {...LISTBOX}
           freeform
           disabled={!target}
           aria-label={ariaLabel}

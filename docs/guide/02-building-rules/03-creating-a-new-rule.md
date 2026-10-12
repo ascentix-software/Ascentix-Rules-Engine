@@ -5,62 +5,43 @@ order: 203
 slug: creating-a-new-rule
 screenshots:
   - file: images/02-03-creating-a-new-rule-01.png
-    caption: The New rule dialog, where you name the rule, choose a new or existing table configuration, and select triggers.
-    alt: New rule modal dialog with a Name field, a Data model radio choice (New configuration for a table / Use an existing configuration), a Configuration dropdown, Triggers checkboxes (On Create, On Form, Manual, On Update, On Delete), and Cancel/Create buttons.
+    caption: The New rule dialog, where you name the rule, pick its table and data model, and choose when it runs.
+    alt: "The New rule dialog: Name “Flag large expedited orders”, Table Order (sample_order), Data model cards with Orders selected (4 tables, used by 6 rules), and Runs with While editing and Update ticked."
 ---
 
 # Creating a New Rule
 
-A rule starts with the table configuration it will run against.
+![The New rule dialog: Name “Flag large expedited orders”, Table Order (sample_order), Data model cards with Orders selected (4 tables, used by 6 rules), and Runs with While editing and Update ticked.](../images/02-03-creating-a-new-rule-01.png)
 
-![New rule modal dialog with a Name field, a Data model radio choice (New configuration for a table / Use an existing configuration), a Configuration dropdown, Triggers checkboxes (On Create, On Form, Manual, On Update, On Delete), and Cancel/Create buttons.](../images/02-03-creating-a-new-rule-01.png)
-
-## Steps
-
-1. On the hub's Rules tab, click **New rule**.
-2. Enter a **Name** for the rule.
+1. On the hub's **Rules** tab, click **New rule**.
+2. Enter a **Name** and pick the **Table** the rule runs on.
 3. Choose a **Data model**:
-   - **New configuration for a table**: start a fresh table-config tree. A
-     **Configuration name** field appears for the new tree, plus a **Table**
-     picker for the root table.
-   - **Use an existing configuration**: reuse a table-config tree that's
-     already shared by another rule, chosen from a **Configuration** dropdown.
-4. Select at least one **Trigger**: **On Create**, **On Form**, **Manual**,
-   **On Update**, or **On Delete**. See *Triggers & Channels* for what each
-   one means. **Create** stays disabled until at least one is checked.
-5. Click **Create**. The new rule opens in the editor, in **Draft** status.
+   - an existing model on that table (most-used first, the first one preselected), or
+   - **Start a new model for** *table name*, named after the table. Rename it later in the data
+     model editor.
+4. Under **Runs**, tick at least one trigger (*Triggers & Channels*):
 
-## New configuration vs. existing configuration
+   | Group | Options |
+   |---|---|
+   | **On the form** | **While editing** (On form) |
+   | **When saved** | **Create**, **Update**, **Delete** |
+   | **On demand** | **On demand** |
 
-- Pick **New configuration for a table** when this rule needs a data shape
-  no other rule has defined yet: a table config tree naming the table plus
-  whatever lookup/child nodes the rule's conditions and actions will need to
-  reach.
-- Pick **Use an existing configuration** when another rule already built the
-  tree you need. Table configurations are shared, so reusing one keeps rules
-  on the same table consistent with each other, and any future extension to
-  that tree (a new node) becomes visible to every rule using it.
+5. Click **Create**. The rule opens in the editor as a **Draft**. If something is missing, the
+   dialog says what (*Enter a name.*, *Choose a table.*, *Choose at least one.*).
 
-See *Editor Layout* for how the resulting table-config tree shows up in the
-editor, and *Table Configuration Tree* for how to extend one.
+## New or existing data model
 
-## Fire on change of specific columns
+Reuse an existing model when another rule already reaches the tables you need: rules on the same
+table stay consistent, and a table added to the model is available to all of them. Start a new one
+when no model has the shape you need (*Table Configuration Tree*).
 
-Once the rule exists, its **Properties** (see *Editor Layout*) expose a
-**Fire on change of these columns** multi-select, listing the root table's
-columns. This setting applies **only when the On Update trigger is
-selected**.
+## Also run on update when specific columns change
 
-By default, an On Update rule only re-fires when a column referenced by its
-**conditions** changes. Trigger columns are **added** to that set: pick a
-column here and the rule *also* fires when that column changes, even though
-no condition reads it.
+An On update rule normally runs again only when a column its **conditions** read changes. With **On
+update** ticked, the rule's **When it runs** settings show **Also run on update when these change**:
+pick columns there and the rule also runs when they change.
 
-This matters when a rule's **actions** depend on a column its conditions
-don't reference. A rule on `sample_orderline` uses an aggregate action to
-compute `sum(lines.lineamount)` onto the order, but its conditions never
-reference the line amount. Without a trigger column, editing a line's amount
-wouldn't re-run the rule, and the computed total would go stale.
-
-See *Triggers & Channels* for the full trigger model, and *Field Mapping*
-for the aggregate action used in this example.
+Use it when an **action** depends on a column the conditions don't read. For example, a rule on
+`sample_orderline` whose action totals `lines.lineamount` onto the order must also run when a line's
+amount changes, or the total goes stale (*Field Mapping*).

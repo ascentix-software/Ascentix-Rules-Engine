@@ -1,26 +1,35 @@
 import * as React from "react";
-import { OverlayDrawer, DrawerHeader, DrawerBody, Button } from "@fluentui/react-components";
+import {
+  OverlayDrawer, DrawerHeader, DrawerBody, Button,
+  Accordion, AccordionItem, AccordionHeader, AccordionPanel,
+} from "@fluentui/react-components";
 import { Dismiss20Regular } from "@fluentui/react-icons";
 import { color } from "./tokens";
 
-export interface InspectorHeader { eyebrow: string; title: string; icon?: React.ReactNode; }
+export interface InspectorHeader {
+  eyebrow: string; title: string; icon?: React.ReactNode;
+  /** Optional ⋯ menu, rendered before Close. */
+  menu?: React.ReactNode;
+}
 
 function PanelHeader({ header, onClose, headingRef }: {
   header: InspectorHeader; onClose?: () => void;
   headingRef?: React.Ref<HTMLDivElement>;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 18px", borderBottom: `1px solid ${color.line}` }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 18px", borderBottom: `1px solid ${color.line}`, flex: "none" }}>
       {header.icon}
       <div ref={headingRef} tabIndex={-1} data-testid="inspector-heading"
-        style={{ display: "flex", flexDirection: "column", lineHeight: 1.3, outline: "none" }}>
+        style={{ display: "flex", flexDirection: "column", lineHeight: 1.3, outline: "none", minWidth: 0 }}>
         <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: color.inkMuted }}>{header.eyebrow}</span>
         <span style={{ fontSize: 14.5, fontWeight: 700, color: color.ink }}>{header.title}</span>
       </div>
-      {onClose && (
-        <Button appearance="subtle" icon={<Dismiss20Regular />} aria-label="Close inspector"
-          style={{ marginLeft: "auto" }} onClick={onClose} />
-      )}
+      <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 2 }}>
+        {header.menu}
+        {onClose && (
+          <Button appearance="subtle" icon={<Dismiss20Regular />} aria-label="Close inspector" onClick={onClose} />
+        )}
+      </span>
     </div>
   );
 }
@@ -37,9 +46,10 @@ function DockedShell({ header, onClose, issues, children }: {
       width: 352, flex: "0 0 352px", position: "sticky", top: 16, alignSelf: "flex-start",
       border: `1px solid ${color.line}`, borderRadius: 12, background: color.surface,
       overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,.05)",
+      maxHeight: "calc(100vh - 32px)", display: "flex", flexDirection: "column",
     }}>
       <PanelHeader header={header} onClose={onClose} />
-      <div style={{ padding: 18 }}>
+      <div data-testid="inspector-body" style={{ padding: 18, overflowY: "auto", minHeight: 0 }}>
         {issues}
         {children}
       </div>
@@ -114,3 +124,48 @@ export const InspectorShell: React.FC<{
   mode === "docked"
     ? <DockedShell header={header} onClose={onClose} issues={issues}>{children}</DockedShell>
     : <OverlayShell open={open} header={header} onClose={onClose} issues={issues}>{children}</OverlayShell>;
+
+/**
+ * A collapsible inspector section (an Accordion item). The open state persists per
+ * section for the tab's session under asx.inspector.<id>. `summary` shows while
+ * collapsed. Sections sit flush: the inspector body's padding is cancelled with
+ * negative margins so the header rows span the panel.
+ */
+export const InspectorSection: React.FC<{
+  id: string; title: string; summary?: string; defaultOpen?: boolean; children: React.ReactNode;
+}> = ({ id, title, summary, defaultOpen = false, children }) => {
+  const key = `asx.inspector.${id}`;
+  const [open, setOpen] = React.useState<boolean>(() => {
+    try {
+      const v = sessionStorage.getItem(key);
+      return v == null ? defaultOpen : v === "1";
+    } catch { return defaultOpen; }
+  });
+  const toggle = (next: boolean) => {
+    setOpen(next);
+    try { sessionStorage.setItem(key, next ? "1" : "0"); } catch { /* storage unavailable */ }
+  };
+  return (
+    <Accordion collapsible multiple openItems={open ? [id] : []}
+      onToggle={(_e, d) => toggle(d.openItems.includes(id))}
+      style={{ margin: "0 -18px", borderBottom: `1px solid ${color.line}` }}>
+      <AccordionItem value={id}>
+        <AccordionHeader expandIconPosition="start" size="large"
+          button={{ style: { padding: "12px 18px", minHeight: 0 } }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", minWidth: 0 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: color.ink }}>{title}</span>
+            {!open && summary && (
+              <span style={{ marginLeft: "auto", fontSize: 12.5, color: color.inkMuted, fontWeight: 400,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+                {summary}
+              </span>
+            )}
+          </span>
+        </AccordionHeader>
+        <AccordionPanel style={{ margin: 0, padding: "4px 18px 16px" }}>
+          {children}
+        </AccordionPanel>
+      </AccordionItem>
+    </Accordion>
+  );
+};

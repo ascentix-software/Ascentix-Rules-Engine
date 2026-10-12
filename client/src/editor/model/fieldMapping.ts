@@ -3,7 +3,7 @@
 // contract (Core/Actions/FieldMappingParser.cs); literal values use the
 // RecordJson encoding. Entries with a source this editor doesn't know are
 // preserved verbatim so newer payloads survive an edit round-trip.
-// Supports literal, root, node, ref, template, mathexpr, and dateexpr sources.
+// Supports literal, root, row, node, ref, template, mathexpr, and dateexpr sources.
 
 import type { ColumnKind } from "../ui/columnKind";
 import { parseTemplateTokens } from "./templateTokens";
@@ -12,7 +12,7 @@ import type { TableConfigRef } from "./types";
 import { isSingleCardinality } from "./tableConfigOps";
 import type { NodeFilterGroupModel } from "./nodeFilter";
 
-export type FieldMappingSource = "literal" | "root" | "node" | "ref" | "template" | "mathexpr" | "dateexpr";
+export type FieldMappingSource = "literal" | "root" | "row" | "node" | "ref" | "template" | "mathexpr" | "dateexpr";
 
 export type DateUnit = "minutes" | "hours" | "days" | "weeks" | "months" | "years";
 export const DATE_UNITS: DateUnit[] = ["minutes", "hours", "days", "weeks", "months", "years"];
@@ -94,6 +94,10 @@ export function parseFieldMapping(json: string | null): ParseResult {
         row.source = "root";
         row.column = typeof entry.column === "string" ? entry.column : null;
         break;
+      case "row":
+        row.source = "row";
+        row.column = typeof entry.column === "string" ? entry.column : null;
+        break;
       case "node":
         row.source = "node";
         row.column = typeof entry.column === "string" ? entry.column : null;
@@ -140,6 +144,7 @@ export function serializeFieldMapping(rows: FieldMappingRow[]): string | null {
     if (r.source === "unknown") return r.raw ?? {};
     if (r.source === "literal") return { target: r.target, source: "literal", value: r.value ?? null };
     if (r.source === "root") return { target: r.target, source: "root", column: r.column };
+    if (r.source === "row") return { target: r.target, source: "row", column: r.column };
     if (r.source === "template") return { target: r.target, source: "template", template: r.template ?? "" };
     if (r.source === "mathexpr") {
       const entry: Record<string, unknown> = { target: r.target, source: "mathexpr", expression: r.expression ?? "" };
@@ -184,6 +189,7 @@ export function validateRows(
       seen.add(r.target);
     }
     if (r.source === "root" && !r.column) errors.push(`${label}: choose a source column.`);
+    if (r.source === "row" && !r.column) errors.push(`${label}: choose a row column.`);
     if (r.source === "node") {
       if (!r.node) errors.push(`${label}: choose a related node.`);
       else if (!GUID_RE.test(r.node)) {
@@ -308,6 +314,7 @@ export function summarizeRow(row: FieldMappingRow): string {
       return `Literal · ${display === "" ? "empty" : display}`;
     }
     case "root": return `This record · ${row.column ?? "no column"}`;
+    case "row": return `Current row · ${row.column ?? "no column"}`;
     case "node": return `Related · ${row.column ?? "no column"}`;
     case "ref": return "Record";
     case "template": return "Template";

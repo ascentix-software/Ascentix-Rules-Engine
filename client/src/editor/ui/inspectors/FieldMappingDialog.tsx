@@ -1,7 +1,7 @@
 import * as React from "react";
 import {
   Dialog, DialogSurface, DialogBody, DialogTitle, DialogContent,
-  Button, Dropdown, Option, Textarea, Text, Spinner, Skeleton, SkeletonItem, makeStyles,
+  Button, Dropdown, Option, Textarea, Text, Spinner, Skeleton, SkeletonItem, Switch, makeStyles,
 } from "@fluentui/react-components";
 import {
   Dismiss20Regular, Delete16Regular, Add16Regular, Table24Regular,
@@ -34,22 +34,24 @@ const BASE_SOURCES = [
   { value: "root" as const, label: "From this record" },
   { value: "node" as const, label: "From related record" },
 ];
-function sourceOptions(kind: ColumnKind | null): { value: FieldMappingSource; label: string }[] {
+// `hasRow`: the action writes a set of rows, so a value can come from the current row.
+function sourceOptions(kind: ColumnKind | null, hasRow: boolean): { value: FieldMappingSource; label: string }[] {
   const opts = [...BASE_SOURCES] as { value: FieldMappingSource; label: string }[];
   if (kind === "text") opts.push({ value: "template", label: "Text template" });
   if (kind === "datetime") opts.push({ value: "dateexpr", label: "Date calculation" });
   if (kind === "lookup") opts.push({ value: "ref", label: "Link to a record" });
   if (kind === "number") opts.push({ value: "mathexpr", label: "Calculation" });
+  if (hasRow) opts.push({ value: "row", label: "Current row" });
   return opts;
 }
 const SOURCE_LABELS: Record<string, string> = {
   literal: "Literal", root: "From this record", node: "From related record",
   ref: "Link to a record", template: "Text template", dateexpr: "Date calculation",
-  mathexpr: "Calculation",
+  mathexpr: "Calculation", row: "Current row",
 };
 const SOURCE_DOT: Record<string, string> = {
   literal: color.inkMuted, root: color.brand, node: color.validation, ref: color.brand,
-  template: color.validation, dateexpr: color.warn, mathexpr: color.success,
+  template: color.validation, dateexpr: color.warn, mathexpr: color.success, row: color.brand,
 };
 // Human labels for the detail pane's kind Pill (derived from the target column's metadata).
 const KIND_LABEL: Record<ColumnKind, string> = {
@@ -100,6 +102,7 @@ function rowFieldErrors(
   if (!row.target) e.column = "Choose a column.";
   else if (all.slice(0, idx).some((r) => r.source !== "unknown" && r.target === row.target)) e.column = "Already mapped in another row.";
   if (row.source === "root" && !row.column) e.sourceColumn = "Choose a source column.";
+  if (row.source === "row" && !row.column) e.sourceColumn = "Choose a row column.";
   if (row.source === "node") {
     if (!row.node) e.node = "Choose a related node.";
     else if (!GUID_RE.test(row.node)) e.node = "Save the related node before referencing it.";
@@ -226,6 +229,12 @@ interface RowCtx {
   removeRow(key: string): void;
   otherTargets(key: string): string[];
   targetDisplay(t: string | null): string;
+  /** The current row's table on a set action (null on a single-record action). */
+  rowTable: string | null;
+  /** rowTable's primary id column: a lookup mapped to it links to the current row itself. */
+  rowIdColumn: string | null;
+  /** The only columns this mapping may write (Deactivate: status reason); null = any. */
+  allowedTargets: string[] | null;
 }
 
 // The 236px list rail: one row per mapping, showing its target name, source dot, and
@@ -298,6 +307,7 @@ function DetailPane({ row, index, ctx, showErrors, rowErrors }: {
         <div style={errWrap(showErrors && !!rowErrors.column)}>
           <ColumnPicker table={ctx.targetTable} context="create" value={row.target}
             ariaLabel={`Column ${index + 1}`} excludeColumns={ctx.otherTargets(row.key)}
+            onlyColumns={ctx.allowedTargets ?? undefined}
             onChange={(v) => {
               const k = ctx.kindOf(v || null);
               const patch: Partial<FieldMappingRow> = { target: v || null, value: null, lookupTable: null, column: null };
@@ -332,7 +342,7 @@ function DetailPane({ row, index, ctx, showErrors, rowErrors }: {
                 unit: source === "dateexpr" ? "days" : null,
               });
             }}>
-            {sourceOptions(ctx.kindOf(row.target)).map((s) => (
+            {sourceOptions(ctx.kindOf(row.target), !!ctx.rowTable).map((s) => (
               <Option key={s.value} value={s.value}>{s.label}</Option>
             ))}
           </Dropdown>
@@ -358,6 +368,21 @@ function DetailPane({ row, index, ctx, showErrors, rowErrors }: {
             <ColumnPicker table={ctx.ruleTable} context="read" value={row.column}
               ariaLabel={`Value for ${name}`} compatibleWith={ctx.kindOf(row.target)}
               onChange={(v) => ctx.patchRow(row.key, { column: v || null })} />
+            {showErrors && rowErrors.sourceColumn && <InlineError>{rowErrors.sourceColumn}</InlineError>}
+          </div>
+        </Field>
+      )}
+      {row.source === "row" && (
+        <Field label="Value">
+          <div style={errWrap(showErrors && !!rowErrors.sourceColumn)}>
+            {kind === "lookup" && ctx.rowIdColumn && (
+              <Switch label="Link to the current row itself" checked={row.column === ctx.rowIdColumn}
+                onChange={(_e, d) => ctx.patchRow(row.key, { column: d.checked ? ctx.rowIdColumn : null })} />
+            )}
+            {!(kind === "lookup" && row.column === ctx.rowIdColumn) && (
+              <ColumnPicker table={ctx.rowTable} context="read" value={row.column} ariaLabel={`Row column for ${name}`}
+                compatibleWith={kind} onChange={(v) => ctx.patchRow(row.key, { column: v || null })} />
+            )}
             {showErrors && rowErrors.sourceColumn && <InlineError>{rowErrors.sourceColumn}</InlineError>}
           </div>
         </Field>
@@ -414,6 +439,7 @@ function DetailPane({ row, index, ctx, showErrors, rowErrors }: {
         <Field label="Value">
           <div style={errWrap(showErrors && !!rowErrors.template)}>
             <TemplateEditor key={row.key} value={row.template ?? ""} ruleTable={ctx.ruleTable} tableConfigs={ctx.tableConfigs}
+              rowTable={ctx.rowTable}
               onChange={(template) => ctx.patchRow(row.key, { template })} />
             {showErrors && rowErrors.template && <InlineError>{rowErrors.template}</InlineError>}
           </div>
@@ -500,11 +526,15 @@ function FooterStatus({ kind, count }: { kind: FooterKind; count: number }) {
 }
 
 export function FieldMappingDialog({
-  open, title, targetTable, ruleTable, tableConfigs, fieldMapping, onCancel, onApply,
+  open, title, targetTable, ruleTable, tableConfigs, fieldMapping, onCancel, onApply, rowTable = null, allowedTargets = null,
 }: {
   open: boolean; title: string; targetTable: string; ruleTable: string;
   tableConfigs: Record<string, TableConfigRef>; fieldMapping: string | null;
   onCancel(): void; onApply(json: string | null): void;
+  /** The current row's table when the action writes a set of rows: offers the Current row source. */
+  rowTable?: string | null;
+  /** Limit the mappable columns (Deactivate: status reason only). */
+  allowedTargets?: string[] | null;
 }) {
   const svc = useMetadataService();
   const styles = useMappingStyles();
@@ -545,6 +575,14 @@ export function FieldMappingDialog({
     svc.columns(targetTable).then((c) => { if (live) setCols(c); });
     return () => { live = false; };
   }, [svc, targetTable]);
+
+  const [rowIdColumn, setRowIdColumn] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let live = true;
+    if (!rowTable) { setRowIdColumn(null); return; }
+    svc.tables().then((ts) => { if (live) setRowIdColumn(ts.find((t) => t.logicalName === rowTable)?.primaryIdAttribute ?? `${rowTable}id`); });
+    return () => { live = false; };
+  }, [svc, rowTable]);
 
   // After a row removal, move focus off the removed control (WCAG 2.1.2): into the detail
   // pane now showing the neighbor row (removal always selects the neighbor, per removeRow),
@@ -609,7 +647,7 @@ export function FieldMappingDialog({
 
   const ctx: RowCtx = {
     targetTable, ruleTable, tableConfigs, savedTcList, hasUnsavedNodes,
-    kindOf, patchRow, removeRow, otherTargets, targetDisplay,
+    kindOf, patchRow, removeRow, otherTargets, targetDisplay, rowTable, rowIdColumn, allowedTargets,
   };
 
   const subLine = rawMode
@@ -686,11 +724,12 @@ export function FieldMappingDialog({
 }
 
 export function FieldMappingControl({
-  fieldMapping, targetTable, ruleTable, tableConfigs, title, missingTargetHint, onChange,
+  fieldMapping, targetTable, ruleTable, tableConfigs, title, missingTargetHint, onChange, rowTable = null, allowedTargets = null,
 }: {
   fieldMapping: string | null; targetTable: string | null; ruleTable: string;
   tableConfigs: Record<string, TableConfigRef>; title: string; missingTargetHint: string;
   onChange(json: string | null): void;
+  rowTable?: string | null; allowedTargets?: string[] | null;
 }) {
   const svc = useMetadataService();
   const [open, setOpen] = React.useState(false);
@@ -715,7 +754,7 @@ export function FieldMappingControl({
       </div>
       {targetTable && (
         <FieldMappingDialog open={open} title={title} targetTable={targetTable} ruleTable={ruleTable}
-          tableConfigs={tableConfigs} fieldMapping={fieldMapping}
+          tableConfigs={tableConfigs} fieldMapping={fieldMapping} rowTable={rowTable} allowedTargets={allowedTargets}
           onCancel={() => setOpen(false)}
           onApply={(json) => { onChange(json); setOpen(false); }} />
       )}

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { render } from "@testing-library/react";
 import { AppProvider } from "../../src/editor/ui/AppProvider";
+import { always } from "../../src/editor/model/firesWhen";
 import type { RuleGraph, ConditionGroupNode, ActionNode } from "../../src/editor/model/types";
 
 export function makeGroup(over: Partial<ConditionGroupNode> = {}): ConditionGroupNode {
@@ -14,7 +15,7 @@ export function makeGroup(over: Partial<ConditionGroupNode> = {}): ConditionGrou
 export function makeAction(over: Partial<ActionNode> = {}): ActionNode {
   return {
     id: "a1", name: "Block save", order: 1, actionType: "Block",
-    fireOn: 1, targetColumn: null, targetTable: null, targetNodeId: null,
+    firesWhen: always(), targetColumn: null, targetTable: null, targetNodeId: null,
     message: null, fieldMapping: null, value: null,
     applyInverseWhenNotFired: null, severity: null, isActive: true,
     localizedMessages: [], ...over,
@@ -47,4 +48,13 @@ export async function withNarrowViewport(fn: () => void | Promise<void>) {
     addListener() {}, removeListener() {}, dispatchEvent() { return false; },
   })) as unknown as typeof window.matchMedia;
   try { await fn(); } finally { window.matchMedia = orig; }
+}
+
+/**
+ * Matches the innermost element whose whole text is `text`, for sentences split across spans
+ * (e.g. the tree's "When **Approval gaps** is false").
+ */
+export function fullText(text: string) {
+  return (_content: string, el: Element | null) =>
+    !!el && el.textContent === text && !Array.from(el.children).some((c) => c.textContent === text);
 }

@@ -268,6 +268,18 @@ describe("ref source", () => {
   });
 });
 
+describe("row source", () => {
+  beforeEach(() => resetRowKeys());
+
+  it("round-trips a current-row source", () => {
+    const json = '[{"target":"regardingobjectid","source":"row","column":"contactid"}]';
+    const parsed = parseFieldMapping(json);
+    expect(parsed.ok && parsed.rows[0].source).toBe("row");
+    expect(parsed.ok && serializeFieldMapping(parsed.rows)).toBe(json);
+    expect(validateRows([{ ...emptyRow(), target: "subject", source: "row", column: null }])).toContain("subject: choose a row column.");
+  });
+});
+
 describe("template and dateexpr rows", () => {
   beforeEach(() => resetRowKeys());
   const NODE = "a1b2c3d4-0000-0000-0000-000000000001";

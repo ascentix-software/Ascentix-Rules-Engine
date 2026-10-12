@@ -71,9 +71,17 @@ async function diagnosticText(diagnostic: SettleOptions["diagnostic"]): Promise<
 // flake; an operator-matrix Equals flake; a cold Tier-C org's first publish.
 export async function enforcementSettled(
   probe: () => Promise<boolean>, // true = enforcement observed
-  opts: { label?: string; intervalMs?: number; capMs?: number } = {},
+  // consecutive: successful probes required in a row (default 1); a failure resets the count. A rule
+  // with several actions or a tree of conditions needs more than one: a single success can land on a
+  // front-end node that already has the step while another still lacks it.
+  opts: { label?: string; intervalMs?: number; capMs?: number; consecutive?: number } = {},
 ): Promise<void> {
-  await settle(probe, {
+  const required = Math.max(1, opts.consecutive ?? 1);
+  let streak = 0;
+  await settle(async () => {
+    streak = (await probe()) ? streak + 1 : 0;
+    return streak >= required;
+  }, {
     label: opts.label ?? "enforcement",
     intervalMs: opts.intervalMs ?? 1000,
     capMs: opts.capMs ?? 30000,

@@ -1,0 +1,65 @@
+import * as React from "react";
+import { Button, Textarea } from "@fluentui/react-components";
+import { DialogShell } from "./DialogShell";
+import type { FiresWhenGroup, RuleGraph } from "../model/types";
+import { diffRuleGraph } from "../save/diff";
+import { ENTITY } from "../load/odata";
+import { outcomeDisplayName } from "../model/outcomes";
+
+export function describeChanges(snapshot: RuleGraph, working: RuleGraph): string {
+  const names: Record<string, string> = { [working.rule.id]: working.rule.name };
+  const collect = (value: any) => {
+    if (!value || typeof value !== "object") return;
+    if (value.id && value.name) names[value.id] = value.name;
+    Object.values(value).forEach(collect);
+  };
+  collect(snapshot); collect(working);
+  // Fires when rows have no name: a test is titled by the outcome it tests, when that outcome is known.
+  const nameTests = (graph: RuleGraph) => {
+    const walk = (g: FiresWhenGroup) => {
+      for (const t of g.tests) {
+        const o = graph.validationGroups.find((v) => v.id === t.outcomeId);
+        if (o) names[t.id] = outcomeDisplayName(o.name);
+      }
+      g.groups.forEach(walk);
+    };
+    graph.actions.forEach((a) => { if (a.firesWhen) walk(a.firesWhen); });
+  };
+  nameTests(snapshot); nameTests(working);
+  const labels: Record<string, string> = {
+    [ENTITY.rule]: "Rule", [ENTITY.group]: "Group", [ENTITY.condition]: "Condition",
+    [ENTITY.action]: "Action", [ENTITY.localizedMessage]: "Translation",
+    [ENTITY.actionConditionGroup]: "Fires when group", [ENTITY.actionConditionTest]: "Fires when test",
+  };
+  return diffRuleGraph(snapshot, working).map((op) => {
+    const id = op.kind === "create" ? op.tempId : op.id;
+    const title = `${op.kind.toUpperCase()} ${labels[op.entity] ?? op.entity}: ${names[id] ?? id}`;
+    if (op.kind === "delete") return title;
+    if (op.kind === "unbind") return `${title}\n  ${op.navProp}: (cleared)`;
+    const fields = Object.entries(op.attrs).map(([field, after]) => `  ${field}: ${JSON.stringify(after)}`);
+    const links = op.binds.map((b) => `  ${b.navProp}: ${JSON.stringify(b.ref)}`);
+    return [title, ...fields, ...links].join("\n");
+  }).join("\n\n") || "No pending changes.";
+}
+
+export function ReviewChangesDialog({ open, snapshot, working, onClose, title = "Review pending changes", text: given }: {
+  open: boolean; snapshot: RuleGraph; working: RuleGraph; onClose(): void;
+  /** Overrides for a different comparison (e.g. changes since the live version). */
+  title?: string; text?: string;
+}) {
+  const [status, setStatus] = React.useState("");
+  const text = given ?? describeChanges(snapshot, working);
+  React.useEffect(() => setStatus(""), [open, text]);
+  async function copy() {
+    try { await navigator.clipboard.writeText(text); setStatus("Changes copied."); }
+    catch { setStatus("Select the text below and copy it with your keyboard."); }
+  }
+  return (
+    <DialogShell open={open} title={title} onClose={onClose}
+      actions={<><Button onClick={copy}>Copy changes</Button><Button appearance="primary" onClick={onClose}>Close</Button></>}>
+      {given === undefined && <p style={{ margin: 0 }}>These changes are relative to the version you loaded. Copy them before reloading if you want to preserve them for later.</p>}
+      <Textarea aria-label="Pending changes" readOnly value={text} rows={12} resize="vertical" style={{ width: "100%" }} />
+      <div role="status">{status}</div>
+    </DialogShell>
+  );
+}

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Core.Validation;
+using Microsoft.Xrm.Sdk;
 using Xunit;
 
 namespace Ascentix.RulesEngine.Tests
@@ -44,7 +45,7 @@ namespace Ascentix.RulesEngine.Tests
                 Configs = TestTree.RawTree(TestTree.Node(RootNodeId, "account", TableConfigType.RootTable, null)),
                 Actions = new List<RuleAction>
                 {
-                    new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.Block, FireOn = ActionFireOn.OnNoMatch, Message = "no", IsActive = true }
+                    new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.Block, Condition = ActionTrees.AnyFalse(grp.Id), Message = "no", IsActive = true }
                 },
             };
             mutate?.Invoke(model);
@@ -248,21 +249,114 @@ namespace Ascentix.RulesEngine.Tests
             Assert.DoesNotContain(issues, i => i.Code == "STRUCT_MISSING_FIELD");
         }
 
-        [Fact]
-        public void Expression_condition_using_a_filter_key_is_flagged()
+        private static void MakeExpression(RuleForValidation x, string expression, string filters)
         {
-            // StructuralChecks calls MathExpr.Parse, which accepts filter: - so a rule that can
-            // never run (ConditionEvaluator has no filters map for condition Expressions) passed
-            // validation before this check existed.
-            var m = ValidModel(x =>
+            var c = ((List<ConditionGroup>)x.Groups)[0].Conditions[0];
+            c.ConditionType = ConditionType.Expression;
+            c.Expression = expression;
+            c.ExpressionFilters = filters;
+            c.ComparisonOperator = ComparisonOperator.GreaterThan;
+            c.ComparisonValue = "1";
+        }
+
+        private const string F1 = "{\"f1\":{\"kind\":\"group\",\"op\":\"and\",\"rules\":[{\"kind\":\"rule\",\"column\":\"statecode\",\"operator\":1,\"valueSource\":1,\"value\":\"0\"}]}}";
+
+        [Fact]
+        public void Expression_filter_key_with_definition_is_valid()
+        {
+            var m = ValidModel(x => MakeExpression(x, "sum(node:11111111-1111-1111-1111-111111111111.amount filter:f1)", F1));
+            var issues = Run(m);
+            Assert.DoesNotContain(issues, i => i.Code.StartsWith("STRUCT_EXPR_FILTER"));
+            Assert.DoesNotContain(issues, i => i.Code == "STRUCT_INVALID_EXPRESSION_FILTERS");
+        }
+
+        [Fact]
+        public void Expression_filter_key_without_definition_is_flagged()
+        {
+            var m = ValidModel(x => MakeExpression(x, "sum(node:11111111-1111-1111-1111-111111111111.amount filter:f2)", F1));
+            Assert.Contains(Run(m), i => i.Code == "STRUCT_EXPR_FILTER_MISSING");
+        }
+
+        [Fact]
+        public void Malformed_expression_filters_are_flagged()
+        {
+            var m = ValidModel(x => MakeExpression(x, "sum(node:11111111-1111-1111-1111-111111111111.amount filter:f1)", "{nope"));
+            Assert.Contains(Run(m), i => i.Code == "STRUCT_INVALID_EXPRESSION_FILTERS");
+        }
+
+        [Fact]
+        public void Expression_filter_structure_is_checked()
+        {
+            // AggregateFilterParser rejects a malformed leaf (e.g. a missing column) at parse
+            // time, so the one CheckFilterGroup structural issue reachable through a
+            // successfully-parsed filter map is a nested Exists (STRUCT_NESTED_EXISTS) - this
+            // confirms CheckFilterGroup runs against Expression-condition filters the same way
+            // it does for field-mapping aggregate filters.
+            var nestedExists = "{\"f1\":{\"kind\":\"group\",\"op\":\"and\",\"rules\":[" +
+                "{\"kind\":\"exists\",\"collectionNodeId\":\"22222222-2222-2222-2222-222222222222\",\"sub\":{\"op\":\"and\",\"rules\":[" +
+                "{\"kind\":\"exists\",\"collectionNodeId\":\"33333333-3333-3333-3333-333333333333\",\"sub\":{\"op\":\"and\",\"rules\":[]}}" +
+                "]}}]}}";
+            var m = ValidModel(x => MakeExpression(x, "sum(node:11111111-1111-1111-1111-111111111111.amount filter:f1)", nestedExists));
+            Assert.Contains(Run(m), i => i.Code == "STRUCT_NESTED_EXISTS");
+        }
+
+        [Fact]
+        public void Malformed_filter_date_expression_is_flagged()
+        {
+            var m = ValidModel(x => ((List<ConditionGroup>)x.Groups)[0].NodeFilterGroups = new List<NodeFilterGroup>
             {
-                var c = ((List<ConditionGroup>)x.Groups)[0].Conditions[0];
-                c.ConditionType = ConditionType.Expression;
-                c.Expression = "sum(node:11111111-1111-1111-1111-111111111111.amount filter:f1)";
-                c.ComparisonOperator = ComparisonOperator.GreaterThan;
-                c.ComparisonValue = "1";
+                new NodeFilterGroup
+                {
+                    TableConfigNodeId = RootNodeId, LogicalOperator = LogicalOperator.And,
+                    Criteria = new List<NodeFilterCriterion>
+                    {
+                        new NodeFilterCriterion { FieldName = "createdon", Operator = "ge",
+                            ValueSource = ComparisonValueSource.DateExpression, Value = "{\"anchor\":{\"kind\":\"now\"}}" },
+                    },
+                },
             });
-            Assert.Contains(Run(m), i => i.Code == "STRUCT_EXPR_FILTER_UNSUPPORTED");
+            Assert.Contains(Run(m), i => i.Code == "STRUCT_INVALID_DATEEXPR");
+        }
+
+        [Theory]
+        [InlineData("subtract", 20000, "years")]
+        [InlineData("add", 20000, "years")]
+        [InlineData("add", 2000000000, "weeks")]
+        [InlineData("add", 613566757, "weeks")] // amount * 7 wraps a 32-bit int to 3 days
+        public void Out_of_range_filter_date_expression_is_flagged(string op, int amount, string unit)
+        {
+            var payload = "{\"anchor\":{\"kind\":\"now\"},\"op\":\"" + op + "\",\"amount\":" + amount + ",\"unit\":\"" + unit + "\"}";
+            var m = ValidModel(x => ((List<ConditionGroup>)x.Groups)[0].NodeFilterGroups = new List<NodeFilterGroup>
+            {
+                new NodeFilterGroup
+                {
+                    TableConfigNodeId = RootNodeId, LogicalOperator = LogicalOperator.And,
+                    Criteria = new List<NodeFilterCriterion>
+                    {
+                        new NodeFilterCriterion { FieldName = "createdon", Operator = "ge",
+                            ValueSource = ComparisonValueSource.DateExpression, Value = payload },
+                    },
+                },
+            });
+            Assert.Contains(Run(m), i => i.Code == "STRUCT_INVALID_DATEEXPR");
+        }
+
+        [Fact]
+        public void In_range_filter_date_expression_is_not_flagged()
+        {
+            var m = ValidModel(x => ((List<ConditionGroup>)x.Groups)[0].NodeFilterGroups = new List<NodeFilterGroup>
+            {
+                new NodeFilterGroup
+                {
+                    TableConfigNodeId = RootNodeId, LogicalOperator = LogicalOperator.And,
+                    Criteria = new List<NodeFilterCriterion>
+                    {
+                        new NodeFilterCriterion { FieldName = "createdon", Operator = "ge", ValueSource = ComparisonValueSource.DateExpression,
+                            Value = "{\"anchor\":{\"kind\":\"now\"},\"op\":\"subtract\",\"amount\":100,\"unit\":\"years\"}" },
+                    },
+                },
+            });
+            Assert.DoesNotContain(Run(m), i => i.Code == "STRUCT_INVALID_DATEEXPR");
         }
 
         [Fact]
@@ -270,7 +364,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var m = ValidModel(x => x.Actions = new List<RuleAction>
             {
-                new RuleAction { Id = Guid.NewGuid(), ActionType = (ActionType)0, FireOn = ActionFireOn.OnNoMatch, IsActive = true }
+                new RuleAction { Id = Guid.NewGuid(), ActionType = (ActionType)0, Condition = ActionTrees.AnyFalse(x.Groups[0].Id), IsActive = true }
             });
             Assert.Contains(Run(m), i => i.Code == "STRUCT_BAD_ACTIONTYPE");
         }
@@ -280,7 +374,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var m = ValidModel(x => x.Actions = new List<RuleAction>
             {
-                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetTable = null, FieldMapping = null, Order = 1 }
+                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.CreateRecord, Condition = ActionTrees.AllTrue(x.Groups[0].Id), IsActive = true, TargetTable = null, FieldMapping = null, Order = 1 }
             });
             var issues = Run(m);
             Assert.Contains(issues, i => i.Code == "STRUCT_MISSING_FIELD" && i.Target.Field == "TargetTable");
@@ -292,7 +386,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var m = ValidModel(x => x.Actions = new List<RuleAction>
             {
-                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.ShowMessage, FireOn = ActionFireOn.OnMatch, IsActive = true, Message = null }
+                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.ShowMessage, Condition = ActionTrees.AllTrue(x.Groups[0].Id), IsActive = true, Message = null }
             });
             Assert.Contains(Run(m), i => i.Code == "STRUCT_MISSING_FIELD" && i.Target.Field == "Message");
         }
@@ -302,7 +396,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var m = ValidModel(x => x.Actions = new List<RuleAction>
             {
-                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = null, FieldMapping = null, Order = 1 }
+                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.UpdateRecord, Condition = ActionTrees.AllTrue(x.Groups[0].Id), IsActive = true, TargetNodeId = null, FieldMapping = null, Order = 1 }
             });
             var issues = Run(m);
             Assert.Contains(issues, i => i.Code == "STRUCT_MISSING_FIELD" && i.Target.Field == "TargetNodeId");
@@ -336,9 +430,78 @@ namespace Ascentix.RulesEngine.Tests
         {
             var m = ValidModel(x => x.Actions = new List<RuleAction>
             {
-                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.DeleteRecord, FireOn = ActionFireOn.OnMatch, IsActive = true, TargetNodeId = null, Order = 1 }
+                new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.DeleteRecord, Condition = ActionTrees.AllTrue(x.Groups[0].Id), IsActive = true, TargetNodeId = null, Order = 1 }
             });
             Assert.Contains(Run(m), i => i.Code == "STRUCT_MISSING_FIELD" && i.Target.Field == "TargetNodeId");
+        }
+
+        private static RuleForValidation ZoneModel(string zone)
+        {
+            var id = Guid.NewGuid();
+            var rule = new Entity("asx_rule", id);
+            if (zone != null) rule["asx_evaluationtimezone"] = zone;
+            return new RuleForValidation
+            {
+                RuleId = id,
+                RuleEntity = rule,
+                PrimaryTable = "account",
+                Groups = new List<ConditionGroup>(),
+                Actions = new List<RuleAction>(),
+            };
+        }
+
+        [Fact]
+        public void Unknown_rule_time_zone_is_flagged()
+        {
+            Assert.Contains(new StructuralChecks().Check(ZoneModel("Mars Standard Time")), i => i.Code == "STRUCT_INVALID_TIMEZONE");
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("Eastern Standard Time")]
+        public void Known_or_empty_rule_time_zone_is_accepted(string zone)
+        {
+            Assert.DoesNotContain(new StructuralChecks().Check(ZoneModel(zone)), i => i.Code == "STRUCT_INVALID_TIMEZONE");
+        }
+
+        private static RuleForValidation PreviousModel(RuleAction action)
+        {
+            var id = Guid.NewGuid();
+            return new RuleForValidation
+            {
+                RuleId = id,
+                RuleEntity = new Entity("asx_rule", id),
+                PrimaryTable = "opportunity",
+                Groups = new List<ConditionGroup>(),
+                Actions = new List<RuleAction> { action },
+                Configs = PreviousParentTests.Tree(),
+            };
+        }
+
+        [Fact]
+        public void Apply_to_previous_on_an_eligible_update_is_accepted()
+        {
+            Assert.DoesNotContain(new StructuralChecks().Check(PreviousModel(PreviousParentTests.Update(PreviousParentTests.AccountId))),
+                i => i.Code == "STRUCT_APPLY_PREVIOUS_TARGET");
+        }
+
+        [Fact]
+        public void Apply_to_previous_on_the_root_or_under_a_collection_is_flagged()
+        {
+            Assert.Contains(new StructuralChecks().Check(PreviousModel(PreviousParentTests.Update(PreviousParentTests.RootId))),
+                i => i.Code == "STRUCT_APPLY_PREVIOUS_TARGET");
+            Assert.Contains(new StructuralChecks().Check(PreviousModel(PreviousParentTests.Update(PreviousParentTests.LineProductId))),
+                i => i.Code == "STRUCT_APPLY_PREVIOUS_TARGET");
+        }
+
+        [Fact]
+        public void Apply_to_previous_on_a_non_update_action_is_flagged()
+        {
+            var create = PreviousParentTests.Update(PreviousParentTests.ContactId);
+            create.ActionType = ActionType.CreateRecord;
+            create.TargetNodeId = null;
+            create.TargetTable = "task";
+            Assert.Contains(new StructuralChecks().Check(PreviousModel(create)), i => i.Code == "STRUCT_APPLY_PREVIOUS_TARGET");
         }
     }
 }

@@ -3,10 +3,11 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createOrderConfigTree, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, checkNoIssues, pickConditionType, saveRule } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 
-// "Only consider records where…" authored through the UI. It is the deepest authoring surface in
+// "Only count rows where" (the NodeFilterDialog, titled "Only consider records where…") authored
+// through the UI. It is the deepest authoring surface in
 // the editor: NodeFilterDialog plus the recursive NodeFilterBuilder, ~400 lines writing TWO extra
 // tables (asx_nodefiltergroup / asx_nodefiltercriterion) through a hand-rolled diff
 // (save/diff.ts §"Node filters"). The ENGINE side of those rows is proven live by
@@ -50,25 +51,35 @@ async function filterTreeOf(ruleId: string) {
 }
 
 // Build a RowCount condition bound to the child collection: the only shape for which the
-// editor unlocks the node-filter section (ChildTable node + a filterable condition type).
+// editor unlocks the node-filter section (ChildTable node + a filterable condition type). The
+// count is "has at least 1" (the old "At least one (exists)").
 async function openFilterableCondition(page: Parameters<typeof openRuleFromHub>[0], appId: string, ruleName: string) {
   const frame = await openRuleFromHub(page, appId, ruleName);
-  await frame.getByRole("button", { name: "+ Add group" }).first().click();
-  await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+  await frame.getByRole("button", { name: "Add group" }).first().click();
+  await frame.getByRole("button", { name: "Add condition", exact: true }).click();
   await frame.getByRole("button", { name: /^Edit condition/ }).click();
 
-  const node = frame.getByRole("combobox", { name: "Table-config node" });
+  await pickConditionType(frame, CHOICE.conditionType.rowCount);
+
+  const node = frame.getByRole("combobox", { name: "Rows of", exact: true });
   await node.click();
   await frame.getByRole("option", { name: /_line$/ }).click();
 
-  const type = frame.getByRole("combobox", { name: "Condition type" });
-  await type.click();
-  await frame.getByRole("option", { name: CHOICE.conditionType.rowCount, exact: true }).click();
-
-  const mode = frame.getByRole("combobox", { name: "Row count mode" });
+  const mode = frame.getByRole("combobox", { name: "Count", exact: true });
   await mode.click();
-  await frame.getByRole("option", { name: "At least one (exists)" }).click();
+  await frame.getByRole("option", { name: "has at least", exact: true }).click();
+  await frame.getByRole("spinbutton", { name: "Minimum rows", exact: true }).fill("1");
   return frame;
+}
+
+// The panel's filter section: "Only count rows where", a one-line summary ("All rows", or the
+// first complete criterion as "<column> <operator phrase> <value>" plus "+ N more"), and a button
+// that reads "Add filter" with no filter and "Edit" once there is one. Both open the same
+// NodeFilterDialog. The dialog has its OWN "Add filter" button, so every click inside the dialog
+// is scoped through it.
+async function openFilterDialog(frame: Awaited<ReturnType<typeof openRuleFromHub>>) {
+  await frame.getByRole("button", { name: "Add filter", exact: true }).click();
+  return frame.getByRole("dialog");
 }
 
 test("node filter authored in the UI persists a criterion row the engine can read", async ({ page }) => {
@@ -81,10 +92,10 @@ test("node filter authored in the UI persists a criterion row the engine can rea
     const frame = await openFilterableCondition(page, appId, rule.ruleName);
 
     // Summary before any filter: the copy a user reads to know the condition is unfiltered.
-    await expect(frame.getByText("All records, no filter.")).toBeVisible();
+    await expect(frame.getByText("Only count rows where", { exact: true })).toBeVisible();
+    await expect(frame.getByText("All rows", { exact: true })).toBeVisible();
 
-    await frame.getByRole("button", { name: "Edit filters…" }).click();
-    const dialog = frame.getByRole("dialog");
+    const dialog = await openFilterDialog(frame);
     await expect(dialog).toContainText("Only consider records where…");
     await expect(dialog).toContainText("No filters yet");
 
@@ -106,19 +117,20 @@ test("node filter authored in the UI persists a criterion row the engine can rea
 
     const op = dialog.getByRole("combobox", { name: "Filter operator" });
     await op.click();
-    // NodeFilterBuilder uses its OWN operator labels (OP_LABEL), not the global choice:
-    // "Greater than", not the choice's "Greater Than".
+    // NodeFilterBuilder uses its OWN operator labels (OP_LABEL), not the condition panel's
+    // phrases: "Greater than", not "is more than".
     await frame.getByRole("option", { name: "Greater than", exact: true }).click();
 
     await dialog.getByRole("textbox", { name: "Filter value" }).fill("100");
 
     await dialog.getByRole("button", { name: "Apply", exact: true }).click();
 
-    // The inspector summary now reports the block: "<node> · 1 condition".
-    await expect(frame.getByText(/\(this record's collection\) · 1 condition/)).toBeVisible();
+    // The panel summary now reads the criterion as a phrase ("<column> is more than 100"), and
+    // the section's button has turned into "Edit".
+    await expect(frame.getByText(/^Line Amount is more than 100$/)).toBeVisible();
+    await expect(frame.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const tree = await filterTreeOf(rule.ruleId);
     expect(tree.groups.length).toBe(1);
@@ -137,13 +149,11 @@ test("node filter authored in the UI persists a criterion row the engine can rea
     expect(c.asx_comparisonvaluesource).toBe(1); // Literal
 
     // The authored shape must still be publishable.
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
     await frame.getByRole("textbox", { name: "Show-message message" }).fill("ZZ_RB filtered row count");
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
-    await toolbar(frame).getByRole("button", { name: "Validate" }).click();
-    await expect(frame.getByText("Validation passed. The rule is valid.")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
+    await checkNoIssues(frame);
   } finally {
     await rule.cleanup();
     await cfg.cleanup();
@@ -158,13 +168,12 @@ test("node filter: OR toggle and a second criterion persist on the same filter g
   });
   try {
     const frame = await openFilterableCondition(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: "Edit filters…" }).click();
-    const dialog = frame.getByRole("dialog");
+    const dialog = await openFilterDialog(frame);
     await dialog.getByRole("button", { name: "Add filter" }).click();
 
-    // Flip the root match from AND to OR before adding anything: the toggle is a pair of
-    // buttons ("AND" / "OR"), not a dropdown.
-    await dialog.getByRole("button", { name: "OR", exact: true }).click();
+    // Flip the root match from All to Any before adding anything: the toggle is the "Match"
+    // radio pair ("All" / "Any"), not a dropdown.
+    await dialog.getByTestId("nf-root").getByRole("radio", { name: "Any", exact: true }).first().click();
 
     // Row 0 is the SEEDED leaf; row 1 is added. Fill each row completely before adding the next:
     // the "Filter value" editor only mounts once that row has a valued operator, so value boxes
@@ -186,10 +195,10 @@ test("node filter: OR toggle and a second criterion persist on the same filter g
     await fillRow(1, "quantity", /\(sample_quantity\)/, "Less than", "5");
 
     await dialog.getByRole("button", { name: "Apply", exact: true }).click();
-    await expect(frame.getByText(/\(this record's collection\) · 2 conditions/)).toBeVisible();
+    // The summary shows the first criterion and counts the rest.
+    await expect(frame.getByText(/^Line Amount is more than 100\s*\+ 1 more$/)).toBeVisible();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const tree = await filterTreeOf(rule.ruleId);
     expect(tree.groups.length).toBe(1);
@@ -210,8 +219,9 @@ test("node filter: OR toggle and a second criterion persist on the same filter g
 // REGRESSION PIN. Without a completeness check on save, a published rule can block EVERY write to
 // its table with an engine error the author was never warned about.
 //
-// The sequence, entirely through supported UI: open "Only consider records where…", click
-// "Add filter" (which SEEDS one empty condition row), use Add ▾ → Condition to get a second row,
+// The sequence, entirely through supported UI: open "Only count rows where" › Add filter (the
+// "Only consider records where…" dialog), click the dialog's "Add filter" (which SEEDS one empty
+// condition row), use Add ▾ → Condition to get a second row,
 // fill only the second, Apply → Save → Validate → Publish. What that produced:
 //   1. save/diff.ts flattenFilterBlocks emits a criterion for EVERY leaf with no completeness
 //      check, so the untouched seeded row persists as
@@ -236,8 +246,7 @@ test("an untouched seeded filter row is not persisted as a blank criterion", asy
   });
   try {
     const frame = await openFilterableCondition(page, appId, rule.ruleName);
-    await frame.getByRole("button", { name: "Edit filters…" }).click();
-    const dialog = frame.getByRole("dialog");
+    const dialog = await openFilterDialog(frame);
     await dialog.getByRole("button", { name: "Add filter" }).click();
 
     // Leave the seeded row untouched; add a second row and fill only that one.
@@ -253,8 +262,7 @@ test("an untouched seeded filter row is not persisted as a blank criterion", asy
     await dialog.getByRole("textbox", { name: "Filter value" }).first().fill("1");
 
     await dialog.getByRole("button", { name: "Apply", exact: true }).click();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     // Only the filled criterion may reach the server: a null-column/null-operator row is exactly
     // what NodeFilterEvaluator throws on.

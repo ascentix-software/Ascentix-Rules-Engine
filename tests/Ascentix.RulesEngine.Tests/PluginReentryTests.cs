@@ -48,5 +48,44 @@ namespace Ascentix.RulesEngine.Tests
             ctx.SharedVariables["tag"] = "someone-elses-tag";
             Assert.False(PluginReentry.IsEngineInitiated(ctx));
         }
+
+        [Fact]
+        public void IsInsideMessage_is_false_with_no_parent_context()
+        {
+            Assert.False(PluginReentry.IsInsideMessage(Ctx(), "asx_ProcessRunPage"));
+        }
+
+        [Fact]
+        public void IsInsideMessage_is_true_when_an_ancestors_message_matches_case_insensitively()
+        {
+            var grandparent = Ctx();
+            grandparent.MessageName = "ASX_PROCESSRUNPAGE";
+            var parent = Ctx();
+            parent.ParentContext = grandparent;
+            var child = Ctx();
+            child.ParentContext = parent;
+
+            Assert.True(PluginReentry.IsInsideMessage(child, "asx_ProcessRunPage"));
+        }
+
+        [Fact]
+        public void IsInsideMessage_is_false_when_no_ancestor_matches()
+        {
+            var parent = Ctx();
+            parent.MessageName = "asx_StartDueSchedules";
+            var child = Ctx();
+            child.ParentContext = parent;
+
+            Assert.False(PluginReentry.IsInsideMessage(child, "asx_ProcessRunPage"));
+        }
+
+        [Fact]
+        public void IsInsideMessage_ignores_the_current_contexts_own_message_name()
+        {
+            var ctx = Ctx();
+            ctx.MessageName = "asx_ProcessRunPage";
+
+            Assert.False(PluginReentry.IsInsideMessage(ctx, "asx_ProcessRunPage"));
+        }
     }
 }

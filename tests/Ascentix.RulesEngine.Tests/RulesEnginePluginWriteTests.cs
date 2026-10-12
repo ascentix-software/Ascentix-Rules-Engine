@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Plugin;
 using Ascentix.RulesEngine.Schema;
@@ -26,48 +27,11 @@ namespace Ascentix.RulesEngine.Tests
     {
         private static string Q(string f) => SchemaNames.Qualify(f);
 
-        // ── Fake message executor: answers RetrieveEntityRequest for "task" ─────
-
-        /// <summary>
-        /// Implements IFakeMessageExecutor so XrmFakedContext intercepts
-        /// RetrieveEntityRequest for "task" and returns attribute metadata
-        /// (subject → String), enabling literal coercion inside the runner.
-        /// </summary>
-        private sealed class TaskMetadataExecutor : IFakeMessageExecutor
-        {
-            public bool CanExecute(OrganizationRequest request)
-                => request is RetrieveEntityRequest req && req.LogicalName == "task";
-
-            public Type GetResponsibleRequestType() => typeof(RetrieveEntityRequest);
-
-            public OrganizationResponse Execute(OrganizationRequest request, XrmFakedContext ctx)
-            {
-                var subjectAttr = new StringAttributeMetadata { LogicalName = "subject" };
-                var entityMeta = new EntityMetadata { LogicalName = "task" };
-
-                // Inject Attributes via reflection (setters are sealed in the SDK).
-                var attrsProp = typeof(EntityMetadata).GetProperty("Attributes");
-                if (attrsProp != null)
-                    attrsProp.SetValue(entityMeta, new AttributeMetadata[] { subjectAttr });
-                else
-                {
-                    var field = typeof(EntityMetadata).GetField("_attributes",
-                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    field?.SetValue(entityMeta, new AttributeMetadata[] { subjectAttr });
-                }
-
-                return new RetrieveEntityResponse
-                {
-                    Results = new ParameterCollection { { "EntityMetadata", entityMeta } }
-                };
-            }
-        }
-
         // ── Seed data ────────────────────────────────────────────────────────────
 
         /// <summary>
         /// Rule on account (OnCreate), always-true condition (name IsNotNull),
-        /// one CreateRecord action (OnMatch): writes subject="Hi" to task table.
+        /// one CreateRecord action (fires when the outcome is true): writes subject="Hi" to task table.
         /// </summary>
         private static List<Entity> Seed()
         {
@@ -110,14 +74,13 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.CreateRecord),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                 [Q(SchemaNames.RuleAction.TargetTable)] = "task",
                 [Q(SchemaNames.RuleAction.FieldMapping)] = "[{\"target\":\"subject\",\"source\":\"literal\",\"value\":\"Hi\"}]",
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
                 [Q(SchemaNames.RuleAction.Order)] = 1,
             };
 
-            return new List<Entity> { tableConfig, rule, group, condition, action };
+            return new List<Entity> { tableConfig, rule, group, condition, action, ActionTreeRows.AllTrue(ids.act, ids.grp) };
         }
 
         private static XrmFakedPluginExecutionContext PluginCtx(Entity target, int depth = 1, string tag = null)
@@ -141,7 +104,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var ctx = new XrmFakedContext();
             ctx.Initialize(Seed());
-            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new TaskMetadataExecutor());
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("task", new StringAttributeMetadata { LogicalName = "subject" }));
 
             var target = new Entity("account", Guid.NewGuid()) { ["name"] = "Acme Corp" };
 
@@ -162,7 +125,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var ctx = new XrmFakedContext();
             ctx.Initialize(Seed());
-            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new TaskMetadataExecutor());
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("task", new StringAttributeMetadata { LogicalName = "subject" }));
 
             var target = new Entity("account", Guid.NewGuid()) { ["name"] = "Acme Corp" };
 
@@ -182,7 +145,7 @@ namespace Ascentix.RulesEngine.Tests
         {
             var ctx = new XrmFakedContext();
             ctx.Initialize(Seed());
-            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new TaskMetadataExecutor());
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("task", new StringAttributeMetadata { LogicalName = "subject" }));
 
             var target = new Entity("account", Guid.NewGuid()) { ["name"] = "Acme Corp" };
 
@@ -194,6 +157,27 @@ namespace Ascentix.RulesEngine.Tests
                 .RetrieveMultiple(new QueryExpression("task") { ColumnSet = new ColumnSet(true) });
 
             Assert.Empty(tasks.Entities);
+        }
+
+        [Fact]
+        public void A_save_traces_one_asx_diag_line_with_its_writes()
+        {
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(Seed());
+            ctx.AddFakeMessageExecutor<RetrieveEntityRequest>(new FakeAttributeMetadataExecutor("task", new StringAttributeMetadata { LogicalName = "subject" }));
+
+            ctx.ExecutePluginWith<RulesEnginePlugin>(PluginCtx(new Entity("account", Guid.NewGuid()) { ["name"] = "Acme Corp" }));
+
+            var lines = ctx.GetFakeTracingService().DumpTrace().Split('\n')
+                .Where(l => l.Contains(RunDiagnosticsSerializer.TracePrefix)).ToList();
+            var line = Assert.Single(lines);
+            var json = line.Substring(line.IndexOf(RunDiagnosticsSerializer.TracePrefix, StringComparison.Ordinal)
+                + RunDiagnosticsSerializer.TracePrefix.Length).Trim();
+            Assert.StartsWith("{\"totalMs\":", json);
+            Assert.Contains("\"writesSent\":1", json);
+            Assert.Contains("\"singleRequests\":1", json);
+            Assert.Contains("\"changeSetBuild\"", json);
+            Assert.Contains("\"dispatch:Create:task\"", json);
         }
     }
 }

@@ -1,0 +1,473 @@
+{
+  "properties": {
+    "connectionReferences": {
+      "shared_commondataserviceforapps": {
+        "runtimeSource": "embedded",
+        "connection": {
+          "connectionReferenceLogicalName": "asx_SchedulerDataverse"
+        },
+        "api": {
+          "name": "shared_commondataserviceforapps"
+        }
+      }
+    },
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        },
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        }
+      },
+      "triggers": {
+        "Recurrence": {
+          "type": "Recurrence",
+          "recurrence": {
+            "frequency": "Minute",
+            "interval": 15
+          },
+          "runtimeConfiguration": {
+            "concurrency": {
+              "runs": 1
+            }
+          }
+        }
+      },
+      "actions": {
+        "Initialize_start": {
+          "runAfter": {},
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "start",
+                "type": "string",
+                "value": "@{utcNow()}"
+              }
+            ]
+          }
+        },
+        "Initialize_done": {
+          "runAfter": {
+            "Initialize_start": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "done",
+                "type": "boolean",
+                "value": false
+              }
+            ]
+          }
+        },
+        "Initialize_failed_record_id": {
+          "runAfter": {
+            "Initialize_done": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "failedRecordId",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          }
+        },
+        "Initialize_failed_message": {
+          "runAfter": {
+            "Initialize_failed_record_id": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "failedMessage",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          }
+        },
+        "Initialize_error_text": {
+          "runAfter": {
+            "Initialize_failed_message": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "errorText",
+                "type": "string",
+                "value": ""
+              }
+            ]
+          }
+        },
+        "Start_due_schedules": {
+          "runAfter": {
+            "Initialize_error_text": [
+              "Succeeded"
+            ]
+          },
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "connectionName": "shared_commondataserviceforapps",
+              "operationId": "PerformUnboundAction",
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps"
+            },
+            "parameters": {
+              "actionName": "asx_StartDueSchedules"
+            },
+            "authentication": "@parameters('$authentication')",
+            "retryPolicy": {
+              "type": "none"
+            }
+          }
+        },
+        "Parse_run_ids": {
+          "runAfter": {
+            "Start_due_schedules": [
+              "Succeeded"
+            ]
+          },
+          "type": "Compose",
+          "inputs": "@json(coalesce(outputs('Start_due_schedules')?['body/RunIds'], '[]'))"
+        },
+        "For_each_run": {
+          "runAfter": {
+            "Parse_run_ids": [
+              "Succeeded"
+            ]
+          },
+          "type": "Foreach",
+          "foreach": "@outputs('Parse_run_ids')",
+          "runtimeConfiguration": {
+            "concurrency": {
+              "repetitions": 1
+            }
+          },
+          "actions": {
+            "Reset_done": {
+              "runAfter": {},
+              "type": "SetVariable",
+              "inputs": {
+                "name": "done",
+                "value": false
+              }
+            },
+            "Reset_failed_record_id": {
+              "runAfter": {
+                "Reset_done": [
+                  "Succeeded"
+                ]
+              },
+              "type": "SetVariable",
+              "inputs": {
+                "name": "failedRecordId",
+                "value": "@{null}"
+              }
+            },
+            "Reset_failed_message": {
+              "runAfter": {
+                "Reset_failed_record_id": [
+                  "Succeeded"
+                ]
+              },
+              "type": "SetVariable",
+              "inputs": {
+                "name": "failedMessage",
+                "value": "@{null}"
+              }
+            },
+            "Within_budget": {
+              "runAfter": {
+                "Reset_failed_message": [
+                  "Succeeded"
+                ]
+              },
+              "type": "If",
+              "expression": {
+                "and": [
+                  {
+                    "less": [
+                      "@ticks(utcNow())",
+                      "@ticks(addMinutes(variables('start'), 12))"
+                    ]
+                  }
+                ]
+              },
+              "actions": {
+                "Drive_run": {
+                  "runAfter": {},
+                  "type": "Until",
+                  "expression": "@or(equals(variables('done'), true), less(ticks(addMinutes(variables('start'), 12)), ticks(utcNow())))",
+                  "limit": {
+                    "count": 500,
+                    "timeout": "PT12M"
+                  },
+                  "actions": {
+                    "Process_page": {
+                      "runAfter": {},
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "host": {
+                          "connectionName": "shared_commondataserviceforapps",
+                          "operationId": "PerformUnboundAction",
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps"
+                        },
+                        "parameters": {
+                          "actionName": "asx_ProcessRunPage",
+                          "item/RunId": "@items('For_each_run')",
+                          "item/FailedRecordId": "@if(empty(variables('failedRecordId')), null, variables('failedRecordId'))",
+                          "item/FailedMessage": "@variables('failedMessage')"
+                        },
+                        "authentication": "@parameters('$authentication')",
+                        "retryPolicy": {
+                          "type": "none"
+                        }
+                      }
+                    },
+                    "Page_processed": {
+                      "runAfter": {
+                        "Process_page": [
+                          "Succeeded"
+                        ]
+                      },
+                      "type": "Scope",
+                      "actions": {
+                        "Clear_failed_record_id": {
+                          "runAfter": {},
+                          "type": "SetVariable",
+                          "inputs": {
+                            "name": "failedRecordId",
+                            "value": "@{null}"
+                          }
+                        },
+                        "Clear_failed_message": {
+                          "runAfter": {
+                            "Clear_failed_record_id": [
+                              "Succeeded"
+                            ]
+                          },
+                          "type": "SetVariable",
+                          "inputs": {
+                            "name": "failedMessage",
+                            "value": "@{null}"
+                          }
+                        },
+                        "Set_done_from_page": {
+                          "runAfter": {
+                            "Clear_failed_message": [
+                              "Succeeded"
+                            ]
+                          },
+                          "type": "SetVariable",
+                          "inputs": {
+                            "name": "done",
+                            "value": "@equals(outputs('Process_page')?['body/Done'], true)"
+                          }
+                        }
+                      }
+                    },
+                    "Page_failed": {
+                      "runAfter": {
+                        "Process_page": [
+                          "Failed",
+                          "TimedOut"
+                        ]
+                      },
+                      "type": "Scope",
+                      "actions": {
+                        "Error_body": {
+                          "runAfter": {},
+                          "type": "Compose",
+                          "inputs": "@coalesce(actions('Process_page')?['outputs']?['body'], '')"
+                        },
+                        "Read_error_text": {
+                          "runAfter": {
+                            "Error_body": [
+                              "Succeeded"
+                            ]
+                          },
+                          "type": "If",
+                          "expression": {
+                            "and": [
+                              {
+                                "startsWith": [
+                                  "@string(outputs('Error_body'))",
+                                  "{"
+                                ]
+                              }
+                            ]
+                          },
+                          "actions": {
+                            "Error_text_from_json": {
+                              "runAfter": {},
+                              "type": "SetVariable",
+                              "inputs": {
+                                "name": "errorText",
+                                "value": "@{coalesce(outputs('Error_body')?['error']?['message'], string(outputs('Error_body')))}"
+                              }
+                            }
+                          },
+                          "else": {
+                            "actions": {
+                              "Error_text_from_text": {
+                                "runAfter": {},
+                                "type": "SetVariable",
+                                "inputs": {
+                                  "name": "errorText",
+                                  "value": "@{outputs('Error_body')}"
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "Marker_at": {
+                          "runAfter": {
+                            "Read_error_text": [
+                              "Succeeded"
+                            ]
+                          },
+                          "type": "Compose",
+                          "inputs": "@indexOf(variables('errorText'), 'asx_ProcessRunPage:record-failed:')"
+                        },
+                        "Is_record_failed": {
+                          "runAfter": {
+                            "Marker_at": [
+                              "Succeeded"
+                            ]
+                          },
+                          "type": "If",
+                          "expression": {
+                            "and": [
+                              {
+                                "contains": [
+                                  "@variables('errorText')",
+                                  "asx_ProcessRunPage:record-failed:"
+                                ]
+                              },
+                              {
+                                "greaterOrEquals": [
+                                  "@length(variables('errorText'))",
+                                  "@add(outputs('Marker_at'), 69)"
+                                ]
+                              }
+                            ]
+                          },
+                          "actions": {
+                            "Failed_record_id": {
+                              "runAfter": {},
+                              "type": "Compose",
+                              "inputs": "@{substring(variables('errorText'), add(outputs('Marker_at'), 33), 36)}"
+                            },
+                            "Is_repeat": {
+                              "runAfter": {
+                                "Failed_record_id": [
+                                  "Succeeded"
+                                ]
+                              },
+                              "type": "If",
+                              "expression": {
+                                "and": [
+                                  {
+                                    "equals": [
+                                      "@toLower(outputs('Failed_record_id'))",
+                                      "@toLower(coalesce(variables('failedRecordId'), ''))"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "actions": {
+                                "Stop_on_repeated_failure": {
+                                  "runAfter": {},
+                                  "type": "SetVariable",
+                                  "inputs": {
+                                    "name": "done",
+                                    "value": true
+                                  }
+                                }
+                              },
+                              "else": {
+                                "actions": {
+                                  "Set_failed_record_id": {
+                                    "runAfter": {},
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                      "name": "failedRecordId",
+                                      "value": "@{outputs('Failed_record_id')}"
+                                    }
+                                  },
+                                  "Set_failed_message": {
+                                    "runAfter": {
+                                      "Set_failed_record_id": [
+                                        "Succeeded"
+                                      ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                      "name": "failedMessage",
+                                      "value": "@{substring(variables('errorText'), min(add(outputs('Marker_at'), 70), length(variables('errorText'))), max(0, sub(length(variables('errorText')), add(outputs('Marker_at'), 70))))}"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "else": {
+                            "actions": {
+                              "Leave_run_for_next_wake_up": {
+                                "runAfter": {},
+                                "type": "SetVariable",
+                                "inputs": {
+                                  "name": "done",
+                                  "value": true
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "Stop_driving_run": {
+                      "runAfter": {
+                        "Page_failed": [
+                          "Failed",
+                          "TimedOut"
+                        ]
+                      },
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "done",
+                        "value": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemaVersion": "1.0.0.0"
+}

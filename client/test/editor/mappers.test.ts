@@ -11,15 +11,29 @@ describe("record mappers", () => {
       name: "Credit limit approver required",
       tableLogicalName: "account",
       statusCode: 1,
+      publishedRevisionId: null,
+      publishedVersion: 0,
       etag: null,
       triggers: [1, 4],
       channels: [],
       effectiveFrom: null,
       effectiveTo: null,
       evaluationContext: 1,
+      evaluationTimeZone: null,
+      onDemandScope: null,
       rootTableConfigId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
       triggerColumns: ["sample_lineamount"],
     });
+  });
+
+  it("maps the rule's time zone", () => {
+    expect(mapRuleHeader({ ...rawRule, asx_evaluationtimezone: "Eastern Standard Time" }).evaluationTimeZone)
+      .toBe("Eastern Standard Time");
+  });
+
+  it("maps the rule's on-demand scope", () => {
+    expect(mapRuleHeader({ ...rawRule, asx_ondemandscope: 2 }).onDemandScope).toBe(2);
+    expect(mapRuleHeader(rawRule).onDemandScope).toBeNull();
   });
 
   it("defaults triggerColumns to [] when asx_triggercolumns is blank/absent", () => {
@@ -95,6 +109,12 @@ describe("mapper extensions", () => {
     expect(a.applyInverseWhenNotFired).toBe(false);
     expect(a.severity).toBe(3);
     expect(a.isActive).toBe(true);
+  });
+
+  it("maps asx_applytoprevious", () => {
+    expect(mapActionRecord({ ...rawAction, asx_applytoprevious: true }).applyToPrevious).toBe(true);
+    expect(mapActionRecord({ ...rawAction, asx_applytoprevious: false }).applyToPrevious).toBe(false);
+    expect(mapActionRecord({ ...rawAction, asx_applytoprevious: null }).applyToPrevious).toBeNull();
   });
 });
 

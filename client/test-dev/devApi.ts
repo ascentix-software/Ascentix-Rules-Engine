@@ -1,5 +1,5 @@
 import type { EditorApi } from "../src/editor/webapi";
-import { devOrg } from "./devOrg";
+import { devOrg, type RunRulesResult } from "./devOrg";
 
 // Adapters over devOrg("user") (the DevOrg module owns URL/token/header plumbing and the
 // "<op> <set> failed (<status>): <body>" error shape). Kept so the ~25 existing suites and the
@@ -24,7 +24,7 @@ export async function updateDevRecord(
   return devOrg("user", tokenOverride ? { tokenOverride } : {}).updateRecord(entitySet, id, data);
 }
 
-// Convenience: delete a record (for self-cleaning write tests). A 404 counts as deleted.
+// Rules use the transactional deletion API. Other DELETE 404s require a confirming GET 404.
 export async function deleteDevRecord(entitySet: string, id: string, tokenOverride?: string): Promise<void> {
   return devOrg("user", tokenOverride ? { tokenOverride } : {}).deleteRecord(entitySet, id);
 }
@@ -34,8 +34,36 @@ export async function deleteDevRecord(entitySet: string, id: string, tokenOverri
 // tokenOverride: same seam as updateDevRecord, to drive the call as a different origin channel.
 export async function runRules(
   tableName: string,
-  opts: { recordId?: string; recordJson?: string; triggers?: string; tokenOverride?: string } = {},
-): Promise<{ isValid: boolean; failedRuleCount: number; firedActions: any[] }> {
+  opts: { recordId?: string; recordJson?: string; triggers?: string; draftRuleId?: string; tokenOverride?: string } = {},
+): Promise<RunRulesResult> {
   const { tokenOverride, ...rest } = opts;
   return devOrg("user", tokenOverride ? { tokenOverride } : {}).runRules(tableName, rest);
+}
+
+// Enforcing one-record on-demand evaluation (docs/Schema.md §6): a fired Block throws, every
+// other fired write applies inside the call's own transaction. tokenOverride: same seam as above.
+export async function applyRules(
+  ruleId: string,
+  recordId: string,
+  tokenOverride?: string,
+): Promise<{ isValid: boolean; firedActions: any[]; writeCount: number }> {
+  return devOrg("user", tokenOverride ? { tokenOverride } : {}).applyRules(ruleId, recordId);
+}
+
+// Advances one Rule Run by a page (docs/Schema.md §7). `failed` is sent only on the call right
+// after a `asx_ProcessRunPage:record-failed:<guid>:<message>` error. tokenOverride: same seam as above.
+export async function processRunPage(
+  runId: string,
+  failed?: { recordId: string; message: string },
+  tokenOverride?: string,
+): Promise<{ done: boolean; status: number; evaluated: number; changed: number; blocked: number; failed: number; skipped: number }> {
+  return devOrg("user", tokenOverride ? { tokenOverride } : {}).processRunPage(runId, failed);
+}
+
+// Calls asx_StartDueSchedules (docs/Schema.md §9): starts or continues every due Rule Schedule
+// and records the scheduler heartbeat. No request parameters. tokenOverride: same seam as above.
+export async function startDueSchedules(
+  tokenOverride?: string,
+): Promise<{ runIds: string[]; scheduledCount: number }> {
+  return devOrg("user", tokenOverride ? { tokenOverride } : {}).startDueSchedules();
 }

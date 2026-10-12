@@ -6,36 +6,47 @@ slug: the-hub
 screenshots:
   - file: images/02-02-the-hub-01.png
     caption: The hub's Rules tab lists each rule with its table, status, triggers, action count, and last modified.
-    alt: "Rules & data model hub: Rules and Table configurations tabs, a New rule button, search box, Table and Status filters, and a list with one rule 'Order total within credit limit' on sample_order, status Draft, triggers On Create/On Form/On Update."
+    alt: "The Rules & data model hub on its Rules tab, searched for “Order”: New rule, Table and Status filters, and six Draft rules on sample_order that use the Orders data model, each with its triggers, action count and last modified time."
 ---
 
 # The Hub
 
-The hub, titled **Rules & data model**, is the Rule Builder's landing page. It
-has two tabs: **Rules** and **Table configurations**.
+The hub, **Rules & data model**, is the Rule Builder's landing page. It has two tabs: **Rules** and
+**Data models**.
 
-![Rules & data model hub: Rules and Table configurations tabs, a New rule button, search box, Table and Status filters, and a list with one rule "Order total within credit limit" on sample_order, status Draft, triggers On Create/On Form/On Update.](../images/02-02-the-hub-01.png)
+![The Rules & data model hub on its Rules tab, searched for “Order”: New rule, Table and Status filters, and six Draft rules on sample_order that use the Orders data model, each with its triggers, action count and last modified time.](../images/02-02-the-hub-01.png)
 
 ## Rules tab
 
-The Rules tab lists every rule with:
+| Column | Shows |
+|---|---|
+| **Rule** | The rule's name, and the data model it uses. |
+| **Table** | The table the rule runs on. |
+| **Status** | Draft, Published or Archived (*Rule Lifecycle*). |
+| **Triggers** | When it runs (*Triggers & Channels*). |
+| **Actions** | How many actions it has. |
+| **Modified** | When it last changed, and by whom. |
 
-- **Rule name**, and the table configuration it uses underneath.
-- **Table**: the table the rule's root table configuration is built on.
-- **Status**: Draft, Published, or Archived. See *Rule Lifecycle* for what
-  each status means.
-- **Triggers**: the events the rule responds to. See *Triggers & Channels*.
-- **Actions**: the rule's action count.
-- **Modified**: when the rule was last changed, and by whom.
+Click a row to open the rule (*Editor Layout*). Above the list: **New rule** (*Creating a New
+Rule*), **Search rules**, and the **Table** and **Status** filters.
 
-Clicking a row opens that rule directly in the editor. See *Editor Layout*
-for what you land on.
+While a data update is waiting, a bar reads *Read-only until Update N is applied.* and **New rule**,
+**Duplicate** and **Delete** are hidden. A System Administrator or System Customizer sees **Apply
+now** (*Data Updates*).
 
-Above the list sit **New rule** (see *Creating a New Rule*), **Search rules**,
-and the **Table** and **Status** filters.
+## Data models tab
 
-## Table configurations tab
+Data models (the table trees rules read through) are shared between rules, so they're managed here.
+Editing one affects every rule that uses it.
 
-The Table configurations tab lists the shared table-config trees. A table
-configuration can be reused across multiple rules, so it is managed here
-rather than inside any one rule.
+| Column | Shows |
+|---|---|
+| **Data model** | Its name and root table. |
+| **Root table** | The table it starts from. |
+| **Tables** | How many tables it reaches. |
+| **Used by** | How many rules use it, or **Unused**. |
+| **Modified** | When it last changed. |
+
+**Delete** is disabled while any rule uses the model. Above the list: **New data model**, **Search
+data models**, and a **Root table** filter. Click a row to open the model (*Table Configuration
+Tree*).

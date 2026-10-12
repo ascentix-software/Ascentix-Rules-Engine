@@ -1,3 +1,4 @@
+using System;
 using Microsoft.Xrm.Sdk;
 
 namespace Ascentix.RulesEngine.Plugin
@@ -22,6 +23,18 @@ namespace Ascentix.RulesEngine.Plugin
                     && (tag as string) == EngineWriteTag)
                     return true;
             }
+            return false;
+        }
+
+        /// <summary>Whether this execution is nested inside a call to the given custom API
+        /// (qualified message name, e.g. "asx_ProcessRunPage"): an ancestor's MessageName matches,
+        /// case-insensitively. A parent context can't be supplied by a Web API caller, so this
+        /// can't be spoofed from outside.</summary>
+        public static bool IsInsideMessage(IPluginExecutionContext context, string qualifiedMessageName)
+        {
+            for (var ctx = context?.ParentContext; ctx != null; ctx = ctx.ParentContext)
+                if (string.Equals(ctx.MessageName, qualifiedMessageName, StringComparison.OrdinalIgnoreCase))
+                    return true;
             return false;
         }
     }

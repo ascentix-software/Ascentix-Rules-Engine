@@ -20,8 +20,7 @@ namespace Ascentix.RulesEngine.Core.Execution
     /// </summary>
     public static class MathExprEvaluator
     {
-        /// <summary>Back-compat overload for callers that never filter aggregates (e.g. Expression
-        /// conditions, which have no filters sidecar).</summary>
+        /// <summary>Back-compat overload for callers that never filter aggregates.</summary>
         public static bool TryEvaluate(MathExprNode ast, Entity root, QueryResultCache cache,
             TableConfigTree tree, string errorContext, out decimal result)
         {

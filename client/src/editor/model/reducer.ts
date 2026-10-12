@@ -3,10 +3,14 @@ import type {
   LocalizedMessage, TableConfigRef,
 } from "./types";
 import { newTempId } from "./ids";
+import { always, firesWhenAfterOutcomeDelete } from "./firesWhen";
+import { isOutcome, nextOutcomeName } from "./outcomes";
+import { defaultActionType } from "./actionTriggers";
 import {
   updateGroup as treeUpdateGroup, removeGroup as treeRemoveGroup, insertGroup,
   updateCondition as treeUpdateCondition, removeCondition as treeRemoveCondition, insertCondition,
 } from "./tree";
+import { isCollectionNode, isSetAction, targetsNode } from "./setActions";
 
 export function setRuleName(graph: RuleGraph, name: string): RuleGraph {
   return { ...graph, rule: { ...graph.rule, name } };
@@ -19,8 +23,6 @@ export function patchRule(g: RuleGraph, patch: Partial<RuleHeader>): RuleGraph {
 function renumber(actions: ActionNode[]): ActionNode[] {
   return actions.map((a, i) => ({ ...a, order: i + 1 }));
 }
-
-const DEFAULT_ACTION_TYPE: ActionTypeLabel = "ShowMessage";
 
 /** SetVisible / SetRequired carry a two-state boolean (asx_valuebool); every other type ignores it. */
 function usesValueBool(t: ActionTypeLabel | null): boolean {
@@ -41,7 +43,8 @@ function withValueBoolForType(a: ActionNode): ActionNode {
 export function addAction(graph: RuleGraph): RuleGraph {
   const next: ActionNode = withValueBoolForType({
     id: newTempId(), name: "", order: graph.actions.length + 1,
-    actionType: DEFAULT_ACTION_TYPE, fireOn: 1,
+    // A type that does something under the rule's triggers.
+    actionType: defaultActionType(graph.rule.triggers), firesWhen: always(),
     targetColumn: null, targetTable: null, targetNodeId: null,
     message: null, fieldMapping: null,
     value: null, applyInverseWhenNotFired: null, severity: null, isActive: true,
@@ -50,14 +53,39 @@ export function addAction(graph: RuleGraph): RuleGraph {
   return { ...graph, actions: [...graph.actions, next] };
 }
 
+// Keep the target and the Rows filter consistent with the action type: a type that takes no node
+// drops it; Create keeps only a collection ("For each row of"); a Rows filter survives only on a
+// set action, and a new target starts without one (its columns belong to the old table).
+// `targetOrTypeChanged` (R7): the clear-a-mismatched-target rules below only fire when THIS patch
+// actually touches actionType or targetNodeId — never on an unrelated edit (e.g. a rename). A
+// loaded action can carry a stale target that no longer fits its type (the node tree changed
+// since it was saved); an unrelated edit must not silently clear it out from under the author
+// (and, via save/diff.ts, send an unbind the author never asked for).
+function withTargetForType(
+  prev: ActionNode, next: ActionNode, nodes: Record<string, TableConfigRef>, targetOrTypeChanged: boolean,
+): ActionNode {
+  let a = next;
+  if (targetOrTypeChanged) {
+    if (a.targetNodeId && !targetsNode(a.actionType) && a.actionType !== "CreateRecord") a = { ...a, targetNodeId: null };
+    if (a.actionType === "CreateRecord" && a.targetNodeId && !isCollectionNode(nodes, a.targetNodeId)) a = { ...a, targetNodeId: null };
+  }
+  if (a.rowFilter && (a.targetNodeId !== prev.targetNodeId || !isSetAction(a, nodes))) a = { ...a, rowFilter: null };
+  if (a.actionType !== prev.actionType && (a.actionType === "DeactivateRecord" || prev.actionType === "DeactivateRecord"))
+    a = { ...a, fieldMapping: null };
+  return a;
+}
+
 export function updateAction(graph: RuleGraph, id: string, patch: Partial<ActionNode>): RuleGraph {
   // A type change re-seeds/clears the two-state boolean; any other patch is passed through as-is.
   const fix = "actionType" in patch
     ? withValueBoolForType
     : (a: ActionNode) => a;
+  const targetOrTypeChanged = "actionType" in patch || "targetNodeId" in patch;
   return {
     ...graph,
-    actions: graph.actions.map((a) => (a.id === id ? fix({ ...a, ...patch, id: a.id }) : a)),
+    actions: graph.actions.map((a) => (a.id === id
+      ? withTargetForType(a, fix({ ...a, ...patch, id: a.id }), graph.tableConfigs, targetOrTypeChanged)
+      : a)),
   };
 }
 
@@ -117,6 +145,12 @@ export function addGroup(graph: RuleGraph, bucket: Bucket, parentGroupId: string
   return editForests(graph, (f) => insertGroup(f, parentGroupId, g));
 }
 
+/** A new top-level validation group, named so it is a usable outcome straight away. */
+export function addOutcome(graph: RuleGraph): RuleGraph {
+  const g = { ...newGroup(null, false), name: nextOutcomeName(graph) };
+  return { ...graph, validationGroups: [...graph.validationGroups, g] };
+}
+
 export function updateGroup(
   graph: RuleGraph, id: string, patch: Partial<ConditionGroupNode>,
 ): RuleGraph {
@@ -124,7 +158,15 @@ export function updateGroup(
 }
 
 export function deleteGroup(graph: RuleGraph, id: string): RuleGraph {
-  return editForests(graph, (f) => treeRemoveGroup(f, id));
+  const wasOutcome = isOutcome(graph, id);
+  const next = editForests(graph, (f) => treeRemoveGroup(f, id));
+  if (!wasOutcome) return next;
+  // Deleting an outcome drops every test of it from every action's Fires when tree; a tree that
+  // tested only this outcome becomes not set rather than an empty root ("Always").
+  return {
+    ...next,
+    actions: next.actions.map((a) => (a.firesWhen ? { ...a, firesWhen: firesWhenAfterOutcomeDelete(a.firesWhen, id) } : a)),
+  };
 }
 
 export function addCondition(graph: RuleGraph, groupId: string): RuleGraph {
@@ -200,4 +242,75 @@ export function renameNode(graph: RuleGraph, id: string, name: string): RuleGrap
 
 export function setRoot(graph: RuleGraph, nodeId: string): RuleGraph {
   return { ...graph, rule: { ...graph.rule, rootTableConfigId: nodeId } };
+}
+
+/**
+ * A deep copy with a new temp id for every entity (`id` keys) and no row etags, so the
+ * save diff creates it. References (node, outcome, column ids under other keys) are kept.
+ */
+function withFreshIds<T>(value: T): T {
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== "object") return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v)) {
+      if (k === "etag") continue;
+      out[k] = k === "id" && typeof x === "string" ? newTempId() : walk(x);
+    }
+    return out;
+  };
+  return walk(value) as T;
+}
+
+function reparent(g: ConditionGroupNode, parentGroupId: string | null): ConditionGroupNode {
+  return { ...g, parentGroupId, groups: g.groups.map((c) => reparent(c, g.id)) };
+}
+
+function insertAfter<T extends { id: string }>(list: T[], id: string, item: T): T[] | null {
+  const i = list.findIndex((x) => x.id === id);
+  return i < 0 ? null : [...list.slice(0, i + 1), item, ...list.slice(i + 1)];
+}
+
+/** A copy of a condition, with a new temp id, inserted right after the original. */
+export function duplicateCondition(graph: RuleGraph, id: string): RuleGraph {
+  const walk = (forest: ConditionGroupNode[]): ConditionGroupNode[] => forest.map((g) => {
+    const original = g.conditions.find((c) => c.id === id);
+    const conditions = original ? insertAfter(g.conditions, id, withFreshIds(original))! : g.conditions;
+    return { ...g, conditions, groups: walk(g.groups) };
+  });
+  return editForests(graph, walk);
+}
+
+/**
+ * A copy of a group and everything in it, inserted right after the original. A copied outcome
+ * gets a unique name (" (copy)", " (copy 2)", …) since actions test outcomes by name.
+ */
+export function duplicateGroup(graph: RuleGraph, id: string): RuleGraph {
+  const names = new Set(graph.validationGroups.map((g) => g.name));
+  const uniqueName = (name: string) => {
+    let n = `${name} (copy)`;
+    for (let i = 2; names.has(n); i++) n = `${name} (copy ${i})`;
+    return n;
+  };
+  const copyOf = (g: ConditionGroupNode, outcome: boolean) => {
+    const fresh = reparent(withFreshIds(g), g.parentGroupId);
+    return outcome ? { ...fresh, name: uniqueName(g.name) } : fresh;
+  };
+  const walk = (forest: ConditionGroupNode[], top: boolean, outcomes: boolean): ConditionGroupNode[] => {
+    const original = forest.find((g) => g.id === id);
+    if (original) return insertAfter(forest, id, copyOf(original, top && outcomes))!;
+    return forest.map((g) => ({ ...g, groups: walk(g.groups, false, outcomes) }));
+  };
+  return {
+    ...graph,
+    executionGroups: walk(graph.executionGroups, true, false),
+    validationGroups: walk(graph.validationGroups, true, true),
+  };
+}
+
+/** A copy of an action (its Fires when tree and translations too), right after the original. */
+export function duplicateAction(graph: RuleGraph, id: string): RuleGraph {
+  const original = graph.actions.find((a) => a.id === id);
+  if (!original) return graph;
+  return { ...graph, actions: renumber(insertAfter(graph.actions, id, withFreshIds(original))!) };
 }

@@ -40,6 +40,7 @@ namespace Ascentix.RulesEngine.Core.Loaders
         private static readonly string ConditionValueNodeField = SchemaNames.Qualify(SchemaNames.RuleCondition.ComparisonValueNode);
         private static readonly string ConditionValueColumnField = SchemaNames.Qualify(SchemaNames.RuleCondition.ComparisonValueColumn);
         private static readonly string ConditionExpressionField = SchemaNames.Qualify(SchemaNames.RuleCondition.ConditionExpression);
+        private static readonly string ConditionExpressionFiltersField = SchemaNames.Qualify(SchemaNames.RuleCondition.ExpressionFilters);
 
         private static readonly string CriterionFieldNameField = SchemaNames.Qualify(SchemaNames.SearchCriterion.FieldName);
         private static readonly string CriterionOperatorField = SchemaNames.Qualify(SchemaNames.SearchCriterion.Operator);
@@ -129,6 +130,7 @@ namespace Ascentix.RulesEngine.Core.Loaders
             {
                 Id = e.Id,
                 RuleId = ruleId,
+                Name = e.GetAttributeValue<string>(SchemaNames.Qualify(SchemaNames.PrimaryName)),
                 ParentConditionGroupId = e.GetAttributeValue<EntityReference>(ConditionGroupParentField)?.Id,
                 LogicalOperator = (Ascentix.RulesEngine.Core.Models.LogicalOperator)e.GetAttributeValue<OptionSetValue>(ConditionGroupLogicalOpField).Value,
                 IsExecutionCondition = e.GetAttributeValue<bool>(ConditionGroupIsExecutionField),
@@ -159,6 +161,7 @@ namespace Ascentix.RulesEngine.Core.Loaders
                 ComparisonValueNodeId = e.GetAttributeValue<EntityReference>(ConditionValueNodeField)?.Id,
                 ComparisonValueColumn = e.GetAttributeValue<string>(ConditionValueColumnField),
                 Expression = e.GetAttributeValue<string>(ConditionExpressionField),
+                ExpressionFilters = e.GetAttributeValue<string>(ConditionExpressionFiltersField),
                 MinExpectedRows = e.GetAttributeValue<int?>(ConditionMinRowsField),
                 MaxExpectedRows = e.GetAttributeValue<int?>(ConditionMaxRowsField),
                 SearchCriteriaGroups = MapSearchCriteriaGroups(e, e.Id)
@@ -201,6 +204,15 @@ namespace Ascentix.RulesEngine.Core.Loaders
                     .ToList();
             }
 
+            return group;
+        }
+
+        /// <summary>Maps a set action's Rows filter from its top-level asx_nodefiltergroup row (wired
+        /// by NodeFilterGraphLoader). No condition group owns it.</summary>
+        public NodeFilterGroup MapRowFilter(Entity rootGroup, Guid actionId)
+        {
+            var group = MapFilterGroup(rootGroup, Guid.Empty);
+            group.RuleActionId = actionId;
             return group;
         }
 

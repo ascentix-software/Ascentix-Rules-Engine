@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { formatError, ErrorBoundary, ErrorPanel } from "../../src/editor/ui/errors";
+import { formatError, isPrivilegeDeniedError, ErrorBoundary, ErrorPanel } from "../../src/editor/ui/errors";
 
 // The normalizer + shared boundary/panel. The banned output is "[object Object]",
 // the exact string every raw Xrm.WebApi rejection produced under String(e).
@@ -34,6 +34,26 @@ describe("formatError", () => {
   it("truncates giant JSON payloads", () => {
     const huge = { data: "x".repeat(5000) };
     expect(formatError(huge).length).toBeLessThan(500);
+  });
+});
+
+describe("isPrivilegeDeniedError", () => {
+  it("is true for an HTTP 403, however it's carried", () => {
+    expect(isPrivilegeDeniedError({ httpStatus: 403 })).toBe(true);
+    expect(isPrivilegeDeniedError({ status: 403 })).toBe(true);
+  });
+
+  it("is true for an Xrm.WebApi missing-privilege message, which carries no status", () => {
+    expect(isPrivilegeDeniedError(new Error("Principal user is missing prvReadasx_RuleSchedule privilege"))).toBe(true);
+    expect(isPrivilegeDeniedError({ error: { message: "missing the asx_ruleschedule Read privilege" } })).toBe(true);
+  });
+
+  it("is false for a plain failure: network error, 500, or any message without the word privilege", () => {
+    expect(isPrivilegeDeniedError(new Error("Network request failed"))).toBe(false);
+    expect(isPrivilegeDeniedError({ httpStatus: 500 })).toBe(false);
+    expect(isPrivilegeDeniedError(new Error("timeout"))).toBe(false);
+    expect(isPrivilegeDeniedError(null)).toBe(false);
+    expect(isPrivilegeDeniedError(undefined)).toBe(false);
   });
 });
 

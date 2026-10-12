@@ -4,17 +4,8 @@ import { devOrg } from "./devOrg";
 import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
 
-// The SEC gate's three-leg live proof:
-//   (a) an Author-only principal (config-table CRUD, ZERO privileges on the business tables)
-//       cannot publish a System-context rule carrying write actions: publish 400s with the
-//       SEC_SYSWRITE_PRIV message;
-//   (b) a full-privilege principal publishes the same rule successfully;
-//   (c) a User-context write rule publishes for both.
-// The pre-mitigation exploit was recorded once, privately. This suite
-// documents only the guard. Prerequisite: the asx-dev-author-sp application user (Author role
-// only) with AUTHOR_SP_* creds in .env / the dataverse-dev variable group.
-//
-describe("SEC_SYSWRITE_PRIV — publish-time escalation guard (live)", () => {
+// Trusted Authors may publish System-context writes without business-table privileges.
+describe("trusted Author System-context publication (live)", () => {
   let tc: Awaited<ReturnType<typeof ensureTableConfig>>;
   const cleanups: Array<() => Promise<void>> = [];
   const api = createDevApi();
@@ -49,23 +40,12 @@ describe("SEC_SYSWRITE_PRIV — publish-time escalation guard (live)", () => {
     await tc.cleanup();
   });
 
-  it("(a) Author-only principal is blocked with the Global-privilege message", async () => {
+  it("Author-only principal publishes System writes without business-table privileges", async () => {
     const r = await systemWriteRule("ZZ_RB_sec_author");
     cleanups.push(r.cleanup);
-
     const authorApi = createDevApi(await authorSpToken());
-    let threw = false;
-    try {
-      await authorApi.publishRule(r.ruleId);
-    } catch (e: any) {
-      threw = true;
-      expect(e.message).toContain("(400)");
-    }
-    expect(threw).toBe(true);
-
-    // The rule must still be Draft: the gate is fail-closed, not advisory.
-    const rule = await api.retrieveRecord("asx_rules", r.ruleId, "?$select=statuscode");
-    expect(rule.statuscode).not.toBe(753840000);
+    await authorApi.publishRule(r.ruleId);
+    expect((await api.retrieveRecord("asx_rules", r.ruleId, "?$select=statuscode")).statuscode).toBe(753840000);
   });
 
   it("(b) full-privilege principal publishes the same shape successfully", async () => {
@@ -96,11 +76,11 @@ describe("SEC_SYSWRITE_PRIV — publish-time escalation guard (live)", () => {
     expect(rule.statuscode).toBe(753840000);
   });
 
-  it("asx_ValidateRule surfaces SEC_SYSWRITE_REQ to a privileged caller without blocking", async () => {
+  it("asx_ValidateRule validates definitions without publisher privilege issues", async () => {
     const r = await systemWriteRule("ZZ_RB_sec_req");
     cleanups.push(r.cleanup);
-    const v = await api.validateRule(r.ruleId);
-    expect(v.isValid).toBe(true); // privileged caller: warning only
-    expect(v.issues.some((i: any) => i.code === "SEC_SYSWRITE_REQ")).toBe(true);
+    const v = await createDevApi(await authorSpToken()).validateRule(r.ruleId);
+    expect(v.isValid).toBe(true);
+    expect(v.issues.some((i: any) => i.code.startsWith("SEC_SYSWRITE"))).toBe(false);
   });
 });

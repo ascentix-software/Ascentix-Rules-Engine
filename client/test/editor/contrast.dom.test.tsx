@@ -10,7 +10,7 @@ vi.mock("../../src/editor/ui/useResolvedConditionValue", () => ({
 
 const noop: GraphTreeHandlers = {
   onSelect: vi.fn(), onAddGroup: vi.fn(), onDeleteGroup: vi.fn(), onAddCondition: vi.fn(),
-  onDeleteCondition: vi.fn(), onAddAction: vi.fn(), onDeleteAction: vi.fn(), onMoveAction: vi.fn(),
+  onDeleteCondition: vi.fn(), onAddAction: vi.fn(), onDeleteAction: vi.fn(), onMoveAction: vi.fn(), onAddOutcome: vi.fn(),
 };
 
 // Token-level contrast now lives in tokens.contrast.test.ts. This only pins the

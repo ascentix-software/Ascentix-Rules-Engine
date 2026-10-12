@@ -9,9 +9,23 @@ export const ENTITY = {
   localizedMessage: "asx_localizedmessage",
   nodeFilterGroup: "asx_nodefiltergroup",
   nodeFilterCriterion: "asx_nodefiltercriterion",
+  actionConditionGroup: "asx_actionconditiongroup",
+  actionConditionTest: "asx_actionconditiontest",
+  // asx_rulerun (docs/Schema.md §2.13): Xrm.WebApi's retrieveRecord / retrieveMultipleRecords /
+  // createRecord all take the table's LOGICAL name, unlike ENTITY_SET below (the plural
+  // collection name used for @odata.bind targets and raw Web API PATCH URLs).
+  ruleRun: "asx_rulerun",
+  // asx_ruleschedule / asx_schedulerstatus (pipelines/Configure-RuleAuthoring.ps1): same
+  // LOGICAL-name-for-Xrm.WebApi rule as every entry above.
+  ruleSchedule: "asx_ruleschedule",
+  schedulerStatus: "asx_schedulerstatus",
 } as const;
 
 export const LOOKUP = {
+  acgAction: "_asx_ruleaction_value",
+  acgParent: "_asx_parentgroup_value",
+  actGroup: "_asx_actionconditiongroup_value",
+  actOutcome: "_asx_outcome_value",
   ruleOfGroup: "_asx_rule_value",
   parentGroup: "_asx_parentconditiongroup_value",
   ruleOfAction: "_asx_rule_value",
@@ -30,6 +44,16 @@ export const LOOKUP = {
   // the GROUP (the sub-filter's root); collection-node is on the CRITERION (Exists target).
   filterGroupOwningCriterion: "_asx_owningcriterion_value",
   filterCriterionCollectionNode: "_asx_collectionnode_value",
+  // asx_nodefiltergroup.asx_ruleaction: a set action's Rows filter, on every group of its tree
+  filterGroupAction: "_asx_ruleaction_value",
+  // asx_rulerun.asx_rule (docs/Schema.md §2.13): same Web API lookup-value field name as every
+  // other "asx_rule" attribute above, just on a different owning entity.
+  ruleOfRun: "_asx_rule_value",
+  // asx_ruleschedule.asx_rule: same lowercase lookup-value field name pattern as above.
+  ruleOfSchedule: "_asx_rule_value",
+  // A Fires when group's rule, through its action (every tree node carries asx_ruleaction), so one
+  // $filter reads a rule's whole tree. Round-tripped by bindNav.dev.test.ts.
+  acgRule: "asx_RuleAction/_asx_rule_value",
 } as const;
 
 export const NAV = {
@@ -39,11 +63,13 @@ export const NAV = {
   // action → localized messages; confirm nav name in live smoke if a fetch 400s
   actionLocalizedMessages: "asx_ruleaction_localizedmessage",
   filterGroupCriteria: "asx_nodefiltergroup_criterion",
+  // Fires when group → its tests (relationship asx_actionconditiongroup_actionconditiontest)
+  actionConditionGroupTests: "asx_actionconditiongroup_actionconditiontest",
 } as const;
 
 export const RULE_SELECT =
-  "asx_ruleid,asx_name,asx_tablelogicalname,statuscode," +
-  "asx_triggers,asx_channels,asx_effectivefrom,asx_effectiveto,asx_evaluationcontext,asx_triggercolumns," +
+  "asx_ruleid,asx_name,asx_tablelogicalname,statuscode,_asx_publishedrevision_value,asx_publishedversion,_asx_draftof_value," +
+  "asx_triggers,asx_channels,asx_effectivefrom,asx_effectiveto,asx_evaluationcontext,asx_evaluationtimezone,asx_triggercolumns,asx_ondemandscope," +
   LOOKUP.ruleOfTableConfig;
 export const GROUP_SELECT =
   "asx_conditiongroupid,asx_name,asx_logicaloperator,asx_isexecutioncondition," +
@@ -51,13 +77,17 @@ export const GROUP_SELECT =
 export const CONDITION_SELECT =
   "asx_ruleconditionid,asx_name,asx_conditiontype,asx_comparisoncolumn," +
   "asx_comparisonoperator,asx_comparisonvaluesource,asx_comparisonvalue," +
-  "asx_comparisonvaluecolumn,asx_minexpectedrows,asx_maxexpectedrows,asx_conditionexpression," +
+  "asx_comparisonvaluecolumn,asx_minexpectedrows,asx_maxexpectedrows,asx_conditionexpression,asx_expressionfilters," +
   LOOKUP.conditionTableConfig + "," + LOOKUP.comparisonValueNode;
 export const ACTION_SELECT =
-  "asx_ruleactionid,asx_name,asx_order,asx_actiontype,asx_fireon," +
+  "asx_ruleactionid,asx_name,asx_order,asx_actiontype," +
   "asx_targetcolumn,asx_targettable,asx_message,asx_fieldmapping," +
-  "asx_valuebool,asx_applyinversewhennotfired,asx_severity,asx_isactive," +
+  "asx_valuebool,asx_applyinversewhennotfired,asx_severity,asx_isactive,asx_applytoprevious," +
   LOOKUP.actionTargetNode;
+export const ACG_SELECT =
+  "asx_actionconditiongroupid,asx_logicaloperator,asx_order," + LOOKUP.acgAction + "," + LOOKUP.acgParent;
+export const ACT_SELECT =
+  "asx_actionconditiontestid,asx_expected,asx_order," + LOOKUP.actGroup + "," + LOOKUP.actOutcome;
 export const TABLECONFIG_SELECT =
   "asx_tableconfigid,asx_name,asx_tablelogicalname,asx_tableconfigtype," +
   LOOKUP.parentTableOfConfig + ",asx_lookupcolumnlogicalname,asx_childlinkfield,asx_lookuptargetidattribute";
@@ -66,7 +96,7 @@ export const LOCALIZEDMSG_SELECT =
 export const NODEFILTERGROUP_SELECT =
   "asx_nodefiltergroupid,asx_logicaloperator," +
   LOOKUP.filterGroupCondition + "," + LOOKUP.filterGroupTargetNode + "," + LOOKUP.filterParentGroup + "," +
-  LOOKUP.filterGroupOwningCriterion;
+  LOOKUP.filterGroupOwningCriterion + "," + LOOKUP.filterGroupAction;
 export const NODEFILTERCRITERION_SELECT =
   "asx_nodefiltercriterionid,asx_fieldname,asx_operator,asx_value," +
   "asx_comparisonvaluesource,asx_comparisonvaluecolumn," +
@@ -83,6 +113,11 @@ export const ENTITY_SET = {
   localizedMessage: "asx_localizedmessages",
   nodeFilterGroup: "asx_nodefiltergroups",
   nodeFilterCriterion: "asx_nodefiltercriterions",
+  ruleRun: "asx_ruleruns",
+  ruleSchedule: "asx_ruleschedules",
+  schedulerStatus: "asx_schedulerstatuses",
+  actionConditionGroup: "asx_actionconditiongroups",
+  actionConditionTest: "asx_actionconditiontests",
 } as const;
 
 // @odata.bind navigation-property names. The referencing-side navigation
@@ -116,4 +151,19 @@ export const BIND_NAV = {
   // lowercase lookups above.
   filterCriterionCollectionNode: "asx_collectionnode",
   filterGroupOwningCriterion: "asx_owningcriterion",
+  // EnsureLookup SchemaName asx_RuleAction ⇒ PascalCase nav, like localizedMessageAction
+  filterGroupAction: "asx_RuleAction",
+  // asx_rulerun.asx_rule: provisioned by EnsureLookup with SchemaName "asx_Rule"
+  // (pipelines/Configure-RuleAuthoring.ps1) and no ReferencingEntityNavigationPropertyName
+  // override, so the nav property is PascalCased, unlike the plain-lowercase asx_rule lookups
+  // on asx_conditiongroup/asx_ruleaction above. Round-tripped by bindNav.dev.test.ts.
+  runRule: "asx_Rule",
+  // asx_ruleschedule.asx_rule: same EnsureLookup shape (SchemaName "asx_Rule") as runRule above.
+  scheduleRule: "asx_Rule",
+  // An action's "Fires when" tree (docs/Schema.md 2.18-2.19): EnsureLookup with PascalCase SchemaNames
+  // (pipelines/Configure-RuleAuthoring.ps1), so these nav properties are PascalCased too.
+  actionConditionGroupAction: "asx_RuleAction",
+  actionConditionGroupParent: "asx_ParentGroup",
+  actionConditionTestGroup: "asx_ActionConditionGroup",
+  actionConditionTestOutcome: "asx_Outcome",
 } as const;

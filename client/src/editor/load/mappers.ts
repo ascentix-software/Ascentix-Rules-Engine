@@ -1,7 +1,8 @@
-import type { RuleHeader, ConditionNode, ActionNode, TableConfigRef, LocalizedMessage } from "../model/types";
+import type { RuleHeader, ConditionNode, ActionNode, FiresWhenGroup, TableConfigRef, LocalizedMessage } from "../model/types";
 import type { NodeFilterBlock, NodeFilterGroupModel, NodeFilterLeaf, NodeFilterNode } from "../model/nodeFilter";
 import { newTempId } from "../model/ids";
 import { conditionTypeLabel, actionTypeLabel, tableConfigTypeLabel, parseMultiSelect } from "../model/enums";
+import { parseExpressionFilters } from "../model/expressionFilters";
 import { LOOKUP, NAV } from "./odata";
 
 // Row version, threaded through the model to save/diff so a child PATCH can carry `If-Match`.
@@ -29,12 +30,16 @@ export function mapRuleHeader(raw: any): RuleHeader {
     name: raw.asx_name ?? "",
     tableLogicalName: raw.asx_tablelogicalname ?? "",
     statusCode: numOrNull(raw.statuscode),
+    publishedRevisionId: strOrNull(raw._asx_publishedrevision_value),
+    publishedVersion: Number(raw.asx_publishedversion ?? 0),
     etag: raw["@odata.etag"] ?? null,
     triggers: parseMultiSelect(raw.asx_triggers),
     channels: parseMultiSelect(raw.asx_channels),
     effectiveFrom: strOrNull(raw.asx_effectivefrom),
     effectiveTo: strOrNull(raw.asx_effectiveto),
     evaluationContext: numOrNull(raw.asx_evaluationcontext),
+    evaluationTimeZone: strOrNull(raw.asx_evaluationtimezone),
+    onDemandScope: numOrNull(raw.asx_ondemandscope),
     rootTableConfigId: strOrNull(raw[LOOKUP.ruleOfTableConfig]),
     triggerColumns: parseStringArray(raw.asx_triggercolumns),
   };
@@ -56,6 +61,7 @@ export function mapConditionRecord(raw: any): ConditionNode {
     minExpectedRows: numOrNull(raw.asx_minexpectedrows),
     maxExpectedRows: numOrNull(raw.asx_maxexpectedrows),
     expression: strOrNull(raw.asx_conditionexpression),
+    expressionFilters: parseExpressionFilters(raw.asx_expressionfilters),
   };
 }
 
@@ -66,7 +72,7 @@ export function mapActionRecord(raw: any): ActionNode {
     etag: etagOf(raw),
     order: numOrNull(raw.asx_order) ?? 0,
     actionType: actionTypeLabel(numOrNull(raw.asx_actiontype)),
-    fireOn: numOrNull(raw.asx_fireon),
+    firesWhen: null, // filled by the loader from the Fires when rows
     targetColumn: strOrNull(raw.asx_targetcolumn),
     targetTable: strOrNull(raw.asx_targettable),
     targetNodeId: strOrNull(raw[LOOKUP.actionTargetNode]),
@@ -76,10 +82,41 @@ export function mapActionRecord(raw: any): ActionNode {
     applyInverseWhenNotFired: boolOrNull(raw.asx_applyinversewhennotfired),
     severity: numOrNull(raw.asx_severity),
     isActive: boolOrNull(raw.asx_isactive),
+    applyToPrevious: boolOrNull(raw.asx_applytoprevious),
     localizedMessages: Array.isArray(raw[NAV.actionLocalizedMessages])
       ? raw[NAV.actionLocalizedMessages].map(mapLocalizedMessage)
       : [],
   };
+}
+
+/** Each action's Fires when tree, keyed by action id. Children are ordered by asx_order; if an
+ * action has more than one root (direct API writes only) the lowest-order root wins and the rest
+ * are counted in extraRoots. A test whose outcome was deleted keeps outcomeId null. */
+export function mapFiresWhenTrees(groupRows: any[], testRows: any[]): Record<string, { root: FiresWhenGroup; extraRoots: number }> {
+  const byOrder = (a: any, b: any) => (a.asx_order ?? 0) - (b.asx_order ?? 0);
+  const nodes = new Map<string, FiresWhenGroup>();
+  for (const r of [...groupRows].sort(byOrder))
+    nodes.set(r.asx_actionconditiongroupid, {
+      id: r.asx_actionconditiongroupid, etag: etagOf(r),
+      op: Number(r.asx_logicaloperator) === 2 ? "any" : "all", tests: [], groups: [],
+    });
+  for (const r of [...testRows].sort(byOrder)) {
+    const owner = nodes.get(r[LOOKUP.actGroup]);
+    if (owner) owner.tests.push({
+      id: r.asx_actionconditiontestid, etag: etagOf(r),
+      outcomeId: strOrNull(r[LOOKUP.actOutcome]), expected: r.asx_expected === true,
+    });
+  }
+  const result: Record<string, { root: FiresWhenGroup; extraRoots: number }> = {};
+  for (const r of [...groupRows].sort(byOrder)) {
+    const node = nodes.get(r.asx_actionconditiongroupid)!;
+    const parent = strOrNull(r[LOOKUP.acgParent]);
+    if (parent) { nodes.get(parent)?.groups.push(node); continue; }
+    const action = r[LOOKUP.acgAction];
+    if (!result[action]) result[action] = { root: node, extraRoots: 0 };
+    else result[action].extraRoots++;
+  }
+  return result;
 }
 
 export function mapLocalizedMessage(raw: any): LocalizedMessage {
@@ -304,6 +341,20 @@ export function mapNodeFilterTrees(rows: any[], subFilterRows: any[] = []): Reco
       root: node,
     }));
     if (blocks.length) result[condId] = blocks;
+  }
+  return result;
+}
+
+// A set action's Rows filter: asx_nodefiltergroup rows carrying asx_ruleaction (denormalized on every
+// group of the tree, like asx_rulecondition), one top-level group per action. EXISTS sub-filters come
+// in `subFilterRows`, fetched and BFS-walked exactly as for condition filters.
+export function mapActionRowFilters(rows: any[], subFilterRows: any[] = []): Record<string, NodeFilterBlock> {
+  const subFiltersByCriterion = mapExistsSubFilters(subFilterRows);
+  const forest = buildFilterGroupForest(rows, LOOKUP.filterGroupAction, subFiltersByCriterion);
+  const result: Record<string, NodeFilterBlock> = {};
+  for (const [actionId, roots] of forest) {
+    const first = roots[0];
+    if (first) result[actionId] = { targetNodeId: strOrNull(first.raw[LOOKUP.filterGroupTargetNode]), root: first.node };
   }
   return result;
 }

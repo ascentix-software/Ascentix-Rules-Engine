@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Models;
 
@@ -48,8 +49,9 @@ namespace Ascentix.RulesEngine.Core.Execution
     /// solves it for every other node that fetches the same table.
     ///
     /// Per operation, over the rows of a node whose table matches the in-flight table:
-    ///  - Update: overlay the unsaved Target onto the matching row; if a pushed filter kept the
-    ///    row out server-side (it was judged against stale values), add the record back.
+    ///  - Update: overlay the unsaved Target onto the matching row; drop it when the save moves it
+    ///    to a parent outside this collection's scope; if a pushed filter kept the row out
+    ///    server-side (it was judged against stale values), add the record back.
     ///  - Create: add the not-yet-persisted record to each collection it will belong to.
     ///  - Delete: drop the record from COLLECTIONS. Never from a lookup node, where a rule
     ///    legitimately reads the record being deleted ("block the delete when ...").
@@ -79,37 +81,68 @@ namespace Ascentix.RulesEngine.Core.Execution
             var isCollection = node.ConfigType == TableConfigType.ChildTable;
             var scope = AsSet(scopeIds);
 
-            // One pass over the fetched rows; the batch then costs O(records), not O(records x rows).
-            var byId = new Dictionary<Guid, Entity>();
-            foreach (var row in rows)
-                if (row.Id != Guid.Empty && !byId.ContainsKey(row.Id)) byId[row.Id] = row;
+            // One pass over the fetched rows, then O(1) per record: the batch costs
+            // O(rows + records), not O(records x rows). Positions stay valid because rows are only
+            // appended inside the loop; removals are collected and made in one pass at the end.
+            var byId = new Dictionary<Guid, int>();
+            for (var i = 0; i < rows.Count; i++)
+                if (rows[i].Id != Guid.Empty && !byId.ContainsKey(rows[i].Id)) byId[rows[i].Id] = i;
+            HashSet<Entity> removed = null;
 
             foreach (var record in inFlight.Records)
             {
-                Entity existing = null;
-                if (record.Id != Guid.Empty) byId.TryGetValue(record.Id, out existing);
+                var at = -1;
+                if (record.Id != Guid.Empty && byId.TryGetValue(record.Id, out var index)) at = index;
 
                 if (inFlight.Operation == InFlightOperation.Delete)
                 {
-                    if (isCollection && existing != null)
+                    if (isCollection && at >= 0)
                     {
-                        rows.Remove(existing);
+                        Remove(ref removed, rows[at]);
                         byId.Remove(record.Id);
                     }
                     continue;
                 }
 
-                if (existing != null)
+                if (at >= 0)
                 {
-                    Overlay(existing, record.Target);
+                    // Fetched rows can be shared with other buckets of the run (RunFetchStore):
+                    // overlay a copy and put it in this result's place, never the shared row.
+                    var copy = CopyRow(rows[at]);
+                    rows[at] = copy;
+                    Overlay(copy, record.Target);
+                    // A save that moves the row to another parent takes it out of every collection
+                    // scoped to the old parent (the new parent's fetch adds it through Belongs).
+                    if (isCollection && MovedOutOfScope(copy, node, record.Target, scope))
+                    {
+                        Remove(ref removed, copy);
+                        byId.Remove(record.Id);
+                    }
                     continue;
                 }
 
                 if (!Belongs(record, node, isCollection, scope)) continue;
                 var added = Clone(record.Root);
                 rows.Add(added);
-                if (added.Id != Guid.Empty) byId[added.Id] = added;
+                if (added.Id != Guid.Empty) byId[added.Id] = rows.Count - 1;
             }
+
+            if (removed != null) rows.RemoveAll(removed.Contains);
+        }
+
+        private static void Remove(ref HashSet<Entity> removed, Entity row)
+        {
+            if (removed == null) removed = new HashSet<Entity>(SameRow.Instance);
+            removed.Add(row);
+        }
+
+        // Rows are told apart by reference, as List.Remove did (Entity keeps object equality),
+        // without calling into the rows themselves.
+        private sealed class SameRow : IEqualityComparer<Entity>
+        {
+            public static readonly SameRow Instance = new SameRow();
+            public bool Equals(Entity x, Entity y) => ReferenceEquals(x, y);
+            public int GetHashCode(Entity row) => RuntimeHelpers.GetHashCode(row);
         }
 
         // Would this node's own fetch have been scoped to the record? For a collection, the
@@ -130,6 +163,16 @@ namespace Ascentix.RulesEngine.Core.Execution
             return parent != null && scope.Contains(parent.Id);
         }
 
+        // True when this save rewrites the collection's link column to a parent outside the set
+        // the fetch was scoped to (another parent, or none).
+        private static bool MovedOutOfScope(Entity row, TableConfig node, Entity target, HashSet<Guid> scope)
+        {
+            if (target == null || scope.Count == 0 || string.IsNullOrWhiteSpace(node.ChildLinkField)) return false;
+            if (!target.Attributes.ContainsKey(node.ChildLinkField)) return false;
+            var parent = row.GetAttributeValue<EntityReference>(node.ChildLinkField);
+            return parent == null || !scope.Contains(parent.Id);
+        }
+
         private static void Overlay(Entity row, Entity target)
         {
             if (target == null) return;
@@ -147,10 +190,33 @@ namespace Ascentix.RulesEngine.Core.Execution
             }
         }
 
+        /// <summary>True when <paramref name="row"/> is <paramref name="record"/> itself or the copy
+        /// this reconciler added of it. The only way to tell apart the in-flight rows of a
+        /// CreateMultiple whose Targets carry no ids: they all share Guid.Empty.</summary>
+        internal static bool IsRowOf(Entity row, Entity record) =>
+            row != null && record != null
+            && (ReferenceEquals(row, record) || (CopyOf.TryGetValue(row, out var source) && ReferenceEquals(source, record)));
+
+        // Copy → the in-flight root it was made from, for copies of records with no id yet. Weak
+        // keys: an entry lives only as long as the copy (one evaluation's cache).
+        private static readonly ConditionalWeakTable<Entity, Entity> CopyOf = new ConditionalWeakTable<Entity, Entity>();
+
         // Added rows are copies: the root entity is also the root node's cached record and (for
         // a root-in-place UpdateRecord) the very Target the write executor mutates afterwards.
         // Aliasing it into a collection would let a later write reach back into an evaluated set.
         private static Entity Clone(Entity source)
+        {
+            var copy = new Entity(source.LogicalName) { Id = source.Id };
+            foreach (var attr in source.Attributes) copy[attr.Key] = attr.Value;
+            if (source.FormattedValues != null)
+                foreach (var formatted in source.FormattedValues)
+                    copy.FormattedValues[formatted.Key] = formatted.Value;
+            if (source.Id == Guid.Empty) CopyOf.Add(copy, source);
+            return copy;
+        }
+
+        // A persisted row's copy (it has an id, so no CopyOf entry is needed for IsRowOf).
+        private static Entity CopyRow(Entity source)
         {
             var copy = new Entity(source.LogicalName) { Id = source.Id };
             foreach (var attr in source.Attributes) copy[attr.Key] = attr.Value;

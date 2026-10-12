@@ -55,25 +55,9 @@ namespace Ascentix.RulesEngine.Core.Loaders
         private static readonly string CriterionOperatorField = SchemaNames.Qualify(SchemaNames.SearchCriterion.Operator);
         private static readonly string CriterionValueField = SchemaNames.Qualify(SchemaNames.SearchCriterion.Value);
 
-        private static readonly string FilterGroupEntity = SchemaNames.Qualify(SchemaNames.NodeFilterGroup.Entity);
+        // Condition filters: node-filter groups scoped to a condition group (Q6). Their criteria,
+        // child groups and EXISTS sub-filters are loaded and wired by NodeFilterGraphLoader.
         private static readonly string FilterGroupConditionGroupLookup = SchemaNames.Qualify(SchemaNames.NodeFilterGroup.ConditionGroup);
-        private static readonly string FilterGroupTableConfigLookup = SchemaNames.Qualify(SchemaNames.NodeFilterGroup.TableConfigNode);
-        private static readonly string FilterGroupParentLookup = SchemaNames.Qualify(SchemaNames.NodeFilterGroup.ParentFilterGroup);
-        private static readonly string FilterGroupLogicalOperatorField = SchemaNames.Qualify(SchemaNames.NodeFilterGroup.LogicalOperator);
-        private static readonly string FilterGroupToCriteriaRel = SchemaNames.Qualify(SchemaNames.Relationships.NodeFilterGroupCriterion);
-        private static readonly string FilterGroupChildGroupsRel = SchemaNames.Qualify(SchemaNames.Relationships.NodeFilterGroupNodeFilterGroup);
-
-        private static readonly string FilterCriterionEntity = SchemaNames.Qualify(SchemaNames.NodeFilterCriterion.Entity);
-        private static readonly string FilterCriterionGroupLookup = SchemaNames.Qualify(SchemaNames.NodeFilterCriterion.FilterGroup);
-        private static readonly string FilterCriterionFieldNameField = SchemaNames.Qualify(SchemaNames.NodeFilterCriterion.FieldName);
-        private static readonly string FilterCriterionOperatorField = SchemaNames.Qualify(SchemaNames.NodeFilterCriterion.Operator);
-        private static readonly string FilterCriterionValueField = SchemaNames.Qualify(SchemaNames.NodeFilterCriterion.Value);
-        private static readonly string FilterCriterionTypeField = SchemaNames.Qualify(SchemaNames.NodeFilterCriterion.CriterionType);
-
-        // EXISTS sub-filter: a nodefiltergroup owned by a criterion (asx_owningcriterion),
-        // not scoped to a condition group, retrieved separately (Q8/Q9 below).
-        private static readonly string FilterGroupOwningCriterionLookup = SchemaNames.Qualify(SchemaNames.NodeFilterGroup.OwningCriterion);
-        private static readonly string FilterGroupOwningCriterionRel = SchemaNames.Qualify(SchemaNames.Relationships.NodeFilterGroupOwningCriterion);
 
         public RuleLoader(IOrganizationService service)
         {
@@ -176,8 +160,10 @@ namespace Ascentix.RulesEngine.Core.Loaders
                 }
             }
 
-            // Q6–Q7: Load node filter groups and filter criteria
-            var filterGroupQuery = new QueryExpression(FilterGroupEntity)
+            // Q6–Q9: Load node filter groups; NodeFilterGraphLoader loads their criteria and the
+            // EXISTS criteria's sub-filter groups (owned by the criterion via asx_owningcriterion,
+            // NOT scoped to a condition group, so Q6 does not retrieve them).
+            var filterGroupQuery = new QueryExpression(NodeFilterGraphLoader.FilterGroupEntity)
             {
                 ColumnSet = new ColumnSet(true)
             };
@@ -188,25 +174,8 @@ namespace Ascentix.RulesEngine.Core.Loaders
 
             if (filterGroups.Any())
             {
-                var filterGroupIds = filterGroups.Select(g => (object)g.Id).ToArray();
-
-                var filterCriterionQuery = new QueryExpression(FilterCriterionEntity)
-                {
-                    ColumnSet = new ColumnSet(true)
-                };
-                filterCriterionQuery.Criteria.AddCondition(FilterCriterionGroupLookup,
-                    ConditionOperator.In, filterGroupIds);
-
-                var filterCriteria = _service.RetrieveMultiple(filterCriterionQuery).Entities.ToList();
-
-                WireFilterCriteriaToFilterGroups(filterGroups, filterCriteria);
-                WireChildFilterGroupsToParents(filterGroups);
+                NodeFilterGraphLoader.Wire(_service, filterGroups);
                 WireFilterGroupsToConditionGroups(conditionGroups, filterGroups);
-
-                // Q8–Q9: EXISTS criteria's sub-filter groups are owned by the criterion
-                // (asx_owningcriterion), NOT scoped to a condition group, so the Q6 query
-                // above does not retrieve them. Fetch separately and wire onto the criterion.
-                LoadExistsSubFilters(filterCriteria);
             }
 
             // Wire conditions and child groups to their condition groups
@@ -243,98 +212,6 @@ namespace Ascentix.RulesEngine.Core.Loaders
         {
             var triggers = rule.GetAttributeValue<OptionSetValueCollection>(RuleTriggersField);
             return triggers != null && triggers.Any(o => o.Value == (int)trigger);
-        }
-
-        /// <summary>
-        /// For every EXISTS filter criterion, loads its sub-filter group tree: the
-        /// asx_nodefiltergroup owned by the criterion (asx_owningcriterion), plus any
-        /// nested child groups (an EXISTS sub-filter may itself be an AND/OR tree of
-        /// scalar criteria), plus all of those groups' criteria. It then wires the root
-        /// sub-filter group onto its owning criterion so the mapper can find it.
-        /// </summary>
-        private void LoadExistsSubFilters(List<Entity> filterCriteria)
-        {
-            var existsCriteria = filterCriteria
-                .Where(c => c.GetAttributeValue<OptionSetValue>(FilterCriterionTypeField)?.Value == (int)CriterionKind.Exists)
-                .ToList();
-            if (!existsCriteria.Any()) return;
-
-            var existsCriterionIds = existsCriteria.Select(c => (object)c.Id).ToArray();
-
-            var subFilterGroupQuery = new QueryExpression(FilterGroupEntity)
-            {
-                ColumnSet = new ColumnSet(true)
-            };
-            subFilterGroupQuery.Criteria.AddCondition(FilterGroupOwningCriterionLookup,
-                ConditionOperator.In, existsCriterionIds);
-
-            var rootSubFilterGroups = _service.RetrieveMultiple(subFilterGroupQuery).Entities.ToList();
-            if (!rootSubFilterGroups.Any()) return;
-
-            // Breadth-first descend the sub-filter's own AND/OR tree via ParentFilterGroup:
-            // it is not scoped to a condition group, so it cannot be picked up by Q6.
-            var subFilterGroups = new List<Entity>(rootSubFilterGroups);
-            var seen = new HashSet<Guid>(rootSubFilterGroups.Select(g => g.Id));
-            var frontier = rootSubFilterGroups;
-            while (frontier.Any())
-            {
-                var frontierIds = frontier.Select(g => (object)g.Id).ToArray();
-                var childQuery = new QueryExpression(FilterGroupEntity)
-                {
-                    ColumnSet = new ColumnSet(true)
-                };
-                childQuery.Criteria.AddCondition(FilterGroupParentLookup, ConditionOperator.In, frontierIds);
-                var children = _service.RetrieveMultiple(childQuery).Entities.ToList();
-                foreach (var child in children)
-                    if (!seen.Add(child.Id))
-                        throw new InvalidPluginExecutionException(
-                            $"Node-filter group {child.Id} has a cyclic parent chain " +
-                            "(asx_parentfiltergroup); the rule cannot be loaded.");
-                frontier = children;
-                subFilterGroups.AddRange(children);
-            }
-
-            var subFilterGroupIds = subFilterGroups.Select(g => (object)g.Id).ToArray();
-            var subCriterionQuery = new QueryExpression(FilterCriterionEntity)
-            {
-                ColumnSet = new ColumnSet(true)
-            };
-            subCriterionQuery.Criteria.AddCondition(FilterCriterionGroupLookup,
-                ConditionOperator.In, subFilterGroupIds);
-
-            var subCriteria = _service.RetrieveMultiple(subCriterionQuery).Entities.ToList();
-
-            WireFilterCriteriaToFilterGroups(subFilterGroups, subCriteria);
-            WireChildFilterGroupsToParents(subFilterGroups);
-            WireSubFilterGroupsToOwningCriteria(existsCriteria, rootSubFilterGroups);
-        }
-
-        private void WireSubFilterGroupsToOwningCriteria(List<Entity> existsCriteria, List<Entity> rootSubFilterGroups)
-        {
-            var byOwner = new Dictionary<Guid, Entity>();
-            foreach (var group in rootSubFilterGroups)
-            {
-                var ownerId = group.GetAttributeValue<EntityReference>(FilterGroupOwningCriterionLookup)?.Id;
-                if (!ownerId.HasValue) continue;
-
-                if (byOwner.ContainsKey(ownerId.Value))
-                {
-                    throw new InvalidPluginExecutionException(
-                        $"Exists criterion {ownerId.Value} is the owning criterion for more than one " +
-                        "sub-filter group. An EXISTS criterion may own only one sub-filter group.");
-                }
-
-                byOwner[ownerId.Value] = group;
-            }
-
-            foreach (var criterion in existsCriteria)
-            {
-                if (byOwner.TryGetValue(criterion.Id, out var subGroup))
-                {
-                    criterion.RelatedEntities[new Relationship(FilterGroupOwningCriterionRel)] =
-                        new EntityCollection(new List<Entity> { subGroup });
-                }
-            }
         }
 
         // ── Wiring Helpers ────────────────────────────────────────────────────
@@ -425,39 +302,10 @@ namespace Ascentix.RulesEngine.Core.Loaders
             }
         }
 
-        private void WireFilterCriteriaToFilterGroups(List<Entity> filterGroups, List<Entity> filterCriteria)
-        {
-            var byGroup = filterCriteria
-                .GroupBy(c => c.GetAttributeValue<EntityReference>(FilterCriterionGroupLookup).Id)
-                .ToDictionary(g => g.Key, g => g.ToList());
-
-            foreach (var group in filterGroups)
-            {
-                group.RelatedEntities[new Relationship(FilterGroupToCriteriaRel)] =
-                    new EntityCollection(
-                        byGroup.TryGetValue(group.Id, out var crit) ? crit : new List<Entity>());
-            }
-        }
-
-        private void WireChildFilterGroupsToParents(List<Entity> filterGroups)
-        {
-            var groupsById = filterGroups.ToDictionary(g => g.Id);
-            foreach (var group in filterGroups)
-            {
-                var parentId = group.GetAttributeValue<EntityReference>(FilterGroupParentLookup)?.Id;
-                if (parentId.HasValue && groupsById.TryGetValue(parentId.Value, out var parent))
-                {
-                    if (!parent.RelatedEntities.ContainsKey(new Relationship(FilterGroupChildGroupsRel)))
-                        parent.RelatedEntities[new Relationship(FilterGroupChildGroupsRel)] = new EntityCollection();
-                    parent.RelatedEntities[new Relationship(FilterGroupChildGroupsRel)].Entities.Add(group);
-                }
-            }
-        }
-
         private void WireFilterGroupsToConditionGroups(List<Entity> conditionGroups, List<Entity> filterGroups)
         {
             var rootFilterGroupsByConditionGroup = filterGroups
-                .Where(g => g.GetAttributeValue<EntityReference>(FilterGroupParentLookup) == null)
+                .Where(g => g.GetAttributeValue<EntityReference>(NodeFilterGraphLoader.FilterGroupParentLookup) == null)
                 .GroupBy(g => g.GetAttributeValue<EntityReference>(FilterGroupConditionGroupLookup).Id)
                 .ToDictionary(g => g.Key, g => g.ToList());
 

@@ -1,6 +1,8 @@
 import type { WebApiPort } from "../webapi";
 import { ENTITY, LOOKUP } from "./odata";
 import { parseMultiSelect } from "../model/enums";
+import { loadPublishedGraph } from "./publishedGraph";
+import { scheduleSummary } from "../schedule/scheduleModel";
 
 const FV = "@OData.Community.Display.V1.FormattedValue";
 
@@ -8,7 +10,20 @@ export interface RuleListItem {
   id: string; name: string; tableLogicalName: string; statusCode: number | null;
   triggers: number[]; actionCount: number;
   rootConfigId: string | null; rootConfigName: string | null;
+  rootConfigReadOnly?: boolean;
+  /** asx_ondemandscope: which records an On demand run processes; null/absent defaults
+   *  to 1 ("a record it's given") — see model/enums.ts's ON_DEMAND_SCOPE_OPTIONS. */
+  onDemandScope?: number | null;
+  /** _asx_publishedrevision_value: set once the rule has ever been published, and kept
+   *  after a later unpublish, so the Runs button still shows the rule's run history
+   *  (its runs outlive an unpublish). */
+  publishedRevisionId?: string | null;
   modifiedOn: string | null; modifiedBy: string | null;
+  /** Whether the rule has an On (asx_on = true) asx_ruleschedule row (Task 6 hub indicator).
+   *  Optional so pre-Task-6 fixtures keep compiling without the field. */
+  scheduled?: boolean;
+  /** A short summary of that schedule ("Daily at 02:00"), present iff `scheduled`. */
+  scheduleSummary?: string;
 }
 export interface ConfigListItem {
   id: string; name: string; rootTableLogicalName: string;
@@ -71,18 +86,52 @@ export function groupUsedBy(rules: { rootConfigId: string | null }[]): Map<strin
   return m;
 }
 
-// Three bulk queries, each followed to the last page; all counts derived client-side.
+// Four bulk queries, each followed to the last page; all counts derived client-side.
+// Revisions per query: their ids go in the URL, and a definition can be large.
+const REVISIONS_PER_QUERY = 25;
+
+/** Each published revision's definition (asx_definition JSON), by revision id, in a few bulk
+ *  queries rather than one asx_ReadPublishedRule per rule. */
+async function loadRevisionDefinitions(api: WebApiPort, revisionIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (let i = 0; i < revisionIds.length; i += REVISIONS_PER_QUERY) {
+    const ids = revisionIds.slice(i, i + REVISIONS_PER_QUERY).map((id) => `'${id}'`).join(",");
+    const r = await retrieveAll(api, "asx_rulerevision",
+      `?$select=asx_rulerevisionid,asx_definition&$filter=Microsoft.Dynamics.CRM.In(PropertyName='asx_rulerevisionid',PropertyValues=[${ids}])`);
+    for (const e of r.entities) if (e.asx_definition) out.set(String(e.asx_rulerevisionid).toLowerCase(), e.asx_definition);
+  }
+  return out;
+}
+
 export async function loadHubData(api: WebApiPort): Promise<HubData> {
-  const [ruleResp, actionResp, nodeResp] = await Promise.all([
+  const [ruleResp, actionResp, nodeResp, scheduleResp] = await Promise.all([
     retrieveAll(api, ENTITY.rule,
-      `?$select=asx_ruleid,asx_name,asx_tablelogicalname,statuscode,asx_triggers,${LOOKUP.ruleOfTableConfig},modifiedon,_modifiedby_value&$orderby=modifiedon desc`),
+      `?$select=asx_ruleid,asx_name,asx_tablelogicalname,statuscode,asx_triggers,asx_ondemandscope,_asx_publishedrevision_value,${LOOKUP.ruleOfTableConfig},modifiedon,_modifiedby_value&$filter=_asx_draftof_value eq null&$orderby=modifiedon desc`),
     retrieveAll(api, ENTITY.action, `?$select=${LOOKUP.ruleOfAction}`),
     retrieveAll(api, ENTITY.tableConfig,
-      `?$select=asx_tableconfigid,asx_name,asx_tablelogicalname,asx_tableconfigtype,${LOOKUP.parentTableOfConfig},modifiedon,_modifiedby_value&$orderby=modifiedon desc`),
+      `?$select=asx_tableconfigid,asx_name,asx_tablelogicalname,asx_tableconfigtype,${LOOKUP.parentTableOfConfig},modifiedon,_modifiedby_value&$filter=asx_isprivate ne true&$orderby=modifiedon desc`),
+    // Its own catch, separate from the three queries above: asx_ruleschedule may not exist yet
+    // (solution not upgraded on this environment) or the caller may lack read privilege on it.
+    // Either way the hub as a whole must still load — only the scheduled indicators disappear,
+    // never "The hub could not load." (client/src/editor/index.tsx's top-level catch).
+    retrieveAll(api, ENTITY.ruleSchedule,
+      `?$select=${LOOKUP.ruleOfSchedule},asx_pattern,asx_every,asx_timeofday,asx_daysofweek,asx_dayofmonth&$filter=asx_on eq true`)
+      .catch(() => ({ entities: [] as any[], truncated: false })),
   ]);
-  const truncated = ruleResp.truncated || actionResp.truncated || nodeResp.truncated;
+  const truncated = ruleResp.truncated || actionResp.truncated || nodeResp.truncated || scheduleResp.truncated;
 
   const actionCounts = countByRule(actionResp.entities);
+
+  // rule id -> short summary, for the clock-icon tooltip on the hub row (Task 6).
+  const scheduleSummaryByRule = new Map<string, string>();
+  for (const s of scheduleResp.entities) {
+    const ruleId = s[LOOKUP.ruleOfSchedule];
+    if (!ruleId) continue;
+    scheduleSummaryByRule.set(ruleId, scheduleSummary({
+      pattern: s.asx_pattern, every: s.asx_every ?? null, timeOfDay: s.asx_timeofday ?? null,
+      days: parseMultiSelect(s.asx_daysofweek), dayOfMonth: s.asx_dayofmonth ?? null,
+    }));
+  }
 
   const nodeName = new Map<string, string>();
   const parentToChildren = new Map<string, string[]>();
@@ -96,16 +145,32 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
     }
   }
 
-  const rules: RuleListItem[] = ruleResp.entities.map((r) => {
+  // Published rules show their live definition. It's read from the revisions in a few bulk
+  // queries: one asx_ReadPublishedRule per rule, all at once, exceeded Dataverse's limit of 100
+  // concurrent requests and failed the whole hub on an org with 100+ published rules. A revision
+  // that's missing or doesn't parse falls back to the rule's own row.
+  const definitions = await loadRevisionDefinitions(api,
+    ruleResp.entities.map((r) => r._asx_publishedrevision_value).filter((id): id is string => !!id));
+  // No requests in here: the definitions are already loaded.
+  const rules: RuleListItem[] = await Promise.all(ruleResp.entities.map(async (r) => {
     const rootConfigId = r[LOOKUP.ruleOfTableConfig] ?? null;
+    const definition = r._asx_publishedrevision_value ? definitions.get(String(r._asx_publishedrevision_value).toLowerCase()) : undefined;
+    const published = definition ? await loadPublishedGraph(definition, r.asx_ruleid).catch(() => null) : null;
+    const publishedRoot = published?.rule.rootTableConfigId;
     return {
-      id: r.asx_ruleid, name: r.asx_name, tableLogicalName: r.asx_tablelogicalname,
-      statusCode: r.statuscode ?? null, triggers: parseMultiSelect(r.asx_triggers),
-      actionCount: actionCounts.get(r.asx_ruleid) ?? 0,
-      rootConfigId, rootConfigName: rootConfigId ? nodeName.get(rootConfigId) ?? null : null,
+      id: r.asx_ruleid, name: published?.rule.name ?? r.asx_name, tableLogicalName: r.asx_tablelogicalname,
+      statusCode: r.statuscode ?? null, triggers: published?.rule.triggers ?? parseMultiSelect(r.asx_triggers),
+      actionCount: published?.actions.length ?? actionCounts.get(r.asx_ruleid) ?? 0,
+      rootConfigId: published ? publishedRoot ?? null : rootConfigId,
+      rootConfigReadOnly: !!published,
+      onDemandScope: r.asx_ondemandscope ?? null,
+      publishedRevisionId: r._asx_publishedrevision_value ?? null,
+      rootConfigName: published ? (publishedRoot ? published.tableConfigs[publishedRoot]?.name ?? null : null) : (rootConfigId ? nodeName.get(rootConfigId) ?? r[LOOKUP.ruleOfTableConfig + FV] ?? null : null),
       modifiedOn: r.modifiedon ?? null, modifiedBy: r["_modifiedby_value" + FV] ?? null,
+      scheduled: scheduleSummaryByRule.has(r.asx_ruleid),
+      scheduleSummary: scheduleSummaryByRule.get(r.asx_ruleid),
     };
-  });
+  }));
 
   const usedBy = groupUsedBy(rules);
   const configs: ConfigListItem[] = nodeResp.entities
@@ -118,4 +183,38 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
     }));
 
   return { rules, configs, truncated };
+}
+
+/** Loads the (at most one, global) asx_schedulerstatus row the scheduler add-on's flow
+ *  heartbeats on every run. No row means the add-on was never installed/run. */
+export async function loadSchedulerStatus(
+  api: WebApiPort,
+): Promise<{ lastSeenOn: string | null; installed: boolean }> {
+  const resp = await api.retrieveMultipleRecords(ENTITY.schedulerStatus, "?$select=asx_lastseenon&$top=1");
+  const raw = resp.entities[0];
+  return { lastSeenOn: raw?.asx_lastseenon ?? null, installed: !!raw };
+}
+
+/**
+ * The hub header's scheduler status chip (Task 6). Shown only when at least one rule's
+ * schedule is On: `anyScheduleOn` gates it regardless of `status`. Otherwise:
+ * - no status row (or a row with no heartbeat yet) -> "Scheduler not installed" (warning);
+ * - last heartbeat at most 30 minutes before `now` -> "Scheduler: last ran {N} minute(s) ago" (ok);
+ * - strictly more than 30 minutes -> "Scheduler not running since {local time}" (warning).
+ */
+const SCHEDULER_STALE_AFTER_MS = 30 * 60000;
+
+export function schedulerChip(
+  status: { lastSeenOn: string | null; installed: boolean },
+  anyScheduleOn: boolean,
+  now: number,
+): { text: string; tone: "ok" | "warning" } | null {
+  if (!anyScheduleOn) return null;
+  if (!status.installed || !status.lastSeenOn) return { text: "Scheduler not installed", tone: "warning" };
+  const elapsed = now - Date.parse(status.lastSeenOn);
+  if (elapsed <= SCHEDULER_STALE_AFTER_MS) {
+    const minutes = Math.max(0, Math.floor(elapsed / 60000));
+    return { text: `Scheduler: last ran ${minutes} minute${minutes === 1 ? "" : "s"} ago`, tone: "ok" };
+  }
+  return { text: `Scheduler not running since ${new Date(status.lastSeenOn).toLocaleString()}`, tone: "warning" };
 }

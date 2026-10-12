@@ -1,0 +1,197 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Messages;
+using Microsoft.Xrm.Sdk.Query;
+using Ascentix.RulesEngine.Core.Diagnostics;
+using Ascentix.RulesEngine.Core.Execution;
+using Ascentix.RulesEngine.Core.Models;
+
+namespace Ascentix.RulesEngine.Plugin
+{
+    /// <summary>Sends one organization request (a seam: tests record requests instead).</summary>
+    public interface IWriteRequestSender
+    {
+        void Send(IOrganizationService service, OrganizationRequest request);
+    }
+
+    public sealed class ServiceWriteRequestSender : IWriteRequestSender
+    {
+        public void Send(IOrganizationService service, OrganizationRequest request) => service.Execute(request);
+    }
+
+    /// <summary>Whether a table supports a bulk message (CreateMultiple / UpdateMultiple).</summary>
+    public interface IBulkWriteSupport
+    {
+        bool Supports(string message, string table);
+    }
+
+    /// <summary>Answers bulk support from sdkmessagefilter: one query per (message, table), cached for
+    /// this instance's lifetime (one plug-in execution).</summary>
+    public sealed class SdkMessageFilterBulkSupport : IBulkWriteSupport
+    {
+        private readonly IOrganizationService _service;
+        private readonly Dictionary<string, bool> _cache = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+        public SdkMessageFilterBulkSupport(IOrganizationService service) { _service = service; }
+
+        public bool Supports(string message, string table)
+        {
+            var key = message + "|" + table;
+            if (_cache.TryGetValue(key, out var known)) return known;
+            var query = new QueryExpression("sdkmessagefilter") { ColumnSet = new ColumnSet("sdkmessagefilterid"), TopCount = 1 };
+            query.Criteria.AddCondition("primaryobjecttypecode", ConditionOperator.Equal, table);
+            var link = query.AddLink("sdkmessage", "sdkmessageid", "sdkmessageid");
+            link.LinkCriteria.AddCondition("name", ConditionOperator.Equal, message);
+            var supported = _service.RetrieveMultiple(query).Entities.Count > 0;
+            _cache[key] = supported;
+            return supported;
+        }
+    }
+
+    /// <summary>The failed single-row write, carried in an exception's Data. Exception.Data only accepts
+    /// serializable values and <see cref="ChangeSetWrite"/> is not, so it rides in a non-serialized field
+    /// (lost if the exception crosses an app domain, which only costs the record's name).</summary>
+    [Serializable]
+    internal sealed class FailedWrite
+    {
+        [NonSerialized] private readonly ChangeSetWrite _write;
+        public FailedWrite(ChangeSetWrite write) { _write = write; }
+        public ChangeSetWrite Write => _write;
+    }
+
+    /// <summary>
+    /// Sends a <see cref="ChangeSet"/>'s batches in order. Creates and updates: a batch of 2 or more
+    /// rows on a table that supports the bulk message goes as CreateMultiple / UpdateMultiple in
+    /// requests of at most <see cref="BulkChunkSize"/> rows; otherwise single requests. An update
+    /// carrying statecode goes single unless UpdateMultiple is proven to accept it. Deletes are
+    /// always single (DeleteMultiple is elastic-only). Every request carries the engine tag. A
+    /// failure is rethrown prefixed with the operation, the table and (single requests) the action.
+    /// </summary>
+    public sealed class ChangeSetDispatcher
+    {
+        public const int BulkChunkSize = 100;
+
+        /// <summary>Key under which a failed single-row request's <see cref="FailedWrite"/> (its ChangeSetWrite) is stored in
+        /// the thrown exception's Data, only when the dispatcher was built with tagFailedWrites (the group path); absent otherwise and when a bulk request failed.</summary>
+        public const string FailedWriteKey = "asx:failedWrite";
+
+        /// <summary>Proven on DEV 2026-09-29: UpdateMultiple accepts a statecode change.</summary>
+        public const bool UpdateMultipleAcceptsStateChange = true;
+
+        private readonly IBulkWriteSupport _support;
+        private readonly IWriteRequestSender _sender;
+        private readonly ITracingService _trace;
+        private readonly bool _bulkStateChanges;
+        private readonly RunDiagnostics _diagnostics;
+        private readonly bool _tagFailedWrites;
+
+        /// <param name="diagnostics">Receives a dispatch:&lt;operation&gt;:&lt;table&gt; stage per batch and
+        /// the row/request counters; null means none.</param>
+        public ChangeSetDispatcher(IBulkWriteSupport support, IWriteRequestSender sender, ITracingService trace,
+            bool bulkStateChanges = UpdateMultipleAcceptsStateChange, RunDiagnostics diagnostics = null,
+            bool tagFailedWrites = false)
+        {
+            _support = support;
+            _sender = sender;
+            _trace = trace;
+            _bulkStateChanges = bulkStateChanges;
+            _diagnostics = diagnostics;
+            _tagFailedWrites = tagFailedWrites;
+        }
+
+        /// <summary>Copies the root-in-place values onto the in-flight Target. True when the change set
+        /// had an update of the record being saved and a Target to write it onto.</summary>
+        public bool ApplyInPlace(ChangeSet changeSet, Entity inPlace)
+        {
+            if (inPlace == null || !changeSet.HasRootInPlace) return false;
+            foreach (var kv in changeSet.RootInPlaceValues) inPlace[kv.Key] = kv.Value;
+            _trace?.Trace($"ChangeSetDispatcher: applied {changeSet.RootInPlaceValues.Count} value(s) to the record in place.");
+            return true;
+        }
+
+        /// <summary>Sends every batch; returns the number of rows written.</summary>
+        public int SendBatches(ChangeSet changeSet, IOrganizationService userService, IOrganizationService systemService)
+        {
+            var sent = 0;
+            foreach (var batch in changeSet.Batches)
+            {
+                var service = batch.Context == RuleEvaluationContext.System ? systemService : userService;
+                using (_diagnostics?.Time($"dispatch:{batch.Operation}:{batch.Table}"))
+                {
+                    switch (batch.Operation)
+                    {
+                        case WriteOperation.Delete:
+                            foreach (var write in batch.Writes)
+                                SendSingle(service, write, new DeleteRequest { Target = new EntityReference(write.Table, write.Id) });
+                            break;
+                        case WriteOperation.Create:
+                            SendCreatesOrUpdates(service, batch, batch.Writes, "CreateMultiple");
+                            break;
+                        default:
+                            var bulkable = batch.Writes.Where(w => _bulkStateChanges || !w.Values.ContainsKey("statecode")).ToList();
+                            SendCreatesOrUpdates(service, batch, bulkable, "UpdateMultiple");
+                            foreach (var write in batch.Writes.Except(bulkable))
+                                SendSingle(service, write, new UpdateRequest { Target = ToEntity(write) });
+                            break;
+                    }
+                }
+                sent += batch.Writes.Count;
+                if (_diagnostics != null) _diagnostics.WritesSent += batch.Writes.Count;
+            }
+            return sent;
+        }
+
+        private void SendCreatesOrUpdates(IOrganizationService service, ChangeSetBatch batch, IReadOnlyList<ChangeSetWrite> writes, string bulkMessage)
+        {
+            var isCreate = batch.Operation == WriteOperation.Create;
+            if (writes.Count >= 2 && _support.Supports(bulkMessage, batch.Table))
+            {
+                for (var start = 0; start < writes.Count; start += BulkChunkSize)
+                {
+                    var targets = new EntityCollection(writes.Skip(start).Take(BulkChunkSize).Select(ToEntity).ToList()) { EntityName = batch.Table };
+                    OrganizationRequest request = isCreate
+                        ? (OrganizationRequest)new CreateMultipleRequest { Targets = targets }
+                        : new UpdateMultipleRequest { Targets = targets };
+                    try { Tagged(service, request); }
+                    catch (Exception ex) { throw new InvalidPluginExecutionException($"{bulkMessage} {batch.Table}: {ex.Message}", ex); }
+                    if (_diagnostics != null) _diagnostics.BulkRequests++;
+                    _trace?.Trace($"ChangeSetDispatcher: {bulkMessage} {batch.Table} ({targets.Entities.Count} rows).");
+                }
+                return;
+            }
+            foreach (var write in writes)
+                SendSingle(service, write, isCreate ? (OrganizationRequest)new CreateRequest { Target = ToEntity(write) } : new UpdateRequest { Target = ToEntity(write) });
+        }
+
+        private void SendSingle(IOrganizationService service, ChangeSetWrite write, OrganizationRequest request)
+        {
+            try { Tagged(service, request); }
+            catch (Exception ex)
+            {
+                var failure = new InvalidPluginExecutionException($"{write.Operation} {write.Table} (action \"{write.ActionLabel}\"): {ex.Message}", ex);
+                if (_tagFailedWrites) failure.Data[FailedWriteKey] = new FailedWrite(write);
+                throw failure;
+            }
+            if (_diagnostics != null) _diagnostics.SingleRequests++;
+            _trace?.Trace($"ChangeSetDispatcher: {write.Operation} {write.Table} {write.Id}.");
+        }
+
+        private void Tagged(IOrganizationService service, OrganizationRequest request)
+        {
+            request["tag"] = PluginReentry.EngineWriteTag;
+            _sender.Send(service, request);
+        }
+
+        // A Create is never sent with an id: the ChangeSet's engine-assigned id is an internal
+        // merge key only (Dataverse assigns sequential ids), exactly as the pre-existing
+        // WriteActionExecutor always created with no id. Updates and Deletes keep their id.
+        private static Entity ToEntity(ChangeSetWrite write)
+        {
+            var entity = write.Operation == WriteOperation.Create ? new Entity(write.Table) : new Entity(write.Table, write.Id);
+            foreach (var kv in write.Values) entity[kv.Key] = kv.Value;
+            return entity;
+        }
+    }
+}

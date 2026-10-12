@@ -1,20 +1,32 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Core.Resolution;
 using Ascentix.RulesEngine.Core.Validation;
+using Ascentix.RulesEngine.Core.Publication;
+using Ascentix.RulesEngine.Plugin.Publication;
+using Ascentix.RulesEngine.Plugin.DataUpdates;
+using Ascentix.RulesEngine.Schema;
+using Microsoft.Xrm.Sdk.Query;
 
 namespace Ascentix.RulesEngine.Plugin
 {
     /// <summary>
-    /// Pre-operation gate on asx_rule Update. When a rule transitions Draft→Published, runs the
-    /// shared RuleValidator and blocks the save (throws) if the rule is invalid. Register on
-    /// asx_rule Update, pre-operation synchronous, with a "PreImage" pre-image carrying statuscode.
-    /// Draft saves and non-status edits pass untouched.
+    /// Pre-operation publication on asx_rule Update. Each explicit Published status write
+    /// validates the saved draft and prepares a new immutable revision in the same transaction.
     /// </summary>
     public class RulePublishPlugin : PluginBase
     {
-        public RulePublishPlugin() : base(typeof(RulePublishPlugin)) { }
+        private readonly IReadOnlyList<IDataUpdate> _updates;
+
+        public RulePublishPlugin() : this(DataUpdateRegistry.All) { }
+
+        /// <summary>Tests supply the data updates the publish gate checks.</summary>
+        internal RulePublishPlugin(IReadOnlyList<IDataUpdate> updates) : base(typeof(RulePublishPlugin))
+        {
+            _updates = updates;
+        }
 
         protected override void ExecuteCdsPlugin(ILocalPluginContext localPluginContext)
         {
@@ -25,23 +37,30 @@ namespace Ascentix.RulesEngine.Plugin
 
             if (!context.InputParameters.TryGetValue("Target", out var t) || !(t is Entity target)) return;
 
-            Entity preImage = null;
-            context.PreEntityImages?.TryGetValue("PreImage", out preImage);
+            if (target.GetAttributeValue<OptionSetValue>("statuscode")?.Value != (int)RuleStatus.Published) return;
 
-            // A null/absent PreImage leaves oldStatus null (treated as non-Published): if the Target
-            // transitions to Published we still validate (fail-closed): a misregistered step must not
-            // let an invalid rule publish unchecked.
-            var oldStatus = preImage?.GetAttributeValue<OptionSetValue>("statuscode")?.Value;
-            var newStatus = target.Contains("statuscode")
-                ? target.GetAttributeValue<OptionSetValue>("statuscode")?.Value
-                : oldStatus;
+            // A pending data update must convert existing rules before any rule is published (docs/Schema.md §5.1).
+            // A publish made by asx_ApplyDataUpdates itself (an update republishing the rules it converted)
+            // is the update's own work, so it is not gated.
+            if (!PluginReentry.IsInsideMessage(context, SchemaNames.Qualify(SchemaNames.ApplyDataUpdatesApi.MessageName)))
+            {
+                var pendingUpdate = DataUpdateGate.FirstPending(service, _updates);
+                if (pendingUpdate != null)
+                    throw new InvalidPluginExecutionException(DataUpdateGate.PublishRefusal(pendingUpdate.Number));
+            }
 
-            var published = (int)RuleStatus.Published;
-            var isPublishTransition = newStatus == published && oldStatus != published;
-            if (!isPublishTransition) return;
-
-            var model = RuleValidationLoader.Load(service, target.Id);
-            if (model == null) return; // nothing to validate
+            var header = service.Retrieve("asx_rule", target.Id, new ColumnSet(true));
+            if (header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf) == null &&
+                (header.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) != null || RuleDrafts.Find(service, header.Id) != null))
+                throw new InvalidPluginExecutionException("Publish this rule's working draft in the Rule Builder so its latest changes are used.");
+            // Publish only a previously saved graph; status and the expected hash are commands.
+            // Other authored attributes in the same PATCH would not yet be committed.
+            foreach (var field in target.Attributes.Keys)
+                if (field.StartsWith("asx_", StringComparison.Ordinal) && field != PublicationSchema.PublishHash &&
+                    field != PublicationSchema.DraftStamp && field != "asx_ruleid")
+                    throw new InvalidPluginExecutionException("Save draft changes before publishing: " + field + ".");
+            var snapshot = RuleSnapshot.Capture(service, target.Id);
+            var model = RuleValidationLoader.Load(new SnapshotService(service, snapshot), target.Id);
 
             var report = RuleValidator.Validate(model, new AttributeFlagsProvider(service));
             if (!report.IsValid)
@@ -49,18 +68,30 @@ namespace Ascentix.RulesEngine.Plugin
                     "This rule can't be published until these problems are fixed:\n" +
                     ValidationReportSerializer.JoinErrors(report));
 
-            // SEC gate (publisher-relative, fail-closed): a System-context rule with write actions
-            // may only be published by a user holding the matching privilege at Global depth on
-            // each target table. Otherwise an Author with config-table CRUD alone could delegate
-            // org-wide writes to SYSTEM. InitiatingUserId: the human behind the publish, so an
-            // impersonated publish can't launder the check.
-            var secIssues = SecurityChecks.Check(
-                model, new PublisherPrivilegeProvider(service, context.InitiatingUserId));
-            var secReport = ValidationReport.From(secIssues);
-            if (!secReport.IsValid)
-                throw new InvalidPluginExecutionException(
-                    "This rule can't be published until these problems are fixed:\n" +
-                    ValidationReportSerializer.JoinErrors(secReport));
+            var source = header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf);
+            if (source != null)
+            {
+                var active = service.Retrieve("asx_rule", source.Id, new ColumnSet(true));
+                var next = checked(active.GetAttributeValue<int>(PublicationSchema.Number) + 1);
+                var published = RuleDrafts.Reidentify(snapshot, active.Id);
+                Entity revision = null;
+                PublicationCoordinator.Internal(context, service, writer => revision = PublicationCoordinator.Store(writer, published, next, context.InitiatingUserId));
+                PublicationCoordinator.Internal(context, service, writer => writer.Update(new Entity("asx_rule", active.Id) {
+                    [PublicationSchema.Pointer] = revision.ToEntityReference(), [PublicationSchema.Number] = next,
+                    ["statuscode"] = new OptionSetValue((int)RuleStatus.Published), ["asx_name"] = header.GetAttributeValue<string>("asx_name")
+                }), reconcile: true);
+                target["statuscode"] = new OptionSetValue(1);
+                target[PublicationSchema.DraftBaseVersion] = next;
+                target[PublicationSchema.PublishHash] = null;
+                return;
+            }
+            var version = checked(header.GetAttributeValue<int>(PublicationSchema.Number) + 1);
+            PublicationCoordinator.Internal(context, service, writer => {
+                var revision = PublicationCoordinator.Store(writer, snapshot, version, context.InitiatingUserId);
+                target[PublicationSchema.Pointer] = revision.ToEntityReference();
+                target[PublicationSchema.Number] = version;
+                target[PublicationSchema.PublishHash] = null;
+            });
         }
     }
 }

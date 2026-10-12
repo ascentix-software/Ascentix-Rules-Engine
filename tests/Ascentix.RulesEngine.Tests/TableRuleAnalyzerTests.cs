@@ -14,7 +14,7 @@ namespace Ascentix.RulesEngine.Tests
     {
         private static string Q(string f) => SchemaNames.Qualify(f);
 
-        // Root-only rule on "account": name == "Valid", Block OnNoMatch, tagged with `trigger`.
+        // Root-only rule on "account": name == "Valid", Block that fires when the outcome is false, tagged with `trigger`.
         private static List<Entity> SeedAccountRule(int trigger, ActionType actionType, bool actionActive = true)
         {
             var ruleId = Guid.NewGuid();
@@ -56,10 +56,10 @@ namespace Ascentix.RulesEngine.Tests
                 {
                     [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
                     [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)actionType),
-                    [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                     [Q(SchemaNames.RuleAction.Order)] = 1,
                     [Q(SchemaNames.RuleAction.IsActive)] = actionActive,
                 },
+                ActionTreeRows.AnyFalse(actId, grpId),
             };
         }
 
@@ -160,14 +160,16 @@ namespace Ascentix.RulesEngine.Tests
         {
             var seed = SeedAccountRule((int)RuleTrigger.OnUpdate, ActionType.ShowMessage);
             var ruleId = seed.Single(e => e.LogicalName == Q(SchemaNames.Rule.Entity)).Id;
-            seed.Add(new Entity(Q(SchemaNames.RuleAction.Entity), Guid.NewGuid())
+            var grpId = seed.Single(e => e.LogicalName == Q(SchemaNames.ConditionGroup.Entity)).Id;
+            var typeless = Guid.NewGuid();
+            seed.Add(new Entity(Q(SchemaNames.RuleAction.Entity), typeless)
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
                 // asx_actiontype deliberately omitted (null)
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                 [Q(SchemaNames.RuleAction.Order)] = 2,
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
             });
+            seed.AddRange(ActionTreeRows.AnyFalse(typeless, grpId));
             var ctx = new XrmFakedContext();
             ctx.Initialize(seed);
 
@@ -198,6 +200,58 @@ namespace Ascentix.RulesEngine.Tests
 
             // The valid sibling Block action is still counted.
             Assert.True(Assert.Single(analyses).HasServerAction);
+        }
+
+        // A set action's Rows filter that compares each contact to a root column nothing else reads:
+        // a save that changes only that column must still run the engine, so the column belongs in
+        // the Update step's filtering attributes.
+        [Fact]
+        public void A_root_column_read_only_by_a_rows_filter_is_a_filtering_attribute()
+        {
+            var seed = SeedAccountRule((int)RuleTrigger.OnUpdate, ActionType.Block);
+            var ruleId = seed.Single(e => e.LogicalName == Q(SchemaNames.Rule.Entity)).Id;
+            var rootCfg = seed.Single(e => e.LogicalName == Q(SchemaNames.TableConfig.Entity)).Id;
+            var grpId = seed.Single(e => e.LogicalName == Q(SchemaNames.ConditionGroup.Entity)).Id;
+            Guid contactsCfg = Guid.NewGuid(), action = Guid.NewGuid(), filter = Guid.NewGuid();
+            seed.AddRange(ActionTreeRows.AllTrue(action, grpId));
+            seed.Add(new Entity(Q(SchemaNames.TableConfig.Entity), contactsCfg)
+            {
+                [Q(SchemaNames.TableConfig.TableLogicalName)] = "contact",
+                [Q(SchemaNames.TableConfig.TableConfigType)] = new OptionSetValue((int)TableConfigType.ChildTable),
+                [Q(SchemaNames.TableConfig.ParentTable)] = new EntityReference(Q(SchemaNames.TableConfig.Entity), rootCfg),
+                [Q(SchemaNames.TableConfig.ChildLinkField)] = "parentcustomerid",
+            });
+            seed.Add(new Entity(Q(SchemaNames.RuleAction.Entity), action)
+            {
+                [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
+                [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.UpdateRecord),
+                [Q(SchemaNames.RuleAction.TargetNode)] = new EntityReference(Q(SchemaNames.TableConfig.Entity), contactsCfg),
+                [Q(SchemaNames.RuleAction.FieldMapping)] = "[{\"target\":\"donotbulkemail\",\"source\":\"literal\",\"value\":true}]",
+                [Q(SchemaNames.RuleAction.Order)] = 2,
+                [Q(SchemaNames.RuleAction.IsActive)] = true,
+            });
+            seed.Add(new Entity(Q(SchemaNames.NodeFilterGroup.Entity), filter)
+            {
+                [Q(SchemaNames.NodeFilterGroup.RuleAction)] = new EntityReference(Q(SchemaNames.RuleAction.Entity), action),
+                [Q(SchemaNames.NodeFilterGroup.TableConfigNode)] = new EntityReference(Q(SchemaNames.TableConfig.Entity), contactsCfg),
+                [Q(SchemaNames.NodeFilterGroup.LogicalOperator)] = new OptionSetValue((int)LogicalOperator.And),
+            });
+            seed.Add(new Entity(Q(SchemaNames.NodeFilterCriterion.Entity), Guid.NewGuid())
+            {
+                [Q(SchemaNames.NodeFilterCriterion.FilterGroup)] = new EntityReference(Q(SchemaNames.NodeFilterGroup.Entity), filter),
+                [Q(SchemaNames.NodeFilterCriterion.FieldName)] = "address1_city",
+                [Q(SchemaNames.NodeFilterCriterion.Operator)] = "eq",
+                [Q(SchemaNames.NodeFilterCriterion.ComparisonValueSource)] = new OptionSetValue((int)ComparisonValueSource.FieldReference),
+                [Q(SchemaNames.NodeFilterCriterion.ComparisonValueNode)] = new EntityReference(Q(SchemaNames.TableConfig.Entity), rootCfg),
+                [Q(SchemaNames.NodeFilterCriterion.ComparisonValueColumn)] = "address1_city",
+            });
+            var ctx = new XrmFakedContext();
+            ctx.Initialize(seed);
+
+            var a = Assert.Single(new TableRuleAnalyzer(ctx.GetOrganizationService()).Analyze("account", null));
+
+            Assert.Contains("name", a.RootColumns);
+            Assert.Contains("address1_city", a.RootColumns);
         }
     }
 }

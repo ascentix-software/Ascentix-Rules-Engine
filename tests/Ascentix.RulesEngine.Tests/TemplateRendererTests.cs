@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Core.Resolution;
@@ -144,6 +145,23 @@ namespace Ascentix.RulesEngine.Tests
 
             Assert.Equal("", renderer.Render("", root, cache, "ctx"));
             Assert.Equal("   ", renderer.Render("   ", root, cache, "ctx"));
+        }
+
+        [Fact]
+        public void Row_token_renders_the_current_row()
+        {
+            var renderer = new TemplateRenderer(TableConfigTree.Empty, null);
+            var row = new Entity("contact", Guid.NewGuid()) { ["fullname"] = "Ann Lee" };
+            Assert.Equal("Hi Ann Lee", renderer.Render("Hi {row.fullname}", new Entity("account"), new QueryResultCache(), "ctx", row));
+        }
+
+        [Fact]
+        public void Row_token_is_a_row_segment_not_a_root_column()
+        {
+            var seg = TemplateRenderer.Tokenize("{row.fullname}", "ctx").Single();
+            Assert.True(seg.IsRow);
+            Assert.Null(seg.Node);
+            Assert.Equal("fullname", seg.Column);
         }
     }
 }

@@ -3,8 +3,8 @@ import type { Page } from "@playwright/test";
 import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
-import { resolveAppId, createOrderConfigTree, createRuleOnConfig } from "./devHelpers";
-import { openRuleFromHub, saveValidatePublish } from "./editorHarness";
+import { resolveAppId, createOrderConfigTree, createRuleOnConfig, readFiresWhen, outcomesOf } from "./devHelpers";
+import { openRuleFromHub, saveValidatePublish, whenSection } from "./editorHarness";
 import { CHOICE } from "./liveLabels";
 import {
   createSubjectOrder, openOrderForm,
@@ -16,7 +16,7 @@ import {
 // boolean `value`. `formLibraryState.e2e` proves the applier honours them, but from rows the
 // REST helper wrote. This spec is the one that makes the EDITOR write them.
 //
-// That shape has a specific and nasty failure mode. `ActionInspector.tsx:134-138` renders the
+// That shape has a specific and nasty failure mode. ActionInspector.tsx renders the
 // value as a Fluent `<Switch checked={!!action.value}>`. "Hide this field" is therefore the
 // action a user authors by NOT touching the switch (the default-off state), so the editor has
 // to persist a boolean FALSE that the user never typed. If it instead persists null/undefined,
@@ -89,7 +89,7 @@ test("SetVisible and SetRequired authored in the editor actually change the live
     rootConfigId: tree.rootId,
     triggers: "2",
   });
-  // The subject matches the condition below (50 <= 100), so both actions fire On Match.
+  // The subject matches the condition below (50 <= 100), so both actions fire when the outcome is true.
   const subject = await createSubjectOrder({ [COND_COL]: 50 });
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
@@ -97,24 +97,24 @@ test("SetVisible and SetRequired authored in the editor actually change the live
     // ---- Condition: sample_ordertotal <= 100 ----------------------------------------------
     // The VALIDATION band (GraphTree.tsx:262-276 renders execution first, validation second).
     // `.first()` would author into the EXECUTION band, which gates whether the rule runs rather
-    // than deciding a match, so nth(1) is the validation band, which is what decides a match here.
-    await frame.getByRole("button", { name: "+ Add group" }).nth(1).click();
-    await frame.getByRole("button", { name: /^\+\s?Condition$/ }).click();
+    // than deciding a match, so the Outcomes band's "Add outcome" is the one that decides a match here.
+    await frame.getByRole("button", { name: "Add outcome" }).first().click();
+    await frame.getByRole("button", { name: "Add condition", exact: true }).click();
     await frame.getByRole("button", { name: /^Edit condition/ }).click();
-    const columnBox = frame.getByRole("combobox", { name: "Comparison column" });
+    const columnBox = frame.getByRole("combobox", { name: "Column", exact: true });
     await columnBox.click();
     await frame.getByRole("option").first().waitFor({ state: "visible", timeout: 30_000 });
     await columnBox.pressSequentially("ordertotal", { delay: 30 });
-    await frame.getByRole("option", { name: /\(sample_ordertotal\)/ }).first().click();
+    await frame.getByRole("option", { name: /· sample_ordertotal$/ }).first().click();
     const operatorBox = frame.getByRole("combobox", { name: "Operator" });
     await operatorBox.click();
     await frame.getByRole("option", { name: CHOICE.operator.lessThanOrEqual, exact: true }).click();
     await frame.getByRole("textbox", { name: "Value" }).fill("100");
 
     // ---- Action 1: SetVisible → HIDE (the switch is left at its default OFF) --------------
-    await frame.getByRole("button", { name: "+ Add action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 1/ }).click();
-    let type = frame.getByRole("combobox", { name: "Action type" });
+    let type = frame.getByRole("combobox", { name: "Type", exact: true });
     await type.click();
     await frame.getByRole("option", { name: CHOICE.actionType.setVisible, exact: true }).click();
     let target = frame.getByRole("combobox", { name: "Target column" });
@@ -125,11 +125,14 @@ test("SetVisible and SetRequired authored in the editor actually change the live
     // Deliberately NOT touching the "Visible" switch: off means hide, and that default is the
     // whole point of this assertion.
     await expect(frame.getByRole("switch", { name: "Visible" })).not.toBeChecked();
+    // When: the condition's outcome is true (the old On Match). A new action fires Always, so
+    // add a test: it takes the rule's first outcome and starts on "is true".
+    await whenSection(frame).getByRole("button", { name: "Add test", exact: true }).click();
 
     // ---- Action 2: SetRequired → REQUIRED (switch toggled ON) ------------------------------
-    await frame.getByRole("button", { name: "+ Action" }).click();
+    await frame.getByRole("button", { name: "Add action" }).click();
     await frame.getByRole("button", { name: /^Edit action 2/ }).click();
-    type = frame.getByRole("combobox", { name: "Action type" });
+    type = frame.getByRole("combobox", { name: "Type", exact: true });
     await type.click();
     await frame.getByRole("option", { name: CHOICE.actionType.setRequired, exact: true }).click();
     target = frame.getByRole("combobox", { name: "Target column" });
@@ -138,6 +141,7 @@ test("SetVisible and SetRequired authored in the editor actually change the live
     await target.pressSequentially("handlinginstructions", { delay: 30 });
     await frame.getByRole("option", { name: new RegExp(`\\(${REQUIRED_COL}\\)`) }).first().click();
     await frame.getByRole("switch", { name: "Required" }).check();
+    await whenSection(frame).getByRole("button", { name: "Add test", exact: true }).click();
 
     await saveValidatePublish(frame);
 
@@ -147,7 +151,7 @@ test("SetVisible and SetRequired authored in the editor actually change the live
     const actions = await api.retrieveMultipleRecords(
       ENTITY_SET.action,
       `?$filter=${LOOKUP.ruleOfAction} eq ${rule.ruleId}` +
-      `&$select=asx_actiontype,asx_targetcolumn,asx_valuebool,asx_fireon&$orderby=asx_order asc`,
+      `&$select=asx_actiontype,asx_targetcolumn,asx_valuebool,asx_ruleactionid&$orderby=asx_order asc`,
     );
     expect(actions.entities.length).toBe(2);
     const [hide, require_] = actions.entities as Record<string, unknown>[];
@@ -156,6 +160,18 @@ test("SetVisible and SetRequired authored in the editor actually change the live
     expect(require_.asx_actiontype).toBe(2); // SetRequired
     expect(require_.asx_targetcolumn).toBe(REQUIRED_COL);
     expect(require_.asx_valuebool).toBe(true);
+
+    // When (fires-when tree): each action is a root ALL with one test, "the outcome is true" (the old On Match).
+    const [outcome] = await outcomesOf(rule.ruleId);
+    expect(outcome, "the editor persisted no outcome").toBeTruthy();
+    for (const action of [hide, require_]) {
+      const firesWhen = await readFiresWhen(String(action.asx_ruleactionid));
+      expect(firesWhen.groups.length).toBe(1);
+      expect(firesWhen.groups[0].op).toBe(1); // ALL
+      expect(firesWhen.tests.length).toBe(1);
+      expect(firesWhen.tests[0].outcomeId).toBe(outcome.id);
+      expect(firesWhen.tests[0].expected).toBe(true); // is true
+    }
 
     // The untouched-switch case: FALSE must be persisted, not null (see the header). Today this
     // reads null, and the form assertions below then measure the consequence.

@@ -48,9 +48,9 @@ describe("computeActionUniverse", () => {
   it("collects non-null action target columns", () => {
     const env: RulesEnvelope = { tableLogicalName: "account", languageId: 1033, rules: [
       rule({ actions: [
-        { actionType: "SetVisible", fireOn: "OnMatch", targetColumn: "telephone1", value: true,
+        { actionType: "SetVisible", targetColumn: "telephone1", value: true,
           applyInverseWhenNotFired: false, message: null, severity: null, order: 1 },
-        { actionType: "Block", fireOn: "OnNoMatch", targetColumn: null, value: null,
+        { actionType: "Block", targetColumn: null, value: null,
           applyInverseWhenNotFired: false, message: "x", severity: "Error", order: 2 },
       ] }),
     ] };
@@ -68,7 +68,7 @@ describe("bootstrap", () => {
     rule({ tableConfig: [ROOT], conditionGroups: [
       { logicalOperator: "And", isExecutionCondition: false, hasNodeFilters: false,
         conditions: [cond("root", "creditlimit")], groups: [] }],
-      actions: [{ actionType: "SetVisible", fireOn: "OnMatch", targetColumn: "telephone1", value: false,
+      actions: [{ actionType: "SetVisible", targetColumn: "telephone1", value: false,
         applyInverseWhenNotFired: false, message: null, severity: null, order: 1 }] }),
   ] };
 
@@ -82,7 +82,7 @@ describe("bootstrap", () => {
   it("reads rules, runs an initial cycle, and applies fired actions", async () => {
     const xrm = createMockXrm(state());
     const api = mkApi(env, { isValid: true, failedRuleCount: 0,
-      firedActions: [{ ruleId: "r1", actionType: "SetVisible", fireOn: "OnMatch",
+      firedActions: [{ ruleId: "r1", actionType: "SetVisible",
         targetColumn: "telephone1", value: false, message: null, severity: null, targetTable: null }] });
     await bootstrap(xrm, api);
     expect(api.readRules).toHaveBeenCalledWith("account", "OnForm");
@@ -102,7 +102,7 @@ describe("bootstrap", () => {
   it("surfaces a form-level Block as a non-blocking form notification (no save guard)", async () => {
     const xrm = createMockXrm(state());
     const api = mkApi(env, { isValid: false, failedRuleCount: 1,
-      firedActions: [{ ruleId: "r1", actionType: "Block", fireOn: "OnNoMatch", targetColumn: null,
+      firedActions: [{ ruleId: "r1", actionType: "Block", targetColumn: null,
         value: null, message: "Invalid", severity: "Error", targetTable: null }] });
     await bootstrap(xrm, api);
     expect(xrm.formNotifications().some((n) => n.message === "Invalid")).toBe(true);
@@ -143,7 +143,7 @@ describe("bootstrap", () => {
 
     // Resolve the newer cycle (seq 2) first with visible:true.
     const resultNewer: RunRulesResult = { isValid: true, failedRuleCount: 0,
-      firedActions: [{ ruleId: "r1", actionType: "SetVisible", fireOn: "OnMatch",
+      firedActions: [{ ruleId: "r1", actionType: "SetVisible",
         targetColumn: "telephone1", value: true, message: null, severity: null, targetTable: null }] };
     resolvers[1](resultNewer);
     await flush();
@@ -151,7 +151,7 @@ describe("bootstrap", () => {
 
     // Resolve the older (stale) cycle (seq 1) with visible:false, which must be discarded.
     const resultStale: RunRulesResult = { isValid: true, failedRuleCount: 0,
-      firedActions: [{ ruleId: "r1", actionType: "SetVisible", fireOn: "OnMatch",
+      firedActions: [{ ruleId: "r1", actionType: "SetVisible",
         targetColumn: "telephone1", value: false, message: null, severity: null, targetTable: null }] };
     resolvers[0](resultStale);
     await flush();
@@ -164,7 +164,7 @@ describe("bootstrap", () => {
     const xrm = createMockXrm(state());
     let callCount = 0;
     const resultFirst: RunRulesResult = { isValid: true, failedRuleCount: 0,
-      firedActions: [{ ruleId: "r1", actionType: "SetVisible", fireOn: "OnMatch",
+      firedActions: [{ ruleId: "r1", actionType: "SetVisible",
         targetColumn: "telephone1", value: false, message: null, severity: null, targetTable: null }] };
     const api: RulesApi = {
       readRules: vi.fn(async () => env),
@@ -205,10 +205,10 @@ describe("bootstrap failure paths", () => {
     rule({ tableConfig: [ROOT], conditionGroups: [
       { logicalOperator: "And", isExecutionCondition: false, hasNodeFilters: false,
         conditions: [cond("root", "creditlimit")], groups: [] }],
-      actions: [{ actionType: "ShowMessage", fireOn: "OnMatch", targetColumn: null, value: null,
+      actions: [{ actionType: "ShowMessage", targetColumn: null, value: null,
         applyInverseWhenNotFired: false, message: "Needs approval", severity: "Error", order: 1 }] }),
   ] };
-  const bannerFired = [{ ruleId: "r1", actionType: "ShowMessage", fireOn: "OnMatch",
+  const bannerFired = [{ ruleId: "r1", actionType: "ShowMessage",
     targetColumn: null, value: null, message: "Needs approval", severity: "Error", targetTable: null }];
 
   function bannerState(): MockState {

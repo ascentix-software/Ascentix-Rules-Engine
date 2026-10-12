@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  parseTemplateTokens, makeToken, insertAt, friendlyTemplate,
+  parseTemplateTokens, makeToken, makeRowToken, insertAt, friendlyTemplate,
 } from "../../src/editor/model/templateTokens";
 
 describe("parseTemplateTokens", () => {
@@ -25,6 +25,13 @@ describe("parseTemplateTokens", () => {
     expect(parseTemplateTokens("{oops.name}").ok).toBe(false);
     expect(parseTemplateTokens("{root.}").ok).toBe(false);
     expect(parseTemplateTokens("{node:nope.col}").ok).toBe(false);
+  });
+
+  it("parses {row.col} as a row token", () => {
+    const r = parseTemplateTokens("Follow up {row.fullname}");
+    expect(r.ok && r.tokens).toEqual([{ node: null, column: "fullname", row: true }]);
+    expect(makeRowToken("fullname")).toBe("{row.fullname}");
+    expect(friendlyTemplate("{row.fullname}", (_n, c, row) => (row ? `Row → ${c}` : c))).toBe("{Row → fullname}");
   });
 });
 

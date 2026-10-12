@@ -7,126 +7,115 @@ slug: troubleshooting
 
 # Troubleshooting
 
-Every fix on this page touches only *engine* configuration. Nothing here
-writes to your business tables.
+Every fix here changes engine configuration only, never your business tables.
 
-## A rule is blocking saves it shouldn't
+## A rule blocks saves it shouldn't
 
-A blocked save shows **"This record could not be saved:"** followed by the
-rule's message. That message is configured on the rule's action, so it
-identifies the rule:
+The save error reads **"This record could not be saved:"** followed by the rule's message.
 
-```
-GET /api/data/v9.2/asx_ruleactions?$select=asx_message
-    &$expand=asx_rule($select=asx_name)
-    &$filter=contains(asx_message,'part of the message text')
-```
+1. Find the rule from its message: Advanced Find on **Rule Actions**, *Message* contains the text.
+   Or:
+   ```
+   GET /api/data/v9.2/asx_ruleactions?$select=asx_message
+       &$expand=asx_rule($select=asx_name)
+       &$filter=contains(asx_message,'part of the message text')
+   ```
+2. Open the rule and choose **Unpublish…** in the **More actions** (⋯) menu. The next save runs
+   without it.
 
-Advanced Find on the **Rule Actions** table, filtered on *Message* contains,
-returns the same record.
+If you can't edit the rule, deactivate its enforcement step instead (*Plugin Registration*). That
+stops every rule on that table and message, and stays off until an administrator turns it back on.
 
-Set that rule back to **Draft**. Unpublishing removes or narrows the table's
-enforcement steps in the same transaction, so the next save is evaluated
-without the rule.
+## The Rule Builder shows "could not start" or "could not load"
 
-If the rule itself cannot be edited, deactivate its generated enforcement
-step instead (*Plugin Registration* covers how the steps are named). That
-suspends enforcement for the whole table and message, not just the one rule.
-Reconciliation and `asx_SyncSteps` leave a deactivated step alone until an
-administrator reactivates it.
+Try these in order:
 
-## The Rule Builder won't open, or shows an error panel
+1. **Reload** from the panel. Most one-off failures clear.
+2. **Open it from the app**: **Ascentix Rules Engine** → **Authoring → Visual Rule Editor**. A
+   web resource URL opened directly has no app context, and the panel says so.
+3. **Check the browser console** (F12) for Content Security Policy errors if your environment adds
+   its own CSP rules. The editor itself loads nothing from outside the environment.
+4. **Use Edge or Chrome.** Other browsers aren't tested during the beta (*Beta Limitations §9*).
 
-When the editor can't start it renders a panel (**"The editor could not start."**
-or **"The rule could not load."**) with the error text and a **Reload**
-button. Work through these in order:
+If it keeps failing, copy the panel's error text into your report.
 
-1. **Reload.** Press the panel's Reload button. A transient metadata or token
-   failure clears on the next load.
-2. **Open it from the app, not the raw URL.** The Rule Builder only runs
-   inside the model-driven app, where it gets its client API and data
-   context. A web-resource URL pasted into the address bar loads the page with
-   nothing to talk to, and the panel says so ("The editor must be opened from
-   within a model-driven app"). Open the
-   **Ascentix Rules Engine** app and use **Authoring → Visual Rule
-   Editor** (*Opening the Rule Builder*).
-3. **Content Security Policy.** The editor loads nothing from outside your
-   environment (scripts, styles, and fonts all ship as web resources), and
-   each release is verified on an org with CSP enforcement turned on. If your
-   environment adds its own CSP directives and the editor still fails, open
-   the browser console (F12): CSP violations are reported there by name.
-   Include that line in your report.
-4. **Browser.** The editor and form library are verified on Chromium-class
-   browsers (Edge, Chrome). Other browsers are untested during the beta
-   (*Beta Limitations §9*); if you're on one, try Edge or Chrome before
-   reporting.
+## A save goes through just after publishing
 
-If the panel keeps coming back, copy its error text verbatim.
+The platform can take a few seconds to route saves through a newly registered step. Wait, then
+save again before treating it as a bug.
 
-## Enforcement is a few seconds behind a publish
+## Rules are read-only and a bar names an update
 
-Publishing a rule registers or widens the table's enforcement steps as part
-of the publish itself, but the platform can take a few seconds to start
-routing saves through a newly registered step. If the first save after a
-publish goes through when it shouldn't have, wait and save again before
-treating it as a bug.
+A data update is waiting. Rules can be viewed but not edited or published until it's applied;
+enforcement, **Run now** and schedules keep working. A System Administrator or System Customizer
+chooses **Apply now** (*Data Updates*). If the bar stays afterwards, reload.
+
+## A data update finished with failed items
+
+Each failed item was skipped and left as it was. Everything else was converted, and rules are
+editable again. Fix what each message names, then choose **Retry failed items**. The list shows up
+to 50 items. If the same items keep failing, report it with their names and messages.
 
 ## Uninstall says dependencies exist
 
-Deleting the managed solution while engine-generated enforcement steps still
-exist is dependency-blocked. The error looks like this (ids will differ):
-
 ```
 Solution dependencies exist, cannot uninstall. DependencyCount : 2
-RequiredComponentObject details: Type: PluginType,
-  ObjectName: Ascentix.RulesEngine.Plugin.RulesEnginePlugin, Id: …
+…
 DependentComponentObject details: Type: SdkMessageProcessingStep, Id: …
-DependencyType: Published
 ```
 
-`DependencyCount` is the number of engine-generated steps still registered.
-Clear them with the **`asx_SyncSteps`** Custom API at `Mode = "RemoveAll"`,
-then delete the solution again. The full sequence is in the *Uninstalling*
-section of *Installing, Verifying & Uninstalling*.
+The engine's enforcement steps are still registered. Remove them with the `asx_SyncSteps` Custom
+API (`Mode = "RemoveAll"`), then delete the solution again. See *Installing, Verifying &
+Uninstalling*.
 
-## Collect diagnostics before you report
+## What to include in a report
 
-The engine collects no telemetry from your environment: by design, nothing
-phones home (*Beta Limitations §10*). A report has to carry its own evidence:
+The engine sends no telemetry, so a report needs its own evidence:
 
-- **Solution version.** From the environment's **Solutions** list: the
-  version shown for *Ascentix Rules Engine*.
-- **The exact block message text**, copied verbatim from the save error, if
-  a save was blocked.
-- **The rule name and the table** it targets. Both are on the rule's row in
-  the hub.
-- **Whether it reproduces with `asx_RunRules`.** Call it for the table and
-  record (*Custom APIs*). It reports what fired without writing anything.
-  Pass `IncludeDiagnostics: true` and include the `Diagnostics` output: it
-  carries the evaluation's timings and row counts, which is usually enough
-  to show where the time or the rows went.
-- **For editor problems:** the browser and version, and any errors from the
-  browser console (F12 → Console), including the error panel's text.
-- **The environment's base language**, especially if it isn't English.
-  Localization is spot-checked on one non-English org per release, not
-  systematically (*Beta Limitations §14*).
+- The **solution version** (from the **Solutions** list).
+- The **rule name and table**, and the **exact message** if a save was blocked.
+- The result of **`asx_RunRules`** for the record with `IncludeDiagnostics: true` (*Custom APIs*).
+  It writes nothing, and its `Diagnostics` output shows where the time and rows went.
+- For a **slow save**: its diagnostics, from the trace log or the diagnostics table (below).
+- For **editor problems**: the browser and version, and any console errors (F12).
+- The environment's **base language**, if it isn't English.
 
-Don't include record data you wouldn't want outside your organization; rule
-names, messages, and diagnostics are enough.
+Leave out record data you can't share. Rule names, messages and diagnostics are enough.
+
+### Read a save's diagnostics from the trace log
+
+Each save the engine evaluates writes an `asx-diag` line to the plug-in trace log: the same JSON
+as `asx_RunRules` returns, plus the save's writes. A save that fails during evaluation (for example
+at the 25,000-row limit) writes none; reproduce it with `asx_RunRules`.
+
+1. Set **Enable logging to plug-in trace log** (System Settings → **Customization**) to **All**.
+2. Repeat the save.
+3. Open **Plug-In Trace Log**, find the newest entry for
+   `Ascentix.RulesEngine.Plugin.RulesEnginePlugin`, and copy the text after `asx-diag `.
+4. Set the setting back. **All** traces every plug-in in the environment.
+
+The line holds timings, counts and ids, never record data. The trace log can be minutes late and
+may drop lines, so to time several saves use the diagnostics table.
+
+### Capture save diagnostics in a table
+
+1. Set the **Capture diagnostics** environment variable (`asx_CaptureDiagnostics`) to **Yes**.
+2. Wait a minute for it to take effect.
+3. Repeat the saves, then read the **Rule Diagnostic** rows (`asx_rulediagnostic`), one per saved
+   record.
+4. Set it back to **No** and delete the rows.
+
+A blocked or failed save leaves no row. Use this for testing only: while it's on, every save writes
+a row, and if writing one fails, Dataverse can fail the save. If saves start failing with a
+transaction error, turn it off.
 
 ## Report a problem
 
-Bugs and questions go to **GitHub Issues**:
+Open an issue on [GitHub](https://github.com/ascentix-software/Ascentix-Rules-Engine/issues) with
+the **Bug report** or **Question** template. The help viewer's **Report a problem** link opens the
+same page. For anything you can't post publicly, email [info@ascentix.ca](mailto:info@ascentix.ca).
 
-[github.com/ascentix-software/Ascentix-Rules-Engine/issues](https://github.com/ascentix-software/Ascentix-Rules-Engine/issues)
-
-Open a new issue, pick the **Bug report** or **Question** template, and paste
-in the diagnostics above. If the report contains something you can't put in
-a public issue, email [info@ascentix.ca](mailto:info@ascentix.ca) instead. The in-app help viewer's
-**Report a problem** link opens the same issue tracker in a new tab.
-
-**A suspected security vulnerability does not go in a public issue.** Report
-it privately: on the repository, use the **Security** tab →
+**Report a suspected security vulnerability privately**: the repository's **Security** tab →
 [**Report a vulnerability**](https://github.com/ascentix-software/Ascentix-Rules-Engine/security/advisories/new),
-or email [info@ascentix.ca](mailto:info@ascentix.ca) with `SECURITY` in the
-subject line. The full policy is in the repository's `SECURITY.md`.
+or email [info@ascentix.ca](mailto:info@ascentix.ca) with `SECURITY` in the subject. See
+`SECURITY.md`.

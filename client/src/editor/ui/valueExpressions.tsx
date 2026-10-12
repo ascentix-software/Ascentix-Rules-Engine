@@ -6,14 +6,14 @@ import { columnKind } from "./columnKind";
 import type { TableConfigRef } from "../model/types";
 import { isSingleCardinality } from "../model/tableConfigOps";
 import { insertAt, friendlyTemplate } from "../model/templateTokens";
-import { friendlyMathExpr, parseMathExpr, type MathRef } from "../model/mathExpr";
+import { AGG_LABELS, friendlyMathExpr, parseMathExpr, type MathRef } from "../model/mathExpr";
 import { DATE_UNITS, type DateUnit } from "../model/fieldMapping";
 import {
   InsertFieldMenu, InsertAggregateMenu, useColumns, useFieldLabelFor, savedNodes, collectionNodes,
 } from "./InsertFieldMenu";
 import { AggregateFilterDialog } from "./inspectors/AggregateFilterDialog";
 import {
-  emptyGroup, isLeafComplete, isExistsComplete, type NodeFilterGroupModel, type NodeFilterNode,
+  emptyGroup, countCompleteCriteria, type NodeFilterGroupModel,
 } from "../model/nodeFilter";
 import { color } from "./tokens";
 import { Pill, Eyebrow } from "./primitives";
@@ -22,9 +22,6 @@ const subLabelStyle: React.CSSProperties = {
   fontSize: 11, fontWeight: 600, color: color.inkMuted, marginBottom: 3, display: "block",
 };
 
-const AGG_LABELS: Record<NonNullable<MathRef["agg"]>, string> = {
-  sum: "Sum", avg: "Average", min: "Min", max: "Max", count: "Count",
-};
 
 /** A `MathRef -> display label` resolver for MathExprEditor's friendly preview: plain refs
  * reuse useFieldLabelFor's node/column labels; aggregate refs render as
@@ -46,12 +43,14 @@ function useMathLabelFor(
   };
 }
 
-export function TemplateEditor({ value, ruleTable, tableConfigs, onChange }: {
+export function TemplateEditor({ value, ruleTable, tableConfigs, onChange, rowTable }: {
   value: string; ruleTable: string; tableConfigs: Record<string, TableConfigRef>;
   onChange(template: string): void;
+  /** The current row's table on a set action: offers `{row.<column>}` tokens. */
+  rowTable?: string | null;
 }) {
   const taRef = React.useRef<HTMLTextAreaElement>(null);
-  const labelFor = useFieldLabelFor(ruleTable, tableConfigs);
+  const labelFor = useFieldLabelFor(ruleTable, tableConfigs, rowTable);
 
   const insertToken = (token: string) => {
     const pos = taRef.current?.selectionStart ?? value.length;
@@ -64,7 +63,7 @@ export function TemplateEditor({ value, ruleTable, tableConfigs, onChange }: {
         placeholder="Text with {fields}: use Insert field"
         onChange={(_e, d) => onChange(d.value)} />
       <div>
-        <InsertFieldMenu ruleTable={ruleTable} tableConfigs={tableConfigs} onInsert={insertToken} />
+        <InsertFieldMenu ruleTable={ruleTable} tableConfigs={tableConfigs} rowTable={rowTable} onInsert={insertToken} />
       </div>
       {value && (
         <span style={{ fontSize: 11, color: color.inkMuted }}>
@@ -73,14 +72,6 @@ export function TemplateEditor({ value, ruleTable, tableConfigs, onChange }: {
       )}
     </div>
   );
-}
-
-// Counts complete (evaluable) criteria in a filter tree, same rule as ConditionInspector's
-// node-filter summary, reused here for the per-aggregate filter summary.
-function countCompleteCriteria(node: NodeFilterNode): number {
-  if (node.kind === "rule") return isLeafComplete(node) ? 1 : 0;
-  if (node.kind === "exists") return isExistsComplete(node) ? 1 : 0;
-  return node.rules.reduce((n, r) => n + countCompleteCriteria(r), 0);
 }
 
 // Locates the `(`/`)` span of the Nth (0-based) aggregate call (`sum(...)`, `count(...)`, ...)
@@ -186,9 +177,8 @@ export function rewriteAggregate(
 export function MathExprEditor({ value, ruleTable, tableConfigs, onChange, filters, onFiltersChange }: {
   value: string; ruleTable: string; tableConfigs: Record<string, TableConfigRef>;
   onChange(expression: string): void;
-  // Optional: the field-mapping mathexpr editor passes these to enable the "Filters on
-  // aggregates" section below. The Expression-condition editor (ConditionInspector) omits
-  // them (no filters sidecar there), so the section simply doesn't render.
+  // Optional: pass both to enable the "Filters on aggregates" section (field-mapping mathexpr
+  // entries and Calculation conditions).
   filters?: Record<string, NodeFilterGroupModel>;
   onFiltersChange?(next: Record<string, NodeFilterGroupModel>): void;
 }) {
@@ -374,24 +364,29 @@ const UNIT_LABELS: Record<DateUnit, string> = {
   minutes: "Minutes", hours: "Hours", days: "Days", weeks: "Weeks", months: "Months", years: "Years",
 };
 
-export function DateExprEditor({ value, ruleTable, tableConfigs, onChange }: {
+// `rowScoped` is the node-filter reading: an anchor with no node is the filtered row (`ruleTable`
+// is then the filtered table), so the rule's root record is offered as an explicit node instead.
+export function DateExprEditor({ value, ruleTable, tableConfigs, onChange, rowScoped = false }: {
   value: DateExprValue; ruleTable: string; tableConfigs: Record<string, TableConfigRef>;
   onChange(patch: Partial<DateExprValue>): void;
+  rowScoped?: boolean;
 }) {
-  const nodes = savedNodes(tableConfigs).filter((tc) => tc.tableConfigType !== "RootTable" && isSingleCardinality(tableConfigs, tc.id));
+  const nodes = savedNodes(tableConfigs).filter((tc) =>
+    (rowScoped || tc.tableConfigType !== "RootTable") && isSingleCardinality(tableConfigs, tc.id));
+  const rowPrefix = rowScoped ? "This row → " : "";
   const cols = useColumns([ruleTable, ...nodes.map((n) => n.tableLogicalName)]);
 
   const dateCols = (table: string) =>
     (cols[table] ?? []).filter((c) => columnKind(c.attributeType) === "datetime");
 
-  // Anchor option encoding: "now" | "root.<col>" | "<nodeId>.<col>"
+  // Anchor option encoding: "now" | "@self.<col>" (no node) | "<nodeId>.<col>"; "@self" cannot collide with a node id
   const anchorValue = value.anchorKind === "field"
-    ? `${value.anchorNode ?? "root"}.${value.anchorColumn ?? ""}`
+    ? `${value.anchorNode ?? "@self"}.${value.anchorColumn ?? ""}`
     : value.anchorKind === "now" ? "now" : "";
 
   const anchorText = value.anchorKind === "now" ? "When the rule runs"
     : value.anchorKind === "field"
-      ? `${value.anchorNode ? `${tableConfigs[value.anchorNode]?.name ?? "?"} → ` : ""}${
+      ? `${value.anchorNode ? `${tableConfigs[value.anchorNode]?.name ?? "?"} → ` : rowPrefix}${
           value.anchorColumn ?? ""}`
       : "";
 
@@ -401,7 +396,7 @@ export function DateExprEditor({ value, ruleTable, tableConfigs, onChange }: {
     const nodePart = v.slice(0, dot);
     onChange({
       anchorKind: "field",
-      anchorNode: nodePart === "root" ? null : nodePart,
+      anchorNode: nodePart === "@self" ? null : nodePart,
       anchorColumn: v.slice(dot + 1),
     });
   };
@@ -415,8 +410,8 @@ export function DateExprEditor({ value, ruleTable, tableConfigs, onChange }: {
           onOptionSelect={(_e, d) => d.optionValue && selectAnchor(d.optionValue)}>
           <Option value="now">When the rule runs</Option>
           {dateCols(ruleTable).map((c) => (
-            <Option key={`root.${c.logicalName}`} value={`root.${c.logicalName}`}>
-              {c.displayName}
+            <Option key={`@self.${c.logicalName}`} value={`@self.${c.logicalName}`}>
+              {`${rowPrefix}${c.displayName}`}
             </Option>
           ))}
           {nodes.flatMap((n) => dateCols(n.tableLogicalName).map((c) => (

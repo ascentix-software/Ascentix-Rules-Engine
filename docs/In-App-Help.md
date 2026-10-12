@@ -45,6 +45,24 @@ whose image was never deployed renders with a broken screenshot.
 > updates on publish, so a fresh app session picks up a new bundle. A browser holding a cached app
 > shell may serve the previous bundle until it reloads; a hard refresh clears it.
 
+## Retaking the screenshots
+
+The guide's screenshots come from the DEV org, captured by a Playwright script:
+
+```
+cd client && npm run docs:screenshots                 # every screenshot
+cd client && npm run docs:screenshots -- -g "hub"     # one, by test name
+```
+
+- It needs the e2e login (`npm run test:e2e:auth`) and writes straight into `docs/guide/images/`.
+- `client/e2e/docs/docFixtures.ts` keeps a demo set on DEV: the **Orders** data model and six
+  rules on `sample_order`. It creates whatever is missing, and the names have no `ZZ_` prefix, so
+  the test sweeps leave them alone. Every demo rule stays unpublished, so nothing fires on a save
+  or a form, and the publish capture cancels its dialog.
+- `client/e2e/docs/screenshots.docs.ts` has one test per screenshot, named after what it shows.
+- Each page's `screenshots:` front matter holds the caption and alt text. Update them when a capture
+  changes, then run `npm run build:docs`.
+
 ## Opening it
 
 - **Deep link (confirmed working live):**

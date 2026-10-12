@@ -4,6 +4,7 @@ using System.Linq;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
 using Ascentix.RulesEngine.Plugin.Registration;
+using Ascentix.RulesEngine.Plugin.Publication;
 using Ascentix.RulesEngine.Schema;
 
 namespace Ascentix.RulesEngine.Plugin

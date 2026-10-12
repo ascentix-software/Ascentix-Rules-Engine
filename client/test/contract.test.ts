@@ -28,9 +28,8 @@ describe("contract types", () => {
           "parentRelationshipName": null, "childLinkField": null
         }],
         "actions": [{
-          "actionType": "Block", "fireOn": "OnNoMatch", "targetColumn": null,
-          "value": null, "applyInverseWhenNotFired": false, "message": "Required.",
-          "severity": "Error", "order": 1
+          "actionType": "Block", "targetColumn": null, "value": null,
+          "applyInverseWhenNotFired": false, "message": "Required.", "severity": "Error", "order": 1
         }]
       }]
     }`;
@@ -39,16 +38,27 @@ describe("contract types", () => {
     expect(env.rules[0].conditionGroups[0].conditions[0].comparisonColumn).toBe("creditlimit");
     expect(env.rules[0].tableConfig[0].tableConfigType).toBe("RootTable");
     expect(env.rules[0].actions[0].actionType).toBe("Block");
+    // Always-emitted ActionDto keys (RuleDefinitionSerializer.cs:80-92; targetTable, targetNode and
+    // fieldMapping are omitted when empty). An action fires by its Fires when tree, so no fireOn.
+    const action = env.rules[0].actions[0];
+    expect(Object.keys(action).sort()).toEqual(
+      ["actionType", "applyInverseWhenNotFired", "message", "order", "severity", "targetColumn", "value"]);
+    expect(action).not.toHaveProperty("fireOn");
   });
 
   it("parses RunRules fired actions", () => {
     const json = `[{
       "ruleId": "11111111-1111-1111-1111-111111111111", "actionType": "SetVisible",
-      "fireOn": "OnMatch", "targetColumn": "telephone1", "value": true,
+      "targetColumn": "telephone1", "value": true,
       "message": null, "severity": null, "targetTable": null
     }]`;
     const fired = JSON.parse(json) as FiredAction[];
     expect(fired[0].actionType).toBe("SetVisible");
     expect(fired[0].value).toBe(true);
+    // Always-emitted FiredActionDto keys (RunRulesResultSerializer.cs:27-41; write, previousOf, writes,
+    // writeCount and unchangedCount are omitted when empty). No fireOn, and no order.
+    expect(Object.keys(fired[0]).sort()).toEqual(
+      ["actionType", "message", "ruleId", "severity", "targetColumn", "targetTable", "value"]);
+    expect(fired[0]).not.toHaveProperty("fireOn");
   });
 });

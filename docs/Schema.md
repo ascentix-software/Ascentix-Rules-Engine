@@ -1,7 +1,9 @@
 # Ascentix Rules Engine Schema Reference
 
 Authoritative reference for the Dataverse schema, kept in sync with `Ascentix.RulesEngine.Core/Schema/SchemaNames.cs`
-and the live environment (schema is authored directly in the environment, not by a deploy tool).
+and the deployment source. Existing schema is authored in Dataverse; published-revision
+additions are provisioned by `pipelines/Configure-RuleAuthoring.ps1`. Local source does not
+establish that these additions are already installed in an environment.
 
 - **Publisher:** Ascentix · **Default prefix:** `asx` (configurable; names below use the
   default prefix and are qualified at runtime with the configured one).
@@ -23,9 +25,9 @@ and the live environment (schema is authored directly in the environment, not by
 | `asx_conditiontype` | Condition Type | Field Comparison = 1, Row Count = 2, Regex Match = 3, Calculation = 4 |
 | `asx_comparisonoperator` | Comparison Operator | Equals = 1, Not Equals = 2, Greater Than = 3, Greater Than Or Equal = 4, Less Than = 5, Less Than Or Equal = 6, Contains = 7, Does Not Contain = 8, Is Null = 9, Is Not Null = 10 |
 | `asx_severity` | Severity | Information = 1, Warning = 2, Error = 3 |
-| `asx_actiontype` | Action Type | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7 |
-| `asx_actionfireon` | Action Fire On | On Match = 1, On No Match = 2 |
-| `asx_triggers` | Triggers | On Create = 1, On Form = 2, Manual = 3, On Update = 4, On Delete = 5 (**multi-select**) |
+| `asx_actiontype` | Action Type | Set Visible = 1, Set Required = 2, Show Message = 3, Block = 4, Create Record = 5, Update Record = 6, Delete Record = 7, Deactivate Record = 8 |
+| `asx_actionfireon` | Action Fire On | On Match = 1, On No Match = 2 (**retired**: no column uses it except the retired `asx_fireon`, §2.9) |
+| `asx_triggers` | Triggers | On Create = 1, On Form = 2, On demand = 3, On Update = 4, On Delete = 5 (**multi-select**). Value 3 was labelled "Manual"; the stored value is unchanged and API trigger strings accept both `OnDemand` and the old `Manual` alias |
 | `asx_channel` | Channel | Standard = 1, Portal = 2 (**multi-select**). 3 "Application" was retired 2026-08-23; the engine reads a stored 3 as Standard |
 | `asx_comparisonvaluesource` | Comparison Value Source | Literal = 1, Field Reference = 2, Template = 3, Date Expression = 4 |
 | `asx_evaluationcontext` | Evaluation Context | User = 1, System = 2 |
@@ -45,14 +47,29 @@ Top-level rule, scoped to a table. Parent of conditions and actions.
 rules default to **Draft**. The engine enforces **only Published** rules (within the effective
 window below). `asx_isactive` is retired.
 
+Published rules retain their normalized graph or use a saved revision referenced
+by `asx_publishedrevision`. **Edit rule** creates or reopens a separate normalized
+working copy linked by `asx_draftof`; it does not modify the original graph.
+Publishing a working copy switches the original rule's active snapshot and advances
+its version. The working copy remains Draft. Changing a rule's business table is
+prohibited after creation. Existing rules require no initialization operation.
+
 | Column | Schema name | Type | Req | Notes |
 |---|---|---|---|---|
 | Table Logical Name | `asx_tablelogicalname` | Text (100) | ✔ | Entity the rule applies to |
+| Published Revision | `asx_publishedrevision` | Lookup → `asx_rulerevision` | | Current active revision |
+| Published Version | `asx_publishedversion` | Integer | | Publication number advanced on publish |
+| Publish Hash | `asx_publishhash` | Text (64) | | Retired validation token; no longer sent or checked |
+| Working Draft Of | `asx_draftof` | Lookup → `asx_rule` | | Stable identity for a separate working copy |
+| Draft Base Version | `asx_draftbaseversion` | Integer | | Active publication version on which this draft is based |
+| Draft Stamp | `asx_draftstamp` | Text (36) | | Retired concurrency stamp; no longer advanced or checked |
 | Triggers | `asx_triggers` | MultiSelect → `asx_triggers` | ✔ | At least one (editor-enforced) |
+| Runs for | `asx_ondemandscope` | Choice (local) | | On demand only: **A record it's given** (1, default) or **All records that pass its execution conditions** (2). The Rule Builder shows it only when On demand is ticked; ignored for every other trigger and saved as the default when hidden |
 | Channels | `asx_channels` | MultiSelect → `asx_channel` | | Empty ⇒ applies on all channels; gates which origin channel (Standard/Portal) a rule fires on |
 | Effective From | `asx_effectivefrom` | DateTime (UTC) | | Not enforced before this; null ⇒ open start |
 | Effective To | `asx_effectiveto` | DateTime (UTC) | | Not enforced after this; null ⇒ open end |
 | Evaluation Context | `asx_evaluationcontext` | Choice → `asx_evaluationcontext` | | Selects whether the rule's business-data traversal evaluates in the caller's context (`User` = 1, default) or as system (`System` = 2); default User preserves caller-visibility behavior |
+| Evaluation Time Zone | `asx_evaluationtimezone` | Text (100) | | Windows time zone id (e.g. `Eastern Standard Time`) that decides the calendar day and wall-clock time of an instant when a Date Only or Time Zone Independent column is compared, and the instant a value without an offset (a literal such as `2026-09-01`, or a Date Only / Time Zone Independent anchor) means when a User Local column is compared; blank ⇒ UTC |
 | Root Table Config | `asx_roottableconfig` | Lookup → `asx_tableconfig` | ✔ | The rule's root node; the rule's table-config tree (shareable across rules) hangs off it via `asx_parenttable`. The editor loads the whole tree from here. |
 | Trigger Columns | `asx_triggercolumns` | Multiline (4000) | | JSON array of **root-table** column logical names (`["sample_lineamount"]`). **OnUpdate only**: unioned into the update step's filtering attributes alongside condition columns, so the rule also fires when one of these changes (e.g. an action depends on a column no condition references). Blank ⇒ none. |
 
@@ -81,6 +98,9 @@ AND/OR group tree. Self-referential. Belongs to a rule.
 | Parent Condition Group | `asx_parentconditiongroup` | Lookup → `asx_conditiongroup` | | Self-ref |
 | Logical Operator | `asx_logicaloperator` | Choice → `asx_logicaloperator` | ✔ | Combine children |
 | Is Execution Condition | `asx_isexecutioncondition` | Yes/No | ✔ | Rule gate (evaluated before validation groups) |
+| Name | `asx_name` | Text (100, primary) | | Outcome name for a top-level validation group: required, unique in the rule |
+
+A **top-level validation group** (no parent, not an execution condition) is an **outcome**: it is evaluated on its own and reported by name, and an action's "Fires when" tree (§2.18) tests it as true or false. The name is checked when the rule is published (§5).
 
 ### 2.4 Rule Condition (`asx_rulecondition`)
 A single check within a group.
@@ -99,6 +119,7 @@ A single check within a group.
 | Comparison Value Node | `asx_comparisonvaluenode` | Lookup → `asx_tableconfig` | | FieldReference RHS node; blank ⇒ same record |
 | Comparison Value Column | `asx_comparisonvaluecolumn` | Text (100) | | FieldReference RHS column |
 | Condition Expression | `asx_conditionexpression` | Multiline (4000) | | **Calculation (Expression = 4) only**: the LHS `mathexpr` formula (may aggregate child collections + do arithmetic); compared by a numeric operator to the RHS (which reuses the comparison-value fields) |
+| Expression Filters | `asx_expressionfilters` | Multiline (100,000) | | **Calculation only**: aggregate filters map `{ "<key>": <criteria-tree> }` for `filter:<key>` tokens in the expression; same format as a field-mapping mathexpr entry's `filters` |
 
 > **Condition types.** `FieldComparison` uses column/operator/value(-source). `RowCount` (ChildTable
 > node only) uses min/max + search criteria. `RegexMatch` tests `asx_comparisoncolumn` against the
@@ -138,6 +159,9 @@ AND/OR filters scoped to a condition group, targeting any node in the tree. Self
 | Logical Operator | `asx_logicaloperator` | Choice → `asx_logicaloperator` | ✔ | |
 | Rule Condition | `asx_rulecondition` | Lookup → `asx_rulecondition` | | Owning condition of a per-condition filter; null ⇒ legacy group-wide |
 | Owning Criterion | `asx_owningcriterion` | Lookup → `asx_nodefiltercriterion` | | Exists sub-filter root (this group is the collection's filter); null ⇒ legacy or comparison-criterion |
+| Rule Action | `asx_ruleaction` | Lookup → `asx_ruleaction` | | A set action's Rows filter: set on every group of the action's filter tree (root and nested). Such a group has no condition group and no condition; its `asx_tableconfignode` is the action's target node. Relationship `asx_ruleaction_nodefiltergroup`, delete Cascade |
+
+> An EXISTS sub-filter inside a Rows filter hangs off its criterion (`asx_owningcriterion`) as elsewhere. An action owns at most one top-level group.
 
 ### 2.8 Node Filter Criterion (`asx_nodefiltercriterion`)
 
@@ -151,13 +175,14 @@ AND/OR filters scoped to a condition group, targeting any node in the tree. Self
 | Field Name | `asx_fieldname` | Text (100) | ✔ | |
 | Operator | `asx_operator` | Text (20) | ✔ | See operator list above; supports `eq`, `ne`, `like`, `not-like`, `null`, `not-null`, `contains`, `not-contains`, `gt`, `ge`, `lt`, `le` |
 | Value | `asx_value` | Text (4000) | | |
-| Comparison Value Source | `asx_comparisonvaluesource` | Choice → `asx_comparisonvaluesource` | | Blank ⇒ Literal; FieldReference compares against another field |
+| Comparison Value Source | `asx_comparisonvaluesource` | Choice → `asx_comparisonvaluesource` | | Blank ⇒ Literal; FieldReference compares against another field; **DateExpression** (4) holds a dateexpr JSON payload in `asx_value` (a field anchor with no node reads the filtered row; a null anchor, on the row or on the related record, makes the criterion false) |
 | Comparison Value Node | `asx_comparisonvaluenode` | Lookup → `asx_tableconfig` | | FieldReference RHS node; blank ⇒ same record |
 | Comparison Value Column | `asx_comparisonvaluecolumn` | Text (100) | | FieldReference RHS column |
 
 ### 2.9 Rule Action (`asx_ruleaction`)
-The outcome layer. Child of `asx_rule`. The rule's conditions evaluate to **match /
-no-match**; each action fires per `asx_fireon`. Columns not relevant to a given
+The action layer. Child of `asx_rule`. The rule's top-level validation groups are its **outcomes**;
+each action fires only when its **Fires when** tree (§2.18, §2.19) holds. An action with no tree never
+fires; "always, when the rule runs" is a root ALL group with no children. Columns not relevant to a given
 `asx_actiontype` are left blank (the action dispatcher / editor enforces per-type
 requirements at the application level).
 
@@ -165,17 +190,18 @@ requirements at the application level).
 |---|---|---|---|---|
 | Rule | `asx_rule` | Lookup → `asx_rule` | ✔ | Parent rule |
 | Action Type | `asx_actiontype` | Choice → `asx_actiontype` | ✔ | What to do |
-| Fire On | `asx_fireon` | Choice → `asx_actionfireon` | ✔ | Match / No-Match |
+| Fire On | `asx_fireon` | Choice → `asx_actionfireon` | | Retired: not read by the engine; read once by the multi-outcome migration script; removed in the next release |
 | Target Column | `asx_targetcolumn` | Text (100) | | Form-action target (blank = form-level) |
 | Value | `asx_valuebool` | Yes/No | | Value to apply (Visible: yes=show; Required: yes=required) |
 | Apply Inverse When Not Fired | `asx_applyinversewhennotfired` | Yes/No | | Reserved: not consumed by the current runtime and not shown in the visual editor |
 | Message | `asx_message` | Multiline | | ShowMessage / Block text (**default/fallback**); per-language overrides live in `asx_localizedmessage` |
 | Severity | `asx_severity` | Choice → `asx_severity` | | Notification level / message severity |
 | Target Table | `asx_targettable` | Text (100) | | CreateRecord target table |
-| Target Node | `asx_targetnode` | Lookup → `asx_tableconfig` | | Update/Delete target record: a single-cardinality node (root = triggering record; lookup = one related record) |
-| Field Mapping | `asx_fieldmapping` | Multiline (JSON) | | Create/Update value map (see format below) |
+| Target Node | `asx_targetnode` | Lookup → `asx_tableconfig` | | Update/Delete/Deactivate: a single-cardinality node (one record) or a collection node (every row, filtered by the Rows filter). Create Record: optional; a collection node means one record per filtered row. |
+| Field Mapping | `asx_fieldmapping` | Multiline (JSON) | | Create/Update value map; Deactivate: `statuscode` only (see format below) |
 | Order | `asx_order` | Whole Number | | Execution order |
 | Is Active | `asx_isactive` | Yes/No | | Default Yes |
+| Also Apply To Previous | `asx_applytoprevious` | Yes/No | | Update Record only: when the save changes the lookup above the target node, also apply the action to the record the lookup pointed to before the save. Default No |
 
 > **Write actions (CreateRecord / UpdateRecord / DeleteRecord)** are executed by the **plugin**
 > (enforcing adapter): synchronously, in the triggering operation's transaction (atomic: a write
@@ -184,7 +210,9 @@ requirements at the application level).
 > and performs **no** writes (block wins). `asx_RunRules` **reports** the resolved write (see §3)
 > but never executes it. An UpdateRecord targeting the root node on a Create/Update applies its
 > values to the in-flight record in place. That in-place path does not cover
-> `UpdateMultiple`/`DeleteMultiple`.
+> `UpdateMultiple`/`DeleteMultiple`. A set action writes every filtered row; one record's writes
+> are merged, unchanged rows skipped, and sent as creates, then updates, then deletes per table
+> (see the guide's *Building Actions*).
 
 **Field-mapping format (`asx_fieldmapping`)** is a JSON array, one entry per target column:
 
@@ -194,6 +222,7 @@ requirements at the application level).
   { "target": "statuscode",  "source": "literal", "value": 2 },
   { "target": "regardingid", "source": "root",    "column": "accountid" },
   { "target": "ownerid",     "source": "node",    "node": "<tableconfig-guid>", "column": "manager" },
+  { "target": "regardingobjectid", "source": "row", "column": "contactid" },
   { "target": "subject2",    "source": "template", "template": "Follow up: {root.name} — {node:<tableconfig-guid>.fullname}" },
   { "target": "followupby",  "source": "dateexpr", "anchor": { "kind": "now" }, "op": "add", "amount": 3, "unit": "days" }
 ]
@@ -201,10 +230,11 @@ requirements at the application level).
 
 `literal` values use the RecordJson encoding (see §3) and are coerced to the target column's CLR type
 via attribute metadata; `root`/`node` copy a raw attribute value off the triggering record or a
-single-cardinality related node. DeleteRecord ignores `asx_fieldmapping`.
+single-cardinality related node. `row` (set actions only) copies a column of the current row; a
+lookup target naming the row's own id column links to the row. DeleteRecord ignores `asx_fieldmapping`.
 
 `template` (String/Memo targets only) renders literal text with `{root.<column>}` /
-`{node:<tableconfig-guid>.<column>}` tokens (`{{`/`}}` escape braces); values format for humans
+`{node:<tableconfig-guid>.<column>}` / `{row.<column>}` tokens (`{{`/`}}` escape braces); values format for humans
 (option-set labels, lookup names, formatted values), null fields render empty, and malformed or
 unknown tokens are configuration errors. `dateexpr` (DateTime targets only) computes
 anchor ± amount unit (`minutes|hours|days|weeks|months|years`; weeks = 7 days; months/years clamp
@@ -233,6 +263,197 @@ back to `asx_message` then the engine default.
 
 ---
 
+### 2.11 Rule Revision (`asx_rulerevision`)
+
+Organization-owned saved configuration. Direct access uses Dataverse role privileges.
+The authoring workflow creates revisions on publication and deletes them with the owning rule.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_rule` | Lookup → `asx_rule` | Owning stable rule identity; RemoveLink supports transactional rule cleanup |
+| `asx_version` | Integer | Number within the rule |
+| `asx_definition` | Memo (1,000,000) | Format 1 snapshot of typed configuration rows; maximum 10,000 rows |
+| `asx_hash` | Text (64) | SHA-256 of serialized snapshot |
+| `asx_publisher` | Lookup → `systemuser` | Publishing user, or author whose shared-model edit preserved existing behavior |
+| `asx_publishedon` | DateTime | Snapshot creation time in UTC |
+
+### 2.12 Publication Lock (`asx_publicationlock`)
+
+Retired coordination table. The current runtime does not read, write, or acquire
+this lock; existing schema components do not affect authoring behavior.
+
+### 2.13 Rule Run (`asx_rulerun`)
+
+User-owned. One row per **Run now** execution of an On demand rule, created by the starter
+(hub / Rule Builder or a custom caller) and driven to completion by repeated calls to
+`asx_ProcessRunPage` (§7). Deleting the owning rule cascades and deletes its runs.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (200, primary) | `"<rule name> – <started on>"` |
+| `asx_rule` | Lookup → `asx_rule` | Required; delete cascade (deleting the rule deletes its runs) |
+| `asx_scope` | Choice (local) | Set at start: **Given records** (1) when record ids are given, otherwise **All records** (2), which needs a rule scoped to All records |
+| `asx_recordids` | Memo (20,000) | JSON array of Guids; given-records runs only; at most 250 |
+| `asx_status` | Choice (local) | Queued (1), Running (2), Completed (3), Completed with failures (4), Failed (5), Cancelled (6) |
+| `asx_evaluated` | Integer (min 0) | Running total of records evaluated |
+| `asx_changed` | Integer (min 0) | Running total of records with at least one write applied |
+| `asx_blocked` | Integer (min 0) | Running total of records that fired a Block action |
+| `asx_failed` | Integer (min 0) | Running total of records that errored |
+| `asx_skipped` | Integer (min 0) | Running total of records that did not pass the execution conditions |
+| `asx_failures` | Memo (100,000) | JSON array of the first 50 `{recordId, kind: "Blocked"\|"Failed", message}` |
+| `asx_bookmark` | Memo (100,000) | JSON: the page number, paging cookie and the ids already handled on that page (All records), or the next index (Given records); either scope also lists reported failed ids to skip. It also carries `isolate` (the first record ids of groups whose batched write failed, written one record at a time), `batchFailures` (failed batches so far) and `singleWrites` (true once the run writes one record at a time); a bookmark without them reads as none, 0 and false. `offset` is kept for compatibility and always 0 |
+| `asx_ruleversions` | Memo (4,000) | JSON array of the published revision ids used across pages |
+| `asx_startedon` | DateTime (UserLocal) | Set when the run is created |
+| `asx_lastpageon` | DateTime (UserLocal) | Set after each processed page |
+| `asx_finishedon` | DateTime (UserLocal) | Set when the run reaches a terminal status |
+
+**Lifecycle:** a synchronous pre-operation plug-in (`Ascentix.RulesEngine.Plugin.RuleRunPlugin`)
+on Create sets the status to Queued, sets the Scope (Given records when record ids are given, All
+records otherwise), validates the run (the rule is Published with On demand; the record ids parse
+as a JSON array of ids, at most 250 of them, and are required for a rule scoped to **A record
+it's given**; whether those records exist is checked per page, not here), clears the state
+columns (`asx_bookmark`, `asx_failures`, `asx_ruleversions`, `asx_lastpageon`, `asx_finishedon`;
+counts 0), and refuses the create if the same rule already has a Queued or Running run. A second
+synchronous pre-operation plug-in (`Ascentix.RulesEngine.Plugin.RuleRunUpdatePlugin`) on Update
+refuses every change made outside `asx_ProcessRunPage` except cancelling (setting `asx_status`
+from Queued or Running to Cancelled, and nothing else) with `"Only cancelling a run is
+allowed."`. `asx_ProcessRunPage` (§7) advances the run page by page.
+
+### 2.14 Rule Schedule (`asx_ruleschedule`)
+
+Organization-owned. At most one row per rule, driving the schedule that starts or continues its
+Rule Runs. A synchronous pre-operation plug-in (`Ascentix.RulesEngine.Plugin.RuleSchedulePlugin`)
+is registered on Create and Update. `asx_StartDueSchedules` (§9) reads and advances these rows,
+driven from outside Dataverse on a timer.
+
+The plug-in treats a Create without `asx_on` as On (the column's default), so validation and
+`asx_nextrunon` always apply to a new schedule. It refuses a second schedule for the same rule
+(`"This rule already has a schedule."`) and a schedule whose `asx_rule` is a draft row (one with
+`asx_draftof` set): `"Schedules belong to the published rule."`. While On, the recurrence must
+be valid, the rule (or its open draft) must be On demand with **All records** scope (`"Only On
+demand rules that run for all records can be scheduled."`) and its time zone recognized (`"The
+rule's time zone is not recognized."`). `asx_nextrunon`, `asx_lastrunon`, `asx_lastrun` and
+`asx_lastoutcome` are dropped from any caller's Target outside `asx_StartDueSchedules`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (200, primary) | |
+| `asx_rule` | Lookup → `asx_rule` | Required; delete cascade (deleting the rule deletes its schedule) |
+| `asx_on` | Boolean (default `true`) | Whether the schedule is currently active |
+| `asx_pattern` | Choice (local) | Every N minutes (1), Every N hours (2), Daily (3), Weekly (4), Monthly (5) |
+| `asx_every` | Integer (1–59) | The N in **Every N minutes** / **Every N hours** |
+| `asx_timeofday` | Text (5) | `HH:mm`, used by Daily/Weekly/Monthly patterns |
+| `asx_daysofweek` | Choice (local, **multi-select**) | Sunday (0) … Saturday (6); used by the Weekly pattern |
+| `asx_dayofmonth` | Integer (1–31) | Used by the Monthly pattern |
+| `asx_nextrunon` | DateTime (`TimeZoneIndependent`) | When the schedule is next due; compared as a wall-clock value regardless of the caller's time zone |
+| `asx_lastrunon` | DateTime (UserLocal) | Set after the schedule last started or continued a run |
+| `asx_lastrun` | Lookup → `asx_rulerun`, RemoveLink | The most recent Rule Run this schedule drove |
+| `asx_lastoutcome` | Choice (local) | Started a run (1), Continued the active run (2), Rule not runnable (3) |
+
+### 2.15 Scheduler Status (`asx_schedulerstatus`)
+
+Organization-owned. Tracks the health of whatever calls `asx_StartDueSchedules` on a timer (for
+example the scheduler add-on flow), for hub indicators; the engine does not read it.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (200, primary) | |
+| `asx_lastseenon` | DateTime (UserLocal) | Last time a caller reported in |
+| `asx_lastseenby` | Lookup → `systemuser`, RemoveLink | Identity of the last caller |
+| `asx_callstoday` | Integer (min 0) | Calls made so far in the current day |
+
+### 2.16 Rule Diagnostic (`asx_rulediagnostic`)
+
+Organization-owned. Opt-in diagnostics for form saves: while the `asx_CaptureDiagnostics`
+environment variable (§2.17) is on, `RulesEnginePlugin` creates one row per saved record, through
+the system service, after the save's `totalMs` is taken (so the write is outside the measured
+time). It holds timings, counts and ids only, never record data. The engine never reads these rows.
+
+The row is part of the save's transaction, so a blocked or failed save rolls its row back. A failed
+switch read or row write is caught and written to the plug-in trace, but Dataverse may still fail
+the save itself: a failed request inside a synchronous plug-in dooms its transaction. The switch is
+meant for testing. If saves fail with a generic transaction error while it's on, turn it off.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (200, primary) | `"<table> <message>"`, for example `account Update` |
+| `asx_tablelogicalname` | Text (100) | The saved record's table |
+| `asx_recordid` | Text (36) | The saved record's id (`D` format); all zeros for a Create that supplied no id |
+| `asx_messagename` | Text (100) | `Create`, `CreateMultiple`, `Update`, `UpdateMultiple` or `Delete` |
+| `asx_correlationid` | Text (36) | The save's correlation id (`D` format) |
+| `asx_diagnostics` | Memo (1,048,576) | The save's full diagnostics JSON (§3, *Diagnostics fields beyond evaluation*), with no 4 KB cap and so never `nodesTruncated`. `totalMs` is the whole save. A multi-record save writes the same JSON on each record's row |
+
+### 2.17 Environment variable `asx_CaptureDiagnostics`
+
+| Schema name | Type | Default | Value |
+|---|---|---|---|
+| `asx_CaptureDiagnostics` | Boolean (`type` 100000002) | `no` | None shipped |
+
+Provisioned by `Configure-RuleAuthoring.ps1 -Phase Schema` as a definition only. Turning it on means
+creating (or setting) its `environmentvariablevalue` row to `yes`. An active value row (`statecode`
+0) overrides the default; a blank one falls back to it. The engine treats `yes`, `true` and `1`
+(trimmed, any case) as on, and anything else, a missing definition, or a failed read as off.
+
+Each plug-in worker reads the switch at most once every 60 seconds per organization, whether it is
+on or off, so a change takes up to a minute to apply and a save normally pays no extra query. The
+read is one query on `environmentvariabledefinition`, a system table that always exists, so with the
+switch off (the default) a save never touches `asx_rulediagnostic`.
+
+### 2.18 Action Condition Group (`asx_actionconditiongroup`)
+
+A node of an action's **Fires when** tree: the logical combination of outcome tests. Self-referential.
+User-owned. Every node, not only the root, carries its action, so one query loads a whole tree.
+
+| Column | Schema name | Type | Req | Notes |
+|---|---|---|---|---|
+| Name | `asx_name` | Text (200, primary) | | |
+| Rule Action | `asx_ruleaction` | Lookup → `asx_ruleaction`, Cascade | ✔ | The action this node belongs to (deleting the action deletes its tree) |
+| Parent Group | `asx_parentgroup` | Lookup → `asx_actionconditiongroup`, RemoveLink | | Self-ref. Blank = the root. An action has at most one root; more than one makes the action fail to load |
+| Logical Operator | `asx_logicaloperator` | Choice (local) | ✔ | ALL = 1 (every child must hold), ANY = 2 (at least one must hold). Same values as `asx_logicaloperator` And / Or |
+| Order | `asx_order` | Whole Number (min 0) | | Position among siblings |
+
+A group holds when its children do, per its operator. A root **ALL** group with no children always
+holds ("Always, when the rule runs"). Any other group with no tests or groups is a publish error
+(`ACTION_EMPTY_GROUP`, §5).
+
+### 2.19 Action Condition Test (`asx_actionconditiontest`)
+
+A leaf of a Fires when tree: "this outcome is true" or "this outcome is false". User-owned.
+
+| Column | Schema name | Type | Req | Notes |
+|---|---|---|---|---|
+| Name | `asx_name` | Text (200, primary) | | |
+| Group | `asx_actionconditiongroup` | Lookup → `asx_actionconditiongroup`, Cascade | ✔ | The group this test is in |
+| Outcome | `asx_outcome` | Lookup → `asx_conditiongroup`, RemoveLink | ✔ | A top-level validation group of the same rule (§2.3). Deleting the outcome removes the link; publishing then reports `ACTION_TEST_UNKNOWN_OUTCOME` |
+| Expected | `asx_expected` | Yes/No | ✔ | Yes = "is true" (default), No = "is false" |
+| Order | `asx_order` | Whole Number (min 0) | | Position among siblings |
+
+Both tables are part of a rule's published snapshot, so a published revision keeps its own copy of
+every action's tree. The shipped Rules Engine Author role has full access to both tables and the Reader
+role has read access (see the guide's *Security Roles*).
+
+### 2.20 Data Update (`asx_dataupdate`)
+
+Organization-owned. One row per release data update that has started, written only by
+`asx_ApplyDataUpdates` (§10). The row id is fixed per update number, so a number has at most one row.
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (200, primary) | The update's title |
+| `asx_number` | Integer (min 0) | The update's number; never reused |
+| `asx_status` | Choice (local) | Running (1), Completed (2), Completed with failures (3) |
+| `asx_cursor` | Memo (100,000) | Where the update resumes; owned by the update |
+| `asx_succeeded` | Integer (min 0) | Items converted |
+| `asx_failed` | Integer (min 0) | Items that failed |
+| `asx_failures` | Memo (100,000) | JSON array of the first 50 `{item, message}` |
+| `asx_startedon` | DateTime (UserLocal) | Set when the update (or a retry) starts |
+| `asx_completedon` | DateTime (UserLocal) | Set when it finishes |
+| `asx_lastpageon` | DateTime (UserLocal) | Set on every call (the row lock) |
+| `asx_runby` | Lookup → `systemuser`, RemoveLink | The administrator who last applied it |
+
+**Pending:** an update the assembly carries with no row, or with a Running row. Completed and
+Completed with failures are not pending. The shipped roles grant no privileges on this table.
+
 ## 3. `asx_RunRules` Custom API
 
 An **unbound (global) Dataverse Custom API** that evaluates the rules engine against a single
@@ -248,6 +469,7 @@ non-enforcing**: a fired `Block` action is reported, never thrown.
 | `RecordJson` | String | Yes | Unsaved field values as a flat JSON object `{ "<logicalname>": <value> }` |
 | `Triggers` | String | Yes | Single trigger name; default `Manual` |
 | `IncludeDiagnostics` | Boolean | Yes | Opt in to the `Diagnostics` response property (default `false`). Ships in the product solution |
+| `IncludeOutcomes` | Boolean | Yes | Opt in to the `Outcomes` values (default `false`; omitted reads as `false`). Created by `pipelines/Configure-RuleAuthoring.ps1` in the Register phase |
 
 At least one of `RecordId` / `RecordJson` must be supplied (validated by the handler). Providing
 both retrieves the persisted record and overlays the JSON fields on top.
@@ -259,7 +481,26 @@ both retrieves the persisted record and overlays the JSON fields on top.
 | `IsValid` | Boolean | True when no `Block` action fired |
 | `FailedRuleCount` | Integer | Count of distinct rules with a fired `Block` action |
 | `Results` | String | JSON array of every fired action (see shape below) |
-| `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (`Ascentix.RulesEngine.Core/Diagnostics/RunDiagnosticsSerializer.cs`) containing `totalMs`, `rulesLoaded`, `rulesEvaluated`, `rulesFired`, `retrieveCount`, `retrieveMultipleCount`, `rowsFetched`, `stages[{name,ms}]`, `nodes[{nodeId,table,retrieveCount,retrieveMultipleCount,rows}]` |
+| `Outcomes` | String | Only when `IncludeOutcomes = true`: JSON array, one element per outcome per evaluated record: `[{ "recordId": "…", "ruleId": "…", "outcomeId": "…", "name": "High value", "value": true }]`. `value` is the outcome's value in the normal run (not the previous-value run). A rule held back by its execution conditions reports none. Otherwise always present as `[]`. `Results` is unchanged. Created by `pipelines/Configure-RuleAuthoring.ps1` in the Register phase |
+| `ChangeSet` | String | JSON object `{ "creates": n, "updates": n, "deletes": n, "unchanged": n }`: what enforcement would write for the evaluated record after merging (a record with a fired Block counts zero) |
+| `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (`Ascentix.RulesEngine.Core/Diagnostics/RunDiagnosticsSerializer.cs`) containing `totalMs`, `rulesLoaded`, `rulesEvaluated`, `rulesFired`, `retrieveCount`, `retrieveMultipleCount`, `rowsFetched`, `stages[{name,ms}]`, `nodes[{nodeId,table,retrieveCount,retrieveMultipleCount,rows}]`. The write, page and scheduler figures below appear only when non-zero, so asx_RunRules (which writes nothing) never carries them. |
+
+### Diagnostics fields beyond evaluation
+
+`RunDiagnosticsSerializer` also emits these, each only when non-zero (`asx_ApplyRules` §6, `asx_ProcessRunPage` §7, `asx_StartDueSchedules` §9, the form-save `asx-diag` trace line, and the opt-in `asx_rulediagnostic` row §2.16):
+
+| Field | Meaning |
+|---|---|
+| `writesSent` | Rows written with a service request (creates, updates, deletes) |
+| `writesUnchanged` | Rows dropped because every mapped value was already held |
+| `writesMerged` | Write intents merged into another write of the same row |
+| `bulkRequests` / `singleRequests` | `CreateMultiple`/`UpdateMultiple` requests / single `Create`/`Update`/`Delete` requests |
+| `inPlaceWrites` | Updates of the record being saved, applied to the save itself |
+| `pageRecords` / `pageChunks` / `pageBlocked` / `pageFailed` | One `asx_ProcessRunPage` call: records handled, chunks evaluated, records blocked, records failed |
+| `schedulesStarted` / `schedulesContinued` / `schedulesSkipped` | One `asx_StartDueSchedules` call |
+| `nodesTruncated` | `asx-diag` trace line only: `true` when `nodes` entries were left out to keep the line within 4 KB |
+
+Stages added: `changeSetBuild`, `applyInPlace`, `dispatch:<operation>:<table>` (summed per key), `pageSelect`, `pageEvaluate`, `pageWrite`, `bookmark`, `dueQuery`, `scheduleStart`, `heartbeat`. A run page sums its chunks' evaluation stages and counters into its own. On these APIs and the trace line, `totalMs` is the whole call or save.
 
 ### RecordJson encoding
 
@@ -285,7 +526,6 @@ Attribute kinds decode as:
   {
     "ruleId": "00000000-0000-0000-0000-000000000000",
     "actionType": "Block",
-    "fireOn": "OnNoMatch",
     "targetColumn": null,
     "value": null,
     "message": "Localized message text",
@@ -295,17 +535,24 @@ Attribute kinds decode as:
 ]
 ```
 
-Enums are serialized as string names (`"Block"`, `"OnMatch"`, `"Error"`). Fields irrelevant to
+Enums are serialized as string names (`"Block"`, `"Error"`). An action no longer reports when it fires: only an action whose Fires when tree held is returned. Fields irrelevant to
 an action type are `null` (e.g. `targetColumn`/`value` for `Block`; `message`/`severity` for
 `SetVisible`). `message` is already localized using the resolved language at evaluation time.
 
-A fired **CreateRecord / UpdateRecord / DeleteRecord** action also carries a `write` object, the
-fully-resolved write intent. It is **reported only** (`asx_RunRules` never executes it; the plugin does):
+A fired action also carries `previousOf`: the id of the root-level lookup node when the action
+fired for the previous value of a changed lookup (see *"Also apply to the previous"* under
+Building Actions), absent for a normal-run action. It can only appear when the dry run evaluates
+an Update — `Triggers` is `OnUpdate` and both `RecordId` and `RecordJson` are supplied (a
+retrieve-and-overlay build), the only shape that carries a saved record to compare against the
+overlay.
+
+A fired **CreateRecord / UpdateRecord / DeleteRecord** action also carries its resolved write(s),
+reported only (`asx_RunRules` never executes them; the plugin does). A **single-record** action
+(its `asx_targetnode` is not a collection) keeps a `write` object, the fully-resolved write intent:
 
 ```json
 {
   "actionType": "CreateRecord",
-  "fireOn": "OnMatch",
   "write": {
     "operation": "Create",
     "targetTable": "task",
@@ -316,8 +563,32 @@ fully-resolved write intent. It is **reported only** (`asx_RunRules` never execu
 ```
 
 `operation` is `Create` / `Update` / `Delete`; `targetId` is set for Update/Delete (the resolved
-target record), null for Create; `values` (omitted for Delete) is the resolved column map in the
-RecordJson encoding. The `write` object is absent for non-write actions.
+target record), **always `null` for Create** — the engine assigns a Create's id only as the
+change set's internal merge key; that id is never sent to Dataverse and never becomes the created
+record's id (Dataverse assigns it), so it is never reported, for either a single-record or a set
+create; `values` (omitted for Delete) is the resolved column map in the RecordJson encoding. The
+`write` object is absent for non-write actions.
+
+A **set** action (its `asx_targetnode` is a collection, e.g. a Rows-filtered child table) instead
+carries `writes`, `writeCount` and `unchangedCount` in place of `write`:
+
+```json
+{
+  "actionType": "UpdateRecord",
+  "writes": [
+    { "operation": "Update", "targetTable": "contact", "targetId": "…", "values": { "donotbulkemail": true } }
+  ],
+  "writeCount": 3,
+  "unchangedCount": 1
+}
+```
+
+`writes` lists at most the first 100 rows (each in the `write` shape above, so a set create's rows
+also report `targetId: null`); `writeCount` is the full row count regardless of how many are
+listed; `unchangedCount` is how many of those rows the merged change set dropped as no-ops
+(already at the target value). `targetTable` falls back to the written table when the action has
+no `asx_targettable` of its own (e.g. a set Update/Deactivate, whose table comes from the target
+node).
 
 ---
 
@@ -414,7 +685,6 @@ When no rules match, the response is a well-formed envelope with `"rules": []`, 
       "actions": [
         {
           "actionType": "SetRequired",
-          "fireOn": "OnMatch",
           "targetColumn": "creditlimitapprovedby",
           "value": true,
           "applyInverseWhenNotFired": true,
@@ -434,7 +704,6 @@ Write actions add `targetTable`, `targetNode`, and `fieldMapping` (each omitted 
 ```jsonc
 {
   "actionType": "CreateRecord",
-  "fireOn": "OnMatch",
   "targetTable": "task",
   "fieldMapping": "[{\"target\":\"subject\",\"source\":\"literal\",\"value\":\"Hi\"}]",
   "order": 1
@@ -497,6 +766,7 @@ status badge and before allowing Publish.
 |---|---|---|
 | `IsValid` | Boolean | `true` when no Error-severity issue was found |
 | `Issues` | String | JSON report (see shape below). Empty array `"issues":[]` when valid. |
+| `DraftHash` | String | SHA-256 of the complete validated draft and referenced model configuration; publication independently validates the latest saved definition |
 
 ### Issues JSON shape
 
@@ -523,8 +793,8 @@ status badge and before allowing Publish.
 Field notes:
 
 - `severity` is a string enum name, either `"Error"` or `"Warning"`. Only `Error` blocks publishing
-  (`ValidationReport.IsValid` ignores warnings). Two checks emit `Warning`: `STRUCT_ROWCOUNT_ON_CREATE`
-  and `SEC_SYSWRITE_REQ`.
+  (`ValidationReport.IsValid` ignores warnings). Warnings include `STRUCT_ROWCOUNT_ON_CREATE`,
+  `TRAV_PUSHDOWN` and `OUTCOME_UNUSED`.
 - `code` is a stable machine token the editor maps to inline UI. Vocabulary: `STRUCT_NO_CONDITIONS`,
   `STRUCT_NO_ACTIONS`, `STRUCT_EMPTY_GROUP`, `STRUCT_MISSING_FIELD`, `STRUCT_INVALID_REGEX`,
   `STRUCT_ROWCOUNT_RANGE`, `STRUCT_NODE_NOT_IN_TREE` (Error: a condition's `asx_tableconfig`
@@ -534,13 +804,26 @@ Field notes:
   `META_COLUMN_NOT_READABLE`, `META_COLUMN_NOT_CREATABLE`, `META_COLUMN_NOT_UPDATABLE`,
   `META_OPERATOR_TYPE_MISMATCH`, `STRUCT_ROWCOUNT_ON_CREATE` (Warning: a min-rows Row Count on
   a structurally-empty-at-create collection combined with the On Create trigger can never pass
-  during Create), plus the **publisher-relative** `SEC_*` family:
-  `SEC_SYSWRITE_PRIV` (Error: a System-context rule with write actions requires the publishing
-  user to hold the matching privilege at Global depth on each target table) and
-  `SEC_SYSWRITE_REQ` (Warning: informational statement of that requirement, always emitted for
-  gated actions regardless of the caller's own privileges). Unlike the rule-intrinsic families,
-  `SEC_*` results depend on *who asks*: `asx_ValidateRule` evaluates them for the caller; the
-  authoritative check runs against the actual publisher at publish time (see `docs/Security.md`).
+  during Create), `STRUCT_INVALID_DATEEXPR`, `STRUCT_EXPR_FILTER_MISSING`,
+  `STRUCT_INVALID_EXPRESSION_FILTERS`, `STRUCT_INVALID_TIMEZONE`, `STRUCT_APPLY_PREVIOUS_TARGET` (Error: an action's
+  "Also Apply To Previous" is ticked but the action is not an Update Record whose target is reached through
+  lookups from the rule's record), `STRUCT_ACTION_FILTER_TARGET` (Error: an action's Rows filter must filter the
+  action's own target rows, and only a **set** action — Update/Delete/Deactivate Record on a collection node, or
+  Create Record targeting one — can have a Rows filter at all), `STRUCT_ROW_SOURCE_NOT_SET` (Error: the current
+  row — a `row` field-mapping source, or a `{row.…}` token in a Show Message/Block message text, one of its
+  per-language `asx_localizedmessage` overrides, or a Template condition's comparison value — can only be used by
+  an action that writes a set of rows), `OUTCOME_UNNAMED` (Error: a top-level validation group has no name),
+  `OUTCOME_DUPLICATE_NAME` (Error: two outcomes share a name, ignoring case),
+  `ACTION_NO_TREE` (Error: an active action has no Fires when tree, so it could never fire),
+  `ACTION_TEST_UNKNOWN_OUTCOME` (Error: a test names an outcome the rule doesn't have),
+  `ACTION_EMPTY_GROUP` (Error: a Fires when group other than an empty root ALL has no tests or groups),
+  `OUTCOME_UNUSED` (Warning: no active action's tree tests this outcome; it is still evaluated and reported),
+  `STRUCT_DEACTIVATE_MAPPING` (Error: Deactivate Record's field mapping may
+  only set Status Reason, `statuscode`; any other mapped column is refused), `META_TABLE_NOT_DEACTIVATABLE` (Error:
+  Deactivate Record's target table has no `statecode`, or changes state only through its own dedicated message —
+  `opportunity`, `incident`, `quote`, `salesorder` and `invoice` are refused outright, alongside any table without
+  a `statecode` attribute). Trusted Authors may publish System-context writes without
+  holding privileges on the target business tables; see `docs/Security.md`.
 - `kind` is a string enum name: `"Rule"`, `"Group"`, `"Condition"`, or `"Action"`.
 - `field` is the logical-name fragment of the column the issue targets; omitted (`null`) when the
   issue targets the entity as a whole rather than a specific field.
@@ -551,16 +834,17 @@ Field notes:
 
 ### Error handling
 
-`asx_ValidateRule` throws `InvalidPluginExecutionException` **only on bad input** (missing or
-non-GUID `RuleId`; rule not found).
+`asx_ValidateRule` returns rule validation issues as data. Bad input, unreadable
+configuration and service faults can throw. Validation does not acquire a
+coordination lock or change publication state.
 
 ---
 
 ### 5.1 `RulePublishPlugin` plugin step (publish gate)
 
 A **pre-operation synchronous SDK step** on `asx_rule` **Update** that enforces the same
-`RuleValidator` as a server-side gate. It blocks the **Draft → Published** transition of an
-invalid rule, so publishing via the raw form (not just the editor) is gated too.
+`RuleValidator` as a server-side gate. Every explicit Published status update
+validates and captures the saved draft, including republishing an already-active rule.
 
 **Registration details:**
 
@@ -571,16 +855,191 @@ invalid rule, so publishing via the raw form (not just the editor) is gated too.
 | Primary entity | `asx_rule` |
 | Stage | Pre-operation (20) |
 | Mode | Synchronous (0) |
+| Execution order | 20, after revision guard (1) and before registration reconciliation (30) |
 | Pre-image | `PreImage` (alias `PreImage`, `imagetype=0`, `messagepropertyname="Target"`, attributes: `statuscode`) |
 
-**Transition logic:** reads `old = PreImage["statuscode"]`, `new = Target["statuscode"] ?? old`.
-Runs the validator **only when `old != Published && new == Published`**. On an invalid rule throws
-`InvalidPluginExecutionException` with the `Error` messages joined. The platform rolls back,
-blocking the publish. Drafts, Archived transitions, and non-status edits pass untouched.
+**Publication logic:** an explicit `Target.statuscode = 753840000` captures and
+validates the latest saved graph. It creates a revision and supplies the new pointer and number on
+Target. Invalid publication throws, rolling back the revision, pointer, and
+registration changes. Other authored attributes must be saved before publishing.
+Non-publication draft edits retain the old active revision.
+
+**Data update gate:** while any data update is pending (§10), the gate refuses Draft → Published
+with *An administrator must apply data update N before rules can be published.* (N is the
+lowest-numbered pending update).
+
+### 5.2 Revision Custom APIs
+
+All are unbound POST Actions, with no additional custom processing steps, implemented
+by `Ascentix.RulesEngine.Plugin.RuleRevisionApi`.
+
+| API | Inputs | Outputs | Gate |
+|---|---|---|---|
+| `asx_ReadPublishedRule` | `RuleId` String | `Definition` String | `prvReadasx_rule` |
+| `asx_RestoreRuleDraft` | `RuleId` String | None | `prvWriteasx_rule` |
+| `asx_OpenRuleDraft` | `RuleId` String | `DraftId` String | `prvWriteasx_rule` |
+| `asx_CopyRule` | `RuleId` String | `NewRuleId` String | `prvCreateasx_rule` |
+| `asx_DeleteRule` | `RuleId` String | None | `prvDeleteasx_rule` |
+
+Open creates or reuses one working copy while the original stays active. Restore
+accepts the working-copy ID, preserves active enforcement, and reclaims
+unused private models. Read resolves either ID to the stable published rule.
+`asx_tableconfig.asx_isprivate` is a Boolean, default false, identifying cloned
+working models excluded from shared-model lists. The installation and acceptance
+contract is in `docs/deployment/published-rule-revisions.md`.
 
 ---
 
-## 6. `asx_SyncSteps` Custom API
+## 6. `asx_ApplyRules` Custom API
+
+An **unbound (global) Dataverse Custom API Action** (`IsFunction = false`) that evaluates one
+**On demand** rule against one persisted record and, unlike `asx_RunRules`, **enforces** the
+result: a fired Block throws, and every other fired write action runs inside the call's own
+transaction.
+
+**Registration:** bound to plugin type `Ascentix.RulesEngine.Plugin.ApplyRulesApi`;
+`ExecutePrivilegeName = prvCreateasx_RuleRun` (the same gate as starting a Rule Run). No
+additional custom processing steps. In the `AscentixRulesEngine` solution.
+
+**Privileges:** `prvCreateasx_RuleRun` is the gate for both `asx_ApplyRules` and
+`asx_ProcessRunPage`, but running rules from the Rule Builder or a flow needs more than Create
+alone. On the Rule Run table (`asx_rulerun`): **Create** (the gate), **Read** (the Runs dialog,
+reading a run back), **Append** (setting the run's Rule) and **Write** at owner (User) level or
+wider (cancelling). On the Rule table (`asx_rule`): **Append To**. A small dedicated security
+role holding exactly these is the simplest way to grant them.
+
+### Request parameters
+
+| Parameter | Type | Optional | Notes |
+|---|---|---|---|
+| `RuleId` | Guid | No | The On demand rule to evaluate; must be Published with the On demand trigger |
+| `RecordId` | Guid | No | A persisted record of the rule's table, readable in the rule's evaluation context |
+| `IncludeDiagnostics` | Boolean | Yes | When true, the response also carries `Diagnostics` (default `false`) |
+
+### Response parameters
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `IsValid` | Boolean | True when no Block action fired |
+| `Results` | String | JSON array of every fired action, in the `asx_RunRules` Results shape (§3) |
+| `WriteCount` | Integer | Number of write actions applied |
+| `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (§3), including the write figures |
+
+### Semantics
+
+- Uses the RetrieveOnly root build (the persisted record, no overlay) and trigger `OnDemand`;
+  channel restrictions are ignored (on-demand runs have no channel).
+- The record must exist and be readable in the rule's evaluation context: as the caller for a
+  User-context rule, as the system for a System-context rule. Otherwise the call throws
+  `"Record <id> was not found in <table>, or you can't read it."`.
+- A fired Block throws `InvalidPluginExecutionException` with the rendered block message and
+  applies no writes.
+- Otherwise every write intent runs inside the call's own transaction (synchronous, main
+  operation). A root-targeted Update becomes a real, engine-tagged `Update` of the record rather
+  than an in-flight `Target` change.
+- Allowed for a rule with either **Runs for** value (§2.1); `asx_ondemandscope` only affects how
+  `asx_ProcessRunPage` selects records for a Rule Run, not `asx_ApplyRules`.
+
+---
+
+## 7. `asx_ProcessRunPage` Custom API
+
+An **unbound (global) Dataverse Custom API Action** (`IsFunction = false`) that processes the
+next page of an existing Rule Run (§2.13), driven from **outside** Dataverse by repeated calls
+so every page starts fresh at plug-in depth 1.
+
+**Registration:** bound to plugin type `Ascentix.RulesEngine.Plugin.ProcessRunPageApi`;
+`ExecutePrivilegeName = prvCreateasx_RuleRun`. No additional custom processing steps. In the
+`AscentixRulesEngine` solution. Driving a run needs the privileges listed in §6
+(**Privileges**), not Create alone.
+
+### Request parameters
+
+| Parameter | Type | Optional | Notes |
+|---|---|---|---|
+| `RunId` | Guid | No | The Rule Run to process |
+| `FailedRecordId` | Guid | Yes | The record named by the previous call's `record-failed` error (see **Failed writes**): the call only counts it Failed once and adds it to the skip list. The id may stand for a group whose batched write failed; send it back exactly as for a record |
+| `FailedMessage` | String | Yes | The message from that error, stored in `asx_failures`; default `"The write failed."` |
+| `IncludeDiagnostics` | Boolean | Yes | When true, the response also carries `Diagnostics` (default `false`) |
+
+### Response parameters
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `Done` | Boolean | True when the run has no further pages to process |
+| `Status` | Integer | Current `asx_status` of the run |
+| `Evaluated` | Integer | Running total of records evaluated |
+| `Changed` | Integer | Running total of records that had at least one write applied |
+| `Blocked` | Integer | Running total of records that fired a Block action |
+| `Failed` | Integer | Running total of records that errored |
+| `Skipped` | Integer | Running total of records that did not pass the execution conditions |
+| `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (§3), including the page figures and the page's summed evaluation and write figures |
+
+### Semantics
+
+- If the run is not Queued or Running (already terminal), returns `Done = true` with the current
+  status and does nothing.
+- **Row lock:** before reading the run's state, each call updates the run's `asx_lastpageon`.
+  The row lock that update takes holds until the call's transaction ends, so two callers driving
+  the same run take turns (the second reads the state the first saved), and a cancel waits for
+  the page in progress instead of racing its save.
+- **Page budget:** stops after 500 records or 60 seconds of processing, whichever comes first.
+  The time is checked before each chunk and after each record, so a page over budget stops after
+  the record in hand, well inside the platform's two-minute limit. A group written in one batch is
+  checked before and after the group instead of after each record.
+- **Record selection:** an **All records** run reads the rule's table ordered by primary id, a page
+  at a time, with the page number and paging cookie kept in the bookmark. A page cut short by the
+  budget is resumed by re-reading the same page and skipping the ids already handled on it (kept
+  in the bookmark), so rows deleted or inserted in the meantime can't make it skip or repeat a
+  record. A **Given records** run walks the stored ids in order from the bookmark index. Records
+  are evaluated in chunks of 25; a record that no longer exists, or isn't readable in the rule's
+  evaluation context, counts as Failed (`"Record not found or not readable."`) and is never
+  evaluated.
+- **Evaluation context (reads):** records are read in the rule's evaluation context, the same one
+  its traversal uses. For a User-context rule an **All records** run only pages over the rows the
+  caller (the driver's identity) can read, and a given record the caller can't read counts Failed;
+  a System-context rule reads as the system.
+- **Failure messages** stored in `asx_failures` are cut to 1,000 characters.
+- **Per record:** the same evaluation as `asx_ApplyRules`. A record that doesn't pass the rule's
+  execution conditions counts Skipped; a Block counts Blocked (no writes, recorded in
+  `asx_failures`); otherwise its writes are applied — at least one write counts Changed, none
+  counts Evaluated only.
+- **Failed writes:** a write that throws fails the whole call with
+  `asx_ProcessRunPage:record-failed:<record guid>:<message>`, so the platform rolls the page back
+  (no writes and no run update from that call are kept). The caller then calls again with
+  `FailedRecordId = <record guid>` and `FailedMessage = <message>`. That call only records the
+  failure: the record is counted Evaluated and Failed once, added to the bookmark's skip list, and
+  the run is saved; no records are processed (`Done` is false unless the safety stop fired). The
+  next call, without `FailedRecordId`, re-processes the page without the skipped records. Each
+  report is committed on its own, so a page with several failing writes still converges. A
+  repeated report of a record already in the skip list is not counted again. Send
+  `FailedRecordId` only on the call right after a `record-failed` error.
+  A group's writes normally go out as one batch; when that batch fails, the error carries a
+  stand-in id for the group instead of a record id. The re-call with it counts nothing and marks
+  the group; the next call writes that group one record at a time and reports the record that
+  fails as above. After 3 failed batches the run writes one record at a time for good.
+- **Other errors:** a caller should stop on any other error. The run stays Running (or Queued, if no
+  page has been saved yet) and can be resumed later by calling again.
+- **Safety stop:** after 100 records, if every record so far failed, the run is set to Failed.
+- **Rule no longer runnable:** if the rule is no longer published with the On demand trigger, the
+  run is set to Failed with the failure `"The rule is no longer published with the On demand
+  trigger."`.
+- **Runs for no longer matches:** every page checks the run against its rule's published **Runs
+  for**. An All records run needs a rule scoped to All records and no record ids; a Given records
+  run needs record ids. Otherwise the run is set to Failed with the failure `"The run no longer
+  matches its rule's Runs for setting."`.
+- **Completion:** when the last page is consumed the run is Completed, or Completed with failures
+  if anything was Blocked or Failed, and `asx_finishedon` is set.
+- **After each page:** saves the counts, the bookmark, `asx_lastpageon`, the rule versions used
+  (`asx_ruleversions`), and the first 50 failures (`asx_failures`). A Queued run becomes Running
+  on its first page. If the run was Cancelled while the page ran, the counts are saved but the
+  status stays Cancelled and `Done` is true.
+- **Evaluation context:** User-context rules run as the caller (the driver's identity); System-
+  context rules run as the system service.
+
+---
+
+## 8. `asx_SyncSteps` Custom API
 
 An **unbound (global) Dataverse Custom API Action** (`IsFunction = false`) that mechanizes bulk
 step maintenance: drift recovery, orphan cleanup, and pre-uninstall teardown of the generated
@@ -624,7 +1083,130 @@ as the system user, exactly like `RuleRegistrationPlugin`. In the `AscentixRules
 
 ---
 
-## 7. Relationships (explicit schema names)
+## 9. `asx_StartDueSchedules` Custom API
+
+An **unbound (global) Dataverse Custom API Action** (`IsFunction = false`) that finds due Rule
+Schedules (§2.14) and starts or continues each one's Rule Run, driven from **outside** Dataverse
+by a caller on a timer (for example the scheduler add-on flow).
+
+**Registration:** bound to plugin type `Ascentix.RulesEngine.Plugin.StartDueSchedulesApi`;
+`ExecutePrivilegeName = prvCreateasx_RuleRun` (the same gate as `asx_ApplyRules`, §6, and
+`asx_ProcessRunPage`, §7). No additional custom processing steps. In the `AscentixRulesEngine`
+solution.
+
+### Request parameters
+
+| Parameter | Type | Optional | Notes |
+|---|---|---|---|
+| `IncludeDiagnostics` | Boolean | Yes | When true, the response also carries `Diagnostics` (default `false`) |
+
+### Response parameters
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `RunIds` | String | JSON array of Rule Run ids (e.g. `["…","…"]`): the runs this call started, then the runs it continued, then any other Queued/Running run of a rule with an On schedule; each id once |
+| `ScheduledCount` | Integer | Number of due schedules this call found (at most 50), including any the call budget left for the next call |
+| `Diagnostics` | String | Present only when `IncludeDiagnostics = true`: `RunDiagnostics` JSON (§3), including the scheduler figures |
+
+### Semantics
+
+- **Heartbeat:** every call first writes `asx_schedulerstatus` (§2.15). It is part of the call's
+  transaction, so a call that fails rolls its heartbeat back too.
+- **Due schedules:** On, with `asx_nextrunon` at or before now, oldest first, at most **50** per
+  call. For each: a rule that has an active (Queued/Running) run is **continued** (outcome 2,
+  `asx_nextrunon` unchanged); otherwise a new all-records run is **started** (outcome 1) and
+  `asx_nextrunon` advances. A rule that isn't runnable (not Published, not On demand + All
+  records, unknown time zone) gets outcome 3 and advances, staying On; an invalid recurrence or a
+  schedule without a rule is switched Off (outcome 3); a schedule whose rule has just been
+  deleted is skipped (the delete cascade removes it).
+- **Next run:** a missed occurrence is never queued: one run is started however far behind the
+  schedule is. For **Every N minutes/hours** the next run is anchored on the schedule's previous
+  `asx_nextrunon`: the first `previous + k·N` (k ≥ 1) strictly after now, so the rhythm doesn't
+  drift with the caller's timing; without a previous value it is now + N. Daily, Weekly and
+  Monthly take the next matching time of day in the rule's time zone after now.
+- **Run ownership:** runs are created by the engine but owned by the **caller** (the identity
+  that called the API), like a run started by hand.
+- **Call budget:** once about **60 seconds** of wall-clock time have passed, the call takes no
+  further due schedules; those not reached keep their `asx_nextrunon` and are taken by the next
+  call. `RunIds` still lists every run to drive.
+- **Ordering:** new runs come first in `RunIds`, so a long run that keeps being continued never
+  starves the rules started after it; continued runs follow, then leftovers.
+- **Concurrent callers:** a second call made while another is running waits on or collides with
+  the first (both write the heartbeat row and may pick the same rule); if it fails, it fails as a
+  whole (its writes roll back) and its caller simply tries again on its next wake-up. Nothing is
+  lost.
+
+---
+
+## 10. `asx_ApplyDataUpdates` Custom API
+
+An **unbound (global) Dataverse Custom API Action** (`IsFunction = false`) that reports the data
+updates a release carries and applies the ones still pending. A data update converts existing rules
+for a release; the assembly lists its updates by number, and each started one has a row in
+`asx_dataupdate` (§2.20). The Rule Builder drives it; a script can too.
+
+**Registration:** bound to plugin type `Ascentix.RulesEngine.Plugin.ApplyDataUpdatesApi`;
+`ExecutePrivilegeName = prvReadasx_rule`. `Mode = Apply` additionally requires
+`prvWriteSdkMessageProcessingStep`, held by System Administrator and System Customizer; the plug-in
+checks it. No additional custom processing steps. In the `AscentixRulesEngine` solution.
+
+### Request parameters
+
+| Parameter | Type | Optional | Notes |
+|---|---|---|---|
+| `Mode` | String | No | `Status` or `Apply` (any case). Anything else is refused |
+| `Retry` | Integer | Yes | `Apply` only: the number of an update that Completed with failures; it starts again from the beginning |
+| `FailedItem` | String | Yes | `Apply` only: the failed-item token (`<number>/<item>`) from the previous call's item-failed error, sent back exactly as received |
+| `FailedMessage` | String | Yes | `Apply` only: the message from that error, stored with the failure; default `"The item failed."` |
+
+### Response parameters
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `Required` | Integer | The highest update number this release carries; `0` when it carries none |
+| `Pending` | String | JSON array `[{"number":1,"title":"…"}]` of the updates still to apply, lowest number first; `[]` when none |
+| `Latest` | String | JSON of the most recently touched update row, or `null` when no update has started: `{"number":1,"title":"…","status":2,"succeeded":10,"failed":1,"failures":[{"item":"…","message":"…"}]}`. `status` is the `asx_status` value; `failures` holds at most 50 entries |
+| `CanApply` | Boolean | `true` when the caller may apply (holds `prvWriteSdkMessageProcessingStep`) |
+| `Done` | Boolean | `true` when no update is pending |
+
+### Semantics
+
+- **Status** changes nothing. It is open to any caller with the privilege above, so every user of the
+  Rule Builder can see that an update is pending. **Apply** by a caller without
+  `prvWriteSdkMessageProcessingStep` is refused: "asx_ApplyDataUpdates: only a System Administrator or
+  System Customizer can apply data updates."
+- **One call, one step:** an Apply call finishes at most one update and returns. It works for at most
+  about **60 seconds**, saves its progress in the row's `asx_cursor`, and returns. `Done` is `true`
+  only when nothing is pending, so a caller re-calls until `Done` (also after an update finishes,
+  because the next pending update starts on the next call).
+- **Row lock:** each call writes `asx_lastpageon` first, which locks the row until the call's
+  transaction ends. A second caller waits, then continues from what the first saved. An update
+  another caller has just finished is not run again. An update's first Apply creates its row
+  instead, so two administrators starting it at the same moment can make one fail with a
+  duplicate-row error; applying again carries on from what the other saved.
+- **Failed items:** an item that throws fails the whole call, and the platform rolls it back. The
+  error message contains `asx_ApplyDataUpdates:item-failed:<token>:<message>` (Dataverse may wrap it, so
+  search for the marker). The token is `<number>/<item>`: the update's number and the item it failed
+  on (items never contain `:`, `/` or whitespace). Call again with `FailedItem` set to the token,
+  exactly as received, and `FailedMessage` from it: that call only records the failure against that
+  update (once per item, the item stored without the number, message cut to 1,000 characters, first
+  50 kept in `asx_failures`, all counted in `asx_failed`) and makes the update skip the item, then
+  returns. If that update has meanwhile been finished by another caller, or this release doesn't
+  carry it, the call records nothing and returns. A `FailedItem` that isn't a token is refused:
+  "asx_ApplyDataUpdates: FailedItem '<value>' is not a failed-item token." The next call, made
+  without `FailedItem`, carries on. An update whose items all fail still
+  finishes, with one such re-call per item.
+- **Finishing:** an update with no failed items ends Completed; one with any ends **Completed with
+  failures**. Neither is pending afterwards.
+- **Retry:** `Retry = N` on an update that Completed with failures clears its counts and cursor and
+  runs it again from the start. Retrying an update that is Completed, unknown or has no row is
+  refused. A retry that is already running is left alone, so a re-sent request does nothing twice.
+- **Publishing:** while any update is pending, publishing a rule is refused (§5.1). Enforcement,
+  Run now and schedules are unaffected.
+
+---
+
+## 11. Relationships (explicit schema names)
 
 | Relationship | Parent (1) | Child (N), holds the lookup |
 |---|---|---|
@@ -648,10 +1230,16 @@ as the system user, exactly like `RuleRegistrationPlugin`. In the `AscentixRules
 | `asx_nodefiltergroup_owningcriterion` | `asx_nodefiltercriterion` | `asx_nodefiltergroup` |
 | `asx_rule_ruleaction` | `asx_rule` | `asx_ruleaction` |
 | `asx_ruleaction_localizedmessage` | `asx_ruleaction` | `asx_localizedmessage` |
+| `asx_ruleaction_nodefiltergroup` | `asx_ruleaction` | `asx_nodefiltergroup` (Cascade) |
+| `asx_ruleaction_actionconditiongroup` | `asx_ruleaction` | `asx_actionconditiongroup` (`asx_ruleaction`, Cascade) |
+| `asx_actionconditiongroup_actionconditiongroup` | `asx_actionconditiongroup` | `asx_actionconditiongroup` (self, `asx_parentgroup`, RemoveLink) |
+| `asx_actionconditiongroup_actionconditiontest` | `asx_actionconditiongroup` | `asx_actionconditiontest` (Cascade) |
+| `asx_conditiongroup_actionconditiontest` | `asx_conditiongroup` | `asx_actionconditiontest` (`asx_outcome`, RemoveLink) |
+| `asx_dataupdate_asx_runby_revision` | `systemuser` | `asx_dataupdate` (`asx_runby`, RemoveLink) |
 
 ---
 
-## 8. Test fixture schema (not shipped)
+## 12. Test fixture schema (not shipped)
 
 The live client suites (`client/test-dev`, `client/e2e`, `client/scripts/seed-*`) run against a
 disposable **`sample_*` Order-domain model** that is **not part of the product**. It lives in the
@@ -669,7 +1257,7 @@ the fixture also stands up on an org whose base language is not English.
 | `sample_customer` | `sample_email`, `sample_phone`, `sample_postalcode`, `sample_creditlimit` (Money), `sample_segments` (multi-select) | `sample_parentcustomerid` → `sample_customer` (`sample_customer_sample_customer`) |
 | `sample_product` | `sample_unitprice` (Money), `sample_category` (choice), `sample_discontinued` (Yes/No) | None |
 | `sample_order` | `sample_ordertotal` (Money), `sample_status` (choice), `sample_orderdate`, `sample_isexpedited` (Yes/No), `sample_ordertags` (multi-select), `sample_contactemail`, `sample_contactphone`, `sample_shippingpostalcode`, `sample_approvalnotes` (Memo), `sample_handlinginstructions` (Memo) | `sample_customerid` → `sample_customer` (`sample_customer_sample_order`) |
-| `sample_orderline` | `sample_quantity` (Whole Number), `sample_lineamount` (Money), **`sample_notes`** (String 200, the pushdown-volume shape flag written by `client/scripts/seed-volume-fixture.mjs`; SchemaName is lowercase) | `sample_orderid` → `sample_order` (`sample_order_sample_orderline`), `sample_productid` → `sample_product` (`sample_product_sample_orderline`) |
+| `sample_orderline` | `sample_quantity` (Whole Number), `sample_lineamount` (Money), **`sample_notes`** (String 200, the pushdown-volume shape flag written by `client/scripts/seed-volume-fixture.mjs`; SchemaName is lowercase), `sample_duedate` (Date Only behavior), `sample_localtime` (date and time, Time Zone Independent behavior) | `sample_orderid` → `sample_order` (`sample_order_sample_orderline`), `sample_productid` → `sample_product` (`sample_product_sample_orderline`) |
 | **`sample_shipment`** | `sample_isexpedited` (Yes/No), `sample_shipamount` (Money); PK `sample_name` is String **100** | `sample_orderid` → `sample_order` (`sample_order_sample_shipment`, Delete = RemoveLink) |
 
 `sample_order` therefore has **two child collections**, `sample_orderline` and `sample_shipment`,

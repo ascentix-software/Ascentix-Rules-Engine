@@ -40,8 +40,9 @@ TABLECONFIG_NAMES = [
     "PERF Root",  # root last
 ]
 
-# 7 perf tables -- children before parents so FK deletes succeed
+# 8 perf tables -- children before parents so FK deletes succeed
 PERF_TABLES = [
+    "perf_followup",
     "perf_child3",
     "perf_child2",
     "perf_child1",
@@ -130,6 +131,7 @@ def main(dry_run=False):
     # Step 2: Data rows -- children first, then roots, then lookups
     # ------------------------------------------------------------------
     data_tables = [
+        ("perf_followups", "perf_followupid"),
         ("perf_child3s",  "perf_child3id"),
         ("perf_child2s",  "perf_child2id"),
         ("perf_child1s",  "perf_child1id"),

@@ -8,7 +8,7 @@ import type { ColumnMeta } from "../metadata";
 import type { TableConfigRef } from "../model/types";
 import { isNewId } from "../model/ids";
 import { isSingleCardinality } from "../model/tableConfigOps";
-import { makeToken } from "../model/templateTokens";
+import { makeToken, makeRowToken } from "../model/templateTokens";
 
 type AggFunc = "sum" | "avg" | "min" | "max" | "count";
 const AGG_FUNCS: { key: AggFunc; label: string }[] = [
@@ -141,30 +141,37 @@ export function collectionNodes(tableConfigs: Record<string, TableConfigRef>): T
   return savedNodes(tableConfigs).filter((tc) => !isSingleCardinality(tableConfigs, tc.id));
 }
 
-/** A `{node,column} -> display label` resolver for the root table and its saved single-
- * cardinality nodes; used to render friendly template previews. */
+/** A `{node,column} -> display label` resolver for the root table, its saved single-
+ * cardinality nodes and (on a set action) the current row's table; used to render friendly
+ * template previews. */
 export function useFieldLabelFor(
-  ruleTable: string, tableConfigs: Record<string, TableConfigRef>,
-): (node: string | null, column: string) => string {
+  ruleTable: string, tableConfigs: Record<string, TableConfigRef>, rowTable?: string | null,
+): (node: string | null, column: string, row?: boolean) => string {
   const nodes = insertableNodes(tableConfigs);
-  const cols = useColumns([ruleTable, ...nodes.map((n) => n.tableLogicalName)]);
-  return (node: string | null, column: string): string => {
+  const cols = useColumns([ruleTable, ...nodes.map((n) => n.tableLogicalName), ...(rowTable ? [rowTable] : [])]);
+  return (node: string | null, column: string, row?: boolean): string => {
+    if (row) {
+      const display = (rowTable && cols[rowTable]?.find((c) => c.logicalName === column)?.displayName) ?? column;
+      return `Current row → ${display}`;
+    }
     const table = node === null ? ruleTable : tableConfigs[node]?.tableLogicalName;
     const display = (table && cols[table]?.find((c) => c.logicalName === column)?.displayName) ?? column;
     return node === null ? display : `${tableConfigs[node]?.name ?? "?"} → ${display}`;
   };
 }
 
-/** "Insert field ▾" menu: root columns + each related single-cardinality node's columns.
- * Emits a `{root.<col>}` / `{node:<id>.<col>}` token via onInsert. It does not own a
- * textarea, so callers place the caret and splice the token in themselves. */
-export function InsertFieldMenu({ ruleTable, tableConfigs, onInsert, filterColumn }: {
+/** "Insert field ▾" menu: the current row's columns (only on a set action, when `rowTable` is
+ * set) + root columns + each related single-cardinality node's columns. Emits a `{row.<col>}` /
+ * `{root.<col>}` / `{node:<id>.<col>}` token via onInsert. It does not own a textarea, so
+ * callers place the caret and splice the token in themselves. */
+export function InsertFieldMenu({ ruleTable, tableConfigs, onInsert, filterColumn, rowTable }: {
   ruleTable: string; tableConfigs: Record<string, TableConfigRef>;
   onInsert(token: string): void;
   filterColumn?: (c: ColumnMeta) => boolean;
+  rowTable?: string | null;
 }) {
   const nodes = insertableNodes(tableConfigs);
-  const cols = useColumns([ruleTable, ...nodes.map((n) => n.tableLogicalName)]);
+  const cols = useColumns([ruleTable, ...nodes.map((n) => n.tableLogicalName), ...(rowTable ? [rowTable] : [])]);
   const keep = (list: ColumnMeta[] | undefined) => (list ?? []).filter((c) => !filterColumn || filterColumn(c));
 
   return (
@@ -174,6 +181,18 @@ export function InsertFieldMenu({ ruleTable, tableConfigs, onInsert, filterColum
       </MenuTrigger>
       <MenuPopover>
         <MenuList>
+          {rowTable && (
+            <MountedMenu>
+              <MenuTrigger disableButtonEnhancement><MenuItem>Current row</MenuItem></MenuTrigger>
+              <MenuPopover>
+                <MenuList>
+                  {keep(cols[rowTable]).map((c) => (
+                    <MenuItem key={c.logicalName} onClick={() => onInsert(makeRowToken(c.logicalName))}>{c.displayName}</MenuItem>
+                  ))}
+                </MenuList>
+              </MenuPopover>
+            </MountedMenu>
+          )}
           <MountedMenu>
             <MenuTrigger disableButtonEnhancement>
               <MenuItem>This record</MenuItem>

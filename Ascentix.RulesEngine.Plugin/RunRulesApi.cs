@@ -11,8 +11,11 @@ namespace Ascentix.RulesEngine.Plugin
 {
     /// <summary>
     /// Main-operation handler for the unbound asx_RunRules Custom API. Evaluates one record on
-    /// demand and reports results (IsValid / FailedRuleCount / Results JSON). Always non-enforcing:
-    /// a fired Block is reported, never thrown. Throws only on argument/usage errors.
+    /// demand and reports results (IsValid / FailedRuleCount / Results JSON), the change-set
+    /// summary (ChangeSet) and, when IncludeOutcomes is true, each outcome's value (Outcomes
+    /// JSON). Always non-enforcing: a fired Block is reported, never thrown. Throws only on
+    /// argument/usage errors. An optional DraftRuleId previews a draft: its authored rows run in
+    /// place of the live revision it is a draft of. The caller must be able to read the draft.
     /// </summary>
     public class RunRulesApi : PluginBase
     {
@@ -35,7 +38,8 @@ namespace Ascentix.RulesEngine.Plugin
             var recordJson = GetString(context, "RecordJson");
             var triggersRaw = GetString(context, "Triggers");
 
-            var trigger = ParseTrigger(triggersRaw);
+            var trigger = TriggerNames.Parse(triggersRaw, "asx_RunRules", RuleTrigger.OnDemand);
+            var selection = DraftSelection(context, userService);
             var (input, mode) = BuildInput(tableName, recordIdRaw, recordJson);
 
             var languageId = LanguageResolver.Resolve(systemService, context.InitiatingUserId);
@@ -47,11 +51,18 @@ namespace Ascentix.RulesEngine.Plugin
 
             var outcome = new RulesEngineRunner().Run(
                 systemService, userService, tableName, new List<RootInput> { input },
-                trigger, channel, languageId, mode, trace);
+                trigger, channel, languageId, mode, trace, selection);
 
             context.OutputParameters["IsValid"] = outcome.IsValid;
             context.OutputParameters["FailedRuleCount"] = outcome.FailedRuleCount;
             context.OutputParameters["Results"] = RunRulesResultSerializer.Serialize(outcome);
+            context.OutputParameters["ChangeSet"] = RunRulesResultSerializer.SerializeChangeSet(outcome);
+            // Opt-in: the form library calls this on every field change and never reads Outcomes, and a
+            // System-context rule's outcome names and values are not every caller's business. Dataverse
+            // passes an omitted optional Boolean as false. The output stays defined either way.
+            context.OutputParameters["Outcomes"] = GetBool(context, "IncludeOutcomes")
+                ? RunRulesResultSerializer.SerializeOutcomes(outcome)
+                : "[]";
 
             if (GetBool(context, "IncludeDiagnostics") && outcome.Diagnostics != null)
                 context.OutputParameters["Diagnostics"] =
@@ -61,19 +72,26 @@ namespace Ascentix.RulesEngine.Plugin
         private static string GetString(IPluginExecutionContext context, string name)
             => context.InputParameters.TryGetValue(name, out var v) ? v as string : null;
 
+        // A draft is read with the system service like every rule; this read as the caller
+        // throws if they can't see the draft, so a preview never reveals a draft they can't open.
+        private static RuleSelection DraftSelection(IPluginExecutionContext context, IOrganizationService userService)
+        {
+            if (!context.InputParameters.TryGetValue("DraftRuleId", out var raw) || raw == null) return null;
+            // Dataverse passes an omitted optional Guid as Guid.Empty (as it does false for an
+            // omitted Boolean): that means no draft, and is every call but a draft preview.
+            if (raw is Guid g) return g == Guid.Empty ? null : Selection(g, userService);
+            if (Guid.TryParse(raw as string, out var parsed)) return parsed == Guid.Empty ? null : Selection(parsed, userService);
+            throw new InvalidPluginExecutionException($"asx_RunRules: DraftRuleId '{raw}' is not a valid GUID.");
+        }
+
+        private static RuleSelection Selection(Guid id, IOrganizationService userService)
+        {
+            userService.Retrieve("asx_rule", id, new Microsoft.Xrm.Sdk.Query.ColumnSet("asx_ruleid"));
+            return new RuleSelection { DraftRuleId = id };
+        }
+
         private static bool GetBool(IPluginExecutionContext context, string name)
             => context.InputParameters.TryGetValue(name, out var v) && v is bool b && b;
-
-        // Default Manual; case-insensitive; unknown → argument error.
-        private static RuleTrigger ParseTrigger(string raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw)) return RuleTrigger.Manual;
-            if (Enum.TryParse<RuleTrigger>(raw.Trim(), ignoreCase: true, out var trigger))
-                return trigger;
-            throw new InvalidPluginExecutionException(
-                $"asx_RunRules: unknown Triggers value '{raw}'. Expected one of " +
-                "OnCreate, OnForm, Manual, OnUpdate, OnDelete.");
-        }
 
         // RecordId only → RetrieveOnly; RecordJson only → UseTarget; both → RetrieveAndOverlay.
         private static (RootInput Input, RootBuildMode Mode) BuildInput(

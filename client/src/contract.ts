@@ -51,7 +51,6 @@ export interface TableConfigDef {
 
 export interface ActionDef {
   actionType: string; // SetVisible | SetRequired | ShowMessage | Block | CreateRecord
-  fireOn: string; // OnMatch | OnNoMatch
   targetColumn: string | null;
   value: boolean | null;
   applyInverseWhenNotFired: boolean;
@@ -65,7 +64,6 @@ export interface ActionDef {
 export interface FiredAction {
   ruleId: string;
   actionType: string;
-  fireOn: string;
   targetColumn: string | null;
   value: boolean | null;
   message: string | null;

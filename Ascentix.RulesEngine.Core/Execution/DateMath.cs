@@ -25,7 +25,7 @@ namespace Ascentix.RulesEngine.Core.Execution
                 case "minutes": return anchor.AddMinutes(signed);
                 case "hours": return anchor.AddHours(signed);
                 case "days": return anchor.AddDays(signed);
-                case "weeks": return anchor.AddDays(signed * 7);
+                case "weeks": return anchor.AddDays(signed * 7d); // double: amount * 7 must not wrap an int
                 case "months": return anchor.AddMonths(signed);
                 case "years": return anchor.AddYears(signed);
                 default:

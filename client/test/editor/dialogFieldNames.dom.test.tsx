@@ -23,7 +23,7 @@ const wrap = (ui: React.ReactElement) =>
   render(<AppProvider><MetadataProvider service={meta()}>{ui}</MetadataProvider></AppProvider>);
 
 describe("dialog Fields keep naming their own controls through the OutsideField barrier", () => {
-  it("NewRuleDialog: Name, Configuration, and the trigger checkboxes", async () => {
+  it("NewRuleDialog: Name, Table, and the trigger checkboxes", async () => {
     wrap(
       <NewRuleDialog
         open
@@ -33,10 +33,9 @@ describe("dialog Fields keep naming their own controls through the OutsideField 
       />,
     );
     expect(await screen.findByRole("textbox", { name: "Name" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "Use an existing configuration" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Configuration" })).toBeInTheDocument();
-    // A trigger checkbox: hubActions.e2e checks "Manual" by name.
-    expect(screen.getByRole("checkbox", { name: "Manual" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Table" })).toBeInTheDocument();
+    // A trigger checkbox: hubActions.e2e checks "On demand" by name.
+    expect(screen.getByRole("checkbox", { name: "On demand" })).toBeInTheDocument();
   });
 
   it("NewConfigDialog: Name and Root table", async () => {

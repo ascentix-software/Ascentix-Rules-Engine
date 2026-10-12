@@ -1,4 +1,4 @@
-import type { RuleGraph, TableConfigRef } from "./types";
+import type { RuleGraph, TableConfigRef, TableConfigTypeLabel } from "./types";
 import { flattenConditions } from "./tree";
 
 type Nodes = Record<string, TableConfigRef>;
@@ -30,19 +30,31 @@ export function nodeDepth(nodes: Nodes, id: string): number {
   return d;
 }
 
-// A node is single-cardinality iff neither it nor any ancestor up to the root is a ChildTable
-// (matches the engine's NodeCardinality.EnsureSingle). Cycle-guarded; unknown id → false.
-export function isSingleCardinality(nodes: Nodes, id: string): boolean {
+// The chain of table-config types from `id` up to and including the root (id, its parent, ...,
+// the root), or null when id is unknown, the chain is broken, or it cycles before reaching a
+// root. Shared by isSingleCardinality below (engine: NodeCardinality.EnsureSingle) and
+// setActions.ts's isCollectionNode (engine: TableConfigTree.IsCollection) so the root-walk itself
+// is written once.
+export function chainToRoot(nodes: Nodes, id: string | null): (TableConfigTypeLabel | null)[] | null {
+  if (!id || !nodes[id]) return null;
   const seen = new Set<string>();
+  const chain: (TableConfigTypeLabel | null)[] = [];
   let cur: string | null = id;
   while (cur && nodes[cur] && !seen.has(cur)) {
     seen.add(cur);
     const n: TableConfigRef = nodes[cur]!;
-    if (n.tableConfigType === "ChildTable") return false;
-    if (n.tableConfigType === "RootTable") return true;
+    chain.push(n.tableConfigType);
+    if (n.tableConfigType === "RootTable") return chain;
     cur = n.parentTableConfigId ?? null;
   }
-  return false; // unknown id, broken chain, or cycle (never reached a root)
+  return null; // unknown id, broken chain, or cycle (never reached a root)
+}
+
+// A node is single-cardinality iff neither it nor any ancestor up to the root is a ChildTable
+// (matches the engine's NodeCardinality.EnsureSingle). Cycle-guarded; unknown id → false.
+export function isSingleCardinality(nodes: Nodes, id: string): boolean {
+  const chain = chainToRoot(nodes, id);
+  return chain != null && !chain.includes("ChildTable");
 }
 
 export function flattenForDisplay(nodes: Nodes, rootId: string): { node: TableConfigRef; depth: number }[] {
@@ -74,9 +86,9 @@ function referencedNodeIds(graph: RuleGraph): Set<string> {
 export function canDeleteNode(graph: RuleGraph, id: string): { ok: boolean; reason?: string } {
   const node = graph.tableConfigs[id];
   if (!node) return { ok: false, reason: "Node not found." };
-  if (node.tableConfigType === "RootTable") return { ok: false, reason: "The root node can't be deleted." };
-  if (childrenOf(graph.tableConfigs, id).length > 0) return { ok: false, reason: "Delete child nodes first." };
-  if (referencedNodeIds(graph).has(id)) return { ok: false, reason: "A condition or action references this node." };
+  if (node.tableConfigType === "RootTable") return { ok: false, reason: "The root table can't be deleted." };
+  if (childrenOf(graph.tableConfigs, id).length > 0) return { ok: false, reason: "Delete the tables under it first." };
+  if (referencedNodeIds(graph).has(id)) return { ok: false, reason: "Can't delete: a condition or action in this rule uses it." };
   return { ok: true };
 }
 
@@ -88,12 +100,31 @@ export function orphanedByRoot(graph: RuleGraph, newRootId: string): string[] {
 // Delete guard for the standalone config editor: structural guard first, then
 // block nodes any rule references (usedNodeIds is precomputed by loadConfigUsage).
 export function canDeleteConfigNode(
-  graph: RuleGraph, id: string, usedNodeIds: Set<string>,
+  graph: RuleGraph, id: string, usedNodeIds: Set<string>, rulesUsing?: number,
 ): { ok: boolean; reason?: string } {
   const base = canDeleteNode(graph, id);
   if (!base.ok) return base;
-  if (usedNodeIds.has(id)) return { ok: false, reason: "In use by a rule, can't delete." };
+  if (usedNodeIds.has(id)) {
+    return { ok: false, reason: rulesUsing ? `Can't delete: used by ${rulesUsing} rule${rulesUsing === 1 ? "" : "s"}.` : "Can't delete: used by a rule." };
+  }
   return { ok: true };
+}
+
+/** The root-level lookup at or above a node: the chain from the root must be Root → Lookup (→ Lookup …).
+ * Null for the root, a collection, anything under a collection, or an unknown node. Mirrors the
+ * engine's PreviousParent.RootLookupOf. */
+export function previousParentLookup(nodes: Nodes, nodeId: string | null): TableConfigRef | null {
+  if (!nodeId || !nodes[nodeId]) return null;
+  const chain: TableConfigRef[] = [];
+  const seen = new Set<string>();
+  let cur: string | null = nodeId;
+  while (cur && nodes[cur] && !seen.has(cur)) {
+    seen.add(cur);
+    chain.unshift(nodes[cur]!);
+    cur = nodes[cur]!.parentTableConfigId ?? null;
+  }
+  if (chain.length < 2 || chain[0].tableConfigType !== "RootTable") return null;
+  return chain.slice(1).every((n) => n.tableConfigType === "LookupTable") ? chain[1] : null;
 }
 
 // Root-to-node chain (walks parentTableConfigId up, then reverses). [] if id unknown.

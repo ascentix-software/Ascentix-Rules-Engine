@@ -5,74 +5,51 @@ order: 206
 slug: comparison-value-sources
 screenshots:
   - file: images/02-06-comparison-value-sources-01.png
-    caption: The Field Reference value source compares a column against another column on a related node.
-    alt: Condition inspector with Value source set to "Field Reference" plus Right-hand node (sample_customer (lookup)) and Right-hand column (sample_creditlimit), comparing sample_ordertotal to the customer's credit limit.
+    caption: Comparing with another column compares a column against another column on a related node.
+    alt: "The condition “Order Total is at most Customer · Credit Limit”: Compare with “another column”, the related record Customer, and the column Credit Limit."
 ---
 
 # Comparison Value Sources
 
-A Field Comparison condition's right-hand side doesn't have to be a fixed
-value. The **Value source** dropdown in the condition inspector controls
-where it comes from.
+The **Compare with** tabs under a Compare condition's operator choose where the right-hand side
+comes from:
 
-## Literal
+| Tab | Stored as | Compares against |
+|---|---|---|
+| **a value** | Literal | A typed value, such as `1000`. The default. |
+| **another column** | Field Reference | A column on the same record or a related one. |
+| **a text template** | Text template | Text built from fixed words and column tokens. Text columns only. |
+| **a date calculation** | Date calculation | A date plus or minus an amount of time. Date columns only. |
 
-The default: a typed constant in the **Value** field, such as the `1000` in
-`sample_ordertotal` Greater Than `1000`.
+## another column
 
-## Field Reference
+Compare, for example, the order total with the customer's credit limit. Pick the record (**Same
+record** by default, or a table in the data model) and the column. Only columns of a comparable
+type are listed.
 
-The right-hand side is **another column**, on the condition's own record or
-on a related table-config node. You might compare the order total against
-the customer's credit limit rather than a hardcoded number.
+The other record must be **single**: the record itself or one reached through lookups, never a
+child collection.
 
-Choosing Field Reference exposes two additional fields:
+![The condition “Order Total is at most Customer · Credit Limit”: Compare with “another column”, the related record Customer, and the column Credit Limit.](../images/02-06-comparison-value-sources-01.png)
 
-- **Right-hand node**: the table-config node the right-hand column lives on.
-  Leave unset to compare against another column on the condition's own node.
-- **Right-hand column**: the column on that node to compare against.
+## a text template
 
-> The right-hand node must be **single-cardinality**: the root record or a
-> node reachable through a lookup chain. A node under a one-to-many/child
-> relationship isn't a valid Right-hand node.
+Combine text with tokens: `{root.<column>}` for the record being checked, `{node:<node>.<column>}`
+for a related record, the same syntax as Text template field mappings (*Field Mapping*). Use
+**Insert field** to add tokens; a preview shows the result.
 
-![Condition inspector with Value source set to "Field Reference" plus Right-hand node (sample_customer (lookup)) and Right-hand column (sample_creditlimit), comparing sample_ordertotal to the customer's credit limit.](../images/02-06-comparison-value-sources-01.png)
+If a token is malformed, names an unknown node, or reaches more than one record, the rule stops
+with a configuration error instead of comparing against unfilled text. (Message tokens behave
+differently: *Building Actions* → *Dynamic message text*.)
 
-## Text template
+## a date calculation
 
-The right-hand side is built from **literal text combined with tokens**:
-`{root.<column>}` for a column on the condition's own record, or
-`{node:<node>.<column>}` for a column on a related table-config node. This is
-the same token syntax used by Text template field mappings (see *Field
-Mapping*). The template is resolved **at evaluation time**, against the
-record actually being checked.
+A date plus or minus an amount of time, for example "Created On + 3 days":
 
-Choosing Text template exposes a template textarea, an **Insert field** menu,
-and a preview of the rendered template.
-
-> A template used as a comparison value is **fail-fast**: an unknown node, a
-> malformed token, or a right-hand node that resolves to more than one record
-> stops rule execution with a configuration error instead of comparing
-> against unrendered text. Message tokens behave differently (see *Building
-> Actions* → *Dynamic message text*).
-
-## Date calculation
-
-The right-hand side is a **computed date**: an anchor plus an offset.
-Choosing Date calculation exposes:
-
-- **Anchor**: either **"When the rule runs"** or a date column, on the
-  condition's own record or on a related single-cardinality table-config
-  node.
+- **Anchor**: **When the rule runs**, or a date column on the record or a related single record.
 - **Op**: add or subtract.
 - **Amount**: a positive whole number.
-- **Unit**: minutes, hours, days, weeks, months, or years.
+- **Unit**: minutes, hours, days, weeks, months or years.
 
-The result is a DateTime, compared against the comparison column using the
-same operators as any other Field Comparison or Calculation condition (see
-*Building Conditions*). A one-line summary shows the resolved expression, for
-example "Created On + 3 days".
-
-> If the anchor column is null, isn't a date, or the anchor node resolves to
-> more than one related record, resolving the comparison fails as a
-> configuration error rather than silently skipping the condition.
+If the anchor is empty, isn't a date, or reaches more than one record, the rule stops with a
+configuration error rather than skipping the condition.

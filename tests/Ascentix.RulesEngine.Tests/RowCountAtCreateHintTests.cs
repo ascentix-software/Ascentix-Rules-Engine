@@ -37,19 +37,17 @@ namespace Ascentix.RulesEngine.Tests
             rule[SchemaNames.Qualify(SchemaNames.Rule.Triggers)] =
                 new OptionSetValueCollection(triggers.Select(t => new OptionSetValue((int)t)).ToList());
 
+            var group = new ConditionGroup { Id = Guid.NewGuid(), Conditions = new List<RuleCondition> { condition } };
             return new RuleForValidation
             {
                 RuleId = rule.Id,
                 RuleEntity = rule,
                 PrimaryTable = "sample_order",
-                Groups = new List<ConditionGroup>
-                {
-                    new ConditionGroup { Id = Guid.NewGuid(), Conditions = new List<RuleCondition> { condition } },
-                },
+                Groups = new List<ConditionGroup> { group },
                 Configs = tree,
                 Actions = new List<RuleAction>
                 {
-                    new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.Block, FireOn = ActionFireOn.OnNoMatch, IsActive = true, Message = "needs a line" },
+                    new RuleAction { Id = Guid.NewGuid(), ActionType = ActionType.Block, Condition = ActionTrees.AnyFalse(group.Id), IsActive = true, Message = "needs a line" },
                 },
             };
         }

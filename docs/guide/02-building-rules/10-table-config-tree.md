@@ -5,78 +5,67 @@ order: 210
 slug: table-config-tree
 screenshots:
   - file: images/02-10-table-config-tree-01.png
-    caption: The table configuration editor, a traversal tree from a root table out to related lookup and child tables.
-    alt: 'Table configuration "Orders" (SHARED, root sample_order, 4 nodes, used by 6 rules) with a Traversal tree: ROOT Orders, LOOKUP sample_customer, CHILD sample_orderline, LOOKUP sample_product, each with "Add related", a legend (lookup = many-to-one, child = one-to-many; indentation = depth), and a node-editing panel.'
+    caption: The data-model editor, a traversal tree from a root table out to related lookup and child tables.
+    alt: "The Orders data model, used by 6 rules, 4 tables: the tree Orders (ROOT), Customer (LOOKS UP, via sample_customerid), Order lines (HAS MANY, linked by Order) and under it Product (LOOKS UP, via sample_productid); the panel reads “Select a table to edit it” with Add related table."
   - file: images/02-10-table-config-tree-02.png
-    caption: Selecting a node shows its table, relationship, and where it sits in the traversal.
-    alt: Table config editor with the sample_customer lookup node selected; the Editing node panel shows Node name, Table (sample_customer), Relationship ("Lookup via parent column sample_customerid"), a "Reach from here" path (Orders → sample_customer), and Add related / Delete node.
+    caption: Selecting a table shows its table, the column it's linked by, and its path from the root.
+    alt: "Product selected in the Orders tree: its panel shows Name Product, Table Product · sample_product, Linked by Product · sample_productid, Path Orders › Order lines › Product, and Add related table and Delete."
 ---
 
 # Table Configuration Tree
 
-A **table configuration** (also called a **data map** or **traversal
-tree**) describes how the engine reaches related data starting from a
-**root table** out to whatever related tables a rule needs to look at.
-Every condition and action node picker in the earlier pages, and the
-**DATA MAP** row shown in *Editor Layout*, are built on top of one of
-these trees.
+A **data model** (stored as a **table configuration**) is the tree of tables a rule can reach,
+starting from its **root table**. Every node picker in conditions and actions, and the data model
+chip in *Editor Layout*, come from it.
 
 ## Node types
 
-Every node is one of three types:
+The tree, **Tables this model can reach**, tags each table:
 
-- **Root Table**: the tree's starting point, and the table the rule
-  itself is bound to. There's exactly one per configuration.
-- **Lookup Table**: a **many-to-one** related table, reached through a
-  parent lookup column on the current node's table (for example, an order
-  reaching the customer it belongs to via its customer lookup).
-- **Child Table**: a **one-to-many** related table, reached through a
-  child link field back to the current node.
+| Tag | Node | Reached through |
+|---|---|---|
+| **ROOT** | The rule's own table; one per data model | — |
+| **LOOKS UP** | A many-to-one table, such as an order's customer | A lookup column, shown as "via Customer (sample_customerid)" |
+| **HAS MANY** | A one-to-many table, such as an order's lines | A link column back to the parent, shown as "Order Line, linked by Order" |
 
-Indentation in the tree shows **traversal depth**. A lookup reached from
-underneath a child node gives a multi-level path, as in
-Order → Order Line → Product, where Product hangs off the Order Line
-**child** node rather than off the root.
+Indentation shows depth. Lookups can hang off child nodes, as in Order → Order Line → Product. The
+tree works from the keyboard: arrows move (Right and Left expand and collapse), Enter selects.
 
-![Table configuration "Orders" (SHARED, root sample_order, 4 nodes, used by 6 rules) with a Traversal tree: ROOT Orders, LOOKUP sample_customer, CHILD sample_orderline, LOOKUP sample_product, each with "Add related", a legend (lookup = many-to-one, child = one-to-many; indentation = depth), and a node-editing panel.](../images/02-10-table-config-tree-01.png)
+![The Orders data model, used by 6 rules, 4 tables: the tree Orders (ROOT), Customer (LOOKS UP, via sample_customerid), Order lines (HAS MANY, linked by Order) and under it Product (LOOKS UP, via sample_productid); the panel reads “Select a table to edit it” with Add related table.](../images/02-10-table-config-tree-01.png)
 
-## Configurations are shared
+## Data models are shared
 
-A table configuration is **shared and reusable**: more than one rule can
-point at the same root configuration. Editing a config's tree (adding a
-related node, for example) affects **every rule** that uses it. The
-editor's header carries a **SHARED**
-marker and a used-by rule count alongside the root table and node total.
+Several rules can use one data model, so editing it affects **every rule** that uses it. The header
+shows **Used by N rules**; click it to list them, each marked **Live** or **Draft**.
 
-## Selecting a node
+**Save…** asks first: **Save shared data model?** names your change and lists each rule with the
+tables it reads (for example "reads Customer in 2 conditions") or **not affected**. Live rules keep
+their published copy until they're republished.
 
-Clicking a node in the tree opens its editing panel, showing:
+## Editing a table
 
-- **Node name**: an editable label for the node.
-- **Table**: the Dataverse table the node resolves to.
-- **Relationship**: how this node is reached from its parent (for
-  example, "Lookup via parent column `sample_customerid`" or a child link
-  field).
-- **Reach from here**: the full path from the root down to this node.
+Click a table to open its panel:
 
-Every node also exposes an **"Add related"** action, which attaches a
-further Lookup or Child node underneath it and is how multi-level paths
-get built, and a **Delete node** action, which removes a node and its
-subtree. The **Root** node can't be deleted.
+| Field | Shows |
+|---|---|
+| **Name** | An editable label, shown in the pickers of every rule using the model |
+| **Table** | The Dataverse table |
+| **Linked by** | The column it's reached through from its parent |
+| **Path** | The path from the root |
+| **Used by N rules** | The rules that read it, with how many conditions and actions |
 
-![Table config editor with the sample_customer lookup node selected; the Editing node panel shows Node name, Table (sample_customer), Relationship ("Lookup via parent column sample_customerid"), a "Reach from here" path (Orders → sample_customer), and Add related / Delete node.](../images/02-10-table-config-tree-02.png)
+**Add related table** attaches a lookup or child table underneath, from a searchable list grouped
+**LOOKS UP · ONE RECORD** and **HAS MANY · ROWS**. Each row's ⋯ menu also has **Add related
+table…**, **Rename** and **Delete**. You can't delete the **Root**, a table with tables under it
+(*Delete the tables under it first.*), or a table rules use (*Can't delete: used by N rules.*).
 
-## Opening a table configuration
+![Product selected in the Orders tree: its panel shows Name Product, Table Product · sample_product, Linked by Product · sample_productid, Path Orders › Order lines › Product, and Add related table and Delete.](../images/02-10-table-config-tree-02.png)
 
-You can reach the table configuration editor three ways:
+## Opening a data model
 
-- **Edit data model**: from a rule's DATA MAP row, opens that rule's
-  root configuration.
-- **Table configurations**: a tab on the hub, listing every
-  configuration.
-- **Table Configs**: an entry in the app sitemap.
+- **Edit data model** on a rule's data model chip.
+- The hub's **Data models** tab (*The Hub*).
+- **Table Configs** in the app sitemap.
 
-See *Metadata Pickers* for how the "Add related" relationship list is
-kept limited to relationships that actually exist, and *Building
-Conditions* for how a condition picks which node in the tree it
-evaluates against.
+See *Metadata Pickers* for the relationship list, and *Building
+Conditions* for picking a condition's node.

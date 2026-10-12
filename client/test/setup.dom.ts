@@ -42,6 +42,7 @@ if (typeof window !== "undefined") {
   afterEach(async () => {
     const { cleanup } = await import("@testing-library/react");
     cleanup();
+    window.sessionStorage.clear();
   });
 }
 

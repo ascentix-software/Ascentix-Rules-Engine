@@ -31,6 +31,19 @@ export function formatError(e: unknown): string {
   }
 }
 
+/** True for a Dataverse "you don't have that privilege" failure — an HTTP 403 (a raw fetch/
+ * $batch rejection carries `status`/`httpStatus`) or an Xrm.WebApi rejection, which carries no
+ * status at all, only a message naming the missing privilege ("... is missing prvRead... privilege
+ * ..."). Anything else (network failure, 500, timeout, ...) is a plain failure, not an access
+ * problem, and callers should offer a retry instead of the access-denied treatment. */
+export function isPrivilegeDeniedError(e: unknown): boolean {
+  if (!e || typeof e !== "object") return false;
+  const any = e as Record<string, any>;
+  if (any.httpStatus === 403 || any.status === 403) return true;
+  const message = any.message ?? any.error?.message;
+  return typeof message === "string" && /\bprivilege\b/i.test(message);
+}
+
 /** The documented degradation panel: title, normalized message, optional hint,
  * Reload. Plain elements only: it must render before (or without) any provider,
  * including when boot itself failed. */

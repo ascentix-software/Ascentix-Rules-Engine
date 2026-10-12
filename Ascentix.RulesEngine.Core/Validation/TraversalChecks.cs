@@ -1,13 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Ascentix.RulesEngine.Core.Actions;
 using Ascentix.RulesEngine.Core.Engine;
 using Ascentix.RulesEngine.Core.Models;
 using Microsoft.Xrm.Sdk;
 
 namespace Ascentix.RulesEngine.Core.Validation
 {
-    /// <summary>Layer 2: referenced nodes exist + are reachable; write/field-ref targets are single-cardinality.
+    /// <summary>Layer 2: referenced nodes exist + are reachable; write targets are single-cardinality
+    /// or a collection (a set action); field-reference and mapping sources are single-cardinality.
     /// Reads the rule's UNVALIDATED <see cref="TableConfigTree"/>: every query used here answers
     /// conservatively on a broken shape (cycle / missing ancestor / parentless non-root):
     /// <see cref="TableConfigTree.TrySingleCardinality"/> false, <see cref="TableConfigTree.IsReachableFromRoot"/>
@@ -35,19 +37,20 @@ namespace Ascentix.RulesEngine.Core.Validation
 
             foreach (var a in model.Actions.Where(x => x.IsActive))
             {
-                if ((a.ActionType == ActionType.UpdateRecord || a.ActionType == ActionType.DeleteRecord) && a.TargetNodeId.HasValue)
+                if ((a.ActionType == ActionType.UpdateRecord || a.ActionType == ActionType.DeleteRecord
+                     || a.ActionType == ActionType.DeactivateRecord) && a.TargetNodeId.HasValue)
                 {
                     var nodeId = a.TargetNodeId.Value;
                     if (!tree.Contains(nodeId))
                         issues.Add(ValidationIssue.Error("TRAV_NODE_NOT_FOUND", "Target node does not exist in the configuration.", IssueTarget.Action(a.Id, "TargetNodeId")));
+                    else if (tree.IsCollection(nodeId)) { /* a set target: every row of the collection */ }
                     else if (!tree.TrySingleCardinality(nodeId))
                         issues.Add(ValidationIssue.Error("TRAV_NOT_SINGLE_CARDINALITY", "Update/Delete must target a single-cardinality node.", IssueTarget.Action(a.Id, "TargetNodeId")));
                     else if (!tree.IsReachableFromRoot(nodeId))
                         issues.Add(ValidationIssue.Error("TRAV_NODE_UNREACHABLE", "Target node is not reachable from the root.", IssueTarget.Action(a.Id, "TargetNodeId")));
                 }
 
-                if ((a.ActionType == ActionType.CreateRecord || a.ActionType == ActionType.UpdateRecord)
-                    && !string.IsNullOrWhiteSpace(a.FieldMapping))
+                if (ActionDispatcher.MapsFields(a.ActionType) && !string.IsNullOrWhiteSpace(a.FieldMapping))
                 {
                     // The reference set splits a mapping's sources by cardinality: scalar operands
                     // (node/ref/template/dateexpr/mathexpr {node:...}) must be single-cardinality;
@@ -76,6 +79,10 @@ namespace Ascentix.RulesEngine.Core.Validation
                                 IssueTarget.Action(a.Id, "FieldMapping")));
                     }
                 }
+
+                if (a.RowFilter != null)
+                    foreach (var nf in FlattenFilterGroups(new[] { a.RowFilter }))
+                        CheckFilterCriteriaNodes(tree, nf, IssueTarget.Action(a.Id, "RowFilter"), issues);
             }
 
             foreach (var node in tree.NodesOfType(TableConfigType.LookupTable))
@@ -103,26 +110,33 @@ namespace Ascentix.RulesEngine.Core.Validation
                                 IssueTarget.Rule(model.RuleId)));
                     }
 
-                    foreach (var crit in nf.Criteria)
-                    {
-                        if (crit.Kind == CriterionKind.Exists)
-                        {
-                            CheckExistsCollectionNode(tree, crit.CollectionNodeId, IssueTarget.Rule(model.RuleId), issues);
-                            continue;
-                        }
-
-                        if (crit.ValueSource != ComparisonValueSource.FieldReference || !crit.ComparisonValueNodeId.HasValue) continue;
-                        var nodeId = crit.ComparisonValueNodeId.Value;
-                        if (!tree.Contains(nodeId))
-                            issues.Add(ValidationIssue.Error("TRAV_NODE_NOT_FOUND", "Filter field-reference node does not exist in the configuration.", IssueTarget.Rule(model.RuleId)));
-                        else if (!tree.TrySingleCardinality(nodeId))
-                            issues.Add(ValidationIssue.Error("TRAV_NOT_SINGLE_CARDINALITY", "Filter field-reference must target a single-cardinality node.", IssueTarget.Rule(model.RuleId)));
-                        else if (!tree.IsReachableFromRoot(nodeId))
-                            issues.Add(ValidationIssue.Error("TRAV_NODE_UNREACHABLE", "Filter field-reference node is not reachable from the root.", IssueTarget.Rule(model.RuleId)));
-                    }
+                    CheckFilterCriteriaNodes(tree, nf, IssueTarget.Rule(model.RuleId), issues);
                 }
 
             return issues;
+        }
+
+        // A node-filter group's criteria: an Exists criterion's collection node (many-cardinality),
+        // and a Comparison criterion's FieldReference value node (single-cardinality, reachable).
+        // Shared by the condition-filter walk (above) and an action's Rows filter (also above).
+        private static void CheckFilterCriteriaNodes(TableConfigTree tree, NodeFilterGroup nf, IssueTarget target, List<ValidationIssue> issues)
+        {
+            foreach (var crit in nf.Criteria ?? new List<NodeFilterCriterion>())
+            {
+                if (crit.Kind == CriterionKind.Exists)
+                {
+                    CheckExistsCollectionNode(tree, crit.CollectionNodeId, target, issues);
+                    continue;
+                }
+                if (crit.ValueSource != ComparisonValueSource.FieldReference || !crit.ComparisonValueNodeId.HasValue) continue;
+                var nodeId = crit.ComparisonValueNodeId.Value;
+                if (!tree.Contains(nodeId))
+                    issues.Add(ValidationIssue.Error("TRAV_NODE_NOT_FOUND", "Filter field-reference node does not exist in the configuration.", target));
+                else if (!tree.TrySingleCardinality(nodeId))
+                    issues.Add(ValidationIssue.Error("TRAV_NOT_SINGLE_CARDINALITY", "Filter field-reference must target a single-cardinality node.", target));
+                else if (!tree.IsReachableFromRoot(nodeId))
+                    issues.Add(ValidationIssue.Error("TRAV_NODE_UNREACHABLE", "Filter field-reference node is not reachable from the root.", target));
+            }
         }
 
         // The distinct nodes one action's field mapping references under the given kind, read

@@ -1,7 +1,8 @@
+import { DataUpdateProvider } from "./dataUpdates/DataUpdateContext";
 import type { ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createWebApiPort } from "./webapi";
-import { loadRuleGraph } from "./load/index";
+import { loadRuleEditorGraph } from "./load/ruleEditorGraph";
 import { loadConfigGraph } from "./load/tableConfigEditor";
 import { loadHubData } from "./load/hubData";
 import { loadValueLabels } from "./load/valueLabels";
@@ -66,11 +67,13 @@ async function renderView(root: Root) {
 
   const withProviders = (area: string, child: ReactNode) => (
     <ErrorBoundary area={area}>
-      <MetadataProvider service={service}>
-        <RecordSearchProvider service={records}>
-          <SystemChoicesProvider>{child}</SystemChoicesProvider>
-        </RecordSearchProvider>
-      </MetadataProvider>
+      <DataUpdateProvider api={api}>
+        <MetadataProvider service={service}>
+          <RecordSearchProvider service={records}>
+            <SystemChoicesProvider>{child}</SystemChoicesProvider>
+          </RecordSearchProvider>
+        </MetadataProvider>
+      </DataUpdateProvider>
     </ErrorBoundary>
   );
 
@@ -95,7 +98,7 @@ async function renderView(root: Root) {
         <TableConfigApp initialGraph={graph} initialUsage={usage} api={api} reload={reload} />,
       ));
     } catch (e) {
-      root.render(<ErrorPanel title="The table configuration could not load." error={e} />);
+      root.render(<ErrorPanel title="The data model could not load." error={e} />);
     }
     return;
   }
@@ -104,7 +107,7 @@ async function renderView(root: Root) {
   if (!route.id) { root.render(missingId("rule")); return; }
   const ruleId = route.id;
   try {
-    const reload = () => loadRuleGraph(api, ruleId);
+    const reload = () => loadRuleEditorGraph(api, ruleId);
     const graph = await reload();
     const valueLabels = await loadValueLabels(service, graph);
     root.render(withProviders("rule editor",

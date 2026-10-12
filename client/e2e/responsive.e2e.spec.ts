@@ -23,14 +23,14 @@ test("hub stacks to cards below 900px", async ({ page }) => {
   }
 });
 
-test("rule editor below 1000px: Properties opens the overlay inspector; Escape closes and restores focus", async ({ page }) => {
+test("rule editor below 1000px: the Rule settings strip opens the overlay inspector; Escape closes and restores focus", async ({ page }) => {
   const appId = await resolveAppId();
   const fixture = await createRuleFixture({ namePrefix: "ZZ_RB_resp" });
   try {
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
 
-    const properties = frame.getByRole("button", { name: "Properties" });
-    await expect(properties).toBeVisible(); // rendered only when !wide
+    const properties = frame.getByTestId("rule-settings-strip");
+    await expect(properties).toBeVisible();
     await properties.click();
 
     const heading = frame.getByTestId("inspector-heading");

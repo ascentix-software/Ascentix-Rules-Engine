@@ -111,7 +111,7 @@ describe("validateRule — port method", () => {
     expect(body.RuleId).toBe(RULE_ID);
   });
 
-  it("returns isValid=true and empty issues for a valid rule", async () => {
+  it("accepts a valid verdict without requiring a draft hash", async () => {
     const apiPayload = {
       IsValid: true,
       Issues: JSON.stringify({ isValid: true, issues: [] }),
@@ -123,6 +123,7 @@ describe("validateRule — port method", () => {
 
     expect(result.isValid).toBe(true);
     expect(result.issues).toHaveLength(0);
+    expect(result.draftHash).toBeUndefined();
   });
 
   it("publishRule PATCHes statuscode=753840000 on asx_rules(<id>)", async () => {

@@ -2,13 +2,169 @@
 
 Notable changes to the Ascentix Rules Engine.
 
-Beta releases ship as solution version `0.0.0.N`. Dataverse solution versions are numeric
-only, so the version an administrator sees in their org can never carry the word "beta".
-`1.0.0.0` is reserved for the first full release.
+Beta releases ship as solution versions below `1.0.0.0` (`0.0.0.1`, then `0.1.0.2`). Dataverse
+solution versions are numeric only, so the version an administrator sees in their org can never
+carry the word "beta". `1.0.0.0` is reserved for the first full release.
 
-## Unreleased
+## 0.1.0.2 (2026-10-12)
 
-Nothing yet.
+**Breaking:** after upgrading, a System Administrator or System Customizer applies **data update
+1** from the Rule Builder, which converts On match / On no match to outcomes. Until then, actions
+on rules published before the upgrade do not fire. See *Administering → Installation →
+Upgrading*.
+
+### Added
+
+- **Working drafts and published versions.** Every rule has an editable draft. Editing a
+  published rule changes its draft while the published version keeps enforcing; **Publish…**
+  captures the draft, with its own copy of the data model, as a new version (new table
+  `asx_rulerevision`). **Discard draft…** deletes a draft's edits, and **View published** shows
+  what is live. See *Getting Started → Rule Lifecycle*.
+- **Preview on a record.** Runs the draft or the published version of a rule against a record
+  you pick, without saving, and shows the verdict, each outcome and every action in rule order. A
+  rule that has never been published can be previewed too. `asx_RunRules` takes a new optional
+  `DraftRuleId` parameter for this.
+- **A redesigned Rule Builder.** One header holds the rule's status and a single primary action:
+  **Publish…** saves, runs the server check and confirms in one step. Conditions read as
+  sentences with display names, an **Issues** drawer lists what blocks publishing, and
+  confirmations appear as short notices with Undo where it applies. Table configurations are now
+  called **data models**, and the hub lists rules and data models side by side.
+- **Shared reads.** One save, or one page of a Rule Run, reads each set of related rows once and
+  shares it across every rule it runs, instead of once per rule.
+
+- **Bulk writes switch.** A new environment variable, **Bulk writes** (`asx_BulkWrites`, Yes/No,
+  default **No**), decides whether the engine sends two or more creates or updates of one table as
+  `CreateMultiple` / `UpdateMultiple`. Microsoft doesn't support bulk messages in plug-in code, so
+  the default sends every write as a single request; an administrator who accepts that position can
+  turn it on for faster set actions and On demand runs. See *Beta Limitations §18*.
+- **Data updates.** A release that needs existing rules converted now ships a numbered data
+  update. The Rule Builder shows a banner while one is pending; a System Administrator or System
+  Customizer applies it with **Apply now** (others see the Rule Builder read-only, and publishing
+  is refused until it has run). Progress and failed items are recorded in the new **Data Update**
+  table (`asx_dataupdate`) and reported by the new `asx_ApplyDataUpdates` Custom API. An update
+  is pending only where it has something to convert, so a new install never sees one. This release
+  carries update 1, which converts On match / On no match to outcomes (below). See *Administering →
+  Data Updates*.
+- **On demand runs.** An On demand rule can now be run outside the editor: **Run now** (in the
+  hub and the Rule Builder) evaluates and enforces it against the records you choose (up to
+  250), or against every record that passes its execution conditions, depending on the rule's
+  new **Runs for** setting (`asx_rule.asx_ondemandscope`). Each run is tracked as a **Rule Run**
+  (new table `asx_rulerun`) and driven page by page via the new `asx_ProcessRunPage` Custom API,
+  with a **Runs** dialog to see a rule's runs, cancel one that hasn't finished, and resume one
+  an abandoned browser tab left behind. A single record can also be run directly through the
+  new `asx_ApplyRules` Custom API. Running rules needs its own privileges on the Rule Run table.
+  See *Administering → Running Rules On Demand*.
+- **Relative dates in filters.** Collection filters, "has related rows" sub-filters and
+  aggregate filters accept a date expression ("now minus 12 months", or a date on the row plus
+  N days). Filters anchored on "now" are still applied in the Dataverse query.
+- **Filtered totals in Calculation conditions.** A Calculation condition's aggregates can each
+  carry a filter, as field-mapping calculations already could. New column
+  `asx_rulecondition.asx_expressionfilters`.
+- **Anchored date filters run in the query.** A date comparison (equals, not equals, and the
+  before/after operators) in a collection filter whose date expression is based on a date of
+  the rule's own record or of a record it looks up is now applied in the Dataverse query, so it
+  no longer raises `TRAV_PUSHDOWN`. This applies when that record is outside the filtered
+  collection's own branch.
+- **Time zone for dates.** A rule can name the time zone its date comparisons use (rule
+  properties → Time zone for dates; new column `asx_rule.asx_evaluationtimezone`). It decides
+  which day and which clock time "now" is for Date Only and Time Zone Independent columns, and
+  how a date without a time zone is read against a User Local column: `createdon` on or after
+  `2026-09-01` means midnight in the rule's zone, and so does a Date Only or Time Zone
+  Independent date used as a date expression's anchor. Default: UTC. An unknown zone is rejected
+  at publish (`STRUCT_INVALID_TIMEZONE`).
+- **Also apply to the previous record.** When a save changes a lookup on the record (an opportunity
+  moves to another contact), an Update Record action can also be applied to the record the lookup
+  pointed to before, in the same save. New column `asx_ruleaction.asx_applytoprevious`. An action
+  whose target this option can't apply to is rejected at publish (`STRUCT_APPLY_PREVIOUS_TARGET`).
+- **Rule schedules.** A Published On demand rule scoped to all records can run on a recurring
+  schedule (every 15/30/45 minutes, every 1–23 hours, daily, weekly, or monthly, in the rule's own
+  time zone) instead of only on demand: the Rule Builder's new **Schedule** section starts or
+  continues a Rule Run the same way **Run now** does, within about 15 minutes of the scheduled
+  time. New table `asx_ruleschedule` (at most one per rule) and a new unbound Custom API,
+  `asx_StartDueSchedules`, that a caller on a timer drives — the optional **scheduler add-on**
+  (a separate solution, `AscentixRulesEngineScheduler`, shipping one cloud flow) calls it every 15
+  minutes and drives every returned run with `asx_ProcessRunPage`. A new table,
+  `asx_schedulerstatus`, tracks a heartbeat for whatever calls `asx_StartDueSchedules`, shown as a
+  status chip in the hub alongside a clock icon on scheduled rules. See *Administering →
+  Scheduling Rules*.
+- **Actions on a set of records.** Update, Delete and the new **Deactivate Record** action can
+  target a related collection and write every row that passes the action's **Rows** filter;
+  Create Record can create one record **for each row** of a collection, with values from the
+  **Current row** (`row` source, `{row.<column>}` tokens). One record's writes are merged, rows
+  that already hold the values are skipped, and the rest are sent creates first, then updates,
+  then deletes. New column `asx_nodefiltergroup.asx_ruleaction`, action type 8, and the
+  `asx_RunRules` output `ChangeSet`. Writes now go out in that order rather than in action order;
+  only other plug-ins reacting to each write can observe the difference.
+
+### Changed
+
+- **Outcomes and "Fires when" replace On match / On no match.** Each top-level validation group
+  of a rule is now an **outcome** with a required, unique name. Each action fires according to
+  its own **Fires when** condition: ALL or ANY of "outcome is true / is false" tests, nested if
+  needed (new tables `asx_actionconditiongroup` and `asx_actionconditiontest`, with new
+  publish checks for outcome names and Fires when conditions). An action with no condition never fires;
+  "always" is an empty ALL group. **Breaking:** `asx_RunRules` and `asx_ReadRules` no longer
+  return `fireOn` on each action. The column `asx_fireon` is retired: the engine no longer reads
+  it, and it is removed in the next release. After upgrading, a System Administrator or System
+  Customizer applies **data update 1, Convert action conditions to outcomes** from the Rule
+  Builder (see *Administering → Installation → Upgrading*); until it has run, actions on rules
+  published before the upgrade do not fire. The Rule Builder edits outcomes and each action's Fires when:
+  the validation band is titled **WHEN · Outcomes** with a **+ Add outcome** button, names are
+  required, unique (ignoring case) and at most 100 characters, and deleting an outcome that
+  actions test removes those tests. New publish errors: `OUTCOME_UNNAMED`,
+  `OUTCOME_DUPLICATE_NAME`, `ACTION_NO_TREE`, `ACTION_TEST_UNKNOWN_OUTCOME`,
+  `ACTION_EMPTY_GROUP`; new warning: `OUTCOME_UNUSED`.
+- **Preview shows outcomes; `asx_RunRules` returns `Outcomes`.** **Preview on a record** lists
+  the rule's outcomes as true or false. `asx_RunRules` has a new `Outcomes` output
+  (string JSON per record: `recordId`, `ruleId`, `outcomeId`, `name`, `value`), filled only when
+  the call sets the new optional `IncludeOutcomes` parameter to `true` and `[]` otherwise;
+  `Results` is unchanged. The output and the parameter are created when the deploy's Register
+  step (`pipelines/Configure-RuleAuthoring.ps1`) runs, right after the plug-in update. Calls in
+  the few seconds between can fail; run them again.
+- The **Manual** trigger is now labelled **On demand**. The stored choice value (3) is unchanged,
+  and the API trigger name `Manual` is still accepted alongside the new `OnDemand`.
+- Every rule evaluated by one save uses the same "now".
+- `STRUCT_EXPR_FILTER_UNSUPPORTED` is replaced by `STRUCT_EXPR_FILTER_MISSING` (a filter key
+  used in the expression but not defined).
+- On Create, a date expression based on `createdon` or `modifiedon` of the record being
+  created uses the time of the save.
+- A filter date expression based on a related record that is missing or has no date matches no
+  rows instead of failing the save.
+- Date comparisons follow the column's behavior: Date Only columns compare calendar dates
+  (so "on or after yesterday" includes all of yesterday), Time Zone Independent columns compare
+  clock times, User Local columns compare exact moments. Existing rules that compare a Date
+  Only column with a date that has a time of day can change result.
+- Collection filters on date columns are sent to Dataverse exactly, in the rule's time zone,
+  instead of widened by a day, for every comparison operator (equals and not equals included),
+  whether the value is a literal date, "now" or a date expression. A Date Only comparison is
+  sent as a whole-day range, so it also holds for a stored value that carries a time of day. A
+  Row Count condition's own search criteria compare dates as text and keep the widened form:
+  before/after comparisons are applied in the query, equals and not equals after the rows are
+  loaded.
+- With **Bulk writes** on (above), two or more creates, or updates, of the same table in one
+  evaluation (two Create Record actions on task, or updates of two different contacts through two
+  lookups) are sent as one `CreateMultiple` / `UpdateMultiple` where the table supports it;
+  deletes are always sent one at a time. A plug-in registered on the bulk message sees one
+  execution for them. A failed bulk request names the operation and the table rather than the
+  action, for example `UpdateMultiple contact: <error>`; a single request reads
+  `Update contact (action "<action name>"): <error>`. With it off, the default, every write is
+  its own request.
+- A rule runs the data model captured when it was published. A change to a shared data model
+  reaches each rule that uses it only when that rule is republished.
+- A Create Record action that already holds a collection target (`asx_targetnode` pointing at a
+  child-collection node, which only the API could set; the Rule Builder never did) becomes a
+  **Create per row** on upgrade: it creates one record for each row of that collection instead
+  of one record. A target on a single-record node (the record itself or a lookup) is still
+  ignored by Create Record. Before upgrading, look for `asx_ruleaction` rows with
+  `asx_actiontype` 5 and an `asx_targetnode`, and clear the target on any that should keep
+  creating one record.
+
+### Fixed
+
+- A literal date filter without a time zone (e.g. `2026-09-01`) could drop rows for users
+  outside UTC; it now matches the same rows for every user.
+- A record moved to another parent in the same save is no longer counted in its previous
+  parent's related rows.
 
 ## 0.0.0.1 (2026-08-28)
 

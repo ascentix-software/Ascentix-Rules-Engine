@@ -184,16 +184,16 @@ def add_bool(table, col, disp):
     print(f"[create] {table}.{logical} (bool)")
 
 
-def add_datetime(table, col, disp):
+def add_datetime(table, col, disp, fmt="DateOnly", behavior="UserLocal"):
     logical = col.lower()
     if attr_exists(table, logical):
         print(f"[skip] {table}.{logical}"); return
     post(_attr_path(table), {
         "@odata.type": "Microsoft.Dynamics.CRM.DateTimeAttributeMetadata",
         "SchemaName": col, "DisplayName": label(disp), "RequiredLevel": {"Value": "None"},
-        "Format": "DateOnly", "DateTimeBehavior": {"Value": "UserLocal"},
+        "Format": fmt, "DateTimeBehavior": {"Value": behavior},
     })
-    print(f"[create] {table}.{logical} (datetime)")
+    print(f"[create] {table}.{logical} (datetime {fmt}/{behavior})")
 
 
 def _options(pairs):
@@ -305,6 +305,9 @@ def main():
     # Pushdown-volume shape flag (client/scripts/seed-volume-fixture.mjs writes "volA"/"volB").
     # SchemaName is deliberately lowercase — that is how DEV has it (String 200, Text).
     add_string("sample_orderline", "sample_notes", "Notes")
+    # Date-behavior fixtures (date comparisons by column behavior, live suite ruleBehaviorDateBehavior).
+    add_datetime("sample_orderline", "sample_DueDate", "Due Date", fmt="DateOnly", behavior="DateOnly")
+    add_datetime("sample_orderline", "sample_LocalTime", "Local Time", fmt="DateAndTime", behavior="TimeZoneIndependent")
     # shipment
     add_bool("sample_shipment", "sample_IsExpedited", "Is Expedited")
     add_money("sample_shipment", "sample_ShipAmount", "Ship Amount")

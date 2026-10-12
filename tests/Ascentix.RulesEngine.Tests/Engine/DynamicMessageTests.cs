@@ -32,7 +32,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
                 userService: service,
                 logicalName: "account",
                 inputs: new List<RootInput> { new RootInput { Id = overlay.Id, Overlay = overlay } },
-                trigger: RuleTrigger.Manual,
+                trigger: RuleTrigger.OnDemand,
                 channel: RuleChannel.Standard,
                 languageId: languageId,
                 buildMode: RootBuildMode.UseTarget,
@@ -65,7 +65,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
                 [Q(SchemaNames.Rule.TableLogicalName)] = "account",
                 ["statuscode"] = new OptionSetValue((int)RuleStatus.Published),
                 [Q(SchemaNames.Rule.Triggers)] = new OptionSetValueCollection(
-                    new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.Manual) }),
+                    new List<OptionSetValue> { new OptionSetValue((int)RuleTrigger.OnDemand) }),
             };
             var group = new Entity(Q(SchemaNames.ConditionGroup.Entity), ids.grp)
             {
@@ -86,14 +86,13 @@ namespace Ascentix.RulesEngine.Tests.Engine
             {
                 [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ids.rule),
                 [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)ActionType.ShowMessage),
-                [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnMatch),
                 [Q(SchemaNames.RuleAction.Message)] = messageTemplate.Replace("{lookupCfg}", ids.lookupCfg.ToString()),
                 [Q(SchemaNames.RuleAction.Order)] = 1,
                 [Q(SchemaNames.RuleAction.IsActive)] = true,
             };
             var contact = new Entity("contact", contactId) { ["fullname"] = "Sam Roe" };
 
-            var entities = new List<Entity> { rootTableConfig, lookupTableConfig, rule, group, condition, showAction, contact };
+            var entities = new List<Entity> { rootTableConfig, lookupTableConfig, rule, group, condition, showAction, contact, ActionTreeRows.AllTrue(ids.showAct, ids.grp) };
 
             if (localized != null)
                 foreach (var kvp in localized)

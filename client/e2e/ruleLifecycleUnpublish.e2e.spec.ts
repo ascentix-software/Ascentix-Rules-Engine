@@ -1,10 +1,10 @@
 import { test, expect } from "@playwright/test";
-import { updateDevRecord } from "../test-dev/devApi";
+import { createDevApi, updateDevRecord } from "../test-dev/devApi";
 import { ENTITY_SET } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { ensureTableConfig, authorRule } from "../test-dev/ruleBehavior/authoring";
 import { resolveAppId } from "./devHelpers";
-import { openRuleFromHub } from "./editorHarness";
+import { openRuleFromHub, headerMenu } from "./editorHarness";
 import {
   saveOrderViaForm, saveOrderExpectingRelease, awaitBlockArmed, awaitBlockReleased,
 } from "./formSaveOracle";
@@ -19,14 +19,9 @@ import {
 // so the release path depends on that step being de-registered (or the status re-read) rather
 // than on anything the editor does. Only a real save against the live pipeline can prove it.
 //
-// Note for whoever reads this next: the editor has NO Unpublish control. Publish is a one-way
-// door in the UI (RuleEditorApp.tsx toolbar = Save/Reload/Validate/Publish; webapi.ts
-// publishRule PATCHes statuscode → 753840000 and there is no inverse). An author must leave the
-// Rule Builder and flip the status on the asx_rule record itself, which is what this test does
-// via the Web API.
+// The API path also covers a rule being unpublished outside the open editor.
 
 const DRAFT = 1;              // docs/Schema.md §Lifecycle, Draft (1, Active)
-const PUBLISHED = 753840000;  // ... Published (753840000, Active)
 
 test.describe.configure({ timeout: 900_000 }); // three settle gates, each up to 180s at the suite tail
 
@@ -74,7 +69,11 @@ test("unpublishing a Published blocking rule releases the form save; re-publishi
     // on another run). awaitBlockArmed throws on timeout, so this still fails loudly if
     // re-publishing genuinely does not restore enforcement: it just stops asserting a
     // cross-node guarantee the platform does not offer.
-    await updateDevRecord(ENTITY_SET.rule, rule.ruleId, { statuscode: PUBLISHED });
+    const api = createDevApi();
+    const draftId = await api.openRuleDraft!(rule.ruleId);
+    const valid = await api.validateRule(draftId);
+    expect(valid.isValid).toBe(true);
+    await api.publishRule(draftId);
     await awaitBlockArmed(150, "unpub re-armed");
   } finally {
     await rule.cleanup();
@@ -99,13 +98,15 @@ test("a rule unpublished behind the editor's back shows Draft in the UI after re
   });
   try {
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await expect(frame.getByText("Published", { exact: true })).toBeVisible({ timeout: 30_000 });
+    const status = frame.getByTestId("lifecycle-status");
+    await expect(status.getByText(/^Live · v\d+$/)).toBeVisible({ timeout: 30_000 });
 
     await updateDevRecord(ENTITY_SET.rule, rule.ruleId, { statuscode: DRAFT });
 
-    await frame.getByTestId("title-actions-row").getByRole("button", { name: "Reload" }).click();
-    await expect(frame.getByText("Draft", { exact: true })).toBeVisible({ timeout: 30_000 });
-    await expect(frame.getByText("Published", { exact: true })).toHaveCount(0);
+    // Unpublished, but it still has its published revision: "Not live · vN", never "Live".
+    await headerMenu(frame, /Reload from server/);
+    await expect(status.getByText(/^Not live · v\d+$/)).toBeVisible({ timeout: 30_000 });
+    await expect(status.getByText(/^Live · v\d+$/)).toHaveCount(0);
   } finally {
     await rule.cleanup();
     await tc.cleanup();

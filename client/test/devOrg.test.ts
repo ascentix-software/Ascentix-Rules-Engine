@@ -107,12 +107,26 @@ describe("user tokens", () => {
     expect(devOrg("user", opts).tokenSync()).toBe("az-tok"); // a second handle hits the cache
     expect(exec).toHaveBeenCalledTimes(1);
     const [file, args, execOpts] = (exec.mock.calls as any)[0];
-    expect(file).toBe("az");
-    expect(args).toEqual(["account", "get-access-token", "--resource", URL, "-o", "json"]);
-    expect(execOpts.shell).toBe(process.platform === "win32");
+    if (process.platform === "win32") {
+      // One quoted command line through the shell, no args array (DEP0190).
+      expect(file).toBe(`az "account" "get-access-token" "--resource" "${URL}" "-o" "json"`);
+      expect(args).toEqual([]);
+      expect(execOpts.shell).toBe(true);
+    } else {
+      expect(file).toBe("az");
+      expect(args).toEqual(["account", "get-access-token", "--resource", URL, "-o", "json"]);
+      expect(execOpts.shell).toBeUndefined();
+    }
     // Another url is another cache entry.
     expect(devOrg("user", { ...opts, url: "https://other.crm.dynamics.com" }).tokenSync()).toBe("az-tok");
     expect(exec).toHaveBeenCalledTimes(2);
+  });
+
+  it("az mint: refuses a resource that isn't a plain https URL (it goes on a command line)", () => {
+    const exec = vi.fn(() => "tok");
+    expect(() => devOrg("user", { env: { DATAVERSE_URL: 'https://x.crm.dynamics.com" & calc' }, envFile: null, exec }).tokenSync())
+      .toThrow(/plain https URL/);
+    expect(exec).not.toHaveBeenCalled();
   });
 
   it("az mint: an expired cache entry re-mints; a plain (tsv) token is accepted; failure names az login", () => {
@@ -208,6 +222,7 @@ describe("web api", () => {
       { status: 400, body: "blocked" },
       { status: 500, body: "boom" },
       { status: 404 },
+      { status: 404 },
       { status: 404, body: "nf" },
       { status: 400, body: "bad filter" },
       { status: 500 },
@@ -221,7 +236,7 @@ describe("web api", () => {
     );
     await expect(org.updateRecord("sample_orders", "id", {})).rejects.toThrow("updateRecord sample_orders failed (400): blocked");
     await expect(org.deleteRecord("sample_orders", "id")).rejects.toThrow("delete sample_orders(id) failed (500): boom");
-    await expect(org.deleteRecord("sample_orders", "id")).resolves.toBeUndefined(); // 404 = already gone
+    await expect(org.deleteRecord("sample_orders", "id")).resolves.toBeUndefined(); // GET confirms already gone
     await expect(org.api.retrieveRecord("sample_orders", "id")).rejects.toThrow(/^retrieveRecord sample_orders failed \(404\)$/);
     await expect(org.api.retrieveMultipleRecords("sample_orders", "?$filter=x")).rejects.toThrow(
       "retrieveMultipleRecords sample_orders failed (400): bad filter",
@@ -232,6 +247,28 @@ describe("web api", () => {
     await expect(org.runRules("sample_order")).rejects.toThrow("asx_RunRules failed (500): engine");
   });
 
+  it("routes rule deletion through the transactional API and preserves failures", async () => {
+    const { fn, calls } = fakeFetch([{ status: 204 }, { status: 403, body: "denied" }]);
+    const org = devOrg("user", { ...base, fetch: fn });
+    await expect(org.deleteRecord("asx_rules", "id")).resolves.toBeUndefined();
+    await expect(org.deleteRecord("asx_rules", "id")).rejects.toThrow(/403.*denied/);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].url).toBe(`${URL}/api/data/v9.2/asx_DeleteRule`);
+    expect(calls[0].init.method).toBe("POST");
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({ RuleId: "id" });
+  });
+
+  it.each([200, 403, 500])("does not hide a DELETE 404 when the verification GET returns %s", async (status) => {
+    const { fn, calls } = fakeFetch([
+      { status: 404, body: "Platform delete failed" },
+      { status, body: status === 200 ? '{"sample_orderid":"id"}' : "Read failed" },
+    ]);
+    const org = devOrg("user", { ...base, fetch: fn });
+    await expect(org.deleteRecord("sample_orders", "id")).rejects.toThrow("delete sample_orders(id) failed (404): Platform delete failed");
+    expect(calls.map(call => call.init.method)).toEqual(["DELETE", "GET"]);
+    expect(calls[1].url).toBe(calls[0].url);
+  });
+
   it("runRules: defaults Triggers to Manual, adds IncludeDiagnostics on request, parses Results + Diagnostics", async () => {
     const { fn, calls } = fakeFetch([
       { status: 200, body: JSON.stringify({ IsValid: false, FailedRuleCount: 1, Results: '[{"Message":"Too big."}]' }) },
@@ -239,13 +276,22 @@ describe("web api", () => {
     ]);
     const org = devOrg("user", { ...base, fetch: fn });
     const v = await org.runRules("sample_order", { recordId: "id" });
-    expect(v).toEqual({ isValid: false, failedRuleCount: 1, firedActions: [{ Message: "Too big." }], diagnostics: null });
+    expect(v).toEqual({ isValid: false, failedRuleCount: 1, firedActions: [{ Message: "Too big." }], changeSet: null, diagnostics: null });
     expect(JSON.parse(String(calls[0].init.body))).toEqual({ TableName: "sample_order", RecordId: "id", Triggers: "Manual" });
     const d = await org.runRules("sample_order", { recordJson: "{}", triggers: "4", includeDiagnostics: true });
     expect(d.diagnostics).toEqual({ nodes: [{ table: "sample_order", rows: 1 }] });
     expect(JSON.parse(String(calls[1].init.body))).toEqual({
       TableName: "sample_order", RecordJson: "{}", Triggers: "4", IncludeDiagnostics: true,
     });
+  });
+
+  it("runRules: parses the ChangeSet payload when present", async () => {
+    const { fn } = fakeFetch([{ status: 200, body: JSON.stringify({
+      IsValid: true, Results: "[]", ChangeSet: '{"creates":1,"updates":12,"deletes":0,"unchanged":3}',
+    }) }]);
+    const org = devOrg("user", { ...base, fetch: fn });
+    const v = await org.runRules("sample_order", { recordId: "id" });
+    expect(v.changeSet).toEqual({ creates: 1, updates: 12, deletes: 0, unchanged: 3 });
   });
 
   it("validateRule parses the Issues payload", async () => {

@@ -7,6 +7,7 @@ using Ascentix.RulesEngine.Core.Engine;
 using Ascentix.RulesEngine.Core.Loaders;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Schema;
+using Ascentix.RulesEngine.Core.Publication;
 
 namespace Ascentix.RulesEngine.Plugin.Registration
 {
@@ -32,7 +33,7 @@ namespace Ascentix.RulesEngine.Plugin.Registration
         public List<RuleAnalysis> Analyze(string tableLogicalName, InFlightChange change)
         {
             var loader = new RuleLoader(_service);
-            var rules = loader.LoadRules(tableLogicalName);
+            var rules = _service is SnapshotService ? loader.LoadRules(tableLogicalName) : PublishedRules.Headers(_service, tableLogicalName);
 
             // A publish adds a rule the committed (Published-only) re-query cannot see yet.
             Entity extraRule = null;
@@ -40,11 +41,26 @@ namespace Ascentix.RulesEngine.Plugin.Registration
                 && string.Equals(change.EffectiveTable, tableLogicalName, StringComparison.OrdinalIgnoreCase)
                 && rules.All(r => r.Id != change.RecordId))
             {
-                extraRule = loader.LoadRuleById(change.RecordId).FirstOrDefault();
+                extraRule = _service.Retrieve("asx_rule", change.RecordId, new Microsoft.Xrm.Sdk.Query.ColumnSet(true));
             }
 
             rules = EffectiveState.ApplyRuleDelta(rules, change, extraRule, tableLogicalName);
             if (!rules.Any()) return new List<RuleAnalysis>();
+
+            var publishedAnalysis = new List<RuleAnalysis>();
+            foreach (var header in rules.Where(r => r.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) != null))
+            {
+                var frozen = new SnapshotService(_service, PublishedRules.Read(_service, header));
+                publishedAnalysis.AddRange(new TableRuleAnalyzer(frozen).Analyze(tableLogicalName, null));
+            }
+            rules = rules.Where(r => r.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) == null).ToList();
+            if (rules.Count == 0) return publishedAnalysis;
+            if (!(_service is SnapshotService))
+                rules = rules.Select(header => {
+                    var loaded = loader.LoadRuleById(header.Id).First();
+                    foreach (var field in header.Attributes) loaded[field.Key] = field.Value;
+                    return loaded;
+                }).ToList();
 
             var rootGroups = new ConditionGroupMapper().MapConditionGroups(rules);
 
@@ -55,7 +71,10 @@ namespace Ascentix.RulesEngine.Plugin.Registration
             // (action targets, mapping sources, message tokens) loads as OPTIONAL so the root-only
             // verdict can see whether it is a root, while a stale reference on one rule cannot
             // abort the analysis of the whole table (it answers "not root-only": fail closed).
-            var allRefs = RuleReferences.Compute(rootGroups, actionsByRule.Values.SelectMany(v => v));
+            // A Create's target counts only as Create per row (a collection); a stale single-record
+            // target left on a one-record Create changes nothing, as before.
+            var createTargets = new TableConfigLoader(_service).LoadCreateTargets(actionsByRule.Values.SelectMany(v => v));
+            var allRefs = RuleReferences.Compute(rootGroups, actionsByRule.Values.SelectMany(v => v), setTargets: createTargets);
             var required = allRefs.NodeIds(ReferenceKind.ConditionNodes, ReferenceKind.FieldReferenceNodes);
             var optional = allRefs.NodesToLoad.Concat(allRefs.OptionalNodes).Where(id => !required.Contains(id)).ToList();
             var tree = TableConfigTree.Empty;
@@ -65,7 +84,7 @@ namespace Ascentix.RulesEngine.Plugin.Registration
                 if (nodes.Count > 0) tree = TableConfigTree.FromLoadedNodes(nodes);
             }
 
-            var result = new List<RuleAnalysis>();
+            var result = publishedAnalysis;
             foreach (var rule in rules)
             {
                 var ruleGroups = rootGroups.Where(g => g.RuleId == rule.Id).ToList();
@@ -82,7 +101,7 @@ namespace Ascentix.RulesEngine.Plugin.Registration
                     .Where(a => Enum.IsDefined(typeof(ActionType), a.ActionType))
                     .Any(a => a.IsActive && ActionDispatcher.IsServerAction(a.ActionType));
 
-                var refs = RuleReferences.Compute(ruleGroups, actions);
+                var refs = RuleReferences.Compute(ruleGroups, actions, setTargets: createTargets);
                 var rootColumns = refs.RootColumns(tree);
                 foreach (var tc in TriggerColumns.Parse(rule.GetAttributeValue<string>(TriggerColumnsField)))
                     rootColumns.Add(tc);

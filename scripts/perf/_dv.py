@@ -7,6 +7,7 @@ PerfHarness solution via the MSCRM.SolutionName header. Raw Web API
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -34,17 +35,81 @@ def _headers(write, solution):
     return h
 
 
-def _req(method, path, payload=None, solution=True):
+class DataverseError(Exception):
+    """A Web API call that failed. status is the HTTP status, None for a timeout or a dropped connection."""
+
+    def __init__(self, method, path, status, message):
+        super().__init__(f"{method} {path}: {status or 'no response'}: {message}")
+        self.status = status
+        self.message = message
+
+
+def _error_message(detail):
+    try:
+        return json.loads(detail)["error"]["message"]
+    except (ValueError, KeyError, TypeError):
+        return detail
+
+
+_urlopen = urllib.request.urlopen  # the HTTP transport; test_dv.py swaps in a fake
+_sleep = time.sleep                 # the pause between dropped-connection retries; test_dv.py swaps it out
+
+# A dropped connection (no response) is retried only where repeating the call is harmless: a POST may
+# already have created its row on the server, so it is never resent here (callers that can check, like
+# generate.py's bulk_create, recover on their own).
+IDEMPOTENT_METHODS = ("GET", "PATCH", "PUT", "DELETE")
+CONNECTION_ATTEMPTS = 3
+
+
+def send(method, url, data=None, *, write=False, solution=False, content_type=None, timeout=None, headers=None):
+    """Every harness HTTP call goes through here: one call with the current token, retried once with a
+    fresh token on 401 (a long load or ladder outlives a token), and up to CONNECTION_ATTEMPTS times in all
+    when the connection drops without a response on an idempotent method. The headers are rebuilt per
+    attempt so a retry carries the current token. `headers` adds to (or overrides) the defaults. Returns (response headers, body text); any other
+    HTTPError propagates, as does a second 401 or the last dropped connection."""
+    global _token
+    refreshed, drops = False, 0
+    while True:
+        sent = _headers(write, solution)
+        if content_type:
+            sent["Content-Type"] = content_type
+        sent.update(headers or {})
+        req = urllib.request.Request(url, data=data, headers=sent, method=method)
+        try:
+            with _urlopen(req, timeout=timeout) as r:
+                return r.headers, r.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            if e.code == 401 and not refreshed:
+                refreshed = True
+                _token = get_token()
+                continue
+            raise
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            drops += 1
+            if method not in IDEMPOTENT_METHODS or drops >= CONNECTION_ATTEMPTS:
+                raise
+            _sleep(5 * drops)
+
+
+def request(method, path, payload=None, *, solution=False, timeout=180):
+    """One Web API call returning (headers, body). Raises DataverseError instead of exiting, so a
+    driver can record the failure; a 401 and a dropped connection are retried as send describes."""
     url = path if path.startswith("http") else f"{BASE}/{path}"
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, headers=_headers(payload is not None, solution), method=method)
     try:
-        with urllib.request.urlopen(req) as r:
-            body = r.read().decode()
-            return r.headers, (json.loads(body) if body else None)
+        headers, body = send(method, url, data, write=payload is not None, solution=solution, timeout=timeout)
+        return headers, (json.loads(body) if body else None)
     except urllib.error.HTTPError as e:
-        detail = e.read().decode()
-        raise SystemExit(f"ERROR {method} {path}: {e.code}\n{detail}")
+        raise DataverseError(method, path, e.code, _error_message(e.read().decode())) from None
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise DataverseError(method, path, None, str(e)) from None
+
+
+def _req(method, path, payload=None, solution=True):
+    try:
+        return request(method, path, payload, solution=solution, timeout=None)
+    except DataverseError as e:
+        raise SystemExit(f"ERROR {method} {path}: {e.status}\n{e.message}")
 
 
 def get(path):

@@ -184,5 +184,21 @@ namespace Ascentix.RulesEngine.Tests
             var json = "[{\"target\":\"x\",\"source\":\"mathexpr\",\"expression\":\"1 +\"}]";
             Assert.Throws<InvalidPluginExecutionException>(() => FieldMappingParser.Parse(json));
         }
+
+        [Fact]
+        public void Row_source_parses_its_column()
+        {
+            var e = FieldMappingParser.Parse("[{\"target\":\"regardingobjectid\",\"source\":\"row\",\"column\":\"contactid\"}]").Single();
+            Assert.Equal("row", e.Source);
+            Assert.Equal("contactid", e.Column);
+        }
+
+        [Fact]
+        public void Row_source_without_a_column_is_rejected()
+        {
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() =>
+                FieldMappingParser.Parse("[{\"target\":\"subject\",\"source\":\"row\"}]"));
+            Assert.Contains("missing 'column'", ex.Message);
+        }
     }
 }

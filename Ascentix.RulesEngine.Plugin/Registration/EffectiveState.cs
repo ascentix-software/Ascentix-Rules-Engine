@@ -124,8 +124,8 @@ namespace Ascentix.RulesEngine.Plugin.Registration
                 action.IsActive = target.GetAttributeValue<bool>(ActionIsActiveField);
         }
 
-        // Deep-enough copy: new dictionary + new lists + copied RuleAction entries, so callers
-        // never mutate the committed input.
+        // Deep-enough copy: new dictionary + new lists + copied RuleAction entries (every member),
+        // so callers never mutate the committed input.
         private static Dictionary<Guid, List<RuleAction>> Clone(Dictionary<Guid, List<RuleAction>> source)
         {
             var copy = new Dictionary<Guid, List<RuleAction>>();
@@ -140,7 +140,6 @@ namespace Ascentix.RulesEngine.Plugin.Registration
             Id = a.Id,
             RuleId = a.RuleId,
             ActionType = a.ActionType,
-            FireOn = a.FireOn,
             TargetColumn = a.TargetColumn,
             ValueBool = a.ValueBool,
             ApplyInverseWhenNotFired = a.ApplyInverseWhenNotFired,
@@ -151,7 +150,12 @@ namespace Ascentix.RulesEngine.Plugin.Registration
             FieldMapping = a.FieldMapping,
             Order = a.Order,
             IsActive = a.IsActive,
-            LocalizedMessages = new Dictionary<int, string>(a.LocalizedMessages)
+            ApplyToPrevious = a.ApplyToPrevious,
+            LocalizedMessages = new Dictionary<int, string>(a.LocalizedMessages),
+            Name = a.Name,
+            // Read-only here: shared, not deep-copied (nothing on this path mutates a filter).
+            RowFilter = a.RowFilter,
+            Condition = a.Condition,
         };
     }
 }

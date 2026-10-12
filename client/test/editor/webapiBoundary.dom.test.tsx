@@ -20,6 +20,37 @@ afterEach(() => {
 });
 
 describe("createWebApiPort / resolveXrm boundary", () => {
+  it("opens and copies rules using the authoring API response contracts", async () => {
+    (window as any).Xrm = fakeXrm();
+    const request = vi.fn(async (url: string) => ({ ok: true, status: 200,
+      json: async () => url.endsWith("asx_OpenRuleDraft") ? { DraftId: "working-copy" } : { NewRuleId: "new-rule" } }));
+    vi.stubGlobal("fetch", request);
+    const api = createWebApiPort();
+    expect(await api.openRuleDraft!("active-rule")).toBe("working-copy");
+    expect(await api.copyRule!("active-rule")).toBe("new-rule");
+    expect(request).toHaveBeenCalledWith(expect.stringContaining("asx_OpenRuleDraft"), expect.objectContaining({ method: "POST", body: JSON.stringify({ RuleId: "active-rule" }) }));
+  });
+  it("deletes through the authoring API with an empty success response and surfaces server errors", async () => {
+    (window as any).Xrm = fakeXrm();
+    const request = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: { message: "Delete denied" } }) });
+    vi.stubGlobal("fetch", request);
+    const api = createWebApiPort();
+    await expect(api.deleteRule!("rule-id")).resolves.toBeUndefined();
+    expect(request).toHaveBeenCalledWith("https://dev.example/api/data/v9.2/asx_DeleteRule",
+      expect.objectContaining({ method: "POST", credentials: "same-origin", body: JSON.stringify({ RuleId: "rule-id" }) }));
+    await expect(api.deleteRule!("rule-id")).rejects.toThrow("Delete denied");
+  });
+  it("asks asx_RunRules for the outcome values in the Test run", async () => {
+    (window as any).Xrm = fakeXrm();
+    const request = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ IsValid: true, Results: "[]", Outcomes: "[]" }) }));
+    vi.stubGlobal("fetch", request);
+    const api = createWebApiPort();
+    await api.dryRun!("account", "record-id", "OnDemand");
+    expect(request).toHaveBeenCalledWith("https://dev.example/api/data/v9.2/asx_RunRules", expect.objectContaining({ method: "POST",
+      body: JSON.stringify({ TableName: "account", RecordId: "record-id", Triggers: "OnDemand", IncludeOutcomes: true }) }));
+  });
   it("resolves Xrm from window when present", () => {
     (window as any).Xrm = fakeXrm();
     const api = createWebApiPort();

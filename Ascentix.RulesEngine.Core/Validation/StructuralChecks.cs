@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Actions;
+using Ascentix.RulesEngine.Core.Engine;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
 
@@ -26,6 +27,11 @@ namespace Ascentix.RulesEngine.Core.Validation
             if (activeActions.Count == 0)
                 issues.Add(ValidationIssue.Error("STRUCT_NO_ACTIONS", "Rule has no active actions.", IssueTarget.Rule(model.RuleId)));
 
+            var zone = EvaluationZone.SettingOf(model.RuleEntity);
+            if (!EvaluationZone.TryResolve(zone, out _))
+                issues.Add(ValidationIssue.Error("STRUCT_INVALID_TIMEZONE",
+                    $"The rule's time zone '{zone}' is not a known time zone.", IssueTarget.Rule(model.RuleId)));
+
             CheckRowCountAtCreate(model, issues);
 
             foreach (var g in model.AllGroups())
@@ -41,6 +47,12 @@ namespace Ascentix.RulesEngine.Core.Validation
 
             foreach (var a in activeActions)
                 CheckAction(a, issues);
+
+            foreach (var a in activeActions)
+                CheckApplyToPrevious(a, model, issues);
+
+            foreach (var a in activeActions)
+                CheckSetAction(a, model, issues);
 
             foreach (var g in model.AllGroups())
                 foreach (var nf in g.NodeFilterGroups ?? Enumerable.Empty<NodeFilterGroup>())
@@ -99,11 +111,30 @@ namespace Ascentix.RulesEngine.Core.Validation
                     if (string.IsNullOrWhiteSpace(crit.Operator))
                         issues.Add(ValidationIssue.Error("STRUCT_MISSING_FIELD",
                             "Filter comparison criterion requires an operator.", target));
+
+                    var valueless = crit.Operator == "null" || crit.Operator == "not-null";
+                    if (crit.ValueSource == ComparisonValueSource.DateExpression && !valueless)
+                    {
+                        if (!DateExprSpec.TryParse(crit.Value, out var spec))
+                            issues.Add(ValidationIssue.Error("STRUCT_INVALID_DATEEXPR",
+                                "Filter date expression is missing or malformed.", target));
+                        else if (!AppliesWithinCalendar(spec))
+                            issues.Add(ValidationIssue.Error("STRUCT_INVALID_DATEEXPR",
+                                $"Filter date expression interval ({spec.Amount} {spec.Unit}) is out of the supported date range.", target));
+                    }
                 }
             }
 
             foreach (var child in group.ChildGroups ?? Enumerable.Empty<NodeFilterGroup>())
                 CheckFilterGroup(child, target, issues, insideExistsSubFilter);
+        }
+
+        // An interval so large that applying it to now leaves DateTime's range would throw at
+        // evaluation (and in the pushdown planner), failing every save; report it at publish.
+        private static bool AppliesWithinCalendar(DateExprSpec spec)
+        {
+            try { DateMath.Apply(DateTime.UtcNow, spec.Op, spec.Amount, spec.Unit); return true; }
+            catch (ArgumentOutOfRangeException) { return false; }
         }
 
         // Aggregate filters (a mathexpr field-mapping entry's `filters` map) have no owning
@@ -151,6 +182,14 @@ namespace Ascentix.RulesEngine.Core.Validation
                 case ConditionType.FieldComparison:
                     if (string.IsNullOrWhiteSpace(c.ComparisonColumn)) Missing("ComparisonColumn", "Comparison column is required.");
                     if (c.ComparisonOperator == null) Missing("ComparisonOperator", "Comparison operator is required.");
+                    // A condition never has a current row (only a set action's field mapping/message
+                    // does): ComparisonValueResolver.Resolve renders a Template value with no row, so
+                    // a {row.…} token here would throw at evaluation. Checked unconditionally, ahead
+                    // of the needsValue gate below, since it doesn't depend on the operator.
+                    if (c.ValueSource == ComparisonValueSource.Template && HasRowToken(c.ComparisonValue))
+                        issues.Add(ValidationIssue.Error("STRUCT_ROW_SOURCE_NOT_SET",
+                            "The current row can only be used by an action that writes a set of rows.",
+                            IssueTarget.Condition(c.Id, "ComparisonValue")));
                     var needsValue = c.ComparisonOperator != ComparisonOperator.IsNull
                                      && c.ComparisonOperator != ComparisonOperator.IsNotNull;
                     if (needsValue)
@@ -201,15 +240,23 @@ namespace Ascentix.RulesEngine.Core.Validation
                         try
                         {
                             var ast = MathExpr.Parse(c.Expression, "Expression");
-                            if (MathExpr.AggregateNodes(ast).Any(a => !string.IsNullOrEmpty(a.FilterKey)))
+                            var filterKeys = MathExpr.AggregateNodes(ast)
+                                .Select(a => a.FilterKey).Where(k => !string.IsNullOrEmpty(k)).Distinct().ToList();
+                            Dictionary<string, NodeFilterGroup> filters = null;
+                            try { filters = AggregateFilterParser.ParseJson(c.ExpressionFilters, "Expression filters"); }
+                            catch (InvalidPluginExecutionException)
                             {
-                                // Aggregate filters (filter:<key>) resolve against a field-mapping's
-                                // filters sidecar. Condition Expressions have no such map -
-                                // ConditionEvaluator calls the no-filters TryEvaluate overload, so this
-                                // would throw at runtime every time. Flag it here instead.
-                                issues.Add(ValidationIssue.Error("STRUCT_EXPR_FILTER_UNSUPPORTED",
-                                    "Aggregate filters (filter:<key>) are only supported in field mappings, not in condition expressions.",
-                                    IssueTarget.Condition(c.Id, "Expression")));
+                                issues.Add(ValidationIssue.Error("STRUCT_INVALID_EXPRESSION_FILTERS",
+                                    "Expression filters are not valid.", IssueTarget.Condition(c.Id, "ExpressionFilters")));
+                            }
+                            if (filters != null)
+                            {
+                                foreach (var key in filterKeys.Where(k => !filters.ContainsKey(k)))
+                                    issues.Add(ValidationIssue.Error("STRUCT_EXPR_FILTER_MISSING",
+                                        $"The expression uses filter '{key}', which is not defined.",
+                                        IssueTarget.Condition(c.Id, "ExpressionFilters")));
+                                foreach (var group in filters.Values)
+                                    CheckFilterGroup(group, IssueTarget.Condition(c.Id, "ExpressionFilters"), issues, insideExistsSubFilter: false);
                             }
                         }
                         catch (InvalidPluginExecutionException)
@@ -254,7 +301,100 @@ namespace Ascentix.RulesEngine.Core.Validation
                 case ActionType.DeleteRecord:
                     if (a.TargetNodeId == null) Missing("TargetNodeId", "Target node is required.");
                     break;
+                case ActionType.DeactivateRecord:
+                    if (a.TargetNodeId == null) Missing("TargetNodeId", "Target node is required.");
+                    CheckFieldMapping(a, issues, requireMapping: false);
+                    CheckDeactivateMapping(a, issues);
+                    break;
             }
+        }
+
+        // "Also apply to the previous parent" is an Update Record option for a target reached through
+        // lookups from the saved record (see PreviousParent.RootLookupOf).
+        private static void CheckApplyToPrevious(RuleAction a, RuleForValidation model, List<ValidationIssue> issues)
+        {
+            if (!a.ApplyToPrevious) return;
+            var eligible = a.ActionType == ActionType.UpdateRecord && a.TargetNodeId.HasValue
+                && PreviousParent.RootLookupOf(model.Configs, a.TargetNodeId.Value) != null;
+            if (!eligible)
+                issues.Add(ValidationIssue.Error("STRUCT_APPLY_PREVIOUS_TARGET",
+                    "\"Also apply to the previous record\" needs an Update Record action whose target is reached through lookups from the rule's record.",
+                    IssueTarget.Action(a.Id, "ApplyToPrevious")));
+        }
+
+        // Deactivate writes statecode itself; the only column an author may set is the status reason.
+        private static void CheckDeactivateMapping(RuleAction a, List<ValidationIssue> issues)
+        {
+            if (string.IsNullOrWhiteSpace(a.FieldMapping)) return;
+            List<FieldMappingEntry> entries;
+            try { entries = FieldMappingParser.Parse(a.FieldMapping); }
+            catch (InvalidPluginExecutionException) { return; } // CheckFieldMapping reports it
+            foreach (var e in entries.Where(e => !string.Equals(e.Target, "statuscode", StringComparison.OrdinalIgnoreCase)))
+                issues.Add(ValidationIssue.Error("STRUCT_DEACTIVATE_MAPPING",
+                    $"Deactivate Record can only set Status Reason (statuscode); '{e.Target}' can't be set here.",
+                    IssueTarget.Action(a.Id, "FieldMapping")));
+        }
+
+        // A Rows filter filters the action's own target rows and exists only on a set action; the
+        // current row (row source, {row.…} token) exists only on a set action, whether it's read
+        // by a field mapping or by a {row.…} token in a Show Message/Block message text - anywhere
+        // else TemplateRenderer.Render would throw "...can only be used by an action that writes a
+        // set of rows" at runtime.
+        private static void CheckSetAction(RuleAction a, RuleForValidation model, List<ValidationIssue> issues)
+        {
+            var isSet = SetActions.IsSetAction(a, model.Configs);
+            if (a.RowFilter != null)
+            {
+                if (!isSet || a.RowFilter.TableConfigNodeId != a.TargetNodeId)
+                    issues.Add(ValidationIssue.Error("STRUCT_ACTION_FILTER_TARGET",
+                        "The Rows filter must filter the action's target rows, and only an action that writes a set of rows can have one.",
+                        IssueTarget.Action(a.Id, "RowFilter")));
+                CheckFilterGroup(a.RowFilter, IssueTarget.Action(a.Id, "RowFilter"), issues, insideExistsSubFilter: false);
+            }
+            if (isSet) return;
+            if (UsesCurrentRow(a))
+                issues.Add(ValidationIssue.Error("STRUCT_ROW_SOURCE_NOT_SET",
+                    "The current row can only be used by an action that writes a set of rows.",
+                    IssueTarget.Action(a.Id, "FieldMapping")));
+            if (UsesRowTokenInMessage(a))
+                issues.Add(ValidationIssue.Error("STRUCT_ROW_SOURCE_NOT_SET",
+                    "The current row can only be used by an action that writes a set of rows.",
+                    IssueTarget.Action(a.Id, "Message")));
+        }
+
+        private static bool UsesCurrentRow(RuleAction a)
+        {
+            if (string.IsNullOrWhiteSpace(a.FieldMapping)) return false;
+            List<FieldMappingEntry> entries;
+            try { entries = FieldMappingParser.Parse(a.FieldMapping); }
+            catch (InvalidPluginExecutionException) { return false; }
+            foreach (var e in entries)
+            {
+                if (e.Source == "row") return true;
+                if (e.Source != "template" || string.IsNullOrEmpty(e.Template)) continue;
+                if (HasRowToken(e.Template)) return true;
+            }
+            return false;
+        }
+
+        // Message/LocalizedMessages carry the same {root.…}/{row.…}/{node:…} tokens a field
+        // mapping template does (TokenizeLenient in RuleReferences reads them the same way), but
+        // are never gated to a set action, so a {row.…} token there needs the same publish-time
+        // check a field-mapping row source gets.
+        private static bool UsesRowTokenInMessage(RuleAction a)
+        {
+            if (HasRowToken(a.Message)) return true;
+            if (a.LocalizedMessages != null)
+                foreach (var text in a.LocalizedMessages.Values)
+                    if (HasRowToken(text)) return true;
+            return false;
+        }
+
+        private static bool HasRowToken(string template)
+        {
+            if (string.IsNullOrEmpty(template)) return false;
+            try { return TemplateRenderer.Tokenize(template, "row check").Any(s => s.IsRow); }
+            catch (InvalidPluginExecutionException) { return false; } // a malformed template is reported at evaluation
         }
 
         private static void CheckFieldMapping(RuleAction a, List<ValidationIssue> issues, bool requireMapping)
@@ -280,7 +420,7 @@ namespace Ascentix.RulesEngine.Core.Validation
         // At Create of the root record, Row Count evaluates the child rows existing at that
         // instant. A collection whose ancestor path
         // reaches the root through CHILD links only is structurally EMPTY then, so a
-        // minimum-row condition can never pass and a Block(OnNoMatch) always blocks the create.
+        // minimum-row condition can never pass and a Block that fires when its outcome is false always blocks the create.
         // Deliberate, literal semantics (a skip-on-create carve-out would be a path where a
         // condition silently doesn't evaluate, the IsNull bug class reborn); this authoring
         // hint makes the consequence visible at publish time. Collections reached through a
@@ -303,7 +443,7 @@ namespace Ascentix.RulesEngine.Core.Validation
                     "STRUCT_ROWCOUNT_ON_CREATE",
                     "This Row Count condition requires at least " + c.MinExpectedRows +
                     " related row(s), but at Create of the root record this collection is always " +
-                    "empty: the condition can never pass during Create, so a Block (On No Match) " +
+                    "empty: the condition can never pass during Create, so a Block that fires when this outcome is false " +
                     "will always block creates. Omit the On Create trigger if that is not intended.",
                     IssueTarget.Condition(c.Id)));
             }

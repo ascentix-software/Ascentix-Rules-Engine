@@ -190,6 +190,25 @@ describe("diffRuleGraph — node filters (list of single-target blocks)", () => 
     expect(deletes.some((o) => o.entity === ENTITY.condition)).toBe(false);
   });
 
+  it("removing the CONDITION ITSELF (not just its filter) still deletes its filter rows without throwing", () => {
+    // Regression guard: diffOwnedFilters's owner binds must not blow up when the condition side
+    // (workEntry) is gone entirely — only its snapshot-side filter blocks survive to be deleted.
+    const rootLeaf = { kind: "rule" as const, id: "fc-root", column: "statuscode",
+      operator: 1, valueSource: 1, value: "1", valueNodeId: null, valueColumn: null };
+    const rootGroup: NodeFilterGroupModel = { kind: "group", id: "fg-root", op: "and", rules: [rootLeaf] };
+    const blocks: NodeFilterBlock[] = [{ targetNodeId: "node-1", root: rootGroup }];
+
+    const cond = condition("c1", { filter: blocks });
+    const snap: RuleGraph = { ...baseGraph(), validationGroups: [groupNode("g1", { conditions: [cond] })] };
+    const w: RuleGraph = { ...baseGraph(), validationGroups: [groupNode("g1", { conditions: [] })] };
+
+    let ops: ReturnType<typeof diffRuleGraph>;
+    expect(() => { ops = diffRuleGraph(snap, w); }).not.toThrow();
+    const deletes = ops!.filter((o) => o.kind === "delete");
+    expect(deletes.map((o) => o.entity)).toEqual(
+      expect.arrayContaining([ENTITY.nodeFilterCriterion, ENTITY.nodeFilterGroup, ENTITY.condition]));
+  });
+
   it("ROUND-TRIP IDEMPOTENCE (key regression guard): an unchanged multi-block filter with real persisted ids emits ZERO filter ops", () => {
     // Mirrors what load produces: real (non-temp) ids for every group/criterion, two top-level
     // blocks (one with a nested child group) targeting different nodes. This is exactly the

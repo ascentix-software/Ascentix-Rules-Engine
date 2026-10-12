@@ -42,8 +42,8 @@ test("help viewer: nav, search, image loads from the deployed web resource, prev
   // Prev/next navigation moves the active page.
   await frame.getByRole("button", { name: /Next/ }).click();
   frame = page.frameLocator("iframe[src*='asx_help']");
-  await expect(frame.locator("[aria-current='page']")).not.toHaveText("Opening the Rule Builder", { timeout: 30_000 });
+  await expect(frame.getByRole("navigation", { name: "Documentation contents" }).locator("[aria-current='page']")).not.toHaveText("Opening the Rule Builder", { timeout: 30_000 });
   await frame.getByRole("button", { name: /Previous/ }).click();
   frame = page.frameLocator("iframe[src*='asx_help']");
-  await expect(frame.locator("[aria-current='page']")).toHaveText("Opening the Rule Builder", { timeout: 30_000 });
+  await expect(frame.getByRole("navigation", { name: "Documentation contents" }).locator("[aria-current='page']")).toHaveText("Opening the Rule Builder", { timeout: 30_000 });
 });

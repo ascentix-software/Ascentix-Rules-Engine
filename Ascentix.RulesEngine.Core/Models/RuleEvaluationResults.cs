@@ -12,13 +12,35 @@ namespace Ascentix.RulesEngine.Core.Models
     {
         public Guid RuleId { get; set; }
         public ActionType ActionType { get; set; }
-        public ActionFireOn FireOn { get; set; }
         public string TargetColumn { get; set; }
         public bool? Value { get; set; }
         public string Message { get; set; }
         public Severity? Severity { get; set; }
         public string TargetTable { get; set; }
         public WriteIntent WriteIntent { get; set; }
+        /// <summary>Set when the action fired in the second run for a changed lookup's previous
+        /// record: the lookup node's id. Null for the normal run.</summary>
+        public Guid? PreviousOfNodeId { get; set; }
+
+        /// <summary>Set actions (see SetActions.IsSetAction): one intent per filtered row, possibly
+        /// none. Null for a single-record action, which uses <see cref="WriteIntent"/>.</summary>
+        public IList<WriteIntent> WriteIntents { get; set; }
+
+        public bool IsSetAction => WriteIntents != null;
+
+        /// <summary>Every intent this fired action produced, set or single.</summary>
+        public IEnumerable<WriteIntent> AllWriteIntents() =>
+            WriteIntents ?? (WriteIntent != null ? new[] { WriteIntent } : Enumerable.Empty<WriteIntent>());
+    }
+
+    /// <summary>One outcome's value for one record: a top-level validation group of an evaluated
+    /// rule, from the normal run only.</summary>
+    public class OutcomeResult
+    {
+        public Guid RuleId { get; set; }
+        public Guid OutcomeId { get; set; }
+        public string Name { get; set; }
+        public bool Value { get; set; }
     }
 
     /// <summary>All actions that fired for a single root record.</summary>
@@ -26,6 +48,14 @@ namespace Ascentix.RulesEngine.Core.Models
     {
         public Guid RecordId { get; set; }
         public IList<FiredActionResult> FiredActions { get; set; } = new List<FiredActionResult>();
+
+        /// <summary>Every outcome of each rule that evaluated for this record (not gated), in rule
+        /// evaluation order then outcome order as loaded. Only asx_RunRules reports it. Never null.</summary>
+        public List<OutcomeResult> Outcomes { get; set; } = new List<OutcomeResult>();
+
+        /// <summary>Rules whose execution conditions did not pass for this record (the rule did not
+        /// evaluate). Never null.</summary>
+        public IList<Guid> GatedRuleIds { get; set; } = new List<Guid>();
 
         public bool HasBlock => FiredActions.Any(a => a.ActionType == ActionType.Block);
 

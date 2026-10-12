@@ -81,7 +81,6 @@ namespace Ascentix.RulesEngine.Core.Engine
         private class ActionDto
         {
             [DataMember(Name = "actionType", Order = 1)] public string ActionType { get; set; }
-            [DataMember(Name = "fireOn", Order = 2)] public string FireOn { get; set; }
             [DataMember(Name = "targetColumn", Order = 3)] public string TargetColumn { get; set; }
             [DataMember(Name = "value", Order = 4)] public bool? Value { get; set; }
             [DataMember(Name = "applyInverseWhenNotFired", Order = 5)] public bool ApplyInverseWhenNotFired { get; set; }
@@ -95,6 +94,20 @@ namespace Ascentix.RulesEngine.Core.Engine
 
         private static readonly string NameField = SchemaNames.Qualify(SchemaNames.PrimaryName);
         private static readonly string TriggersField = SchemaNames.Qualify(SchemaNames.Rule.Triggers);
+
+        public static string Combine(string table, int language, IEnumerable<string> definitions)
+        {
+            var serializer = new DataContractJsonSerializer(typeof(EnvelopeDto));
+            var envelope = new EnvelopeDto { TableLogicalName = table, LanguageId = language, Rules = new List<RuleDto>() };
+            foreach (var json in definitions)
+                using (var input = new MemoryStream(Encoding.UTF8.GetBytes(json)))
+                    envelope.Rules.AddRange(((EnvelopeDto)serializer.ReadObject(input)).Rules);
+            using (var output = new MemoryStream())
+            {
+                serializer.WriteObject(output, envelope);
+                return Encoding.UTF8.GetString(output.ToArray());
+            }
+        }
 
         public static string Serialize(
             string tableLogicalName,
@@ -185,7 +198,6 @@ namespace Ascentix.RulesEngine.Core.Engine
             return new ActionDto
             {
                 ActionType = a.ActionType.ToString(),
-                FireOn = a.FireOn.ToString(),
                 TargetColumn = a.TargetColumn,
                 Value = hasValue ? a.ValueBool : (bool?)null,
                 ApplyInverseWhenNotFired = a.ApplyInverseWhenNotFired,

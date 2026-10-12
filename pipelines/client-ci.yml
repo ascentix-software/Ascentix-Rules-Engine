@@ -16,6 +16,8 @@ trigger:
   paths:
     include:
       - client/**
+      # The in-app help's screenshots deploy as web resources (pipelines/webresources.json).
+      - docs/guide/images/**
       - pipelines/client-ci.yml
       - pipelines/webresources.json
       - pipelines/Deploy-WebResources.ps1

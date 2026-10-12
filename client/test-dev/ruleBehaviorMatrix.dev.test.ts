@@ -31,6 +31,7 @@ async function blockRule(name: string, opts: {
   condition: Parameters<typeof authorRule>[0]["conditions"][number];
   message: string;
   settleProbe?: () => Promise<boolean>;
+  settleConsecutive?: number;
 }) {
   const r = await authorRule({
     name,
@@ -39,6 +40,7 @@ async function blockRule(name: string, opts: {
     conditions: [opts.condition],
     actions: [{ actionType: 4, fireOn: opts.fireOn, message: opts.message, ...(opts.severity ? { severity: opts.severity } : {}) }],
     ...(opts.settleProbe ? { settleProbe: opts.settleProbe } : {}),
+    ...(opts.settleConsecutive ? { settleConsecutive: opts.settleConsecutive } : {}),
   });
   cleanups.push(r.cleanup);
 }
@@ -119,6 +121,10 @@ describe("trigger & severity combinations", () => {
         bigId = await createSubject("sample_orders", { sample_name: "ZZ_RB_mx_del_big", sample_ordertotal: 150 });
         return false;
       },
+      // One blocked probe isn't enough: right after a publish, one DEV web server can enforce the new
+      // OnDelete step while another still routes deletes without it (seen live: the probe was
+      // blocked, the next delete went through). Three in a row, as ruleBehaviorOutcomes does.
+      settleConsecutive: 3,
     });
     let threw = false;
     try {

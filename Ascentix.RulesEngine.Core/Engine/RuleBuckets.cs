@@ -2,23 +2,25 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Query;
 using Ascentix.RulesEngine.Core.Diagnostics;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Loaders;
 using Ascentix.RulesEngine.Core.Models;
+using Ascentix.RulesEngine.Core.Publication;
 
 namespace Ascentix.RulesEngine.Core.Engine
 {
     /// <summary>
     /// Gather, step one: the in-effect rules for a trigger/channel, bucketed by per-rule
-    /// evaluation context (asx_evaluationcontext). A bucket's only effect downstream is which
-    /// traversal service reads business data for it, so bucketing is a gather concern. Owns the
+    /// evaluation context and published revision. Each revision retains its own configuration
+    /// service so differently published definitions of one node GUID remain independent. Owns the
     /// ruleLoad / scheduleFilter stage timers, the RulesLoaded / RulesEvaluated counters and
     /// the "Loaded … rules." trace.
     /// </summary>
     public static class RuleBuckets
     {
-        /// <summary>One evaluation context's rules, in loader order.</summary>
+        /// <summary>Rules sharing a configuration source and evaluation context.</summary>
         public sealed class Bucket
         {
             public Bucket(RuleEvaluationContext context, List<Entity> rules)
@@ -29,6 +31,7 @@ namespace Ascentix.RulesEngine.Core.Engine
 
             public RuleEvaluationContext Context { get; }
             public List<Entity> Rules { get; }
+            public IOrganizationService ConfigurationService { get; set; }
         }
 
         /// <summary>Ordered buckets: User first, then System; an empty bucket is omitted, so no
@@ -39,18 +42,55 @@ namespace Ascentix.RulesEngine.Core.Engine
             RuleTrigger trigger,
             RuleChannel channel,
             RunDiagnostics diag,
-            ITracingService trace)
+            ITracingService trace,
+            RuleSelection selection = null)
         {
-            List<Entity> rules;
-            using (diag.Time("ruleLoad"))
-                rules = new RuleLoader(systemService).LoadRules(logicalName, trigger, channel);
-            diag.RulesLoaded = rules.Count;
-
+            var revisionBuckets = new List<Bucket>();
+            var publishedLoaded = 0;
             var nowUtc = DateTime.UtcNow;
+            List<Entity> rules;
+            List<Entity> Load(RuleLoader loader) => selection?.AnyChannel == true
+                ? loader.LoadRules(logicalName, trigger)
+                : loader.LoadRules(logicalName, trigger, channel);
+            using (diag.Time("ruleLoad"))
+            {
+                var headers = PublishedRules.Headers(systemService, logicalName);
+                if (selection?.RuleId != null)
+                    headers = headers.Where(h => h.Id == selection.RuleId.Value).ToList();
+                if (selection?.DraftRuleId != null)
+                {
+                    // The draft's authored rows, captured the way Publish captures them, stand in
+                    // for the live revision it is a draft of; every other published rule runs as is.
+                    var draftId = selection.DraftRuleId.Value;
+                    var draft = systemService.Retrieve("asx_rule", draftId, new ColumnSet(true));
+                    if (!string.Equals(draft.GetAttributeValue<string>("asx_tablelogicalname"), logicalName, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidPluginExecutionException($"The draft rule {draftId} is not on the {logicalName} table.");
+                    var liveId = draft.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf)?.Id;
+                    headers = headers.Where(h => h.Id != draftId && h.Id != liveId).ToList();
+                    var frozen = new SnapshotService(systemService, RuleSnapshot.Capture(systemService, draft));
+                    var candidates = Load(new RuleLoader(frozen));
+                    publishedLoaded += candidates.Count;
+                    var selected = candidates.Where(r => RuleScheduleFilter.IsInEffect(r, nowUtc)).ToList();
+                    if (selected.Count > 0) revisionBuckets.Add(new Bucket(RuleEvaluationContextResolver.Resolve(selected[0]), selected) { ConfigurationService = frozen });
+                }
+                foreach (var header in headers.Where(h => h.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) != null))
+                {
+                    var frozen = new SnapshotService(systemService, PublishedRules.Read(systemService, header));
+                    var candidates = Load(new RuleLoader(frozen));
+                    publishedLoaded += candidates.Count;
+                    var selected = candidates.Where(r => RuleScheduleFilter.IsInEffect(r, nowUtc)).ToList();
+                    if (selected.Count > 0) revisionBuckets.Add(new Bucket(RuleEvaluationContextResolver.Resolve(selected[0]), selected) { ConfigurationService = frozen });
+                }
+                // Existing normalized rules remain supported until explicitly revised.
+                var legacyIds = new HashSet<Guid>(headers.Where(h => h.GetAttributeValue<EntityReference>(PublicationSchema.Pointer) == null).Select(h => h.Id));
+                rules = legacyIds.Count == 0 ? new List<Entity>() : Load(new RuleLoader(systemService)).Where(r => legacyIds.Contains(r.Id)).ToList();
+            }
+            diag.RulesLoaded = rules.Count + publishedLoaded;
+
             using (diag.Time("scheduleFilter"))
                 rules = rules.Where(r => RuleScheduleFilter.IsInEffect(r, nowUtc)).ToList();
-            diag.RulesEvaluated = rules.Count;
-            trace.Trace($"Loaded {rules.Count} in-effect {trigger} rules.");
+            diag.RulesEvaluated = rules.Count + revisionBuckets.Sum(b => b.Rules.Count);
+            trace.Trace($"Loaded {diag.RulesEvaluated} in-effect {trigger} rules.");
 
             var buckets = new List<Bucket>();
             if (rules.Any())
@@ -65,7 +105,8 @@ namespace Ascentix.RulesEngine.Core.Engine
                 if (systemRules.Any())
                     buckets.Add(new Bucket(RuleEvaluationContext.System, systemRules));
             }
-            return buckets;
+            buckets.AddRange(revisionBuckets);
+            return buckets.OrderBy(b => b.Context == RuleEvaluationContext.User ? 0 : 1).ToList();
         }
     }
 }

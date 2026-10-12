@@ -5,7 +5,18 @@
 jobs:
   - job: liveL2
     displayName: seed + DEV contract suite (L2)
+    # Up to 90 minutes waiting on CI deploys and an earlier L2 run, then the suite itself.
+    timeoutInMinutes: 150
     steps:
+      # Each CI queues L2 after its own deploy; when a merge deploys through both, the first
+      # L2 could start while the other CI is still deploying and test the old build. Wait until
+      # no Plugin CI or Client CI run is queued or in progress (needs "View builds" for the
+      # project build service, which it has by default). Also wait for an earlier L2 run still in
+      # progress: two at once sweep each other's ZZ_RB_ test rows.
+      - pwsh: ./pipelines/Wait-DevDeploys.ps1 -CollectionUri "$(System.CollectionUri)" -Project "$(System.TeamProject)" -BuildId $(Build.BuildId)
+        displayName: Wait for CI deploys and earlier L2 runs to finish
+        env:
+          SYSTEM_ACCESSTOKEN: $(System.AccessToken)
       - task: UseNode@1
         inputs: { version: '24.x' }
         displayName: Use Node 24
@@ -22,7 +33,7 @@ jobs:
           inlineScript: |
             node scripts/seed-dev-fixtures.mjs
             if ($LASTEXITCODE -ne 0) { throw "seed-dev-fixtures failed" }
-            npx vitest run --config vitest.config.dev.ts --reporter=default --reporter=junit --outputFile="$(Build.ArtifactStagingDirectory)/l2-junit.xml"
+            npx vitest run --config vitest.config.dev.ts --reporter=default --reporter=junit --reporter=./test-dev/failFastReporter.ts --outputFile="$(Build.ArtifactStagingDirectory)/l2-junit.xml"
             if ($LASTEXITCODE -ne 0) { throw "L2 DEV contract suite failed" }
         env:
           DATAVERSE_URL: $(DATAVERSE_URL)

@@ -45,7 +45,8 @@ namespace Ascentix.RulesEngine.Core.Models
         Block = 4,
         CreateRecord = 5,
         UpdateRecord = 6,
-        DeleteRecord = 7
+        DeleteRecord = 7,
+        DeactivateRecord = 8   // appended: writes statecode = 1 and a status reason (never renumber)
     }
 
     /// <summary>The record-write operation a write-action performs.</summary>
@@ -54,12 +55,6 @@ namespace Ascentix.RulesEngine.Core.Models
         Create = 1,
         Update = 2,
         Delete = 3
-    }
-
-    public enum ActionFireOn
-    {
-        OnMatch = 1,
-        OnNoMatch = 2
     }
 
     public enum Severity
@@ -74,9 +69,27 @@ namespace Ascentix.RulesEngine.Core.Models
     {
         OnCreate = 1,
         OnForm = 2,
-        Manual = 3,
+        OnDemand = 3,          // was Manual; runs without a save (asx_ApplyRules, Rule Runs, dry runs)
         OnUpdate = 4,
         OnDelete = 5
+    }
+
+    /// <summary>asx_rule.asx_ondemandscope: what an On demand rule runs for.</summary>
+    public enum OnDemandScope
+    {
+        GivenRecord = 1,   // a record it's given (default)
+        AllRecords = 2     // all records that pass its execution conditions
+    }
+
+    /// <summary>asx_rulerun.asx_status.</summary>
+    public enum RuleRunStatus
+    {
+        Queued = 1,
+        Running = 2,
+        Completed = 3,
+        CompletedWithFailures = 4,
+        Failed = 5,
+        Cancelled = 6
     }
 
     /// <summary>Where a condition's right-hand comparand comes from.</summary>
@@ -114,5 +127,23 @@ namespace Ascentix.RulesEngine.Core.Models
     {
         User = 1,    // traversal runs in the caller's context (respects record visibility). The default
         System = 2   // traversal runs as system (deterministic, complete). Opt-in for integrity rules
+    }
+
+    /// <summary>asx_ruleschedule.asx_pattern: how a schedule's next run is computed.</summary>
+    public enum SchedulePattern
+    {
+        EveryMinutes = 1,
+        EveryHours = 2,
+        Daily = 3,
+        Weekly = 4,
+        Monthly = 5
+    }
+
+    /// <summary>asx_ruleschedule.asx_lastoutcome: what happened the last time a schedule became due.</summary>
+    public enum ScheduleOutcome
+    {
+        StartedRun = 1,
+        ContinuedRun = 2,
+        RuleNotRunnable = 3
     }
 }

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Microsoft.Crm.Sdk.Messages;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
 using Ascentix.RulesEngine.Plugin.Registration;
@@ -20,7 +19,7 @@ namespace Ascentix.RulesEngine.Plugin
     /// </summary>
     public class SyncStepsApi : PluginBase
     {
-        public const string StepWritePrivilege = "prvWriteSdkMessageProcessingStep";
+        public const string StepWritePrivilege = AdminPrivilege.Name;
 
         private static readonly string RuleEntity = SchemaNames.Qualify(SchemaNames.Rule.Entity);
         private static readonly string RuleTableField = SchemaNames.Qualify(SchemaNames.Rule.TableLogicalName);
@@ -84,24 +83,7 @@ namespace Ascentix.RulesEngine.Plugin
         // Fail-closed: a missing privilege row denies like a missing grant.
         private static void RequireStepWritePrivilege(IOrganizationService service, Guid userId)
         {
-            var query = new QueryExpression("privilege")
-            {
-                ColumnSet = new ColumnSet("privilegeid"),
-                TopCount = 1
-            };
-            query.Criteria.AddCondition("name", ConditionOperator.Equal, StepWritePrivilege);
-            var privilege = service.RetrieveMultiple(query).Entities.FirstOrDefault();
-
-            var granted = false;
-            if (privilege != null)
-            {
-                var response = (RetrieveUserPrivilegesResponse)service.Execute(
-                    new RetrieveUserPrivilegesRequest { UserId = userId });
-                granted = (response.RolePrivileges ?? new RolePrivilege[0])
-                    .Any(rp => rp.PrivilegeId == privilege.Id);
-            }
-
-            if (!granted)
+            if (!AdminPrivilege.Has(service, userId))
                 throw new InvalidPluginExecutionException(
                     "asx_SyncSteps: the calling user cannot manage plug-in steps " +
                     $"({StepWritePrivilege}). A System Administrator or System Customizer must run this.");

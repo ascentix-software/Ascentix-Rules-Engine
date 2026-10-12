@@ -390,5 +390,30 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal("statuscode", leaf.FieldName);
             Assert.Equal("eq", leaf.Operator);
         }
+
+        [Fact]
+        public void ParseJson_reads_a_filters_map()
+        {
+            var map = AggregateFilterParser.ParseJson(
+                "{\"f1\":{\"kind\":\"group\",\"op\":\"or\",\"rules\":[{\"kind\":\"rule\",\"column\":\"statecode\",\"operator\":1,\"valueSource\":1,\"value\":\"0\"}]}}",
+                "Expression filters");
+
+            Assert.Equal(LogicalOperator.Or, map["f1"].LogicalOperator);
+            Assert.Equal("eq", map["f1"].Criteria[0].Operator);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void ParseJson_blank_is_empty(string json)
+            => Assert.Empty(AggregateFilterParser.ParseJson(json, "Expression filters"));
+
+        [Fact]
+        public void ParseJson_malformed_throws_with_context()
+        {
+            var ex = Assert.Throws<InvalidPluginExecutionException>(() => AggregateFilterParser.ParseJson("{not json", "Expression filters"));
+            Assert.Contains("Expression filters", ex.Message);
+        }
     }
 }

@@ -9,6 +9,8 @@ export interface RecordSearchService {
   search(table: string, query: string, top?: number): Promise<LookupOption[]>;
   resolveName(tables: string[], id: string): Promise<string | null>;
   queryByFetchXml(table: string, fetchXml: string): Promise<RecordRow[]>;
+  /** Primary names for many records of one table, one query per 20 ids; ids it can't read are left out. */
+  resolveNames?(table: string, ids: string[]): Promise<Map<string, string>>;
 }
 
 export function buildRecordSearchOptions(primaryName: string, query: string, top: number): string {
@@ -67,6 +69,30 @@ export function createRecordSearchService(api: WebApiPort, meta: MetadataService
         nameCache.set(key, p);
       }
       return p;
+    },
+    async resolveNames(table, ids) {
+      const out = new Map<string, string>();
+      const t = await tableMeta(table);
+      if (!t || ids.length === 0) return out;
+      const unique = [...new Set(ids)];
+      for (let i = 0; i < unique.length; i += 20) {
+        const chunk = unique.slice(i, i + 20);
+        try {
+          const resp = await api.retrieveMultipleRecords(table,
+            `?$select=${t.primaryIdAttribute},${t.primaryNameAttribute}&$filter=${chunk.map((id) => `${t.primaryIdAttribute} eq ${id}`).join(" or ")}`);
+          for (const r of resp.entities) {
+            const id = String(r[t.primaryIdAttribute]);
+            if (r[t.primaryNameAttribute] != null) {
+              const name = String(r[t.primaryNameAttribute]);
+              out.set(id.toLowerCase(), name);
+              nameCache.set(id, Promise.resolve(name));
+            }
+          }
+        } catch {
+          // leave these ids unresolved; the caller shows the id
+        }
+      }
+      return out;
     },
   };
 }

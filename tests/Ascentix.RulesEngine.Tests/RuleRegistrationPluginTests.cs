@@ -71,10 +71,10 @@ namespace Ascentix.RulesEngine.Tests
                 {
                     [Q(SchemaNames.RuleAction.Rule)] = new EntityReference(Q(SchemaNames.Rule.Entity), ruleId),
                     [Q(SchemaNames.RuleAction.ActionType)] = new OptionSetValue((int)actionType),
-                    [Q(SchemaNames.RuleAction.FireOn)] = new OptionSetValue((int)ActionFireOn.OnNoMatch),
                     [Q(SchemaNames.RuleAction.Order)] = 1,
                     [Q(SchemaNames.RuleAction.IsActive)] = true,
                 },
+                ActionTreeRows.AnyFalse(actId, grpId),
             };
         }
 

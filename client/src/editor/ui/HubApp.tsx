@@ -1,6 +1,6 @@
 import * as React from "react";
-import { SearchBox, Dropdown, Option, Button, TabList, Tab } from "@fluentui/react-components";
-import { Add16Regular, Copy16Regular, Delete16Regular } from "@fluentui/react-icons";
+import { SearchBox, Dropdown, Option, Button, TabList, Tab, Tooltip } from "@fluentui/react-components";
+import { Add16Regular, Copy16Regular, Delete16Regular, Play16Regular, History16Regular, Clock16Regular } from "@fluentui/react-icons";
 import { AppProvider } from "./AppProvider";
 import { ScreenShell } from "./ScreenShell";
 import { navigate } from "./router";
@@ -13,7 +13,10 @@ import { relativeTime } from "./hubFormat";
 import { ListFooter } from "./ListFooter";
 import type { RuleListItem, ConfigListItem } from "../load/hubData";
 import type { EditorApi } from "../webapi";
-import { loadHubData } from "../load/hubData";
+import type { RuleGraph } from "../model/types";
+import { loadHubData, loadSchedulerStatus, schedulerChip } from "../load/hubData";
+import { loadRuleEditorGraph } from "../load/ruleEditorGraph";
+import { loadPublishedGraph } from "../load/publishedGraph";
 import {
   createRule, createConfig, duplicateRule, duplicateConfig, deleteRule, deleteConfig,
 } from "../save/operations";
@@ -22,6 +25,11 @@ import { NewConfigDialog } from "./hub/NewConfigDialog";
 import { ConfirmDeleteDialog } from "./hub/ConfirmDeleteDialog";
 import { activateOnKey } from "./keyboard";
 import { formatError } from "./errors";
+import { useDataUpdates } from "../dataUpdates/DataUpdateContext";
+import { DataUpdateBanner } from "../dataUpdates/DataUpdateBanner";
+import { RunDialog, type RunDialogRule } from "../runs/RunDialog";
+import { canApply, PUBLISHED } from "./header/lifecycle";
+import { RunsDialog } from "../runs/RunsDialog";
 
 const PAGE_SIZE_DEFAULT = 10;
 const RULES_COLS = "2.5fr 1fr 0.95fr 1.25fr 0.8fr 1.15fr 92px";
@@ -90,6 +98,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   api: EditorApi; rules: RuleListItem[]; configs: ConfigListItem[]; truncated?: boolean;
 }) {
   const styles = useEditorStyles();
+  const { readOnly } = useDataUpdates();
   const stacked = !useIsWide(900);
   const [rules, setRules] = React.useState(initialRules);
   const [configs, setConfigs] = React.useState(initialConfigs);
@@ -99,7 +108,20 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   const [newRuleOpen, setNewRuleOpen] = React.useState(false);
   const [newConfigOpen, setNewConfigOpen] = React.useState(false);
   const [pendingDelete, setPendingDelete] = React.useState<{ kind: "rule" | "config"; id: string; name: string } | null>(null);
+  const [runNowRule, setRunNowRule] = React.useState<RunDialogRule | null>(null);
+  const [loadingRunNowId, setLoadingRunNowId] = React.useState<string | null>(null);
+  const [runsRule, setRunsRule] = React.useState<{ id: string; name: string; table: string } | null>(null);
+  const [schedulerStatus, setSchedulerStatus] = React.useState<{ lastSeenOn: string | null; installed: boolean } | null>(null);
   const now = Date.now();
+
+  // Loaded once on mount; the chip itself only shows once some rule is scheduled (below).
+  React.useEffect(() => {
+    let live = true;
+    loadSchedulerStatus(api)
+      .then((s) => { if (live) setSchedulerStatus(s); })
+      .catch(() => { if (live) setSchedulerStatus({ lastSeenOn: null, installed: false }); });
+    return () => { live = false; };
+  }, [api]);
   const [tab, setTab] = React.useState<"rules" | "configs">("rules");
   const [search, setSearch] = React.useState("");
   const [ruleTable, setRuleTable] = React.useState("all");
@@ -119,6 +141,9 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   const filteredConfigs = configs.filter((c) =>
     (!q || c.name.toLowerCase().includes(q)) &&
     (configRoot === "all" || c.rootTableLogicalName === configRoot));
+
+  const anyScheduleOn = rules.some((r) => r.scheduled);
+  const chip = schedulerStatus ? schedulerChip(schedulerStatus, anyScheduleOn, now) : null;
 
   const list = tab === "rules" ? filteredRules : filteredConfigs;
   const total = list.length;
@@ -142,6 +167,38 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   const onCreateConfig = (args: { name: string; table: string }) =>
     run(async () => { const id = await createConfig(api, args); navigate("tableconfig", id); });
   const onDuplicateRule = (id: string) => run(async () => navigate("rule", await duplicateRule(api, id)));
+  // The hub only carries a RuleListItem (name/table/scope); the execution condition
+  // names shown in the dialog must describe what actually runs — the PUBLISHED definition,
+  // not a draft — so load it the same way "View published" does in the Rule Builder
+  // (loadPublishedGraph). Run now is only offered when the rule is Published (canApply),
+  // so a published revision should always be there; fall back to loadRuleEditorGraph's
+  // graph (draft or published, best effort) if the published load fails, and to a plain
+  // placeholder if that fails too — the run can still be started either way.
+  async function loadRunNowGraph(id: string): Promise<RuleGraph | null> {
+    if (api.readPublishedRule) {
+      try {
+        return await loadPublishedGraph(await api.readPublishedRule(id), id);
+      } catch {
+        // fall through to the best-effort loader below
+      }
+    }
+    try {
+      return await loadRuleEditorGraph(api, id);
+    } catch {
+      return null;
+    }
+  }
+  async function onRunNow(r: RuleListItem) {
+    setLoadingRunNowId(r.id);
+    const graph = await loadRunNowGraph(r.id);
+    setLoadingRunNowId(null);
+    if (!graph) { setError(`Couldn't load ${r.name}. Try again.`); return; }
+    setRunNowRule({
+      id: r.id, name: r.name, table: r.tableLogicalName, live: graph, draft: null,
+      liveVersion: graph.rule.publishedVersion ?? 0,
+      canApply: canApply(r.statusCode === PUBLISHED, graph.rule.triggers),
+    });
+  }
   const onDuplicateConfig = (id: string) => run(async () => navigate("tableconfig", await duplicateConfig(api, id)));
   const onConfirmDelete = () => {
     const pd = pendingDelete;
@@ -164,7 +221,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
           <div style={{ padding: "20px 24px 0", background: `linear-gradient(180deg, ${color.canvas}, ${color.surface})` }}>
             <Eyebrow>Power Apps · Rules Engine</Eyebrow>
             <h1 style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.015em", color: color.ink, margin: "2px 0 2px" }}>Rules &amp; data model</h1>
-            <div style={{ fontSize: 13.5, color: color.inkMuted }}>Browse rules and the shared table configurations they traverse.</div>
+            <div style={{ fontSize: 13.5, color: color.inkMuted }}>Browse rules and the shared data models they read.</div>
           </div>
         }
       >
@@ -182,26 +239,35 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
               </Callout>
             </div>
           )}
+          <DataUpdateBanner api={api} />
 
           {/* Tabs */}
-          <div style={{ borderBottom: `1px solid ${color.line}`, margin: "18px 0 16px" }}>
+          <div style={{ borderBottom: `1px solid ${color.line}`, margin: "18px 0 16px",
+            display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <TabList selectedValue={tab} onTabSelect={(_e, d) => switchTab(d.value as "rules" | "configs")}>
               <Tab value="rules">
                 Rules <Pill tone={tab === "rules" ? "info" : "neutral"}>{rules.length}</Pill>
               </Tab>
               <Tab value="configs">
-                Table configurations <Pill tone={tab === "configs" ? "info" : "neutral"}>{configs.length}</Pill>
+                Data models <Pill tone={tab === "configs" ? "info" : "neutral"}>{configs.length}</Pill>
               </Tab>
             </TabList>
+            {chip && (
+              <span data-testid="scheduler-chip">
+                <Pill tone={chip.tone === "ok" ? "published" : "warn"}>{chip.text}</Pill>
+              </span>
+            )}
           </div>
 
           {/* Command bar */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-            <Button appearance="primary" icon={<Add16Regular />} disabled={busy}
-              onClick={() => (tab === "rules" ? setNewRuleOpen(true) : setNewConfigOpen(true))}>
-              {tab === "rules" ? "New rule" : "New table configuration"}
-            </Button>
-            <SearchBox placeholder={tab === "rules" ? "Search rules" : "Search configurations"} value={search}
+            {!readOnly && (
+              <Button appearance="primary" icon={<Add16Regular />} disabled={busy}
+                onClick={() => (tab === "rules" ? setNewRuleOpen(true) : setNewConfigOpen(true))}>
+                {tab === "rules" ? "New rule" : "New data model"}
+              </Button>
+            )}
+            <SearchBox placeholder={tab === "rules" ? "Search rules" : "Search data models"} value={search}
               onChange={(_e, d) => { setSearch(d.value); reset(); }} style={{ minWidth: 240 }} />
             {tab === "rules" ? (
               <>
@@ -230,7 +296,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
 
           {tab === "configs" && (
             <div style={{ marginBottom: 12 }}>
-              <Callout intent="info">Table configurations are shared. Editing one affects every rule that uses it, and a configuration in use can't be deleted.</Callout>
+              <Callout intent="info">Data models are shared. Editing one affects every rule that uses it, and a data model in use can't be deleted.</Callout>
             </div>
           )}
 
@@ -243,9 +309,16 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                   const cells: RowCell[] = [
                     { label: "Rule", node: (
                       <div>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: color.ink }}>{r.name}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: color.ink, display: "flex", alignItems: "center", gap: 6 }}>
+                          {r.name}
+                          {r.scheduled && r.scheduleSummary && (
+                            <Tooltip content={`Scheduled: ${r.scheduleSummary}`} relationship="label">
+                              <Clock16Regular style={{ color: color.inkMuted }} />
+                            </Tooltip>
+                          )}
+                        </div>
                         <div style={{ fontSize: 12, color: color.inkMuted }}>uses{" "}
-                          {r.rootConfigId
+                          {r.rootConfigReadOnly ? <span>{r.rootConfigName ?? "Published data model"}</span> : r.rootConfigId
                             ? <button type="button" className={styles.focusRing} onClick={(e) => { e.stopPropagation(); navigate("tableconfig", r.rootConfigId!); }}
                                 style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: color.brandInk, fontWeight: 600, fontSize: 12 }}>{r.rootConfigName ?? r.rootConfigId}</button>
                             : <span style={{ color: color.inkMuted }}>—</span>}
@@ -259,8 +332,18 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                     { label: "Modified", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{modified(r.modifiedOn, r.modifiedBy)}</span> },
                     { label: "", node: (
                       <span style={{ display: "flex", gap: 2, justifyContent: stacked ? "flex-start" : "flex-end" }} onClick={(e) => e.stopPropagation()}>
-                        <Button size="small" appearance="subtle" icon={<Copy16Regular />} aria-label="Duplicate" title="Duplicate" disabled={busy} onClick={() => onDuplicateRule(r.id)} />
-                        <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete" title="Delete" disabled={busy} style={{ color: color.danger }} onClick={() => setPendingDelete({ kind: "rule", id: r.id, name: r.name })} />
+                        {canApply(r.statusCode === PUBLISHED, r.triggers) && (
+                          <Button size="small" appearance="subtle" icon={<Play16Regular />} aria-label="Run now" title="Run now"
+                            disabled={busy || loadingRunNowId === r.id} onClick={() => onRunNow(r)} />
+                        )}
+                        {(r.statusCode === 753840000 || !!r.publishedRevisionId) && (
+                          <Button size="small" appearance="subtle" icon={<History16Regular />} aria-label="Runs" title="Runs"
+                            disabled={busy} onClick={() => setRunsRule({ id: r.id, name: r.name, table: r.tableLogicalName })} />
+                        )}
+                        {!readOnly && (<>
+                          <Button size="small" appearance="subtle" icon={<Copy16Regular />} aria-label="Duplicate" title="Duplicate" disabled={busy} onClick={() => onDuplicateRule(r.id)} />
+                          <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete" title="Delete" disabled={busy} style={{ color: color.danger }} onClick={() => setPendingDelete({ kind: "rule", id: r.id, name: r.name })} />
+                        </>)}
                       </span>
                     ) },
                   ];
@@ -268,19 +351,19 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                 })}
             </GridCard>
           ) : (
-            <GridCard cols={CONFIG_COLS} headers={["Configuration", "Root table", "Nodes", "Used by", "Modified", ""]} stacked={stacked}>
+            <GridCard cols={CONFIG_COLS} headers={["Data model", "Root table", "Tables", "Used by", "Modified", ""]} stacked={stacked}>
               {pageConfigs.length === 0
-                ? <div style={{ padding: 24, textAlign: "center", color: color.inkMuted, fontSize: 13 }}>No configurations match.</div>
+                ? <div style={{ padding: 24, textAlign: "center", color: color.inkMuted, fontSize: 13 }}>No data models match.</div>
                 : pageConfigs.map((c) => {
                   const cells: RowCell[] = [
-                    { label: "Configuration", node: (
+                    { label: "Data model", node: (
                       <div>
                         <div style={{ fontSize: 14, fontWeight: 600, color: color.ink }}>{c.name}</div>
                         <div style={{ fontSize: 12, color: color.inkMuted }}>{c.rootTableLogicalName}</div>
                       </div>
                     ) },
                     { label: "Root table", node: <span><NodeTag>{c.rootTableLogicalName}</NodeTag></span> },
-                    { label: "Nodes", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{c.nodeCount} nodes</span> },
+                    { label: "Tables", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{c.nodeCount} {c.nodeCount === 1 ? "table" : "tables"}</span> },
                     { label: "Used by", node: (
                       <span style={{ fontSize: 12.5, fontWeight: 600, color: c.usedByCount > 0 ? color.brandInk : color.inkMuted }}>
                         {c.usedByCount > 0 ? `${c.usedByCount} rules` : "Unused"}
@@ -289,11 +372,13 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                     { label: "Modified", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{modified(c.modifiedOn, c.modifiedBy)}</span> },
                     { label: "", node: (
                       <span style={{ display: "flex", gap: 2, justifyContent: stacked ? "flex-start" : "flex-end" }} onClick={(e) => e.stopPropagation()}>
-                        <Button size="small" appearance="subtle" icon={<Copy16Regular />} aria-label="Duplicate" title="Duplicate" disabled={busy} onClick={() => onDuplicateConfig(c.id)} />
-                        <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete"
-                          title={c.usedByCount > 0 ? "In use, can't delete" : "Delete"}
-                          disabled={busy || c.usedByCount > 0} style={{ color: c.usedByCount > 0 ? undefined : color.danger }}
-                          onClick={() => setPendingDelete({ kind: "config", id: c.id, name: c.name })} />
+                        {!readOnly && (<>
+                          <Button size="small" appearance="subtle" icon={<Copy16Regular />} aria-label="Duplicate" title="Duplicate" disabled={busy} onClick={() => onDuplicateConfig(c.id)} />
+                          <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete"
+                            title={c.usedByCount > 0 ? "In use, can't delete" : "Delete"}
+                            disabled={busy || c.usedByCount > 0} style={{ color: c.usedByCount > 0 ? undefined : color.danger }}
+                            onClick={() => setPendingDelete({ kind: "config", id: c.id, name: c.name })} />
+                        </>)}
                       </span>
                     ) },
                   ];
@@ -304,7 +389,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
 
           <ListFooter total={total} page={page} pageSize={pageSize}
             onPage={setPage} onPageSize={(n) => { setPageSize(n); reset(); }}
-            noun={tab === "rules" ? "rules" : "configurations"} />
+            noun={tab === "rules" ? "rules" : "data models"} />
           <NewRuleDialog open={newRuleOpen} configs={configs}
             onCancel={() => setNewRuleOpen(false)}
             onCreate={(args) => { setNewRuleOpen(false); onCreateRule(args); }} />
@@ -313,6 +398,14 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
             onCreate={(args) => { setNewConfigOpen(false); onCreateConfig(args); }} />
           <ConfirmDeleteDialog open={!!pendingDelete} name={pendingDelete?.name ?? ""}
             onCancel={() => setPendingDelete(null)} onConfirm={onConfirmDelete} />
+          {runNowRule && (
+            <RunDialog open api={api} rule={runNowRule} initialTab="apply" onClose={() => setRunNowRule(null)}
+              onViewRuns={() => { const r = runNowRule; setRunNowRule(null); setRunsRule({ id: r.id, name: r.name, table: r.table }); }} />
+          )}
+          {runsRule && (
+            <RunsDialog open={!!runsRule} api={api} ruleId={runsRule.id} ruleName={runsRule.name} table={runsRule.table}
+              onClose={() => setRunsRule(null)} />
+          )}
         </div>
       </ScreenShell>
     </AppProvider>

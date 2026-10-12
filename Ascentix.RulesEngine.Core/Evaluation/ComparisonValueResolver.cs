@@ -24,20 +24,28 @@ namespace Ascentix.RulesEngine.Core.Evaluation
         private readonly IFieldValueResolver _resolver;
         private readonly TemplateRenderer _templates;
         private readonly DateTime _utcNow;
+        private readonly NewRecordStamp _stamp;
 
         public ComparisonValueResolver(
             QueryResultCache cache,
             TableConfigTree tree,
             IFieldValueResolver resolver,
             IOptionLabelProvider labels = null,
-            DateTime utcNow = default)
+            DateTime utcNow = default,
+            NewRecordStamp stamp = null)
         {
             _cache = cache;
             _tree = tree ?? TableConfigTree.Empty;
             _resolver = resolver;
             _templates = new TemplateRenderer(_tree, labels);
             _utcNow = utcNow;
+            _stamp = stamp;
         }
+
+        /// <summary>The evaluating rule's date semantics (set with ConditionEvaluator.Dates). When
+        /// set, a date expression's anchor is read by its column's behavior (DateComparer.AsAnchor);
+        /// null keeps the anchor's DateTimeKind.</summary>
+        public DateSemantics Dates { get; set; }
 
         /// <summary>The comparand string for this condition against the given LHS record and the
         /// triggering root record (root/template/date-expression sources read against root).</summary>
@@ -53,9 +61,9 @@ namespace Ascentix.RulesEngine.Core.Evaluation
 
                 case ComparisonValueSource.DateExpression:
                     var spec = DateExprSpec.Parse(condition.ComparisonValue);
-                    return DateExprEvaluator.Evaluate(spec, root, _cache, _tree, _resolver, _utcNow,
-                            $"condition {condition.Id}")
-                        .ToString("o", CultureInfo.InvariantCulture);
+                    var value = DateExprEvaluator.Evaluate(spec, root, _cache, _tree, _resolver, _utcNow,
+                        $"condition {condition.Id}", _stamp);
+                    return AsAnchor(value, spec, root).ToString("o", CultureInfo.InvariantCulture);
 
                 default: // Literal
                     return condition.ComparisonValue;
@@ -95,6 +103,30 @@ namespace Ascentix.RulesEngine.Core.Evaluation
                     $"{records.Count} records; a field reference must resolve to a single record.");
 
             return _resolver.ResolveFieldValue(records[0], valueColumn);
+        }
+
+        /// <summary>Resolves a node-filter criterion's DateExpression RHS for one filtered row.
+        /// A field anchor with no node reads the row itself (FieldReference in a filter uses the
+        /// same convention); a node anchor reads that single-cardinality node's record. A null
+        /// anchor, on the row or on a related record that is empty or missing, returns null so
+        /// the caller treats the criterion as unmatched rather than failing the save. A
+        /// malformed payload throws.</summary>
+        public string ResolveFilterDateExpression(string payload, Entity row, string ctx)
+        {
+            var spec = DateExprSpec.Parse(payload);
+            if (!DateExprEvaluator.TryEvaluateFromRaw(spec, row, _cache, _tree, _utcNow, ctx, out var result, _stamp))
+                return null;
+            return AsAnchor(result, spec, row).ToString("o", CultureInfo.InvariantCulture);
+        }
+
+        // A field anchor's table: its node's, or (no node) the record it is read from.
+        private DateTime AsAnchor(DateTime value, DateExprSpec spec, Entity rowOrRoot)
+        {
+            if (Dates == null || spec.AnchorKind != "field") return value;
+            var table = spec.AnchorNode.HasValue
+                ? (_tree.TryGetNode(spec.AnchorNode.Value, out var node) ? node.TableLogicalName : null)
+                : rowOrRoot?.LogicalName;
+            return DateComparer.AsAnchor(value, Dates.KindOf(table, spec.AnchorColumn));
         }
     }
 }

@@ -135,20 +135,20 @@ describe("reconcileAutoNames", () => {
   it("applies option-set labels when a resolver is supplied", () => {
     const labelResolver = (_t: string | null, column: string | null, value: string | null): string | null =>
       column === "statecode" && value === "1" ? "Active" : null;
-    const g = graphWith([group({ id: "g1", conditions: [
+    const g = graphWith([], [group({ id: "g1", conditions: [
       cond({ id: "c1", comparisonColumn: "statecode", comparisonOperator: 1, comparisonValue: "1" }),
     ]})]);
     const out = reconcileAutoNames(g, new Set(), labelResolver);
-    expect(out.validationGroups[0].conditions[0].name).toBe("statecode = Active (1)");
-    expect(out.validationGroups[0].name).toBe("statecode = Active (1)");
+    expect(out.executionGroups[0].conditions[0].name).toBe("statecode = Active (1)");
+    expect(out.executionGroups[0].name).toBe("statecode = Active (1)");
   });
   it("rewrites auto names and updates the parent group", () => {
-    const g = graphWith([group({ id: "g1", conditions: [
+    const g = graphWith([], [group({ id: "g1", conditions: [
       cond({ id: "c1", comparisonColumn: "estimatedvalue", comparisonOperator: 4, comparisonValue: "100000" }),
     ]})]);
     const out = reconcileAutoNames(g, new Set());
-    expect(out.validationGroups[0].conditions[0].name).toBe("estimatedvalue ≥ 100000");
-    expect(out.validationGroups[0].name).toBe("estimatedvalue ≥ 100000");
+    expect(out.executionGroups[0].conditions[0].name).toBe("estimatedvalue ≥ 100000");
+    expect(out.executionGroups[0].name).toBe("estimatedvalue ≥ 100000");
   });
   it("leaves manual nodes untouched", () => {
     const g = graphWith([group({ id: "g1", name: "Keep me", conditions: [
@@ -181,7 +181,7 @@ describe("seedManualNames", () => {
   it("classifies a labelled stored name as auto when given the same resolver", () => {
     const labelResolver = (_t: string | null, column: string | null, value: string | null): string | null =>
       column === "statecode" && value === "1" ? "Active" : null;
-    const g = graphWith([group({ id: "g1", name: "statecode = Active (1)", conditions: [
+    const g = graphWith([], [group({ id: "g1", name: "statecode = Active (1)", conditions: [
       cond({ id: "c1", name: "statecode = Active (1)", comparisonColumn: "statecode", comparisonOperator: 1, comparisonValue: "1" }),
     ]})]);
     const m = seedManualNames(g, labelResolver);
@@ -200,7 +200,7 @@ describe("seedManualNames", () => {
     expect(m.has("blank")).toBe(false);
   });
   it("classifies a custom group name as manual", () => {
-    const g = graphWith([group({ id: "auto", name: "estimatedvalue ≥ 100000", conditions: [
+    const g = graphWith([], [group({ id: "auto", name: "estimatedvalue ≥ 100000", conditions: [
       cond({ id: "ca", name: "estimatedvalue ≥ 100000", comparisonColumn: "estimatedvalue", comparisonOperator: 4, comparisonValue: "100000" }),
     ]}), group({ id: "named", name: "My group", conditions: [
       cond({ id: "cn", name: "estimatedvalue ≥ 100000", comparisonColumn: "estimatedvalue", comparisonOperator: 4, comparisonValue: "100000" }),
@@ -232,10 +232,10 @@ describe("nextManualSet", () => {
 });
 
 function findCond(g: RuleGraph, id: string) {
-  return g.validationGroups.flatMap((x) => x.conditions).find((c) => c.id === id)!;
+  return [...g.validationGroups, ...g.executionGroups].flatMap((x) => x.conditions).find((c) => c.id === id)!;
 }
 function findGrp(g: RuleGraph, id: string) {
-  return g.validationGroups.find((x) => x.id === id)!;
+  return g.executionGroups.find((x) => x.id === id)!;
 }
 
 describe("auto-name end-to-end (handler logic)", () => {
@@ -243,7 +243,7 @@ describe("auto-name end-to-end (handler logic)", () => {
     resetTempIds();
     const manual = new Set<string>();
     let g = graphWith([]);
-    g = reconcileAutoNames(addGroup(g, "validation", null), manual);   // new-1
+    g = reconcileAutoNames(addGroup(g, "execution", null), manual);   // new-1
     g = reconcileAutoNames(addCondition(g, "new-1"), manual);          // new-2 (blank)
     expect(findCond(g, "new-2").name).toBe("");
     g = reconcileAutoNames(updateCondition(g, "new-2",
@@ -273,5 +273,39 @@ describe("auto-name end-to-end (handler logic)", () => {
     manual = nextManualSet(manual, "new-2", "", derived);
     g = reconcileAutoNames(updateCondition(g, "new-2", { name: "" }), manual);
     expect(findCond(g, "new-2").name).toBe("estimatedvalue ≥ 200000"); // reverted to auto
+  });
+});
+
+describe("outcomes are never auto-named", () => {
+  const baseGraph = (validationGroups: ConditionGroupNode[], executionGroups: ConditionGroupNode[] = []): RuleGraph => ({
+    rule: {
+      id: "r1", name: "Rule", tableLogicalName: "opportunity", statusCode: 1, etag: "W/\"1\"",
+      triggers: [], channels: [], effectiveFrom: null, effectiveTo: null, evaluationContext: null,
+      rootTableConfigId: "root", triggerColumns: [],
+    },
+    executionGroups, validationGroups, actions: [], tableConfigs: TCS,
+  });
+  const nestedGroup = group({
+    id: "n", parentGroupId: "o", conditions: [cond({ id: "nc", comparisonColumn: "estimatedvalue", comparisonOperator: 4, comparisonValue: "5" })],
+  });
+
+  it("reconcileAutoNames keeps blank and set outcome names but derives nested and execution names", () => {
+    const exec = group({ id: "e", isExecutionCondition: true, conditions: [cond({ id: "ec", comparisonColumn: "name", comparisonOperator: 4, comparisonValue: "x" })] });
+    const g = baseGraph(
+      [group({ id: "o", name: "", groups: [nestedGroup] }), group({ id: "o2", name: "High Value" })], [exec]);
+    const out = reconcileAutoNames(g, new Set());
+    expect(out.validationGroups[0].name).toBe("");
+    expect(out.validationGroups[1].name).toBe("High Value");
+    expect(out.validationGroups[0].groups[0].name).toBe(deriveGroupName(out.validationGroups[0].groups[0], TCS));
+    expect(out.validationGroups[0].groups[0].name).not.toBe("");
+    expect(out.executionGroups[0].name).toBe(deriveGroupName(out.executionGroups[0], TCS));
+    expect(out.executionGroups[0].name).not.toBe("");
+  });
+
+  it("seedManualNames treats every outcome as manual, even a blank one", () => {
+    const g = baseGraph([group({ id: "o", name: "" }), group({ id: "o2", name: "High Value" })]);
+    const manual = seedManualNames(g);
+    expect(manual.has("o")).toBe(true);
+    expect(manual.has("o2")).toBe(true);
   });
 });

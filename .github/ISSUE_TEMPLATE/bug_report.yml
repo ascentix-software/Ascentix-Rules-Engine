@@ -52,7 +52,7 @@ body:
         Steps in order, then the expected result, then the actual result. Be specific about
         which record was saved and which rule you think should have applied.
       placeholder: |
-        1. Published a rule on <table> with a Row Count condition and a Block action firing On No Match.
+        1. Published a rule on <table> with a Row Count condition and a Block action that fires when its "valid" outcome is false.
         2. Created a record with no child rows.
         Expected: the save is blocked with the rule's message.
         Actual: the save succeeded.

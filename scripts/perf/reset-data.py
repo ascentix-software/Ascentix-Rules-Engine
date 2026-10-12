@@ -5,8 +5,14 @@ Run from repo root:
 
 Deletes (in order):
   1. asx_rule records named PERF-RULE-* (cascade removes groups/conditions/actions)
-  2. Data rows from the 7 perf tables (children first, then roots, then lookups)
+  2. Data rows from the 8 perf tables (followup, then children, then roots, then lookups)
      where perf_name startswith 'PERF'
+  3. asx_rulediagnostic rows of the perf tables (asx_tablelogicalname startswith 'perf_'): the
+     diagnostics S2/S3 saves write while run-scenario.py has asx_CaptureDiagnostics on. Last, so
+     rows written while the data was being deleted go too.
+
+First of all it forgets the data run-scenario.py kept for reuse (datastate.py), so an interrupted reset
+never leaves half-deleted data marked as reusable.
 
 Idempotent -- safe to re-run when already clean.
 ASCII-only console output.
@@ -15,12 +21,12 @@ import os
 import sys
 import time
 import urllib.error
-import urllib.request
 import uuid
 
 sys.path.insert(0, os.path.join(os.getcwd(), "scripts", "perf"))
 import _dv  # noqa: E402
-from _dv import get, delete  # noqa: E402
+import datastate  # noqa: E402
+from _dv import get  # noqa: E402
 
 
 def delete_rules():
@@ -32,9 +38,22 @@ def delete_rules():
         if not rules:
             break
         for r in rules:
-            delete(f"asx_rules({r['asx_ruleid']})")
+            _delete_rule(r["asx_ruleid"])
         total += len(rules)
     print(f"[delete] asx_rules (PERF-RULE-*): {total} record(s)")
+
+
+def _delete_rule(rule_id):
+    """Deleting a published rule also deletes its working draft, so a draft listed on the same page
+    can be gone before its own DELETE (any rule opened in the Rule Builder, or by the outcome
+    migration, has one). A rule that no longer exists counts as deleted; any other failure stops."""
+    path = f"asx_rules({rule_id})"
+    try:
+        _dv.request("DELETE", path, solution=True, timeout=None)
+    except _dv.DataverseError as e:
+        if e.status == 404 or "Does Not Exist" in (e.message or ""):
+            return
+        raise SystemExit(f"ERROR DELETE {path}: {e.status}\n{e.message}")
 
 
 BATCH = 100  # $batch parts per request (Dataverse cap is 1000; 100 keeps each call short)
@@ -43,7 +62,11 @@ BATCH = 100  # $batch parts per request (Dataverse cap is 1000; 100 keeps each c
 def _batch_delete(entityset, ids, attempts=4):
     """One $batch request carrying a DELETE per id. Retries transient socket/5xx failures with
     backoff -- 27k single DELETEs tripped WinError 10060 timeouts on 2026-08-22; batching cuts the
-    call count ~100x. Individual part failures surface as a non-2xx part status in the body."""
+    call count ~100x. Individual part failures surface as a non-2xx part status in the body; a 404 part
+    is a row already gone (a retry after a client timeout re-sends deletes the server already did), so it
+    counts as deleted. odata.continue-on-error makes every part run and report: without it Dataverse stops at
+    the first failed part and fails the whole batch, so one row already gone (a cascade, or a delete done
+    before a dropped connection) aborted the reset."""
     boundary = f"batch_{uuid.uuid4().hex}"
     lines = []
     for i, rid in enumerate(ids):
@@ -52,14 +75,14 @@ def _batch_delete(entityset, ids, attempts=4):
                   "OData-MaxVersion: 4.0", "OData-Version: 4.0", ""]
     lines.append(f"--{boundary}--")
     body = ("\r\n".join(lines) + "\r\n").encode("utf-8")
-    headers = {"Authorization": f"Bearer {_dv._token}", "Content-Type": f"multipart/mixed; boundary={boundary}",
-               "Accept": "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0"}
     for attempt in range(1, attempts + 1):
-        req = urllib.request.Request(f"{_dv.BASE}/$batch", data=body, headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=300) as r:
-                raw = r.read().decode("utf-8")
-            failed = [ln for ln in raw.splitlines() if ln.startswith("HTTP/1.1") and not ln.startswith("HTTP/1.1 2")]
+            # _dv.send also retries once with a fresh token on 401 (a long reset outlives a token).
+            _, raw = _dv.send("POST", f"{_dv.BASE}/$batch", body, write=True,
+                              content_type=f"multipart/mixed; boundary={boundary}", timeout=300,
+                              headers={"Prefer": "odata.continue-on-error"})
+            failed = [ln for ln in raw.splitlines() if ln.startswith("HTTP/1.1")
+                      and not ln.startswith(("HTTP/1.1 2", "HTTP/1.1 404"))]
             if failed:
                 raise SystemExit(f"ERROR $batch DELETE {entityset}: {len(failed)} part(s) failed, e.g. {failed[0]}")
             return
@@ -75,9 +98,9 @@ def _batch_delete(entityset, ids, attempts=4):
             raise
 
 
-def delete_data_table(entityset, idfield, namefield="perf_name"):
-    """Page through rows whose name startswith 'PERF' and delete them via $batch."""
-    flt = _dv.urllib.parse.quote(f"startswith({namefield},'PERF')")
+def delete_data_table(entityset, idfield, namefield="perf_name", prefix="PERF"):
+    """Page through rows whose namefield startswith prefix and delete them via $batch."""
+    flt = _dv.urllib.parse.quote(f"startswith({namefield},'{prefix}')")
     total = 0
     while True:
         rows = get(f"{entityset}?$select={idfield}&$filter={flt}&$top=1000")["value"]
@@ -93,15 +116,17 @@ def delete_data_table(entityset, idfield, namefield="perf_name"):
 
 def main():
     print("=== Perf fixture reset (rules + data; schema + tableconfig kept) ===")
+    datastate.clear()
 
     # Step 1: RULES FIRST -- Block rules veto perf_root deletes once published.
     # Must remove enforcement before touching any data rows.
-    print("\n[1/2] Deleting generated rules...")
+    print("\n[1/3] Deleting generated rules...")
     delete_rules()
 
     # Step 2: Data rows -- children before parents to satisfy FK constraints.
-    # Order: child3 -> child2 -> child1 -> roots -> lookup1 -> lookup2 -> lookup3
-    print("\n[2/2] Deleting generated data rows (children first)...")
+    # Order: followup -> child3 -> child2 -> child1 -> roots -> lookup1 -> lookup2 -> lookup3
+    print("\n[2/3] Deleting generated data rows (children first)...")
+    delete_data_table("perf_followups", "perf_followupid")
     delete_data_table("perf_child3s",  "perf_child3id")
     delete_data_table("perf_child2s",  "perf_child2id")
     delete_data_table("perf_child1s",  "perf_child1id")
@@ -109,6 +134,10 @@ def main():
     delete_data_table("perf_lookup1s", "perf_lookup1id")
     delete_data_table("perf_lookup2s", "perf_lookup2id")
     delete_data_table("perf_lookup3s", "perf_lookup3id")
+
+    # Step 3: the perf tables' diagnostics rows (harness artefacts; no lookups, so any order would do).
+    print("\n[3/3] Deleting perf diagnostics rows...")
+    delete_data_table("asx_rulediagnostics", "asx_rulediagnosticid", "asx_tablelogicalname", prefix="perf_")
 
     print("\nDONE. Fixture is clean -- schema and tableconfig tree intact.")
 

@@ -50,22 +50,25 @@ describe("RuleEditorApp responsive title row", () => {
       renderApp();
       const row = screen.getByTestId("title-actions-row");
       expect(row.style.flexDirection).toBe("column");
-      expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Publish" })).toBeInTheDocument();
+      expect(screen.getByText("Saved")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Publish…" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "More actions" })).toBeInTheDocument();
     });
   });
 
-  it("shows the unsaved Pill only when dirty", async () => {
+  it("counts unsaved changes and swaps Saved for Save only when dirty", async () => {
     renderApp();
-    expect(screen.queryByText("Unsaved changes")).toBeNull();
+    expect(screen.queryByText(/unsaved change/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     // Dirty the working graph via the title-row rename flow (the only rule-name
     // edit surface this screen has).
     fireEvent.click(screen.getByRole("button", { name: "Rename rule" }));
     const nameInput = screen.getByLabelText(/rule name/i);
     fireEvent.change(nameInput, { target: { value: "Changed" } });
     fireEvent.keyDown(nameInput, { key: "Enter" });
-    const pill = await screen.findByText("Unsaved changes");
-    expect(pill.style.backgroundColor).toBe("rgb(253, 246, 227)"); // warnTint: it's the Pill, not italic text
+    expect(await screen.findByText("1 unsaved change")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(screen.queryByText("Saved")).toBeNull();
   });
 
   it("clears panelOpen when crossing to wide (no phantom overlay on re-narrow)", async () => {
@@ -103,7 +106,7 @@ describe("RuleEditorApp responsive title row", () => {
     }) as unknown as typeof window.matchMedia;
     try {
       renderApp(); // starts narrow: no query has been flipped to matches: true yet
-      fireEvent.click(screen.getByRole("button", { name: "Properties" }));
+      fireEvent.click(screen.getByTestId("rule-settings-strip"));
       await screen.findByTestId("inspector-heading");
 
       // Cross to wide: the docked panel takes over and panelOpen should clear.

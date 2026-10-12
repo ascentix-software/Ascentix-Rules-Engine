@@ -34,6 +34,7 @@ TABLES = [
     ("perf_Child1",  "Perf Child1",  "Perf Child1s"),
     ("perf_Child2",  "Perf Child2",  "Perf Child2s"),
     ("perf_Child3",  "Perf Child3",  "Perf Child3s"),
+    ("perf_FollowUp", "Perf FollowUp", "Perf FollowUps"),
 ]
 
 # Typed column logical names added to every table (after table creation)
@@ -55,6 +56,7 @@ RELATIONSHIPS = [
     ("perf_child1",  "perf_Child1LookupId", "perf_lookup1"),   # child-level lookup (N+1)
     ("perf_child2",  "perf_Child1Id",       "perf_child1"),
     ("perf_child3",  "perf_Child2Id",       "perf_child2"),
+    ("perf_followup", "perf_Child1Id",      "perf_child1"),   # Create per row target (S3)
 ]
 
 

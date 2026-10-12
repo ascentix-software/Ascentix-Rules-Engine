@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
+using Ascentix.RulesEngine.Core.Resolution;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Query;
 using Xunit;
@@ -203,6 +204,244 @@ namespace Ascentix.RulesEngine.Tests
             Assert.True(cache.Has(entry.Node.Id));
             Assert.True(cache.Has(entry.Node.Id, "k"));
             Assert.Empty(cache.Get(entry.Node.Id, "k"));
+        }
+
+        // ── anchored date placeholders ──────────────────────────────────────────────────────
+
+        private static NodeQueryVariant BoundVariant(Guid anchorNodeId, string op, int days,
+            DateColumnKind? kind = null, TimeZoneInfo zone = null)
+        {
+            var payload = "{\"anchor\":{\"kind\":\"field\",\"node\":\"" + anchorNodeId + "\",\"column\":\"createdon\"},"
+                        + "\"op\":\"add\",\"amount\":" + days + ",\"unit\":\"days\"}";
+            var filter = new PushedFilter();
+            filter.Conditions.Add(new PushedCondition { Attribute = "createdon", Operator = op, Binding = new DateBinding(payload, op, kind, zone) });
+            return new NodeQueryVariant { Key = filter.CanonicalKey(), Filter = filter };
+        }
+
+        [Fact]
+        public void Bound_variant_carries_the_roots_own_date_widened()
+        {
+            var (configs, plan, entry, root) = ChildSetup();
+            entry.DemandsUnfiltered = false;
+            entry.Variants.Add(BoundVariant(entry.Node.ParentTableId.Value, "gt", 30));
+            root["createdon"] = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+            var svc = new FakeService { OnFetch = (xml, i) => Page("contact", 0) };
+
+            new QueryExecutor(svc, new QueryResultCache(configs), configs).Execute(root, plan);
+
+            // 2026-09-01 + 30 days = 2026-10-01, widened one day earlier for gt.
+            Assert.Contains("<condition attribute='createdon' operator='gt' value='2026-09-30T00:00:00Z' />", Assert.Single(svc.Fetches));
+        }
+
+        [Fact]
+        public void Bound_variant_with_a_known_behavior_carries_the_exact_value()
+        {
+            var (configs, plan, entry, root) = ChildSetup();
+            entry.DemandsUnfiltered = false;
+            entry.Variants.Add(BoundVariant(entry.Node.ParentTableId.Value, "eq", 30,
+                DateColumnKind.CalendarDate, TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time")));
+            root["createdon"] = new DateTime(2026, 9, 1, 2, 0, 0, DateTimeKind.Utc);
+            var svc = new FakeService { OnFetch = (xml, i) => Page("contact", 0) };
+
+            new QueryExecutor(svc, new QueryResultCache(configs), configs).Execute(root, plan);
+
+            // 2026-10-01T02:00Z is 22:00 EDT on Sep 30: the Date Only value is that calendar day,
+            // pushed as a half-open range.
+            Assert.Contains("<condition attribute='createdon' operator='ge' value='2026-09-30' />" +
+                "<condition attribute='createdon' operator='lt' value='2026-10-01' />", Assert.Single(svc.Fetches));
+        }
+
+        [Fact]
+        public void Each_root_binds_its_own_date()
+        {
+            var (configs, plan, entry, _) = ChildSetup();
+            entry.DemandsUnfiltered = false;
+            entry.Variants.Add(BoundVariant(entry.Node.ParentTableId.Value, "gt", 30));
+            var svc = new FakeService { OnFetch = (xml, i) => Page("contact", 0) };
+
+            foreach (var created in new[] { new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc) })
+                new QueryExecutor(svc, new QueryResultCache(configs), configs)
+                    .Execute(new Entity("account", Guid.NewGuid()) { ["createdon"] = created }, plan);
+
+            Assert.Contains("value='2026-09-30T00:00:00Z'", svc.Fetches[0]);
+            Assert.Contains("value='2026-03-30T00:00:00Z'", svc.Fetches[1]);
+        }
+
+        [Fact]
+        public void Unbindable_variant_fetches_without_its_pushed_filter()
+        {
+            var (configs, plan, entry, root) = ChildSetup();       // root has no createdon
+            entry.DemandsUnfiltered = false;
+            entry.Variants.Add(BoundVariant(entry.Node.ParentTableId.Value, "gt", 30));
+            var svc = new FakeService { OnFetch = (xml, i) => Page("contact", 2) };
+            var cache = new QueryResultCache(configs);
+
+            new QueryExecutor(svc, cache, configs).Execute(root, plan);
+
+            Assert.DoesNotContain("operator='gt'", Assert.Single(svc.Fetches));
+            Assert.Equal(2, cache.Get(entry.Node.Id, entry.Variants[0].Key).Count); // memory filters these rows
+        }
+
+        [Fact]
+        public void Created_on_of_a_root_being_created_binds_to_the_evaluation_instant()
+        {
+            var now = new DateTime(2026, 9, 27, 12, 0, 0, DateTimeKind.Utc);
+            var (configs, plan, entry, root) = ChildSetup();       // a Create's Target: no createdon
+            entry.DemandsUnfiltered = false;
+            entry.Variants.Add(BoundVariant(entry.Node.ParentTableId.Value, "gt", 30));
+            var svc = new FakeService { OnFetch = (xml, i) => Page("contact", 0) };
+
+            new QueryExecutor(svc, new QueryResultCache(configs), configs, utcNow: now, rootIsNew: true).Execute(root, plan);
+
+            // now + 30 days = 2026-10-27T12:00Z, widened one day earlier for gt.
+            Assert.Contains("value='2026-10-26T12:00:00Z'", Assert.Single(svc.Fetches));
+        }
+
+        private static string CreatedOnPlus(Guid anchorNodeId, int days) =>
+            "{\"anchor\":{\"kind\":\"field\",\"node\":\"" + anchorNodeId + "\",\"column\":\"createdon\"},"
+            + "\"op\":\"add\",\"amount\":" + days + ",\"unit\":\"days\"}";
+
+        // statuscode eq 1 AND (createdon gt <anchor + 30d> OR statecode eq 0), translated the way
+        // the planner does, so the variant carries a placeholder inside an OR child group.
+        private static NodeQueryVariant OrPlaceholderVariant(Guid anchorNodeId)
+        {
+            var group = new NodeFilterGroup
+            {
+                LogicalOperator = Ascentix.RulesEngine.Core.Models.LogicalOperator.And,
+                Criteria = { new NodeFilterCriterion { Kind = CriterionKind.Comparison, FieldName = "statuscode", Operator = "eq", Value = "1" } },
+                ChildGroups =
+                {
+                    new NodeFilterGroup
+                    {
+                        LogicalOperator = Ascentix.RulesEngine.Core.Models.LogicalOperator.Or,
+                        Criteria =
+                        {
+                            new NodeFilterCriterion { Kind = CriterionKind.Comparison, FieldName = "createdon", Operator = "gt",
+                                ValueSource = ComparisonValueSource.DateExpression, Value = CreatedOnPlus(anchorNodeId, 30) },
+                            new NodeFilterCriterion { Kind = CriterionKind.Comparison, FieldName = "statecode", Operator = "eq", Value = "0" },
+                        },
+                    },
+                },
+            };
+            var pushed = new PushdownTranslator(canBindAnchor: id => id == anchorNodeId).Translate(group);
+            Assert.False(pushed.HasResidual);
+            return new NodeQueryVariant { Key = pushed.Pushed.CanonicalKey(), Filter = pushed.Pushed };
+        }
+
+        [Fact]
+        public void Placeholder_in_an_or_group_binds_through_the_executor()
+        {
+            var (configs, plan, entry, root) = ChildSetup();
+            entry.DemandsUnfiltered = false;
+            entry.Variants.Add(OrPlaceholderVariant(entry.Node.ParentTableId.Value));
+            root["createdon"] = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+            var svc = new FakeService { OnFetch = (xml, i) => Page("contact", 0) };
+
+            new QueryExecutor(svc, new QueryResultCache(configs), configs).Execute(root, plan);
+
+            var fetch = Assert.Single(svc.Fetches);
+            Assert.Contains("<filter type='and'><condition attribute='statuscode' operator='eq' value='1' />" +
+                "<filter type='or'><condition attribute='createdon' operator='gt' value='2026-09-30T00:00:00Z' />" +
+                "<condition attribute='statecode' operator='eq' value='0' /></filter></filter>", fetch);
+        }
+
+        [Fact]
+        public void Unbindable_placeholder_in_an_or_group_drops_only_that_group()
+        {
+            var (configs, plan, entry, root) = ChildSetup();       // root has no createdon
+            entry.DemandsUnfiltered = false;
+            entry.Variants.Add(OrPlaceholderVariant(entry.Node.ParentTableId.Value));
+            var svc = new FakeService { OnFetch = (xml, i) => Page("contact", 2) };
+            var cache = new QueryResultCache(configs);
+
+            new QueryExecutor(svc, cache, configs).Execute(root, plan);
+
+            // The OR has no bound for this root, so it relaxes to "no constraint"; the sibling
+            // conjunct still narrows the fetch. Memory re-applies the full filter to these rows.
+            var fetch = Assert.Single(svc.Fetches);
+            Assert.Contains("<filter type='and'><condition attribute='statuscode' operator='eq' value='1' /></filter>", fetch);
+            Assert.DoesNotContain("statecode", fetch);
+            Assert.DoesNotContain("createdon", fetch);
+            Assert.Equal(2, cache.Get(entry.Node.Id, entry.Variants[0].Key).Count);
+        }
+
+        [Fact]
+        public void Lookup_anchor_deeper_than_the_filtered_child_binds_from_the_loaded_record()
+        {
+            // account -> contact (lookup, level 1) -> systemuser (lookup, level 2); task is a child
+            // of account (level 1) filtered on the systemuser's createdon. The anchor loads a level
+            // AFTER the filtered node, which only the two-phase order (every unfiltered fetch first)
+            // makes available when the task variant binds.
+            var rootId = Guid.NewGuid();
+            var contactId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
+            var taskId = Guid.NewGuid();
+            var configs = TestTree.Tree(
+                new TableConfig { Id = rootId, TableLogicalName = "account", ConfigType = TableConfigType.RootTable },
+                new TableConfig { Id = contactId, TableLogicalName = "contact", ConfigType = TableConfigType.LookupTable,
+                    LookupColumnLogicalName = "primarycontactid", LookupTargetIdAttribute = "contactid", ParentTableId = rootId },
+                new TableConfig { Id = userId, TableLogicalName = "systemuser", ConfigType = TableConfigType.LookupTable,
+                    LookupColumnLogicalName = "owninguser", LookupTargetIdAttribute = "systemuserid", ParentTableId = contactId },
+                new TableConfig { Id = taskId, TableLogicalName = "task", ConfigType = TableConfigType.ChildTable,
+                    ChildLinkField = "regardingobjectid", ParentTableId = rootId });
+            var contactEntry = new ExecutionPlanEntry { Node = configs.Node(contactId), ParentCacheKey = rootId.ToString() };
+            var userEntry = new ExecutionPlanEntry { Node = configs.Node(userId), ParentCacheKey = contactId.ToString() };
+            var taskEntry = new ExecutionPlanEntry { Node = configs.Node(taskId), ParentCacheKey = rootId.ToString(), DemandsUnfiltered = false };
+            taskEntry.Variants.Add(BoundVariant(userId, "lt", 10));
+            var plan = new QueryExecutionPlan();
+            plan.Levels.Add(new List<ExecutionPlanEntry> { taskEntry, contactEntry });
+            plan.Levels.Add(new List<ExecutionPlanEntry> { userEntry });
+
+            var contact = new Entity("contact", Guid.NewGuid()) { ["owninguser"] = new EntityReference("systemuser", Guid.NewGuid()) };
+            var user = new Entity("systemuser", Guid.NewGuid()) { ["createdon"] = new DateTime(2026, 5, 10, 8, 0, 0, DateTimeKind.Utc) };
+            var root = new Entity("account", Guid.NewGuid()) { ["primarycontactid"] = new EntityReference("contact", contact.Id) };
+            var svc = new FakeService
+            {
+                OnFetch = (xml, i) =>
+                {
+                    var page = new EntityCollection();
+                    if (xml.Contains("'contact'")) page.Entities.Add(contact);
+                    else if (xml.Contains("'systemuser'")) page.Entities.Add(user);
+                    return page;
+                },
+            };
+
+            new QueryExecutor(svc, new QueryResultCache(configs), configs).Execute(root, plan);
+
+            // 2026-05-10T08:00Z + 10 days = 2026-05-20T08:00Z, widened one day later for lt.
+            Assert.Equal(3, svc.Fetches.Count);
+            Assert.Contains("'task'", svc.Fetches[2]);
+            Assert.Contains("<condition attribute='createdon' operator='lt' value='2026-05-21T08:00:00Z' />", svc.Fetches[2]);
+        }
+
+        [Fact]
+        public void Every_unfiltered_fetch_runs_before_any_variant()
+        {
+            var rootId = Guid.NewGuid();
+            var childId = Guid.NewGuid();
+            var grandId = Guid.NewGuid();
+            var configs = TestTree.Tree(
+                new TableConfig { Id = rootId, TableLogicalName = "account", ConfigType = TableConfigType.RootTable },
+                new TableConfig { Id = childId, TableLogicalName = "contact", ConfigType = TableConfigType.ChildTable, ChildLinkField = "parentcustomerid", ParentTableId = rootId },
+                new TableConfig { Id = grandId, TableLogicalName = "task", ConfigType = TableConfigType.ChildTable, ChildLinkField = "regardingobjectid", ParentTableId = childId });
+            var child = new ExecutionPlanEntry { Node = configs.Node(childId), ParentCacheKey = rootId.ToString() };
+            child.Variants.Add(new NodeQueryVariant
+            {
+                Key = "and(c[statuscode|eq|1])",
+                FilterFetchXml = "<filter type='and'><condition attribute='statuscode' operator='eq' value='1' /></filter>",
+            });
+            var grand = new ExecutionPlanEntry { Node = configs.Node(grandId), ParentCacheKey = childId.ToString() };
+            var plan = new QueryExecutionPlan();
+            plan.Levels.Add(new List<ExecutionPlanEntry> { child });
+            plan.Levels.Add(new List<ExecutionPlanEntry> { grand });
+            var svc = new FakeService { OnFetch = (xml, i) => xml.Contains("'contact'") ? Page("contact", 1) : Page("task", 0) };
+
+            new QueryExecutor(svc, new QueryResultCache(configs), configs).Execute(new Entity("account", Guid.NewGuid()), plan);
+
+            Assert.Equal(3, svc.Fetches.Count);
+            Assert.DoesNotContain("statuscode", svc.Fetches[0]);   // contact, unfiltered
+            Assert.Contains("'task'", svc.Fetches[1]);               // task, unfiltered
+            Assert.Contains("statuscode", svc.Fetches[2]);         // contact variant, last
         }
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Actions;
+using Ascentix.RulesEngine.Core.Evaluation;
 using Ascentix.RulesEngine.Core.Execution;
 using Ascentix.RulesEngine.Core.Models;
 using Ascentix.RulesEngine.Core.Resolution;
@@ -24,15 +25,36 @@ namespace Ascentix.RulesEngine.Core.Engine
         /// own: every root node of <see cref="EvaluationInput.Tree"/> is already seeded.</summary>
         public sealed class EvaluationRecord
         {
-            public EvaluationRecord(int index, Entity root, QueryResultCache cache)
+            public EvaluationRecord(int index, Entity root, QueryResultCache cache,
+                IReadOnlyList<PreviousRun> previousRuns = null)
             {
                 Index = index;
                 Root = root;
                 Cache = cache ?? throw new ArgumentNullException(nameof(cache));
+                PreviousRuns = previousRuns ?? new List<PreviousRun>();
             }
 
             /// <summary>Position in the run's input list: where the verdict lands.</summary>
             public int Index { get; }
+            public Entity Root { get; }
+            public QueryResultCache Cache { get; }
+
+            /// <summary>Second runs for changed lookups (see PreviousParent); empty when none.</summary>
+            public IReadOnlyList<PreviousRun> PreviousRuns { get; }
+        }
+
+        /// <summary>A second evaluation of one root for a changed lookup's previous record: the root
+        /// with that lookup pointed at its previous value, and its own query results.</summary>
+        public sealed class PreviousRun
+        {
+            public PreviousRun(TableConfig lookup, Entity root, QueryResultCache cache)
+            {
+                Lookup = lookup ?? throw new ArgumentNullException(nameof(lookup));
+                Root = root ?? throw new ArgumentNullException(nameof(root));
+                Cache = cache ?? throw new ArgumentNullException(nameof(cache));
+            }
+
+            public TableConfig Lookup { get; }
             public Entity Root { get; }
             public QueryResultCache Cache { get; }
         }
@@ -50,7 +72,8 @@ namespace Ascentix.RulesEngine.Core.Engine
             DateTime utcNow,
             IAttributeMetadataProvider metadata,
             IOptionLabelProvider labels,
-            RuleTrigger trigger)
+            RuleTrigger trigger,
+            IReadOnlyDictionary<Guid, DateSemantics> datesByRule = null)
         {
             RuleIds = ruleIds ?? throw new ArgumentNullException(nameof(ruleIds));
             RootGroups = rootGroups ?? throw new ArgumentNullException(nameof(rootGroups));
@@ -65,6 +88,7 @@ namespace Ascentix.RulesEngine.Core.Engine
             Metadata = metadata;
             Labels = labels;
             Trigger = trigger;
+            DatesByRule = datesByRule ?? new Dictionary<Guid, DateSemantics>();
         }
 
         /// <summary>Rule ids in loader order, the order rules evaluate in.</summary>
@@ -106,5 +130,8 @@ namespace Ascentix.RulesEngine.Core.Engine
 
         /// <summary>Provenance: which trigger gathered this input.</summary>
         public RuleTrigger Trigger { get; }
+
+        /// <summary>Per-rule date semantics (column behavior + the rule's time zone).</summary>
+        public IReadOnlyDictionary<Guid, DateSemantics> DatesByRule { get; }
     }
 }

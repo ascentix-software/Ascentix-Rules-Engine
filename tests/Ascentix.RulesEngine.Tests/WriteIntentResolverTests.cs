@@ -72,7 +72,7 @@ namespace Ascentix.RulesEngine.Tests
 
             Assert.Equal(WriteOperation.Create, intent.Operation);
             Assert.Equal("task", intent.TargetTable);
-            Assert.Null(intent.TargetId);
+            Assert.NotEqual(Guid.Empty, intent.TargetId.Value); // assigned at resolution: the ChangeSet's merge key, not sent on the Create
             Assert.Equal("Hi", intent.Values["subject"]);
             Assert.Equal(2, ((OptionSetValue)intent.Values["statuscode"]).Value);
             Assert.Equal("Acme", intent.Values["subject2"]); // copied raw from root

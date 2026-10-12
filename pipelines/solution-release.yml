@@ -6,21 +6,22 @@ name: solution-release-$(Date:yyyyMMdd)-$(Rev:r)
 trigger: none
 pr: none
 
-# Version policy: beta releases ship as solution version 0.0.0.N, and 1.0.0.0 is reserved
-# for the first full release. Dataverse solution versions are numeric only, so "beta" can
-# never appear in the version an administrator sees in their org. Numbering the betas
-# 1.0.0.N would therefore have told every adopter they were running v1, and would have
-# spent the 1.0.0 range before v1 existed. 0.0.0.N says pre-release on its own, and the
-# documentation is what carries the word "beta".
+# Version policy: beta releases ship as solution versions below 1.0.0.0 (0.0.0.1, then
+# 0.1.0.2), and 1.0.0.0 is reserved for the first full release. Dataverse solution versions
+# are numeric only, so "beta" can never appear in the version an administrator sees in their
+# org. Numbering the betas 1.0.0.N would therefore have told every adopter they were running
+# v1, and would have spent the 1.0.0 range before v1 existed. A 0.x version says pre-release
+# on its own, and the documentation is what carries the word "beta".
 #
-# N must increase on every release, because a managed upgrade rejects a lower version than
-# the one already installed. betaNumber = 0, the default, is a NON-release run: no version
+# The version must increase on every release, because a managed upgrade rejects a lower
+# version than the one already installed; the CheckVersion stage refuses one that isn't
+# higher than the newest v* tag. version = 0, the default, is a NON-release run: no version
 # stamp, no tag, export and mirror branch only.
 parameters:
-  - name: betaNumber
-    displayName: "Beta number N. 0 = not a release (no version stamp, no tag). N>=1 releases beta N as solution version 0.0.0.N"
-    type: number
-    default: 0
+  - name: version
+    displayName: "Release version, four numbers (e.g. 0.1.0.2). 0 = not a release (no version stamp, no tag)"
+    type: string
+    default: '0'
 
 pool:
   vmImage: windows-latest
@@ -31,12 +32,29 @@ variables:
     value: DataverseRulesEngine-DEV
   - name: outDir
     value: $(Build.ArtifactStagingDirectory)
+  # The optional scheduler add-on (a cloud flow and its connection reference), provisioned
+  # in DEV by pipelines/scheduler/Deploy-Scheduler.ps1 and shipped as its own solution.
+  - name: SCHEDULER_SOLUTION_NAME
+    value: AscentixRulesEngineScheduler
 
 stages:
+  # Fail in a minute, not after the L2 gate: a malformed version, or one that isn't higher
+  # than the newest release tag, would only be refused by an upgrade in someone's org.
+  - stage: CheckVersion
+    displayName: Check the release version
+    jobs:
+      - job: checkVersion
+        steps:
+          - checkout: self
+            fetchTags: true
+          - pwsh: ./pipelines/Assert-ReleaseVersion.ps1 -Version '${{ parameters.version }}'
+            displayName: Check version ${{ parameters.version }}
+
   # Release gate (Tier B): nothing exports without a green L2 against the exact DEV state being
   # shipped. The gate run is its own freshness evidence, so there are no calendar rules.
   - stage: LiveL2Gate
     displayName: L2 DEV contract gate (live)
+    dependsOn: CheckVersion
     jobs:
       - template: templates/live-l2-job.yml
 
@@ -62,15 +80,24 @@ stages:
               PowerPlatformSPN: $(serviceConnection)
 
           # NOTE: writes the version stamp back into the DEV solution, so this pipeline is not purely
-          # read-only. Release runs only (betaNumber >= 1); see the semver mapping at the top.
-          - ${{ if ge(parameters.betaNumber, 1) }}:
+          # read-only. Release runs only (a version other than 0); see the version policy at the top.
+          - ${{ if ne(parameters.version, '0') }}:
               - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.set-solution-version.PowerPlatformSetSolutionVersion@2
-                displayName: Set solution version 0.0.0.${{ parameters.betaNumber }} (beta ${{ parameters.betaNumber }})
+                displayName: Set solution version ${{ parameters.version }}
                 inputs:
                   authenticationType: PowerPlatformSPN
                   PowerPlatformSPN: $(serviceConnection)
                   SolutionName: $(SOLUTION_NAME)
-                  SolutionVersionNumber: 0.0.0.${{ parameters.betaNumber }}
+                  SolutionVersionNumber: ${{ parameters.version }}
+
+              # The add-on ships in step with the core, so it carries the same version.
+              - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.set-solution-version.PowerPlatformSetSolutionVersion@2
+                displayName: Set scheduler add-on version ${{ parameters.version }}
+                inputs:
+                  authenticationType: PowerPlatformSPN
+                  PowerPlatformSPN: $(serviceConnection)
+                  SolutionName: $(SCHEDULER_SOLUTION_NAME)
+                  SolutionVersionNumber: ${{ parameters.version }}
 
           - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.export-solution.PowerPlatformExportSolution@2
             displayName: Export unmanaged
@@ -90,16 +117,68 @@ stages:
               SolutionOutputFile: $(outDir)/$(SOLUTION_NAME)_managed.zip
               Managed: true
 
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.export-solution.PowerPlatformExportSolution@2
+            displayName: Export scheduler add-on unmanaged
+            inputs:
+              authenticationType: PowerPlatformSPN
+              PowerPlatformSPN: $(serviceConnection)
+              SolutionName: $(SCHEDULER_SOLUTION_NAME)
+              SolutionOutputFile: $(outDir)/$(SCHEDULER_SOLUTION_NAME)_unmanaged.zip
+              Managed: false
+
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.export-solution.PowerPlatformExportSolution@2
+            displayName: Export scheduler add-on managed
+            inputs:
+              authenticationType: PowerPlatformSPN
+              PowerPlatformSPN: $(serviceConnection)
+              SolutionName: $(SCHEDULER_SOLUTION_NAME)
+              SolutionOutputFile: $(outDir)/$(SCHEDULER_SOLUTION_NAME)_managed.zip
+              Managed: true
+
           # Release runs get semver-named copies, the exact filenames shipped to the
           # website / AppSource, plus LICENSE, NOTICE and SHA256SUMS.txt in the same artifact,
           # plus the release tag on the exported commit.
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              Add-Type -AssemblyName System.IO.Compression.FileSystem
+              foreach ($flavor in @('managed', 'unmanaged')) {
+                $zip = [IO.Compression.ZipFile]::OpenRead("$(outDir)/$(SOLUTION_NAME)_${flavor}.zip")
+                try {
+                  $reader = [IO.StreamReader]::new($zip.GetEntry('customizations.xml').Open())
+                  try { [xml]$xml = $reader.ReadToEnd() } finally { $reader.Dispose() }
+                  foreach ($field in @('asx_draftof','asx_draftbaseversion','asx_isprivate','asx_publishedrevision','asx_publishedversion','asx_draftstamp','asx_publishhash')) {
+                    if (!$xml.SelectSingleNode("//attribute[Name='$field']")) { throw "Package is missing $field" }
+                  }
+                  foreach ($table in @('asx_rulerevision','asx_publicationlock')) {
+                    if (!$xml.SelectSingleNode("//Entity[Name='$table']")) { throw "Package is missing $table" }
+                  }
+                  foreach ($name in @('asx_OpenRuleDraft','asx_ReadPublishedRule','asx_RestoreRuleDraft','asx_CopyRule')) {
+                    if (!$xml.SelectSingleNode("//customapi[@uniquename='$name']/plugintypeid")) { throw "Package is missing authoring API $name" }
+                  }
+                  $guards = @($xml.SelectNodes('//SdkMessageProcessingStep') | Where-Object { $_.PluginTypeName -like 'Ascentix.RulesEngine.Plugin.RuleRevisionGuardPlugin,*' -and $_.Stage -eq '20' -and $_.Mode -eq '0' -and $_.Rank -eq '1' })
+                  # Configure-RuleAuthoring.ps1: Create/Update/Delete on 12 rule-owned tables (asx_rule
+                  # Delete's is PreValidation, so 35 here), plus asx_rule Delete at PreOperation,
+                  # SetState, Associate and Disassociate = 39. Change it with that table list.
+                  if ($guards.Count -ne 39) { throw "Expected 39 packaged synchronous configuration guards; found $($guards.Count)" }
+                  foreach ($table in @('asx_rule','asx_tableconfig')) {
+                    $field = if ($table -eq 'asx_rule') { 'asx_draftof' } else { 'asx_isprivate' }
+                    $views = @($xml.SelectNodes("//savedquery/fetchxml/fetch/entity[@name='$table']"))
+                    if (!$views.Count -or @($views | Where-Object { !$_.SelectSingleNode("filter/condition[@attribute='$field']") }).Count) { throw "Package contains unfiltered $table views" }
+                  }
+                  Write-Host "Verified authoring components in $flavor package."
+                } finally { $zip.Dispose() }
+              }
+            displayName: Verify packaged rule authoring contract
+
           # LICENSE/NOTICE live in distribution/ (not the repo root): these are the copies
           # bundled INTO the release artifact, kept separate from the source tree's own.
-          - ${{ if ge(parameters.betaNumber, 1) }}:
+          - ${{ if ne(parameters.version, '0') }}:
               - pwsh: |
-                  $v = "0.0.0.${{ parameters.betaNumber }}"
+                  $v = "${{ parameters.version }}"
                   Copy-Item "$(outDir)/$(SOLUTION_NAME)_managed.zip"   "$(outDir)/$(SOLUTION_NAME)_${v}_managed.zip"
                   Copy-Item "$(outDir)/$(SOLUTION_NAME)_unmanaged.zip" "$(outDir)/$(SOLUTION_NAME)_${v}_unmanaged.zip"
+                  Copy-Item "$(outDir)/$(SCHEDULER_SOLUTION_NAME)_managed.zip"   "$(outDir)/$(SCHEDULER_SOLUTION_NAME)_${v}_managed.zip"
+                  Copy-Item "$(outDir)/$(SCHEDULER_SOLUTION_NAME)_unmanaged.zip" "$(outDir)/$(SCHEDULER_SOLUTION_NAME)_${v}_unmanaged.zip"
                   Copy-Item "distribution/LICENSE" "$(outDir)/LICENSE"
                   Copy-Item "distribution/NOTICE"  "$(outDir)/NOTICE"
                   # sha256sum format: <lowercase hex><two spaces><filename>, LF line endings,
@@ -124,6 +203,7 @@ stages:
           #     also disappear from the repo. The folders are an exact mirror of this export.
           - pwsh: |
               Remove-Item -Recurse -Force "Solutions/$(SOLUTION_NAME)" -ErrorAction SilentlyContinue
+              Remove-Item -Recurse -Force "Solutions/$(SCHEDULER_SOLUTION_NAME)" -ErrorAction SilentlyContinue
             workingDirectory: $(Build.SourcesDirectory)
             displayName: Clean previous unpacked solution
 
@@ -139,6 +219,20 @@ stages:
             inputs:
               SolutionInputFile: $(outDir)/$(SOLUTION_NAME)_managed.zip
               SolutionTargetFolder: $(Build.SourcesDirectory)/Solutions/$(SOLUTION_NAME)/$(SOLUTION_NAME)_managed
+              SolutionType: Managed
+
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.unpack-solution.PowerPlatformUnpackSolution@2
+            displayName: Unpack scheduler add-on unmanaged
+            inputs:
+              SolutionInputFile: $(outDir)/$(SCHEDULER_SOLUTION_NAME)_unmanaged.zip
+              SolutionTargetFolder: $(Build.SourcesDirectory)/Solutions/$(SCHEDULER_SOLUTION_NAME)/$(SCHEDULER_SOLUTION_NAME)_unmanaged
+              SolutionType: Unmanaged
+
+          - task: microsoft-IsvExpTools.PowerPlatform-BuildTools.unpack-solution.PowerPlatformUnpackSolution@2
+            displayName: Unpack scheduler add-on managed
+            inputs:
+              SolutionInputFile: $(outDir)/$(SCHEDULER_SOLUTION_NAME)_managed.zip
+              SolutionTargetFolder: $(Build.SourcesDirectory)/Solutions/$(SCHEDULER_SOLUTION_NAME)/$(SCHEDULER_SOLUTION_NAME)_managed
               SolutionType: Managed
 
           # The mirror lands on its own branch, never straight onto the target branch.
@@ -159,9 +253,9 @@ stages:
 
           # Tag the released state (after the mirror commit so the tag includes it).
           # Requires "Contribute" + "Create tag" for the build service on the repo.
-          - ${{ if ge(parameters.betaNumber, 1) }}:
+          - ${{ if ne(parameters.version, '0') }}:
               - pwsh: |
-                  $tag = "v0.0.0.${{ parameters.betaNumber }}"
+                  $tag = "v${{ parameters.version }}"
                   git tag $tag
                   git push origin $tag
                   Write-Host "Tagged $tag."

@@ -1,13 +1,16 @@
 import type {
-  RuleGraph, ConditionGroupNode, ConditionNode, ActionNode,
+  RuleGraph, ConditionGroupNode, ConditionNode, ActionNode, TableConfigRef, FiresWhenGroup, FiresWhenTest,
 } from "../model/types";
 import type { NodeFilterBlock, NodeFilterGroupModel, NodeFilterLeaf } from "../model/nodeFilter";
 import { isBlockEmpty } from "../model/nodeFilter";
 import { isNewId } from "../model/ids";
 import { flattenGroups, flattenConditions } from "../model/tree";
-import { logicalOperatorValue, conditionTypeValue, actionTypeValue, encodeMultiSelect, tableConfigTypeValue } from "../model/enums";
+import { logicalOperatorValue, conditionTypeValue, actionTypeValue, encodeMultiSelect, tableConfigTypeValue, ON_DEMAND } from "../model/enums";
 import { operatorToFetchOp } from "../ui/pickers/recordFilter";
+import { serializeExpressionFilters } from "../model/expressionFilters";
 import { isLeafComplete } from "../model/nodeFilter";
+import { previousParentLookup } from "../model/tableConfigOps";
+import { isSetAction } from "../model/setActions";
 import { ENTITY, ENTITY_SET, BIND_NAV } from "../load/odata";
 
 export type BindRef = { kind: "existing"; id: string } | { kind: "new"; tempId: string };
@@ -18,18 +21,20 @@ export interface CreateOp {
 }
 export interface UpdateOp {
   kind: "update"; entity: string; set: string; id: string;
-  // Row version of the SNAPSHOT row this update was diffed against, emitted as `If-Match` by
-  // buildBatch. null ⇒ unconditioned PATCH (last-write-wins), used only when the load surfaced
-  // no etag or the row has no snapshot baseline. Never a guessed or reconstructed value: an
-  // If-Match on an invented etag is worse than none.
+  // Loaded row metadata. buildBatch updates the latest existing row with If-Match: *;
+  // this value is not a save precondition.
   attrs: Record<string, any>; binds: Bind[]; etag: string | null;
 }
-// The optimistic-concurrency token for an update always comes from the SNAPSHOT (the version the
-// author's edits were made against), never from the working copy: the working row is a clone of
-// the snapshot row, so the two agree today, but only the snapshot is definitionally the baseline.
+// Retain the loaded row metadata when describing a diff.
 const etagOf = (prev: { etag?: string | null } | null | undefined): string | null => prev?.etag ?? null;
 export interface DeleteOp { kind: "delete"; entity: string; set: string; id: string; }
-export type Operation = CreateOp | UpdateOp | DeleteOp;
+// Clears a single-valued lookup on an EXISTING row without deleting the row itself: Dataverse's
+// DELETE .../<set>(<id>)/<navProp>/$ref. A PATCH that simply omits the nav property leaves the old
+// bind in place (an absent key means "no change", not "clear"), so a target the author cleared
+// (e.g. Create switched from "for each row of a collection" back to a one-record create) needs
+// this explicit unbind to reach the server.
+export interface UnbindOp { kind: "unbind"; entity: string; set: string; id: string; navProp: string; }
+export type Operation = CreateOp | UpdateOp | DeleteOp | UnbindOp;
 
 const ref = (id: string): BindRef => (isNewId(id) ? { kind: "new", tempId: id } : { kind: "existing", id });
 
@@ -62,17 +67,25 @@ function conditionAttrs(c: ConditionNode): Record<string, any> {
     asx_minexpectedrows: c.minExpectedRows,
     asx_maxexpectedrows: c.maxExpectedRows,
     asx_conditionexpression: c.expression ?? null,
+    asx_expressionfilters: serializeExpressionFilters(c.expressionFilters),
   };
 }
 function localizedAttrs(m: { languageCode: number; message: string }): Record<string, any> {
   return { asx_languagecode: m.languageCode, asx_message: m.message };
 }
-function actionAttrs(a: ActionNode): Record<string, any> {
+// `tableConfigs` gates asx_applytoprevious to the action's CURRENT eligibility (Update Record,
+// targeting a node reached through lookups): a ticked but ineligible action saves as off, so an
+// unpublishable state never reaches Dataverse (ActionInspector hides the switch on the same
+// eligibility check, with nothing left to untick). Null keeps the stored value as-is, for the
+// snapshot/prev side of a diff — that side describes what's actually persisted, never
+// recomputed, so comparing it against the gated "next" value is what turns an ineligible loaded
+// row's stale `true` into a PATCH to false.
+function actionAttrs(a: ActionNode, tableConfigs: Record<string, TableConfigRef> | null): Record<string, any> {
+  const eligible = !!tableConfigs && a.actionType === "UpdateRecord" && previousParentLookup(tableConfigs, a.targetNodeId) != null;
   return {
     asx_name: a.name,
     asx_order: a.order,
     asx_actiontype: a.actionType ? actionTypeValue(a.actionType) : null,
-    asx_fireon: a.fireOn,
     asx_targetcolumn: a.targetColumn,
     asx_targettable: a.targetTable,
     asx_message: a.message,
@@ -81,6 +94,7 @@ function actionAttrs(a: ActionNode): Record<string, any> {
     asx_applyinversewhennotfired: a.applyInverseWhenNotFired,
     asx_severity: a.severity,
     asx_isactive: a.isActive,
+    asx_applytoprevious: tableConfigs ? (!!a.applyToPrevious && eligible) : (a.applyToPrevious ?? false),
   };
 }
 
@@ -99,7 +113,7 @@ function changedAttrs(prev: Record<string, any>, next: Record<string, any>): Rec
 // the list-of-blocks model these ARE 1:1 (no split needed: each block already targets one node).
 interface PersistedFilterGroup {
   persistedId: string;
-  /** Row version carried over from the model node, for the update's If-Match (see UpdateOp.etag). */
+  /** Loaded row metadata; not used as a save precondition. */
   etag: string | null;
   op: "and" | "or";
   targetNodeId: string | null;
@@ -115,7 +129,7 @@ interface PersistedFilterGroup {
 }
 interface PersistedFilterCriterion {
   persistedId: string;
-  /** Row version carried over from the model node, for the update's If-Match (see UpdateOp.etag). */
+  /** Loaded row metadata; not used as a save precondition. */
   etag: string | null;
   groupPersistedId: string;
   // true for the EXISTS criterion itself (asx_criteriontype = 2). false for an ordinary scalar
@@ -296,9 +310,8 @@ function filterDeleteDepth(
 // ---- Reclaiming a condition's filter rows on delete ----
 // Deleting an asx_rulecondition does NOT cascade to the asx_nodefiltergroup /
 // asx_nodefiltercriterion rows it owns: `asx_rulecondition_nodefiltergroup` is a plain 1:N
-// (docs/Schema.md section 7), which is what the per-condition diff branch below relies on and why
-// e2e/devHelpers.ts's deleteRuleCascade reclaims them by hand. A rule delete must therefore emit
-// these explicitly or every filter row it owned is orphaned.
+// (docs/Schema.md section 7). Per-condition edits explicitly remove these rows here;
+// whole-rule deletion uses asx_DeleteRule, which performs the same cleanup on the server.
 //
 // Order mirrors diffRuleGraph's own filter-delete buckets exactly: scalar (non-exists) criteria
 // first (they are pure leaves nothing references), then filter GROUPS and EXISTS criteria in one
@@ -336,23 +349,206 @@ export function nodeFilterDeleteOps(blocks: NodeFilterBlock[] | null | undefined
 const FILTER_CREATE_DEP_NAV_PROPS: readonly string[] = [
   BIND_NAV.filterGroupParent, BIND_NAV.filterGroupOwningCriterion, BIND_NAV.filterCriterionGroup,
 ];
-function topoFilterCreates(filterCreates: CreateOp[]): CreateOp[] {
-  const byTemp = new Map(filterCreates.map((o) => [o.tempId, o]));
+
+/**
+ * Orders creates so each follows every create it references through a NEW-id bind on one of
+ * `depNavProps` (a parent group, an owning criterion, ...): a batch's Content-ID references only
+ * point back. Otherwise keeps the input order. A node is marked before its dependencies are
+ * visited, so even a malformed cycle ends instead of recursing forever.
+ */
+function topoCreates(ops: CreateOp[], depNavProps: readonly string[]): CreateOp[] {
+  const byTemp = new Map(ops.map((o) => [o.tempId, o]));
   const emitted = new Set<string>();
   const out: CreateOp[] = [];
   const visit = (op: CreateOp) => {
     if (emitted.has(op.tempId)) return;
     emitted.add(op.tempId);
     for (const bind of op.binds) {
-      if (FILTER_CREATE_DEP_NAV_PROPS.includes(bind.navProp) && bind.ref.kind === "new" && byTemp.has(bind.ref.tempId)) {
+      if (depNavProps.includes(bind.navProp) && bind.ref.kind === "new" && byTemp.has(bind.ref.tempId)) {
         visit(byTemp.get(bind.ref.tempId)!);
       }
     }
     out.push(op);
   };
-  filterCreates.forEach(visit);
+  ops.forEach(visit);
   return out;
 }
+
+// Diffs one owner's filter blocks (a condition's list, or a set action's single Rows filter).
+// `ownerBinds` are carried by every non-sub-filter group (root and nested): the owner lookup(s)
+// plus nothing else; sub-filter groups hang off their criterion and never carry them.
+function diffOwnedFilters(
+  snapBlocks: NodeFilterBlock[] | null, workBlocks: NodeFilterBlock[] | null, ownerBinds: Bind[],
+  creates: CreateOp[], updates: UpdateOp[], deletes: Array<DeleteOp & { _depth?: number; _structural?: boolean }>,
+): void {
+  const { groups: fgSnapGroups, criteria: fgSnapCriteria } = flattenFilterBlocks(snapBlocks);
+  const { groups: fgWorkGroups, criteria: fgWorkCriteria } = flattenFilterBlocks(workBlocks);
+  const snapGroupById = new Map(fgSnapGroups.map((g) => [g.persistedId, g]));
+  const workGroupIds = new Set(fgWorkGroups.map((g) => g.persistedId));
+  const snapCritById = new Map(fgSnapCriteria.map((c) => [c.persistedId, c]));
+  const workCritIds = new Set(fgWorkCriteria.map((c) => c.persistedId));
+
+  for (const g of fgWorkGroups) {
+    // Sub-filter groups (an exists node's `sub` tree) are owned by their criterion, NOT the
+    // owner: they never carry the owner binds. Only the sub-tree ROOT carries
+    // filterGroupOwningCriterion; nested sub-groups link via filterGroupParent like any nested group.
+    const binds: Bind[] = [];
+    if (g.isSubFilter) {
+      if (g.owningCriterionId) binds.push({ navProp: BIND_NAV.filterGroupOwningCriterion, targetSet: ENTITY_SET.nodeFilterCriterion, ref: ref(g.owningCriterionId) });
+      if (g.parentPersistedId) binds.push({ navProp: BIND_NAV.filterGroupParent, targetSet: ENTITY_SET.nodeFilterGroup, ref: ref(g.parentPersistedId) });
+    } else {
+      binds.push(...ownerBinds);
+      if (g.targetNodeId) binds.push({ navProp: BIND_NAV.filterGroupTargetNode, targetSet: ENTITY_SET.tableConfig, ref: ref(g.targetNodeId) });
+      if (g.parentPersistedId) binds.push({ navProp: BIND_NAV.filterGroupParent, targetSet: ENTITY_SET.nodeFilterGroup, ref: ref(g.parentPersistedId) });
+    }
+
+    if (isNewId(g.persistedId)) {
+      creates.push({ kind: "create", entity: ENTITY.nodeFilterGroup, set: ENTITY_SET.nodeFilterGroup, tempId: g.persistedId, attrs: filterGroupAttrs(g), binds });
+    } else {
+      const prev = snapGroupById.get(g.persistedId);
+      const attrs = prev ? changedAttrs(filterGroupAttrs(prev), filterGroupAttrs(g)) : filterGroupAttrs(g);
+      const bindChanges = prev ? filterGroupBindChanges(prev, g) : binds;
+      if (Object.keys(attrs).length > 0 || bindChanges.length > 0) {
+        updates.push({ kind: "update", entity: ENTITY.nodeFilterGroup, set: ENTITY_SET.nodeFilterGroup, id: g.persistedId, attrs, binds: bindChanges, etag: etagOf(prev) });
+      }
+    }
+  }
+  for (const g of fgSnapGroups) {
+    if (!workGroupIds.has(g.persistedId)) {
+      deletes.push({ kind: "delete", entity: ENTITY.nodeFilterGroup, set: ENTITY_SET.nodeFilterGroup, id: g.persistedId,
+        _depth: filterDeleteDepth(fgSnapGroups, fgSnapCriteria, "group", g.persistedId) });
+    }
+  }
+
+  for (const c of fgWorkCriteria) {
+    const binds: Bind[] = [
+      { navProp: BIND_NAV.filterCriterionGroup, targetSet: ENTITY_SET.nodeFilterGroup, ref: ref(c.groupPersistedId) },
+    ];
+    if (c.isExists) {
+      if (c.collectionNodeId) binds.push({ navProp: BIND_NAV.filterCriterionCollectionNode, targetSet: ENTITY_SET.tableConfig, ref: ref(c.collectionNodeId) });
+    } else if (c.valueSource === 2 && c.valueNodeId) {
+      binds.push({ navProp: BIND_NAV.filterCriterionValueNode, targetSet: ENTITY_SET.tableConfig, ref: ref(c.valueNodeId) });
+    }
+    if (isNewId(c.persistedId)) {
+      creates.push({ kind: "create", entity: ENTITY.nodeFilterCriterion, set: ENTITY_SET.nodeFilterCriterion, tempId: c.persistedId, attrs: filterCriterionAttrs(c), binds });
+    } else {
+      const prev = snapCritById.get(c.persistedId);
+      const attrs = prev ? changedAttrs(filterCriterionAttrs(prev), filterCriterionAttrs(c)) : filterCriterionAttrs(c);
+      const bindChanges = prev ? filterCriterionBindChanges(prev, c) : binds;
+      if (Object.keys(attrs).length > 0 || bindChanges.length > 0) {
+        updates.push({ kind: "update", entity: ENTITY.nodeFilterCriterion, set: ENTITY_SET.nodeFilterCriterion, id: c.persistedId, attrs, binds: bindChanges, etag: etagOf(prev) });
+      }
+    }
+  }
+  for (const c of fgSnapCriteria) {
+    if (!workCritIds.has(c.persistedId)) {
+      // Exists criteria are "structural" for delete ordering: a sub-root group's
+      // owningcriterion FK means the criterion must be deleted AFTER its owned sub-groups, so
+      // it can't unconditionally join the (always-safe-first) scalar-criterion bucket below.
+      deletes.push({ kind: "delete", entity: ENTITY.nodeFilterCriterion, set: ENTITY_SET.nodeFilterCriterion, id: c.persistedId,
+        _depth: filterDeleteDepth(fgSnapGroups, fgSnapCriteria, "criterion", c.persistedId),
+        _structural: c.isExists });
+    }
+  }
+}
+
+// ---- Fires when trees (asx_actionconditiongroup / asx_actionconditiontest) ----
+// Each group holds two ordered lists, tests then subgroups; asx_order is position + 1 within each
+// list (the engine orders each list by asx_order). Only the tree in `firesWhen` is diffed: extra
+// roots the loader skipped (direct API writes) are never in the model, so a save never touches them.
+interface FlatFiresWhenGroup { node: FiresWhenGroup; parentId: string | null; order: number; depth: number; }
+interface FlatFiresWhenTest { test: FiresWhenTest; groupId: string; order: number; }
+
+function flattenFiresWhen(root: FiresWhenGroup | null): { groups: FlatFiresWhenGroup[]; tests: FlatFiresWhenTest[] } {
+  const groups: FlatFiresWhenGroup[] = [];
+  const tests: FlatFiresWhenTest[] = [];
+  const walk = (node: FiresWhenGroup, parentId: string | null, order: number, depth: number) => {
+    groups.push({ node, parentId, order, depth });
+    node.tests.forEach((test, i) => tests.push({ test, groupId: node.id, order: i + 1 }));
+    node.groups.forEach((child, i) => walk(child, node.id, i + 1, depth + 1));
+  };
+  if (root) walk(root, null, 1, 0);
+  return { groups, tests };
+}
+
+function firesWhenGroupAttrs(g: FlatFiresWhenGroup): Record<string, any> {
+  return { asx_logicaloperator: g.node.op === "any" ? 2 : 1, asx_order: g.order };
+}
+function firesWhenTestAttrs(t: FlatFiresWhenTest): Record<string, any> {
+  return { asx_expected: t.test.expected, asx_order: t.order };
+}
+
+// Diffs one action's tree. Creates go to `creates` (ordered later by topoCreates, after the
+// action and outcome creates they bind to); deletes carry `_depth` so groups go deepest-first.
+// Cross-action moves are unsupported: a node copied to another action must get new ids.
+function diffFiresWhen(
+  actionId: string, snapRoot: FiresWhenGroup | null, workRoot: FiresWhenGroup | null,
+  creates: CreateOp[], updates: UpdateOp[], unbinds: UnbindOp[],
+  deletes: Array<DeleteOp & { _depth?: number }>,
+): void {
+  const snap = flattenFiresWhen(snapRoot);
+  const work = flattenFiresWhen(workRoot);
+  const snapGroupById = new Map(snap.groups.map((g) => [g.node.id, g]));
+  const snapTestById = new Map(snap.tests.map((t) => [t.test.id, t]));
+  const workGroupIds = new Set(work.groups.map((g) => g.node.id));
+  const workTestIds = new Set(work.tests.map((t) => t.test.id));
+  const G = { entity: ENTITY.actionConditionGroup, set: ENTITY_SET.actionConditionGroup };
+  const T = { entity: ENTITY.actionConditionTest, set: ENTITY_SET.actionConditionTest };
+  const parentBind = (id: string): Bind => ({ navProp: BIND_NAV.actionConditionGroupParent, targetSet: ENTITY_SET.actionConditionGroup, ref: ref(id) });
+  const groupBind = (id: string): Bind => ({ navProp: BIND_NAV.actionConditionTestGroup, targetSet: ENTITY_SET.actionConditionGroup, ref: ref(id) });
+  const outcomeBind = (id: string): Bind => ({ navProp: BIND_NAV.actionConditionTestOutcome, targetSet: ENTITY_SET.group, ref: ref(id) });
+
+  for (const g of work.groups) {
+    const binds: Bind[] = [{ navProp: BIND_NAV.actionConditionGroupAction, targetSet: ENTITY_SET.action, ref: ref(actionId) }];
+    if (g.parentId) binds.push(parentBind(g.parentId));
+    if (isNewId(g.node.id)) {
+      creates.push({ kind: "create", ...G, tempId: g.node.id, attrs: firesWhenGroupAttrs(g), binds });
+      continue;
+    }
+    const prev = snapGroupById.get(g.node.id);
+    const attrs = prev ? changedAttrs(firesWhenGroupAttrs(prev), firesWhenGroupAttrs(g)) : firesWhenGroupAttrs(g);
+    // The action never changes for an existing node; only a move to another parent is a bind change.
+    const bindChanges = !prev ? binds
+      : g.parentId && g.parentId !== prev.parentId ? [parentBind(g.parentId)] : [];
+    if (Object.keys(attrs).length > 0 || bindChanges.length > 0) {
+      updates.push({ kind: "update", ...G, id: g.node.id, attrs, binds: bindChanges, etag: etagOf(prev?.node) });
+    }
+    if (prev?.parentId && !g.parentId) unbinds.push({ kind: "unbind", ...G, id: g.node.id, navProp: BIND_NAV.actionConditionGroupParent });
+  }
+
+  for (const t of work.tests) {
+    const binds: Bind[] = [groupBind(t.groupId)];
+    if (t.test.outcomeId) binds.push(outcomeBind(t.test.outcomeId));
+    if (isNewId(t.test.id)) {
+      creates.push({ kind: "create", ...T, tempId: t.test.id, attrs: firesWhenTestAttrs(t), binds });
+      continue;
+    }
+    const prev = snapTestById.get(t.test.id);
+    const attrs = prev ? changedAttrs(firesWhenTestAttrs(prev), firesWhenTestAttrs(t)) : firesWhenTestAttrs(t);
+    let bindChanges: Bind[] = binds;
+    if (prev) {
+      bindChanges = [];
+      if (t.groupId !== prev.groupId) bindChanges.push(groupBind(t.groupId));
+      if (t.test.outcomeId && t.test.outcomeId !== prev.test.outcomeId) bindChanges.push(outcomeBind(t.test.outcomeId));
+    }
+    if (Object.keys(attrs).length > 0 || bindChanges.length > 0) {
+      updates.push({ kind: "update", ...T, id: t.test.id, attrs, binds: bindChanges, etag: etagOf(prev?.test) });
+    }
+    if (prev?.test.outcomeId && !t.test.outcomeId) unbinds.push({ kind: "unbind", ...T, id: t.test.id, navProp: BIND_NAV.actionConditionTestOutcome });
+  }
+
+  for (const t of snap.tests) {
+    if (!workTestIds.has(t.test.id) && !isNewId(t.test.id)) deletes.push({ kind: "delete", ...T, id: t.test.id });
+  }
+  for (const g of snap.groups) {
+    if (!workGroupIds.has(g.node.id) && !isNewId(g.node.id)) deletes.push({ kind: "delete", ...G, id: g.node.id, _depth: g.depth });
+  }
+}
+
+// New parent groups precede their child groups, and a group precedes its tests (lower Content-ID).
+const FIRES_WHEN_CREATE_DEP_NAV_PROPS: readonly string[] = [
+  BIND_NAV.actionConditionGroupParent, BIND_NAV.actionConditionTestGroup,
+];
 
 export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operation[] {
   const creates: CreateOp[] = [];
@@ -360,16 +556,24 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
   const deletes: Array<DeleteOp & { _depth?: number; _structural?: boolean }> = [];
 
   // ---- Rule (always exists) ----
-  const ruleAttrs = (r: RuleGraph["rule"]): Record<string, any> => ({
+  // `gated` mirrors actionAttrs's tableConfigs param above: true for the working copy, whose
+  // asx_ondemandscope is recomputed off its CURRENT triggers (an On demand-less rule always
+  // saves the default, 1, so an unpublishable/meaningless scope never reaches Dataverse); false
+  // for the snapshot/prev side, which echoes the stored value as-is. Comparing gated "next"
+  // against raw "prev" is what turns a loaded rule's stale scope (e.g. stored 2 without trigger
+  // 3) into a PATCH back to the default.
+  const ruleAttrs = (r: RuleGraph["rule"], gated: boolean): Record<string, any> => ({
     asx_name: r.name,
     asx_triggers: encodeMultiSelect(r.triggers),
     asx_channels: encodeMultiSelect(r.channels),
     asx_effectivefrom: r.effectiveFrom,
     asx_effectiveto: r.effectiveTo,
     asx_evaluationcontext: r.evaluationContext,
+    asx_evaluationtimezone: r.evaluationTimeZone ?? null,
     asx_triggercolumns: r.triggerColumns.length ? JSON.stringify(r.triggerColumns) : null,
+    asx_ondemandscope: gated ? (r.triggers.includes(ON_DEMAND) ? (r.onDemandScope ?? 1) : 1) : (r.onDemandScope ?? 1),
   });
-  const ruleChanged = changedAttrs(ruleAttrs(snapshot.rule), ruleAttrs(working.rule));
+  const ruleChanged = changedAttrs(ruleAttrs(snapshot.rule, false), ruleAttrs(working.rule, true));
   const ruleBinds: Bind[] = [];
   // NOTE: the rule update is emitted first in the op array, so this root bind must
   // reference an EXISTING node (full URL), never a $N Content-ID. Safe today because
@@ -468,19 +672,26 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
   // ---- Actions ----
   const snapActById = new Map(snapshot.actions.map((a) => [a.id, a]));
   const workActIds = new Set(working.actions.map((a) => a.id));
+  const unbinds: UnbindOp[] = [];
   for (const a of working.actions) {
     const binds: Bind[] = [
       { navProp: BIND_NAV.actionRule, targetSet: ENTITY_SET.rule, ref: { kind: "existing", id: working.rule.id } },
     ];
     if (a.targetNodeId) binds.push({ navProp: BIND_NAV.actionTargetNode, targetSet: ENTITY_SET.tableConfig, ref: ref(a.targetNodeId) });
     if (isNewId(a.id)) {
-      creates.push({ kind: "create", entity: ENTITY.action, set: ENTITY_SET.action, tempId: a.id, attrs: actionAttrs(a), binds });
+      creates.push({ kind: "create", entity: ENTITY.action, set: ENTITY_SET.action, tempId: a.id, attrs: actionAttrs(a, workNodes), binds });
     } else {
       const prev = snapActById.get(a.id);
-      const attrs = prev ? changedAttrs(actionAttrs(prev), actionAttrs(a)) : actionAttrs(a);
+      const attrs = prev ? changedAttrs(actionAttrs(prev, null), actionAttrs(a, workNodes)) : actionAttrs(a, workNodes);
       const changedBinds = prev ? actionBindChanges(prev, a) : binds;
       if (Object.keys(attrs).length > 0 || changedBinds.length > 0) {
         updates.push({ kind: "update", entity: ENTITY.action, set: ENTITY_SET.action, id: a.id, attrs, binds: changedBinds, etag: etagOf(prev) });
+      }
+      // A PATCH that omits asx_TargetNode leaves the old bind in place, so a target the author
+      // cleared (single-record Update/Delete/Deactivate losing its node, or Create dropping "for
+      // each row of") needs an explicit unbind to actually reach the server.
+      if (prev && prev.targetNodeId && !a.targetNodeId) {
+        unbinds.push({ kind: "unbind", entity: ENTITY.action, set: ENTITY_SET.action, id: a.id, navProp: BIND_NAV.actionTargetNode });
       }
     }
 
@@ -528,88 +739,58 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
     const workBlocks = normalizeFilter(workEntry?.condition.filter);
     if (!snapBlocks && !workBlocks) continue;
 
-    const { groups: fgSnapGroups, criteria: fgSnapCriteria } = flattenFilterBlocks(snapBlocks);
-    const { groups: fgWorkGroups, criteria: fgWorkCriteria } = flattenFilterBlocks(workBlocks);
-    const snapGroupById = new Map(fgSnapGroups.map((g) => [g.persistedId, g]));
-    const workGroupIds = new Set(fgWorkGroups.map((g) => g.persistedId));
-    const snapCritById = new Map(fgSnapCriteria.map((c) => [c.persistedId, c]));
-    const workCritIds = new Set(fgWorkCriteria.map((c) => c.persistedId));
+    // `workEntry` is only missing when the condition itself was removed (workBlocks is then
+    // always null, so its group is never needed), so the second bind is safe to add only when
+    // workEntry exists — evaluating workEntry.groupId unconditionally would throw on that path.
+    const ownerBinds: Bind[] = [
+      { navProp: BIND_NAV.filterGroupCondition, targetSet: ENTITY_SET.condition, ref: ref(condId) },
+    ];
+    if (workEntry) {
+      ownerBinds.push({ navProp: BIND_NAV.filterGroupConditionGroup, targetSet: ENTITY_SET.group, ref: ref(workEntry.groupId) });
+    }
+    diffOwnedFilters(snapBlocks, workBlocks, ownerBinds, creates, updates, deletes);
+  }
 
-    for (const g of fgWorkGroups) {
-      // Sub-filter groups (an exists node's `sub` tree) are owned by their criterion, NOT the
-      // condition: they never carry filterGroupCondition/filterGroupConditionGroup/
-      // filterGroupTargetNode. Only the sub-tree ROOT carries filterGroupOwningCriterion; nested
-      // sub-groups link via filterGroupParent like any nested group.
-      const binds: Bind[] = [];
-      if (g.isSubFilter) {
-        if (g.owningCriterionId) binds.push({ navProp: BIND_NAV.filterGroupOwningCriterion, targetSet: ENTITY_SET.nodeFilterCriterion, ref: ref(g.owningCriterionId) });
-        if (g.parentPersistedId) binds.push({ navProp: BIND_NAV.filterGroupParent, targetSet: ENTITY_SET.nodeFilterGroup, ref: ref(g.parentPersistedId) });
-      } else {
-        binds.push(
-          { navProp: BIND_NAV.filterGroupCondition, targetSet: ENTITY_SET.condition, ref: ref(condId) },
-          { navProp: BIND_NAV.filterGroupConditionGroup, targetSet: ENTITY_SET.group, ref: ref(workEntry!.groupId) },
-        );
-        if (g.targetNodeId) binds.push({ navProp: BIND_NAV.filterGroupTargetNode, targetSet: ENTITY_SET.tableConfig, ref: ref(g.targetNodeId) });
-        if (g.parentPersistedId) binds.push({ navProp: BIND_NAV.filterGroupParent, targetSet: ENTITY_SET.nodeFilterGroup, ref: ref(g.parentPersistedId) });
-      }
+  // ---- Action Rows filters ----
+  // Bound to the action and to its CURRENT target (a set action only); an action that is no longer a
+  // set action, or is removed, has its filter rows deleted here, before the action delete below.
+  // Creates collect separately (actionFilterCreates): a Rows filter group binds to its owning
+  // action, so when the action itself is new, the filter creates must follow the action's own
+  // create (see the Content-ID ordering in "---- Ordering ----" below).
+  const actionFilterCreates: CreateOp[] = [];
+  const workActById = new Map(working.actions.map((a) => [a.id, a]));
+  for (const actionId of new Set([...snapActById.keys(), ...workActById.keys()])) {
+    const snap = snapActById.get(actionId);
+    const work = workActById.get(actionId);
+    const snapBlocks = normalizeFilter(snap?.rowFilter ? [snap.rowFilter] : null);
+    const workBlocks = work?.rowFilter && isSetAction(work, working.tableConfigs)
+      ? normalizeFilter([{ ...work.rowFilter, targetNodeId: work.targetNodeId }]) : null;
+    if (!snapBlocks && !workBlocks) continue;
+    diffOwnedFilters(snapBlocks, workBlocks,
+      [{ navProp: BIND_NAV.filterGroupAction, targetSet: ENTITY_SET.action, ref: ref(actionId) }],
+      actionFilterCreates, updates, deletes);
+  }
 
-      if (isNewId(g.persistedId)) {
-        creates.push({ kind: "create", entity: ENTITY.nodeFilterGroup, set: ENTITY_SET.nodeFilterGroup, tempId: g.persistedId, attrs: filterGroupAttrs(g), binds });
-      } else {
-        const prev = snapGroupById.get(g.persistedId);
-        const attrs = prev ? changedAttrs(filterGroupAttrs(prev), filterGroupAttrs(g)) : filterGroupAttrs(g);
-        const bindChanges = prev ? filterGroupBindChanges(prev, g) : binds;
-        if (Object.keys(attrs).length > 0 || bindChanges.length > 0) {
-          updates.push({ kind: "update", entity: ENTITY.nodeFilterGroup, set: ENTITY_SET.nodeFilterGroup, id: g.persistedId, attrs, binds: bindChanges, etag: etagOf(prev) });
-        }
-      }
-    }
-    for (const g of fgSnapGroups) {
-      if (!workGroupIds.has(g.persistedId)) {
-        deletes.push({ kind: "delete", entity: ENTITY.nodeFilterGroup, set: ENTITY_SET.nodeFilterGroup, id: g.persistedId,
-          _depth: filterDeleteDepth(fgSnapGroups, fgSnapCriteria, "group", g.persistedId) });
-      }
-    }
-
-    for (const c of fgWorkCriteria) {
-      const binds: Bind[] = [
-        { navProp: BIND_NAV.filterCriterionGroup, targetSet: ENTITY_SET.nodeFilterGroup, ref: ref(c.groupPersistedId) },
-      ];
-      if (c.isExists) {
-        if (c.collectionNodeId) binds.push({ navProp: BIND_NAV.filterCriterionCollectionNode, targetSet: ENTITY_SET.tableConfig, ref: ref(c.collectionNodeId) });
-      } else if (c.valueSource === 2 && c.valueNodeId) {
-        binds.push({ navProp: BIND_NAV.filterCriterionValueNode, targetSet: ENTITY_SET.tableConfig, ref: ref(c.valueNodeId) });
-      }
-      if (isNewId(c.persistedId)) {
-        creates.push({ kind: "create", entity: ENTITY.nodeFilterCriterion, set: ENTITY_SET.nodeFilterCriterion, tempId: c.persistedId, attrs: filterCriterionAttrs(c), binds });
-      } else {
-        const prev = snapCritById.get(c.persistedId);
-        const attrs = prev ? changedAttrs(filterCriterionAttrs(prev), filterCriterionAttrs(c)) : filterCriterionAttrs(c);
-        const bindChanges = prev ? filterCriterionBindChanges(prev, c) : binds;
-        if (Object.keys(attrs).length > 0 || bindChanges.length > 0) {
-          updates.push({ kind: "update", entity: ENTITY.nodeFilterCriterion, set: ENTITY_SET.nodeFilterCriterion, id: c.persistedId, attrs, binds: bindChanges, etag: etagOf(prev) });
-        }
-      }
-    }
-    for (const c of fgSnapCriteria) {
-      if (!workCritIds.has(c.persistedId)) {
-        // Exists criteria are "structural" for delete ordering: a sub-root group's
-        // owningcriterion FK means the criterion must be deleted AFTER its owned sub-groups, so
-        // it can't unconditionally join the (always-safe-first) scalar-criterion bucket below.
-        deletes.push({ kind: "delete", entity: ENTITY.nodeFilterCriterion, set: ENTITY_SET.nodeFilterCriterion, id: c.persistedId,
-          _depth: filterDeleteDepth(fgSnapGroups, fgSnapCriteria, "criterion", c.persistedId),
-          _structural: c.isExists });
-      }
-    }
+  // ---- Fires when trees ----
+  // Per action (union of snapshot + working ids): a removed action's tree is deleted explicitly,
+  // before the action delete, like the Rows filter. Creates collect separately so they follow the
+  // action and outcome-group creates their binds point at.
+  const firesWhenCreates: CreateOp[] = [];
+  for (const actionId of new Set([...snapActById.keys(), ...workActById.keys()])) {
+    const snapRoot = snapActById.get(actionId)?.firesWhen ?? null;
+    const workRoot = workActById.get(actionId)?.firesWhen ?? null;
+    if (!snapRoot && !workRoot) continue;
+    diffFiresWhen(actionId, snapRoot, workRoot, firesWhenCreates, updates, unbinds, deletes);
   }
 
   // ---- Ordering ----
   const ruleUpdate = updates.filter((o) => o.entity === ENTITY.rule);
   const otherUpdates = updates.filter((o) => o.entity !== ENTITY.rule);
-  const groupCreates = topoGroupCreates(creates.filter((o) => o.entity === ENTITY.group));
-  const nodeCreates = topoTableConfigCreates(creates.filter((o) => o.entity === ENTITY.tableConfig));
+  // New parent groups and nodes precede their children (lower Content-ID).
+  const groupCreates = topoCreates(creates.filter((o) => o.entity === ENTITY.group), [BIND_NAV.groupParent]);
+  const nodeCreates = topoCreates(creates.filter((o) => o.entity === ENTITY.tableConfig), [BIND_NAV.tableConfigParent]);
   const condCreates = creates.filter((o) => o.entity === ENTITY.condition);
-  const filterCreates = topoFilterCreates(creates.filter((o) => o.entity === ENTITY.nodeFilterGroup || o.entity === ENTITY.nodeFilterCriterion));
+  const filterCreates = topoCreates(creates.filter((o) => o.entity === ENTITY.nodeFilterGroup || o.entity === ENTITY.nodeFilterCriterion), FILTER_CREATE_DEP_NAV_PROPS);
   const actionCreatesOnly = creates.filter((o) => o.entity === ENTITY.action);
   const localizedCreates = creates.filter((o) => o.entity === ENTITY.localizedMessage);
   const condDeletes = deletes.filter((o) => o.entity === ENTITY.condition);
@@ -636,13 +817,22 @@ export function diffRuleGraph(snapshot: RuleGraph, working: RuleGraph): Operatio
     .map(({ _depth, _structural, ...o }) => o as DeleteOp);
   const actionDeletes = deletes.filter((o) => o.entity === ENTITY.action);
   const localizedDeletes = deletes.filter((o) => o.entity === ENTITY.localizedMessage);
+  // Fires when tree deletes: tests first (they reference their group and outcome), then groups
+  // deepest-first, all before the outcome-group and action deletes the tree points at.
+  const firesWhenTestDeletes = deletes.filter((o) => o.entity === ENTITY.actionConditionTest)
+    .map(({ _depth, ...o }) => o as DeleteOp);
+  const firesWhenGroupDeletes = deletes.filter((o) => o.entity === ENTITY.actionConditionGroup)
+    .sort((a, b) => (b._depth ?? 0) - (a._depth ?? 0))
+    .map(({ _depth, ...o }) => o as DeleteOp);
 
   return [
     ...ruleUpdate, ...nodeCreates, ...groupCreates, ...condCreates,
     ...filterCreates,
-    ...actionCreatesOnly, ...localizedCreates,
-    ...otherUpdates,
+    ...actionCreatesOnly, ...topoCreates(actionFilterCreates, FILTER_CREATE_DEP_NAV_PROPS), ...topoCreates(firesWhenCreates, FIRES_WHEN_CREATE_DEP_NAV_PROPS),
+    ...localizedCreates,
+    ...otherUpdates, ...unbinds,
     ...scalarFilterCriterionDeletes, ...structuralFilterDeletes,
+    ...firesWhenTestDeletes, ...firesWhenGroupDeletes,
     ...condDeletes, ...groupDeletes, ...nodeDeletes, ...actionDeletes, ...localizedDeletes,
   ];
 }
@@ -662,23 +852,6 @@ function actionBindChanges(prev: ActionNode, next: ActionNode): Bind[] {
   return out;
 }
 
-// New parent groups must precede new child groups (lower Content-ID).
-function topoGroupCreates(groupCreates: CreateOp[]): CreateOp[] {
-  const byTemp = new Map(groupCreates.map((o) => [o.tempId, o]));
-  const emitted = new Set<string>();
-  const out: CreateOp[] = [];
-  const visit = (op: CreateOp) => {
-    if (emitted.has(op.tempId)) return;
-    const parentBind = op.binds.find((b) => b.navProp === BIND_NAV.groupParent);
-    if (parentBind && parentBind.ref.kind === "new" && byTemp.has(parentBind.ref.tempId)) {
-      visit(byTemp.get(parentBind.ref.tempId)!);
-    }
-    emitted.add(op.tempId);
-    out.push(op);
-  };
-  groupCreates.forEach(visit);
-  return out;
-}
 
 function groupDepth(snapGroups: { group: ConditionGroupNode; parentId: string | null }[], id: string): number {
   const byId = new Map(snapGroups.map((x) => [x.group.id, x]));
@@ -695,18 +868,4 @@ function tableConfigDepth(nodes: Record<string, import("../model/types").TableCo
   let depth = 0; let cur = nodes[id]?.parentTableConfigId ?? null; const seen = new Set<string>();
   while (cur && nodes[cur] && !seen.has(cur)) { seen.add(cur); depth += 1; cur = nodes[cur].parentTableConfigId; }
   return depth;
-}
-
-// New parent nodes must precede new child nodes (lower Content-ID).
-function topoTableConfigCreates(nodeCreates: CreateOp[]): CreateOp[] {
-  const byTemp = new Map(nodeCreates.map((o) => [o.tempId, o]));
-  const emitted = new Set<string>(); const out: CreateOp[] = [];
-  const visit = (op: CreateOp) => {
-    if (emitted.has(op.tempId)) return;
-    const parentBind = op.binds.find((b) => b.navProp === BIND_NAV.tableConfigParent);
-    if (parentBind && parentBind.ref.kind === "new" && byTemp.has(parentBind.ref.tempId)) visit(byTemp.get(parentBind.ref.tempId)!);
-    emitted.add(op.tempId); out.push(op);
-  };
-  nodeCreates.forEach(visit);
-  return out;
 }

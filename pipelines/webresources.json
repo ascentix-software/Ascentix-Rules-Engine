@@ -3,5 +3,7 @@
   { "path": "client/dist/asx_rulesengine.js",    "name": "asx_/rulesengine/asx_rulesengine.js",       "displayName": "Ascentix Rules Engine (form library)", "type": 3 },
   { "path": "client/dist/asx_authoringforms.js", "name": "asx_/authoringforms/asx_authoringforms.js", "displayName": "Ascentix Authoring Forms",            "type": 3 },
   { "path": "client/dist/asx_ruleeditor.js",     "name": "asx_/ruleeditor/asx_ruleeditor.js",         "displayName": "Ascentix Rule Builder (bundle)",      "type": 3 },
-  { "path": "client/editor.html",                "name": "asx_/ruleeditor/asx_ruleeditor.html",       "displayName": "Ascentix Rule Builder",               "type": 1 }
+  { "path": "client/editor.html",                "name": "asx_/ruleeditor/asx_ruleeditor.html",       "displayName": "Ascentix Rule Builder",               "type": 1 },
+  { "path": "client/help.html",                  "name": "asx_/ruleeditor/asx_help.html",             "displayName": "Ascentix Rules Engine Documentation", "type": 1 },
+  { "glob": "docs/guide/images/*.png",           "namePrefix": "asx_/docs/images/",                    "displayPrefix": "Rules Engine docs: ",               "type": 5 }
 ]

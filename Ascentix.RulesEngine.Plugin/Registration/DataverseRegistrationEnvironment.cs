@@ -109,7 +109,16 @@ namespace Ascentix.RulesEngine.Plugin.Registration
             if (!string.IsNullOrEmpty(reg.FilteringAttributes))
                 step["filteringattributes"] = reg.FilteringAttributes;
 
-            _service.Create(step);
+            var stepId = _service.Create(step);
+
+            // A single Create/Update raises the CreateMultiple/UpdateMultiple event only on servers whose
+            // cached routing for the table knows a step exists. Servers that handled the table's saves while
+            // it had no step keep routing nothing after a step Create (on DEV, 7-20 of 20 single saves skipped
+            // the new step for 10+ minutes); a step Update refreshes it. This update changes nothing.
+            _service.Update(new Entity("sdkmessageprocessingstep", stepId)
+            {
+                ["filteringattributes"] = step.GetAttributeValue<string>("filteringattributes")
+            });
         }
 
         public void UpdateFilteringAttributes(Guid stepId, string filteringAttributes)

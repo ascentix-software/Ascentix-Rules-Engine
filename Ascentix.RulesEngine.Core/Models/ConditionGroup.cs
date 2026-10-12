@@ -9,6 +9,8 @@ namespace Ascentix.RulesEngine.Core.Models
     {
         public Guid Id { get; set; }
         public Guid RuleId { get; set; }
+        /// <summary>The group's name (asx_name); outcome groups are named for the "Fires when" tree.</summary>
+        public string Name { get; set; }
         public Guid? ParentConditionGroupId { get; set; }
         public LogicalOperator LogicalOperator { get; set; }
 

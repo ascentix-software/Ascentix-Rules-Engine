@@ -8,7 +8,6 @@ export const SYSTEM_CHOICE = {
   comparisonOperator: "asx_comparisonoperator",
   severity: "asx_severity",
   actionType: "asx_actiontype",
-  actionFireOn: "asx_actionfireon",
   triggers: "asx_triggers",
   channel: "asx_channel",
   comparisonValueSource: "asx_comparisonvaluesource",

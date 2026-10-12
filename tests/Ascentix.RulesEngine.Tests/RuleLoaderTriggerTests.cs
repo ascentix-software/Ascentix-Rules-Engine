@@ -30,7 +30,7 @@ namespace Ascentix.RulesEngine.Tests
             context.Initialize(new List<Entity>
             {
                 Rule("account", true, (int)RuleTrigger.OnCreate),                       // included
-                Rule("account", true, (int)RuleTrigger.OnForm, (int)RuleTrigger.Manual), // excluded (no OnSave)
+                Rule("account", true, (int)RuleTrigger.OnForm, (int)RuleTrigger.OnDemand), // excluded (no OnSave)
                 Rule("account", true, (int)RuleTrigger.OnCreate, (int)RuleTrigger.OnForm),  // included
             });
             var service = context.GetOrganizationService();

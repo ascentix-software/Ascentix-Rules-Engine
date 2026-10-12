@@ -310,6 +310,7 @@ describe("loadRuleGraph node-filter attach", () => {
       retrieveMultipleRecords: async (entity, options) => {
         if (entity === ENTITY.group) return { entities: rawGroups };
         if (entity === ENTITY.action) return { entities: [rawAction] };
+        if (entity === ENTITY.actionConditionGroup) return { entities: [] };
         if (entity === ENTITY.tableConfig) return { entities: [] };
         if (entity === ENTITY.nodeFilterGroup) {
           const opt = options ?? "";
@@ -325,6 +326,8 @@ describe("loadRuleGraph node-filter attach", () => {
         throw new Error("unexpected retrieveMultipleRecords " + entity);
       },
       createRecord: async () => { throw new Error("unused"); },
+      updateRecord: async () => { throw new Error("unused"); },
+      processRunPage: async () => { throw new Error("unused"); },
       validateRule: async () => { throw new Error("unused"); },
       publishRule: async () => { throw new Error("unused"); },
       unpublishRule: async () => { throw new Error("unused"); },

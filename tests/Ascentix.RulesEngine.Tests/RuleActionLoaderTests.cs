@@ -13,18 +13,25 @@ namespace Ascentix.RulesEngine.Tests
 {
     public class RuleActionLoaderTests
     {
-        private static Entity Action(Guid ruleId, int type, int fireOn, string message, int order, bool active)
+        private static readonly Guid Outcome = Guid.NewGuid();
+
+        /// <summary>The action row followed by its "Fires when" tree rows.</summary>
+        private static List<Entity> Action(Guid ruleId, int type, Func<Guid, List<Entity>> when, string message, int order, bool active)
         {
             var e = new Entity(SchemaNames.Qualify(SchemaNames.RuleAction.Entity), Guid.NewGuid());
             e[SchemaNames.Qualify(SchemaNames.RuleAction.Rule)] =
                 new EntityReference(SchemaNames.Qualify(SchemaNames.Rule.Entity), ruleId);
             e[SchemaNames.Qualify(SchemaNames.RuleAction.ActionType)] = new OptionSetValue(type);
-            e[SchemaNames.Qualify(SchemaNames.RuleAction.FireOn)] = new OptionSetValue(fireOn);
             e[SchemaNames.Qualify(SchemaNames.RuleAction.Message)] = message;
             e[SchemaNames.Qualify(SchemaNames.RuleAction.Order)] = order;
             e[SchemaNames.Qualify(SchemaNames.RuleAction.IsActive)] = active;
-            return e;
+            var rows = new List<Entity> { e };
+            rows.AddRange(when(e.Id));
+            return rows;
         }
+
+        private static List<Entity> AllTrue(Guid actionId) => ActionTreeRows.AllTrue(actionId, Outcome);
+        private static List<Entity> AnyFalse(Guid actionId) => ActionTreeRows.AnyFalse(actionId, Outcome);
 
         [Fact]
         public void LoadActionsByRule_groups_actions_under_their_rule()
@@ -33,7 +40,7 @@ namespace Ascentix.RulesEngine.Tests
             var context = new XrmFakedContext();
             context.Initialize(new List<Entity>
             {
-                Action(ruleId, (int)ActionType.Block, (int)ActionFireOn.OnNoMatch, "Invalid.", 1, true),
+                Action(ruleId, (int)ActionType.Block, AnyFalse, "Invalid.", 1, true),
             });
             var service = context.GetOrganizationService();
 
@@ -42,7 +49,10 @@ namespace Ascentix.RulesEngine.Tests
             Assert.True(loaded.ContainsKey(ruleId));
             var action = Assert.Single(loaded[ruleId]);
             Assert.Equal(ActionType.Block, action.ActionType);
-            Assert.Equal(ActionFireOn.OnNoMatch, action.FireOn);
+            Assert.Equal(LogicalOperator.Or, action.Condition.LogicalOperator);
+            var test = Assert.Single(action.Condition.Tests);
+            Assert.Equal(Outcome, test.OutcomeId);
+            Assert.False(test.Expected);
             Assert.Equal("Invalid.", action.Message);
             Assert.True(action.IsActive);
             Assert.Equal(ruleId, action.RuleId);
@@ -64,9 +74,9 @@ namespace Ascentix.RulesEngine.Tests
             var context = new XrmFakedContext();
             context.Initialize(new List<Entity>
             {
-                Action(ruleA, (int)ActionType.Block, (int)ActionFireOn.OnNoMatch, "a1", 1, true),
-                Action(ruleA, (int)ActionType.ShowMessage, (int)ActionFireOn.OnMatch, "a2", 2, true),
-                Action(ruleB, (int)ActionType.Block, (int)ActionFireOn.OnNoMatch, "b1", 1, true),
+                Action(ruleA, (int)ActionType.Block, AnyFalse, "a1", 1, true),
+                Action(ruleA, (int)ActionType.ShowMessage, AllTrue, "a2", 2, true),
+                Action(ruleB, (int)ActionType.Block, AnyFalse, "b1", 1, true),
             });
             var service = context.GetOrganizationService();
 
@@ -84,7 +94,7 @@ namespace Ascentix.RulesEngine.Tests
             var context = new XrmFakedContext();
             context.Initialize(new List<Entity>
             {
-                Action(ruleId, (int)ActionType.Block, (int)ActionFireOn.OnNoMatch, "inactive", 1, false),
+                Action(ruleId, (int)ActionType.Block, AnyFalse, "inactive", 1, false),
             });
             var service = context.GetOrganizationService();
 

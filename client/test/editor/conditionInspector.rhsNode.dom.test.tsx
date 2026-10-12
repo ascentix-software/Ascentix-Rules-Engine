@@ -56,7 +56,7 @@ function render(c: ConditionNode, onPatch = vi.fn()) {
 }
 
 async function openRhsColumnPicker() {
-  const box = await screen.findByRole("combobox", { name: "Right-hand column" });
+  const box = await screen.findByRole("combobox", { name: "Other column" });
   fireEvent.click(box);
   return box;
 }
@@ -90,7 +90,7 @@ describe("ConditionInspector — the Right-hand column picker resolves its table
       </AppProvider>
     );
     const { rerender } = rtlRender(tree(null));
-    expect(await screen.findByRole("combobox", { name: "Right-hand column" })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Other column" })).toBeInTheDocument();
 
     rerender(tree("cust"));
     await openRhsColumnPicker();
@@ -101,15 +101,15 @@ describe("ConditionInspector — the Right-hand column picker resolves its table
 
   it("keeps the picker gated on the left-hand column, independent of the right-hand node", async () => {
     render(condition({ comparisonColumn: null, comparisonValueNodeId: "cust" }));
-    expect(await screen.findByText(/Select a comparison column first/)).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Right-hand column" })).toBeNull();
+    expect(await screen.findByText(/Choose a column first/)).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Other column" })).toBeNull();
   });
 });
 
 describe("ConditionInspector — stale comparison column on a right-hand node change", () => {
   it("clears comparisonValueColumn when the new node is on a different table", async () => {
     const onPatch = render(condition({ comparisonValueNodeId: null, comparisonValueColumn: "sample_ordertotal" }));
-    const nodeBox = await screen.findByRole("combobox", { name: "Right-hand node" });
+    const nodeBox = await screen.findByRole("combobox", { name: "Other column's record" });
     fireEvent.click(nodeBox);
     fireEvent.click(await screen.findByRole("option", { name: "Customer" }));
 
@@ -118,16 +118,16 @@ describe("ConditionInspector — stale comparison column on a right-hand node ch
 
   it("clears it on the way back to (same record) too", async () => {
     const onPatch = render(condition({ comparisonValueNodeId: "cust", comparisonValueColumn: "sample_creditlimit" }));
-    const nodeBox = await screen.findByRole("combobox", { name: "Right-hand node" });
+    const nodeBox = await screen.findByRole("combobox", { name: "Other column's record" });
     fireEvent.click(nodeBox);
-    fireEvent.click(await screen.findByRole("option", { name: "(same record)" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Same record" }));
 
     expect(onPatch).toHaveBeenCalledWith({ comparisonValueNodeId: null, comparisonValueColumn: null });
   });
 
   it("keeps the column when the new node is a different node on the SAME table", async () => {
     const onPatch = render(condition({ comparisonValueNodeId: "cust", comparisonValueColumn: "sample_creditlimit" }));
-    const nodeBox = await screen.findByRole("combobox", { name: "Right-hand node" });
+    const nodeBox = await screen.findByRole("combobox", { name: "Other column's record" });
     fireEvent.click(nodeBox);
     fireEvent.click(await screen.findByRole("option", { name: "Bill-to customer" }));
 

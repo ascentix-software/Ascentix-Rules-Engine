@@ -57,5 +57,12 @@ export default defineConfig({
       dependencies: ["enforcement"],
       use: CHROME,
     },
+    // Retakes the guide's screenshots (docs/guide/images) from DEV: `npm run docs:screenshots`.
+    // Not part of the suite: its files end in .docs.ts, which no other project matches.
+    {
+      name: "docs",
+      testMatch: "**/*.docs.ts",
+      use: { ...CHROME, viewport: { width: 1440, height: 900 } },
+    },
   ],
 });

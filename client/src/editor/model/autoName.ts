@@ -1,4 +1,5 @@
 import type { RuleGraph, ConditionGroupNode } from "./types";
+import { isOutcome } from "./outcomes";
 import { deriveConditionName, deriveGroupName, type ValueLabelResolver } from "../ui/labels";
 
 // Rewrite the name of every group/condition not in `manual` to its derived value.
@@ -10,7 +11,7 @@ export function reconcileAutoNames(graph: RuleGraph, manual: Set<string>, resolv
       manual.has(c.id) ? c : { ...c, name: deriveConditionName(c, tcs, resolveValueLabel) });
     const groups = g.groups.map(fix);
     const next = { ...g, conditions, groups };
-    return manual.has(g.id) ? next : { ...next, name: deriveGroupName(next, tcs, resolveValueLabel) };
+    return manual.has(g.id) || isOutcome(graph, g.id) ? next : { ...next, name: deriveGroupName(next, tcs, resolveValueLabel) };
   };
   return {
     ...graph,
@@ -29,7 +30,7 @@ export function seedManualNames(graph: RuleGraph, resolveValueLabel?: ValueLabel
       if (c.name !== "" && c.name !== deriveConditionName(c, tcs, resolveValueLabel)) manual.add(c.id);
     }
     for (const sub of g.groups) walk(sub);
-    if (g.name !== "" && g.name !== deriveGroupName(g, tcs, resolveValueLabel)) manual.add(g.id);
+    if (isOutcome(graph, g.id) || (g.name !== "" && g.name !== deriveGroupName(g, tcs, resolveValueLabel))) manual.add(g.id);
   };
   graph.executionGroups.forEach(walk);
   graph.validationGroups.forEach(walk);

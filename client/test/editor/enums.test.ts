@@ -20,6 +20,10 @@ describe("enum label maps", () => {
     expect(actionTypeLabel(7)).toBe("DeleteRecord");
     expect(actionTypeLabel(null)).toBeNull();
   });
+  it("Deactivate Record is action type 8", () => {
+    expect(actionTypeLabel(8)).toBe("DeactivateRecord");
+    expect(actionTypeValue("DeactivateRecord")).toBe(8);
+  });
   it("maps table-config types", () => {
     expect(tableConfigTypeLabel(1)).toBe("RootTable");
     expect(tableConfigTypeLabel(2)).toBe("LookupTable");
@@ -54,8 +58,8 @@ describe("reverse enum maps", () => {
 
 describe("rule-field enums", () => {
   it("labels triggers, channels, evaluation context, status reason", () => {
-    expect(triggerLabel(1)).toBe("On Create");
-    expect(triggerLabel(4)).toBe("On Update");
+    expect(triggerLabel(1)).toBe("On create");
+    expect(triggerLabel(4)).toBe("On update");
     expect(channelLabel(2)).toBe("Portal");
     expect(evaluationContextLabel(2)).toBe("System");
     expect(evaluationContextLabel(null)).toBe("User");
@@ -65,7 +69,7 @@ describe("rule-field enums", () => {
   });
 
   it("exposes option lists for pickers", () => {
-    expect(TRIGGER_OPTIONS).toContainEqual({ value: 1, label: "On Create" });
+    expect(TRIGGER_OPTIONS).toContainEqual({ value: 1, label: "On create" });
     expect(CHANNEL_OPTIONS.map((o) => o.value)).toEqual([1, 2]); // Standard, Portal (3 retired)
     expect(EVALUATION_CONTEXT_OPTIONS).toHaveLength(2);
   });

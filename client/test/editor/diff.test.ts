@@ -4,7 +4,7 @@ import { diffRuleGraph } from "../../src/editor/save/diff";
 import {
   setRuleName, addGroup, updateGroup, deleteGroup, addCondition, addAction, deleteAction, updateCondition, patchRule,
   addTranslation, updateTranslation, removeTranslation,
-  addNode, setRoot, renameNode,
+  addNode, setRoot, renameNode, updateAction,
 } from "../../src/editor/model/reducer";
 import { resetTempIds } from "../../src/editor/model/ids";
 import { BIND_NAV } from "../../src/editor/load/odata";
@@ -142,7 +142,7 @@ describe("diffRuleGraph", () => {
     const snap: RuleGraph = {
       ...baseGraph(),
       actions: [{
-        id: "a1", name: "", order: 1, actionType: "Block", fireOn: 2,
+        id: "a1", name: "", order: 1, actionType: "Block", firesWhen: null,
         targetColumn: null, targetTable: null, targetNodeId: null, message: "x",
         fieldMapping: null, value: null, applyInverseWhenNotFired: null,
         severity: 3, isActive: true, localizedMessages: [],
@@ -166,6 +166,142 @@ describe("diffRuleGraph", () => {
       navProp: BIND_NAV.actionRule, targetSet: "asx_rules",
       ref: { kind: "existing", id: "r1" },
     });
+  });
+});
+
+describe("diffRuleGraph — applyToPrevious", () => {
+  // root -> contact (lookup): an UpdateRecord action targeting contact is eligible;
+  // one targeting root is not (root is the rule's own record, not reached through a lookup).
+  const configs: Record<string, TableConfigRef> = {
+    root: { id: "root", name: "Account", tableLogicalName: "account", tableConfigType: "RootTable", parentTableConfigId: null,
+      lookupColumnLogicalName: null, childLinkField: null, lookupTargetIdAttribute: null },
+    contact: { id: "contact", name: "Contact", tableLogicalName: "contact", tableConfigType: "LookupTable", parentTableConfigId: "root",
+      lookupColumnLogicalName: "primarycontactid", childLinkField: null, lookupTargetIdAttribute: "contactid" },
+  };
+
+  it("a new eligible, ticked action emits asx_applytoprevious: true", () => {
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs };
+    let w = addAction(clone(snap));
+    w = { ...w, actions: w.actions.map((a) => ({ ...a, actionType: "UpdateRecord" as const, targetNodeId: "contact", applyToPrevious: true })) };
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_ruleaction") as any;
+    expect(op.attrs.asx_applytoprevious).toBe(true);
+  });
+
+  it("a new ticked action whose target is ineligible (root) emits asx_applytoprevious: false", () => {
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs };
+    let w = addAction(clone(snap));
+    w = { ...w, actions: w.actions.map((a) => ({ ...a, actionType: "UpdateRecord" as const, targetNodeId: "root", applyToPrevious: true })) };
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_ruleaction") as any;
+    expect(op.attrs.asx_applytoprevious).toBe(false);
+  });
+
+  it("a new ticked action whose type isn't Update Record emits asx_applytoprevious: false", () => {
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs };
+    let w = addAction(clone(snap));
+    w = { ...w, actions: w.actions.map((a) => ({ ...a, actionType: "ShowMessage" as const, targetNodeId: "contact", applyToPrevious: true })) };
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_ruleaction") as any;
+    expect(op.attrs.asx_applytoprevious).toBe(false);
+  });
+
+  it("an unchanged loaded action with the column absent/false emits no update", () => {
+    const action = {
+      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, firesWhen: null,
+      targetColumn: null, targetTable: null, targetNodeId: "tc1", message: null,
+      fieldMapping: null, value: null, applyInverseWhenNotFired: null,
+      severity: null, isActive: true, localizedMessages: [],
+      // applyToPrevious intentionally omitted, as mapActionRecord leaves it for a loaded row
+      // whose asx_applytoprevious column is absent or false.
+    };
+    const snap: RuleGraph = { ...baseGraph(), actions: [action] };
+    const w = clone(snap);
+    expect(diffRuleGraph(snap, w).some((o) => o.entity === "asx_ruleaction")).toBe(false);
+  });
+
+  it("a loaded row stored true but now ineligible is PATCHed to false", () => {
+    const action = {
+      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, firesWhen: null,
+      targetColumn: null, targetTable: null, targetNodeId: "root", message: null,
+      fieldMapping: null, value: null, applyInverseWhenNotFired: null,
+      severity: null, isActive: true, localizedMessages: [], applyToPrevious: true,
+    };
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs, actions: [action] };
+    const w = clone(snap);
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_ruleaction") as any;
+    expect(op.attrs.asx_applytoprevious).toBe(false);
+  });
+
+  it("a loaded eligible ticked row, unchanged, emits no update", () => {
+    const action = {
+      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, firesWhen: null,
+      targetColumn: null, targetTable: null, targetNodeId: "contact", message: null,
+      fieldMapping: null, value: null, applyInverseWhenNotFired: null,
+      severity: null, isActive: true, localizedMessages: [], applyToPrevious: true,
+    };
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs, actions: [action] };
+    const w = clone(snap);
+    expect(diffRuleGraph(snap, w).some((o) => o.entity === "asx_ruleaction")).toBe(false);
+  });
+});
+
+describe("diffRuleGraph — clearing an action's target node (unbind)", () => {
+  const configs: Record<string, TableConfigRef> = {
+    root: { id: "root", name: "Account", tableLogicalName: "account", tableConfigType: "RootTable", parentTableConfigId: null,
+      lookupColumnLogicalName: null, childLinkField: null, lookupTargetIdAttribute: null },
+    contacts: { id: "contacts", name: "Contacts", tableLogicalName: "contact", tableConfigType: "ChildTable", parentTableConfigId: "root",
+      lookupColumnLogicalName: null, childLinkField: "parentcustomerid", lookupTargetIdAttribute: null },
+    owner: { id: "owner", name: "Owner", tableLogicalName: "systemuser", tableConfigType: "LookupTable", parentTableConfigId: "root",
+      lookupColumnLogicalName: "ownerid", childLinkField: null, lookupTargetIdAttribute: "systemuserid" },
+  };
+
+  it("R7: renaming a Create action with a stale single-record target keeps the target and emits no unbind", () => {
+    // "owner" is a LookupTable (single-record), a stale target for Create as if the node tree
+    // changed since this action was saved. A rename must not silently clear it or unbind it.
+    const action = {
+      id: "a1", name: "Old name", order: 1, actionType: "CreateRecord" as const, firesWhen: null,
+      targetColumn: null, targetTable: "systemuser", targetNodeId: "owner", message: null,
+      fieldMapping: null, value: null, applyInverseWhenNotFired: null,
+      severity: null, isActive: true, localizedMessages: [],
+    };
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs, actions: [action] };
+    const w = updateAction(clone(snap), "a1", { name: "New name" });
+
+    expect(w.actions[0].targetNodeId).toBe("owner");
+    const ops = diffRuleGraph(snap, w);
+    expect(ops.some((o) => o.kind === "unbind")).toBe(false);
+  });
+
+  it("a Create-per-row action switched to a one-record Create unbinds asx_TargetNode", () => {
+    const action = {
+      id: "a1", name: "", order: 1, actionType: "CreateRecord" as const, firesWhen: null,
+      targetColumn: null, targetTable: "contact", targetNodeId: "contacts", message: null,
+      fieldMapping: null, value: null, applyInverseWhenNotFired: null,
+      severity: null, isActive: true, localizedMessages: [],
+    };
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs, actions: [action] };
+    const w: RuleGraph = { ...snap, actions: [{ ...action, targetNodeId: null }] };
+    const ops = diffRuleGraph(snap, w);
+    expect(ops).toContainEqual({
+      kind: "unbind", entity: "asx_ruleaction", set: "asx_ruleactions", id: "a1", navProp: BIND_NAV.actionTargetNode,
+    });
+  });
+
+  it("a new action never emits an unbind (nothing to clear)", () => {
+    const snap = baseGraph();
+    const w = addAction(clone(snap));
+    const ops = diffRuleGraph(snap, w);
+    expect(ops.some((o) => o.kind === "unbind")).toBe(false);
+  });
+
+  it("an unchanged loaded action (target still set) emits no unbind", () => {
+    const action = {
+      id: "a1", name: "", order: 1, actionType: "UpdateRecord" as const, firesWhen: null,
+      targetColumn: null, targetTable: null, targetNodeId: "contacts", message: null,
+      fieldMapping: null, value: null, applyInverseWhenNotFired: null,
+      severity: null, isActive: true, localizedMessages: [],
+    };
+    const snap: RuleGraph = { ...baseGraph(), tableConfigs: configs, actions: [action] };
+    const w = clone(snap);
+    expect(diffRuleGraph(snap, w).some((o) => o.kind === "unbind")).toBe(false);
   });
 });
 
@@ -203,6 +339,35 @@ describe("diffRuleGraph — rule fields", () => {
     const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_rule") as any;
     expect(op.attrs.asx_triggercolumns).toBeNull();
   });
+
+  it("saves the rule's time zone", () => {
+    const snap = baseGraph();
+    const w = patchRule(clone(snap), { evaluationTimeZone: "Eastern Standard Time" });
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_rule") as any;
+    expect(op.attrs.asx_evaluationtimezone).toBe("Eastern Standard Time");
+  });
+});
+
+describe("diffRuleGraph — asx_ondemandscope", () => {
+  it("a rule with trigger 3 (On demand) and scope 2 emits asx_ondemandscope: 2", () => {
+    const snap = baseGraph();
+    const w = patchRule(clone(snap), { triggers: [3], onDemandScope: 2 });
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_rule") as any;
+    expect(op.attrs.asx_ondemandscope).toBe(2);
+  });
+
+  it("a rule without trigger 3 and scope 2 emits asx_ondemandscope: 1 (the hidden option saves as the default)", () => {
+    const snap: RuleGraph = { ...baseGraph(), rule: { ...baseGraph().rule, onDemandScope: 2 } };
+    const w = clone(snap);
+    const op = diffRuleGraph(snap, w).find((o) => o.entity === "asx_rule") as any;
+    expect(op.attrs.asx_ondemandscope).toBe(1);
+  });
+
+  it("an unchanged loaded rule (On demand ticked, scope already stored) emits no update", () => {
+    const snap: RuleGraph = { ...baseGraph(), rule: { ...baseGraph().rule, triggers: [3], onDemandScope: 2 } };
+    const w = clone(snap);
+    expect(diffRuleGraph(snap, w).some((o) => o.entity === "asx_rule")).toBe(false);
+  });
 });
 
 describe("diffRuleGraph — localized messages", () => {
@@ -212,7 +377,7 @@ describe("diffRuleGraph — localized messages", () => {
     // snapshot has a saved action; working adds a translation
     const saved: RuleGraph = {
       ...baseGraph(),
-      actions: [{ id: "act1", name: "", order: 1, actionType: "ShowMessage", fireOn: 1,
+      actions: [{ id: "act1", name: "", order: 1, actionType: "ShowMessage", firesWhen: null,
         targetColumn: null, targetTable: null, targetNodeId: null, message: "Hi", fieldMapping: null,
         value: null, applyInverseWhenNotFired: null, severity: 2, isActive: true, localizedMessages: [] }],
     };
@@ -229,7 +394,7 @@ describe("diffRuleGraph — localized messages", () => {
   it("updates and deletes translation rows", () => {
     const saved: RuleGraph = {
       ...baseGraph(),
-      actions: [{ id: "act1", name: "", order: 1, actionType: "ShowMessage", fireOn: 1,
+      actions: [{ id: "act1", name: "", order: 1, actionType: "ShowMessage", firesWhen: null,
         targetColumn: null, targetTable: null, targetNodeId: null, message: "Hi", fieldMapping: null,
         value: null, applyInverseWhenNotFired: null, severity: 2, isActive: true,
         localizedMessages: [{ id: "lm1", languageCode: 1036, message: "Bonjour" }] }],

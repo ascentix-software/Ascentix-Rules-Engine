@@ -58,18 +58,18 @@ describe("HubApp responsive lists", () => {
     vi.mocked(navigate).mockClear();
     await withNarrowViewport(() => {
       render(<HubApp api={{} as EditorApi} rules={RULES} configs={CONFIGS} />);
-      fireEvent.click(screen.getByRole("tab", { name: /Table configurations/ }));
+      fireEvent.click(screen.getByRole("tab", { name: /Data models/ }));
       const card = screen.getByTestId("hub-card");
       expect(within(card).getByText("Opportunity config")).toBeInTheDocument();
       expect(within(card).getByText("Root table")).toBeInTheDocument();
-      expect(within(card).getByText("Nodes")).toBeInTheDocument();
+      expect(within(card).getByText("Tables")).toBeInTheDocument();
     });
   });
 
   it("renders both tabs with role=tab and their counts, and the info banner is not announced", () => {
     render(<HubApp api={{} as EditorApi} rules={RULES} configs={CONFIGS} />);
     expect(screen.getByRole("tab", { name: /Rules/ })).toBeInTheDocument();
-    const configTab = screen.getByRole("tab", { name: /Table configurations/ });
+    const configTab = screen.getByRole("tab", { name: /Data models/ });
     expect(configTab).toBeInTheDocument();
     // the configs tab shows its count Pill (Fluent Tab renders a duplicate
     // "reserved space" span internally to keep tab width stable on selection,
@@ -78,6 +78,6 @@ describe("HubApp responsive lists", () => {
     // switching to configs shows the "shared" notice as a Callout, NOT announced (info, not alert)
     fireEvent.click(configTab);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByText(/Table configurations are shared/)).toBeInTheDocument();
+    expect(screen.getByText(/Data models are shared/)).toBeInTheDocument();
   });
 });

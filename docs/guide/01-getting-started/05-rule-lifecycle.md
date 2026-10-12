@@ -7,33 +7,43 @@ slug: rule-lifecycle
 
 # Rule Lifecycle
 
-A rule's **status** determines whether it is enforced; an optional effective window
-determines when.
+A rule's **status** decides whether it runs; an optional **active period** decides when.
 
-## Draft / Published / Archived
+## Status
 
-Every rule has a status:
+| Status | Enforced? |
+|---|---|
+| **Draft** | Never. Every new rule starts here. |
+| **Published** | Yes, within its active period. It must pass the publish check first (*Validating & Publishing*). |
+| **Archived** | Never. Kept for history. |
 
-- **Draft** is the default status for a new rule. You can edit it freely, and it is
-  **never enforced**, no matter what triggers or channels it has selected.
-- **Published** is the live status. The engine enforces **only Published** rules,
-  and only within their effective window, described below. A rule must pass the
-  rule validator before it can move from Draft to Published. See *Validating &
-  Publishing* for what the validator checks and how the Rule Builder surfaces
-  issues.
-- **Archived** is a retired status. An Archived rule is kept for history but is
-  **never enforced**.
+The pill under the rule's name shows **Live · vN**, **Draft** (never published) or **Archived**,
+plus **Editing draft** while you work on a published rule's draft (*Editor Layout*).
 
-## Effective window
+## Drafts and published versions
 
-A rule can optionally carry an effective window:
+- Every rule has an editable draft. Saving a published rule's draft leaves the live version
+  running.
+- **Publish…** captures the draft, with its own copy of the data model, as a new version. A change
+  to a shared data model reaches each rule only when that rule is republished. Business records and
+  the caller's permissions are always read live.
+- **Discard draft…** (⋯ menu) deletes the draft and its edits; the live version is unchanged.
+- An unpublished rule keeps its last version. To bring it back, open it and choose **Publish…**.
+- **View published** shows what's live. A form that's already open keeps the version it loaded;
+  reload it to pick up a new one.
 
-- **Effective From**: the rule is not enforced before this date/time.
-- **Effective To**: the rule is not enforced after this date/time.
+See *Saving & Recovery*.
 
-Both are stored in **UTC**, and both are optional independently. Leaving a bound
-**null** leaves that side of the window open. A Published rule with no effective
-window set is enforced continuously, subject only to its Triggers and Channels.
+## Active period
 
-> A rule outside its effective window, or still in Draft, is loaded and evaluated
-> the same way structurally, but does not apply.
+In the rule settings, **Active period**:
+
+- **Starts** (Effective From): not enforced before this time.
+- **Ends** (Effective To): not enforced after this exact time (not the end of that day).
+
+Both are optional; an empty one reads **No start limit** or **No end limit**. Both are stored in
+**UTC** and take effect when the rule is published.
+
+The editor takes a date and time to the second. **Show times in** defaults to **UTC**; **Local**
+uses your browser's time zone without changing the stored times. Around a daylight-saving change,
+enter the time in UTC to be exact.

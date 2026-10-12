@@ -3,6 +3,8 @@ import {
   templateFromComparisonValue, dateExprFromComparisonValue, dateExprToComparisonValue,
 } from "../../src/editor/model/conditionValue";
 import type { DateExprValue } from "../../src/editor/ui/valueExpressions";
+import { isDateExprComplete } from "../../src/editor/model/conditionValue";
+import { isLeafComplete, emptyLeaf } from "../../src/editor/model/nodeFilter";
 
 describe("templateFromComparisonValue", () => {
   it("returns the raw string unchanged", () => {
@@ -68,5 +70,22 @@ describe("dateExpr round-trip", () => {
     expect(dateExprFromComparisonValue(null)).toEqual(blank);
     expect(dateExprFromComparisonValue("")).toEqual(blank);
     expect(dateExprFromComparisonValue("not json{")).toEqual(blank);
+  });
+});
+
+describe("isDateExprComplete", () => {
+  it("needs op, amount and unit, plus a column for a field anchor", () => {
+    expect(isDateExprComplete({ anchorKind: "now", anchorNode: null, anchorColumn: null, op: "subtract", amount: 90, unit: "days" })).toBe(true);
+    expect(isDateExprComplete({ anchorKind: "now", anchorNode: null, anchorColumn: null, op: null, amount: 90, unit: "days" })).toBe(false);
+    expect(isDateExprComplete({ anchorKind: "field", anchorNode: null, anchorColumn: null, op: "add", amount: 1, unit: "days" })).toBe(false);
+    expect(isDateExprComplete({ anchorKind: "field", anchorNode: null, anchorColumn: "createdon", op: "add", amount: 1, unit: "days" })).toBe(true);
+  });
+});
+
+describe("isLeafComplete with a date expression", () => {
+  it("is complete only when the payload is complete", () => {
+    const leaf = { ...emptyLeaf(), column: "createdon", operator: 4, valueSource: 4 };
+    expect(isLeafComplete({ ...leaf, value: null })).toBe(false);
+    expect(isLeafComplete({ ...leaf, value: JSON.stringify({ anchor: { kind: "now" }, op: "subtract", amount: 90, unit: "days" }) })).toBe(true);
   });
 });

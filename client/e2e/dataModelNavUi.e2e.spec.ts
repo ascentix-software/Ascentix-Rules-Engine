@@ -5,15 +5,15 @@ import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import {
   resolveAppId, createOrderConfigTree, createRuleOnConfig, findIdByName, createZzRootConfig,
 } from "./devHelpers";
-import { openHub, openConfigFromHub, openRuleFromHub, hubRow, toolbar } from "./editorHarness";
+import { openHub, openConfigFromHub, openRuleFromHub, hubRow, toolbar, toast } from "./editorHarness";
 
 // The "get to the data model" half of the editor, driven through the live UI:
 //
-//  - The node inspector's own "Add related from here", taking the LOOKUP branch. That branch is
+//  - The node panel's own "Add related table" picker, taking the LOOKUP branch. That branch is
 //    a different code path from the CHILD one tableConfigEditor.e2e drives: manyToOne
 //    relationships, persisting asx_lookupcolumnlogicalname + asx_lookuptargetidattribute rather
 //    than asx_childlinkfield.
-//  - The rule editor's "Edit data model →" link and the hub row's "uses <config>" link, the
+//  - The rule editor's data-model chip ("Edit data model" in its popover) and the hub row's "uses <config>" link, the
 //    two ways an author crosses from a rule to its tree.
 //  - Duplicating a configuration from the hub, and whether the copy brings the node tree with it.
 
@@ -43,27 +43,25 @@ test("lookup node added from the node inspector persists the lookup column and t
   try {
     const frame = await openConfigFromHub(page, appId, cfgName);
 
-    // Select the ROOT node so the inspector (and its "Add related from here") is in play.
-    // (tableConfigEditor.e2e drives the per-row "Add related" button instead.) Tree rows are
-    // plain divs with an onClick (no role, no testid) and the config NAME also appears in the
-    // breadcrumb and the page heading, so the only unambiguous handle on the row is its "ROOT"
-    // type pill; click the row through it.
-    await frame.getByText("ROOT", { exact: true }).locator("xpath=..").click();
-    await expect(frame.getByRole("textbox", { name: "Node name" })).toBeVisible();
+    // Select the ROOT node (the tree is an ARIA tree; the root row is level 1) so the node panel
+    // and its "Add related table" picker are in play. (tableConfigEditor.e2e drives the resting
+    // panel's picker instead.)
+    await frame.locator('[role=treeitem][aria-level="1"]').click();
+    await expect(frame.getByRole("textbox", { name: "Name", exact: true })).toBeVisible();
 
-    await frame.getByRole("button", { name: "Add related from here" }).click();
-    // manyToOne entries render as "↗ <table> (lookup)"; sample_order.sample_customerid is one.
-    await frame.getByRole("menuitem", { name: /sample_customer.*lookup/ }).click({ timeout: 30_000 });
+    await frame.getByTestId("inspector-body").getByRole("button", { name: "Add related table" }).click();
+    // Lookups list under LOOKS UP · ONE RECORD as "via <column> · <logical>"; sample_customerid is one.
+    await frame.getByRole("option", { name: /via .*· sample_customerid$/ }).first().click({ timeout: 30_000 });
 
     // Rename it to a ZZ_RB_ name so the sweep can reclaim it after a crash.
-    await frame.getByText("sample_customer", { exact: true }).first().click();
-    await frame.getByRole("textbox", { name: "Node name" }).fill("ZZ_RB_dmnav_customer");
+    await frame.getByRole("treeitem", { name: /looks up/ }).click();
+    await frame.getByRole("textbox", { name: "Name", exact: true }).fill("ZZ_RB_dmnav_customer");
 
-    // The inspector must describe the relationship it just created.
-    await expect(frame.getByText(/Lookup via parent column "sample_customerid"/)).toBeVisible();
+    // The panel must describe the relationship it just created.
+    await expect(frame.getByTestId("inspector-body").getByText(/· sample_customerid$/)).toBeVisible();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await toolbar(frame).getByRole("button", { name: "Save…", exact: true }).click();
+    await expect(toast(frame, "Saved")).toBeVisible({ timeout: 30_000 });
 
     const children = await nodesUnder(cfg.id);
     expect(children.length).toBe(1);
@@ -89,9 +87,10 @@ test("rule → data model: 'Edit data model' and the hub's 'uses' link both open
   try {
     // (a) From inside the rule editor.
     const frame = await openRuleFromHub(page, appId, rule.ruleName);
-    await expect(frame.getByText("Data map")).toBeVisible();
-    await frame.getByRole("button", { name: "Edit data model →" }).click();
-    await expect(frame.getByRole("button", { name: "Rename configuration" })).toBeVisible({ timeout: 30_000 });
+    // The data-model chip opens the model's tree; its footer links to the editor.
+    await frame.getByRole("button", { name: /^Data model:/ }).click();
+    await frame.getByRole("button", { name: "Edit data model", exact: true }).click();
+    await expect(frame.getByRole("button", { name: "Rename data model" })).toBeVisible({ timeout: 30_000 });
 
     // (b) From the hub row's "uses <config>" link, which must NOT also open the rule.
     const hub = await openHub(page, appId);
@@ -99,7 +98,7 @@ test("rule → data model: 'Edit data model' and the hub's 'uses' link both open
     const row = hubRow(hub, rule.ruleName);
     await expect(row).toBeVisible();
     await row.getByRole("button", { name: /^ZZ_RB_dmnav_x/ }).click();
-    await expect(hub.getByRole("button", { name: "Rename configuration" })).toBeVisible({ timeout: 30_000 });
+    await expect(hub.getByRole("button", { name: "Rename data model" })).toBeVisible({ timeout: 30_000 });
     await expect(hub.getByRole("button", { name: "Rename rule" })).toHaveCount(0);
   } finally {
     await rule.cleanup();
@@ -115,8 +114,8 @@ test("duplicating a configuration from the hub copies its whole node tree", asyn
   let copyId: string | null = null;
   try {
     const frame = await openHub(page, appId);
-    await frame.getByRole("tab", { name: /Table configurations/ }).click();
-    await frame.getByPlaceholder("Search configurations").fill(`ZZ_RB_${tag}`);
+    await frame.getByRole("tab", { name: /Data models/ }).click();
+    await frame.getByPlaceholder("Search data models").fill(`ZZ_RB_${tag}`);
 
     const row = hubRow(frame, `ZZ_RB_${tag}`);
     await expect(row).toBeVisible();
@@ -124,7 +123,7 @@ test("duplicating a configuration from the hub copies its whole node tree", asyn
     await row.getByRole("button", { name: "Duplicate", exact: true }).click();
 
     // duplicateConfig navigates straight into the copy.
-    await expect(frame.getByRole("button", { name: "Rename configuration" })).toBeVisible({ timeout: 30_000 });
+    await expect(frame.getByRole("button", { name: "Rename data model" })).toBeVisible({ timeout: 30_000 });
 
     copyId = await findIdByName(ENTITY_SET.tableConfig, "asx_name", "asx_tableconfigid", copyName);
     expect(copyId, `expected a configuration named "${copyName}"`).toBeTruthy();

@@ -1,4 +1,4 @@
-import { createDevApi, deleteDevRecord } from "../test-dev/devApi";
+import { createDevApi, deleteDevRecord, processRunPage } from "../test-dev/devApi";
 import { readDevEnv } from "../test-dev/devEnv";
 import { ENTITY_SET, BIND_NAV, LOOKUP } from "../src/editor/load/odata";
 
@@ -11,61 +11,9 @@ export async function findIdByName(entitySet: string, nameField: string, idField
   return r.entities.length ? (r.entities[0][idField] as string) : null;
 }
 
-// Deletes a rule and ALL its children, including rows the UI created that no fixture
-// tracked (author-in-UI, write-action, duplicate specs). Child-first: conditions →
-// subgroups → root groups → actions → rule. Node-filter rows are not queried: the e2e
-// fixtures never author them through the UI.
+// Server lifecycle deletion includes the working draft and all owned configuration.
 export async function deleteRuleCascade(ruleId: string): Promise<void> {
-  const api = createDevApi();
-  const list = async (set: string, filter: string, idField: string) =>
-    (await api.retrieveMultipleRecords(set, `?$filter=${filter}&$select=${idField}`)).entities.map(
-      (e) => e[idField] as string,
-    );
-  const groups = (await api.retrieveMultipleRecords(
-    ENTITY_SET.group,
-    `?$filter=${LOOKUP.ruleOfGroup} eq ${ruleId}&$select=asx_conditiongroupid,${LOOKUP.parentGroup}`,
-  )).entities;
-  for (const g of groups) {
-    for (const cid of await list(ENTITY_SET.condition, `_asx_conditiongroup_value eq ${g.asx_conditiongroupid}`, "asx_ruleconditionid")) {
-      // Node-filter rows hang off the CONDITION and do NOT cascade when it is deleted (the same
-      // note diff.ts carries at its filter-delete branch). Since nodeFilterUi.e2e authors them
-      // through the UI, this cascade has to reclaim them or every run leaks a filter tree.
-      // Criteria first, then the groups deepest-first (a child group binds its parent).
-      const fgroups = (await api.retrieveMultipleRecords(
-        ENTITY_SET.nodeFilterGroup,
-        `?$filter=${LOOKUP.filterGroupCondition} eq ${cid}&$select=asx_nodefiltergroupid,${LOOKUP.filterParentGroup}`,
-      )).entities;
-      for (const fg of fgroups) {
-        for (const crit of await list(
-          ENTITY_SET.nodeFilterCriterion,
-          `${LOOKUP.filterGroupOfCriterion} eq ${fg.asx_nodefiltergroupid}`,
-          "asx_nodefiltercriterionid",
-        )) {
-          await deleteDevRecord(ENTITY_SET.nodeFilterCriterion, crit).catch(() => {});
-        }
-      }
-      const childFirst = [...fgroups].sort((a, b) =>
-        (a[LOOKUP.filterParentGroup] ? 0 : 1) - (b[LOOKUP.filterParentGroup] ? 0 : 1));
-      for (const fg of childFirst) {
-        await deleteDevRecord(ENTITY_SET.nodeFilterGroup, fg.asx_nodefiltergroupid as string).catch(() => {});
-      }
-      await deleteDevRecord(ENTITY_SET.condition, cid).catch(() => {});
-    }
-  }
-  const subFirst = [...groups].sort((a, b) =>
-    (a[LOOKUP.parentGroup] ? 0 : 1) - (b[LOOKUP.parentGroup] ? 0 : 1));
-  for (const g of subFirst) await deleteDevRecord(ENTITY_SET.group, g.asx_conditiongroupid as string).catch(() => {});
-  for (const aid of await list(ENTITY_SET.action, `${LOOKUP.ruleOfAction} eq ${ruleId}`, "asx_ruleactionid")) {
-    // Localized-message children first: the UI can author them (ActionInspector's Translations
-    // field), and asx_localizedmessage rows do not cascade off the action delete.
-    for (const mid of await list(
-      ENTITY_SET.localizedMessage, `_asx_ruleaction_value eq ${aid}`, "asx_localizedmessageid",
-    )) {
-      await deleteDevRecord(ENTITY_SET.localizedMessage, mid).catch(() => {});
-    }
-    await deleteDevRecord(ENTITY_SET.action, aid).catch(() => {});
-  }
-  await deleteDevRecord(ENTITY_SET.rule, ruleId).catch(() => {});
+  await deleteDevRecord(ENTITY_SET.rule, ruleId);
 }
 
 // Single root-table config node under the ZZ_RB_ prefix (sweep backstop). cleanup()
@@ -128,7 +76,7 @@ export interface RuleFixtureOpts {
 }
 
 // Creates a Draft rule on `account` (root config + optional exec group / comparison
-// condition / ShowMessage action), trigger Manual only, ZZ-prefixed. Options carve out
+// condition / ShowMessage action), trigger On demand only, ZZ-prefixed. Options carve out
 // the variants the e2e specs need: a bare rule to author against in the UI, an
 // incomplete condition for the validation-failure path, or the default fully-valid
 // shape. Returns a cleanup that deletes everything it created (reverse order).
@@ -142,10 +90,16 @@ export async function createRuleFixture(opts: RuleFixtureOpts = {}): Promise<{ r
   const created: { set: string; id: string }[] = [];
   const track = (set: string, id: string) => { created.push({ set, id }); return id; };
   const cleanup = async () => {
-    for (const c of created.reverse()) {
-      await deleteDevRecord(c.set, c.id).catch(
-        (e) => console.warn(`ZZ_P2E2E_ cleanup: failed to delete ${c.set}(${c.id}): ${e}`),
-      );
+    for (const rule of created.filter(c => c.set === ENTITY_SET.rule)) {
+      await deleteRuleCascade(rule.id);
+      for (let index = created.length - 1; index >= 0; index--) {
+        if (created[index].set !== ENTITY_SET.tableConfig) created.splice(index, 1);
+      }
+    }
+    while (created.length) {
+      const c = created[created.length - 1];
+      await deleteDevRecord(c.set, c.id);
+      created.pop();
     }
   };
 
@@ -159,12 +113,14 @@ export async function createRuleFixture(opts: RuleFixtureOpts = {}): Promise<{ r
     }));
     const ruleId = track(ENTITY_SET.rule, await api.createRecord(ENTITY_SET.rule, {
       asx_name: ruleName, asx_tablelogicalname: "account",
-      asx_triggers: "3", // Manual only, never auto-fires
+      asx_triggers: "3", // On demand only, never auto-fires
       [`${BIND_NAV.ruleRootTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${cfgId})`,
     }));
     if (opts.withGroup ?? true) {
       const groupId = track(ENTITY_SET.group, await api.createRecord(ENTITY_SET.group, {
-        asx_name: `${stamp}_grp`, asx_logicaloperator: 1, asx_isexecutioncondition: true,
+        // An execution group ("Run only when"), not an outcome: it gates the rule. Kept within the
+        // 100-character name column.
+        asx_name: `${stamp}_grp`.slice(0, 100), asx_logicaloperator: 1, asx_isexecutioncondition: true,
         [`${BIND_NAV.groupRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})`,
       }));
       const withCondition = opts.withCondition ?? true;
@@ -193,10 +149,16 @@ export async function createRuleFixture(opts: RuleFixtureOpts = {}): Promise<{ r
     }
     if (opts.withAction ?? true) {
       // One complete ShowMessage action (writes no data).
-      track(ENTITY_SET.action, await api.createRecord(ENTITY_SET.action, {
-        asx_name: `${stamp}_act`, asx_actiontype: 3 /* ShowMessage */, asx_order: 1, asx_fireon: 1,
+      const actionId = track(ENTITY_SET.action, await api.createRecord(ENTITY_SET.action, {
+        asx_name: `${stamp}_act`, asx_actiontype: 3 /* ShowMessage */, asx_order: 1,
         asx_message: "E2E throwaway — safe to ignore.", asx_severity: 1,
         [`${BIND_NAV.actionRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})`,
+      }));
+      // Fires when: an empty root ALL ("Always, when the rule runs"). An action with no tree never
+      // fires and publish refuses it, so without this the fixture would not validate.
+      track(ENTITY_SET.actionConditionGroup, await api.createRecord(ENTITY_SET.actionConditionGroup, {
+        asx_logicaloperator: 1 /* ALL */, asx_order: 1,
+        [`${BIND_NAV.actionConditionGroupAction}@odata.bind`]: `/${ENTITY_SET.action}(${actionId})`,
       }));
     }
 
@@ -208,7 +170,7 @@ export async function createRuleFixture(opts: RuleFixtureOpts = {}): Promise<{ r
 
     return { ruleId, ruleName, cleanup };
   } catch (err) {
-    await cleanup();
+    await cleanup().catch(cleanupError => console.warn("Fixture cleanup failed:", cleanupError));
     throw err;
   }
 }
@@ -235,6 +197,26 @@ export async function addChildNode(
     asx_tablelogicalname: opts.table,
     asx_tableconfigtype: 3 /* ChildTable */,
     asx_childlinkfield: opts.childLinkField,
+    [`${BIND_NAV.tableConfigParent}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${parentId})`,
+  });
+}
+
+// Adds a LookupTable node under `parentId` (a single-valued lookup off the parent's table, e.g.
+// the line's order). Mirrors test-dev/ruleBehavior/authoring.ts's ensureLineRootedConfig, the
+// Root -> Lookup shape the "apply to the previous parent" surface keys off
+// (tableConfigOps.previousParentLookup). Returned id is tracked by the PARENT's cleanup, same as
+// addChildNode.
+export async function addLookupNode(
+  parentId: string,
+  opts: { name: string; table: string; lookupColumnLogicalName: string; lookupTargetIdAttribute: string },
+): Promise<string> {
+  const api = createDevApi();
+  return api.createRecord(ENTITY_SET.tableConfig, {
+    asx_name: opts.name.startsWith("ZZ_RB_") ? opts.name : `ZZ_RB_${opts.name}`,
+    asx_tablelogicalname: opts.table,
+    asx_tableconfigtype: 2 /* LookupTable */,
+    asx_lookupcolumnlogicalname: opts.lookupColumnLogicalName,
+    asx_lookuptargetidattribute: opts.lookupTargetIdAttribute,
     [`${BIND_NAV.tableConfigParent}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${parentId})`,
   });
 }
@@ -267,8 +249,92 @@ export async function createRuleOnConfig(opts: {
   const ruleId = await api.createRecord(ENTITY_SET.rule, {
     asx_name: ruleName,
     asx_tablelogicalname: opts.table,
-    asx_triggers: opts.triggers ?? "3", // Manual only, never auto-fires
+    asx_triggers: opts.triggers ?? "3", // On demand only, never auto-fires
     [`${BIND_NAV.ruleRootTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${opts.rootConfigId})`,
   });
   return { ruleId, ruleName, cleanup: () => deleteRuleCascade(ruleId) };
+}
+
+// ---- On-demand runs (Run now / Runs dialog e2e specs) --------------------------------------
+// createRuleRun mirrors the browser's own runs/runDriver.ts startRun, driven here directly
+// through createDevApi() (its EditorApi-compatible `api` object, which DOES implement
+// createRecord) for specs that arrange a run via the API instead of the UI.
+//
+// driveRunToCompletion reuses test-dev/devApi.ts's own `processRunPage` — NOT createDevApi()'s
+// `api` object, which (client/scripts/devOrg.mjs:254-321) has no `processRunPage` method at all,
+// despite createDevApi()'s EditorApi return type claiming one (a pre-existing type/implementation
+// mismatch in that script, not something this file works around by re-adding the method itself).
+// `processRunPage` is devOrg.mjs's own POST asx_ProcessRunPage wrapper (the same Custom API
+// runs/runDriver.ts's browser-side driveRun calls through Xrm.WebApi), already proven live by
+// test-dev/ruleRuns.dev.test.ts.
+
+// Creates an asx_rulerun for `ruleId`, scoped to `recordIds` when given.
+export async function createRuleRun(ruleId: string, recordIds?: string[]): Promise<string> {
+  const api = createDevApi();
+  const data: Record<string, unknown> = { [`${BIND_NAV.runRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})` };
+  if (recordIds) data.asx_recordids = JSON.stringify(recordIds);
+  return api.createRecord(ENTITY_SET.ruleRun, data);
+}
+
+export interface RunPageCounts {
+  done: boolean; status: number; evaluated: number; changed: number; blocked: number; failed: number; skipped: number;
+}
+
+// Drives a run to completion by calling asx_ProcessRunPage in a loop. Unlike runDriver.ts's
+// driveRun, this has no record-failed retry protocol: the e2e fixtures that use this only author
+// Update/Block actions, neither of which throws, so a rejected write is never in scope here.
+export async function driveRunToCompletion(runId: string, maxCalls = 50): Promise<RunPageCounts> {
+  for (let i = 0; i < maxCalls; i++) {
+    const last = await processRunPage(runId);
+    if (last.done) return last;
+  }
+  throw new Error(`driveRunToCompletion: run ${runId} did not finish within ${maxCalls} calls.`);
+}
+
+// ---- Fires when oracle ---------------------------------------------------------------------
+// The tree the editor persisted for one action (asx_actionconditiongroup + asx_actionconditiontest,
+// docs/Schema.md 2.18-2.19), read back flat so a spec can assert its shape. `op` is the raw
+// asx_logicaloperator (ALL = 1, ANY = 2); a null `parentId` marks the root.
+export interface PersistedFiresWhen {
+  groups: { id: string; op: number; order: number; parentId: string | null }[];
+  tests: { groupId: string; outcomeId: string | null; expected: boolean; order: number }[];
+}
+
+export async function readFiresWhen(actionId: string): Promise<PersistedFiresWhen> {
+  const api = createDevApi();
+  const g = await api.retrieveMultipleRecords(
+    ENTITY_SET.actionConditionGroup,
+    `?$filter=${LOOKUP.acgAction} eq ${actionId}` +
+    `&$select=asx_actionconditiongroupid,asx_logicaloperator,asx_order,${LOOKUP.acgParent}&$orderby=asx_order asc`,
+  );
+  const groups = g.entities.map((e) => ({
+    id: String(e.asx_actionconditiongroupid),
+    op: e.asx_logicaloperator as number,
+    order: e.asx_order as number,
+    parentId: (e[LOOKUP.acgParent] as string | null) ?? null,
+  }));
+  if (groups.length === 0) return { groups, tests: [] };
+  const t = await api.retrieveMultipleRecords(
+    ENTITY_SET.actionConditionTest,
+    `?$filter=${groups.map((x) => `${LOOKUP.actGroup} eq ${x.id}`).join(" or ")}` +
+    `&$select=asx_expected,asx_order,${LOOKUP.actGroup},${LOOKUP.actOutcome}&$orderby=asx_order asc`,
+  );
+  const tests = t.entities.map((e) => ({
+    groupId: String(e[LOOKUP.actGroup]),
+    outcomeId: (e[LOOKUP.actOutcome] as string | null) ?? null,
+    expected: e.asx_expected as boolean,
+    order: e.asx_order as number,
+  }));
+  return { groups, tests };
+}
+
+// The rule's outcomes: its top-level validation groups (asx_isexecutioncondition false, no parent).
+export async function outcomesOf(ruleId: string): Promise<{ id: string; name: string }[]> {
+  const api = createDevApi();
+  const r = await api.retrieveMultipleRecords(
+    ENTITY_SET.group,
+    `?$filter=${LOOKUP.ruleOfGroup} eq ${ruleId} and asx_isexecutioncondition eq false and ${LOOKUP.parentGroup} eq null` +
+    `&$select=asx_conditiongroupid,asx_name`,
+  );
+  return r.entities.map((e) => ({ id: String(e.asx_conditiongroupid), name: String(e.asx_name) }));
 }

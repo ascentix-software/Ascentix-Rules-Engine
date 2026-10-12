@@ -285,6 +285,14 @@ export async function createOrderLine(orderId: string, data: Record<string, unkn
   });
 }
 
+// Moves an existing line to another order (a real Update of sample_orderid through its nav-prop).
+export async function moveOrderLine(lineId: string, orderId: string): Promise<void> {
+  if (!orderLineOrderNav) {
+    orderLineOrderNav = await resolveNavProp("sample_orderline", "sample_order", "sample_orderid");
+  }
+  await updateSubject("sample_orderlines", lineId, { [`${orderLineOrderNav}@odata.bind`]: `/sample_orders(${orderId})` });
+}
+
 // The sample_shipment -> sample_order lookup's @odata.bind nav-prop, resolved once.
 let orderShipmentNav: string | undefined;
 

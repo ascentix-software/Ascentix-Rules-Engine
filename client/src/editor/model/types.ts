@@ -2,7 +2,7 @@ export type LogicalOperatorLabel = "And" | "Or";
 export type ConditionTypeLabel = "FieldComparison" | "RowCount" | "RegexMatch" | "Expression";
 export type ActionTypeLabel =
   | "SetVisible" | "SetRequired" | "ShowMessage" | "Block"
-  | "CreateRecord" | "UpdateRecord" | "DeleteRecord";
+  | "CreateRecord" | "UpdateRecord" | "DeleteRecord" | "DeactivateRecord";
 export type TableConfigTypeLabel = "RootTable" | "LookupTable" | "ChildTable";
 
 export interface RuleHeader {
@@ -10,12 +10,29 @@ export interface RuleHeader {
   name: string;
   tableLogicalName: string;
   statusCode: number | null;
+  publishedRevisionId?: string | null;
+  /** The shared data model the rule's row points at, which **Edit data model** opens. Set when the graph is
+   *  a published version, whose rootTableConfigId is that version's frozen copy and not an editable record. */
+  modelId?: string | null;
+  publishedVersion?: number;
+  /** When and by whom the live revision was published (the revision row); display only, never saved. */
+  publishedOn?: string | null;
+  publishedBy?: string | null;
+  activeRuleId?: string;
+  activeEtag?: string | null;
   etag: string | null;
   triggers: number[];
   channels: number[];
   effectiveFrom: string | null;
   effectiveTo: string | null;
   evaluationContext: number | null;
+  /** Windows time zone id for date comparisons (asx_evaluationtimezone); null/absent = UTC. */
+  evaluationTimeZone?: string | null;
+  /** Which records an On demand run processes (asx_ondemandscope); 1 = "a record it's given",
+   *  2 = "all records that pass its execution conditions". Meaningful only when triggers
+   *  includes ON_DEMAND; null/absent (optional like evaluationTimeZone above, so existing rule
+   *  literals need not be touched) defaults to 1. */
+  onDemandScope?: number | null;
   rootTableConfigId: string | null;
   /** Root-table column logical names that fire OnUpdate evaluation (asx_triggercolumns, JSON array). */
   triggerColumns: string[];
@@ -48,6 +65,8 @@ export interface ConditionNode {
    * validation.ts can hint on a blank/unparseable expression.
    */
   expression?: string | null;
+  /** Expression condition only: aggregate filters keyed by `filter:<key>` (asx_expressionfilters). */
+  expressionFilters?: import("./expressionFilters").ExpressionFilters | null;
   /** Per-condition node filter ("Only consider records where…"); a list of single-target
    *  top-level filter groups (engine-accurate, per nodeFilter.ts); null ⇒ no filter. */
   filter?: import("./nodeFilter").NodeFilterBlock[] | null;
@@ -97,7 +116,11 @@ export interface ActionNode {
 
   order: number;
   actionType: ActionTypeLabel | null;
-  fireOn: number | null;
+  /** The "Fires when" tree (asx_actionconditiongroup/test). null = no tree: the action never fires
+   * and publish refuses it. */
+  firesWhen: FiresWhenGroup | null;
+  /** Load-time warning about the tree (more than one root in Dataverse); never saved. */
+  firesWhenWarning?: string | null;
   targetColumn: string | null;
   targetTable: string | null;
   targetNodeId: string | null;
@@ -107,8 +130,18 @@ export interface ActionNode {
   applyInverseWhenNotFired: boolean | null;
   severity: number | null;
   isActive: boolean | null;
+  /** Update Record only: also apply to the previous record when the save changes the lookup above
+   * the target (asx_applytoprevious). */
+  applyToPrevious?: boolean | null;
+  /** Set actions only (model/setActions.ts isSetAction): the Rows filter
+   * (asx_nodefiltergroup.asx_ruleaction), which rows of the target node the action writes. Its
+   * targetNodeId is always the action's target node; save/diff.ts binds it from the action. */
+  rowFilter?: import("./nodeFilter").NodeFilterBlock | null;
   localizedMessages: LocalizedMessage[];
 }
+
+export interface FiresWhenTest { id: string; etag?: string | null; outcomeId: string | null; expected: boolean; }
+export interface FiresWhenGroup { id: string; etag?: string | null; op: "all" | "any"; tests: FiresWhenTest[]; groups: FiresWhenGroup[]; }
 
 export interface TableConfigRef {
   id: string;

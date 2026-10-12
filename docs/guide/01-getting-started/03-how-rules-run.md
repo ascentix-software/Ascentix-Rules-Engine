@@ -7,45 +7,57 @@ slug: how-rules-run
 
 # How Rules Run
 
-A single rule can be evaluated in three execution contexts, depending on its
-**Triggers**. The **evaluation model is identical across all three contexts**: the
-same WHEN/THEN logic, the same Table Config traversal, the same condition types.
-Only the invocation and which action types take effect differ.
+A rule evaluates the same way everywhere: same conditions, same data model. What differs is what
+starts it and which actions take effect.
 
-## On create / update / delete (server engine)
+| Started by | Trigger | Actions that take effect |
+|---|---|---|
+| A create, update or delete on the rule's table | **On create**, **On update**, **On delete** | All server actions, including **Block** and the write actions |
+| The form loading or a field changing | **On form** | **Set Visible**, **Set Required**, **Show Message** |
+| `asx_RunRules` (a preview) | **On demand** by default | None: every fired action is reported, nothing is written |
+| **Apply to records**, a **Rule Run**, or `asx_ApplyRules` | **On demand** | All server actions |
 
-A plugin step runs synchronously as part of the database operation whenever a
-record on the rule's table is created, updated, or deleted.
+**On demand** was labelled **Manual** before this release. The stored value is unchanged, and the
+API accepts both `Manual` and `OnDemand`.
 
-- **What triggers it:** a Create, Update, or Delete operation against the rule's
-  table, matching the rule's **On Create**, **On Update**, or **On Delete**
-  trigger.
-- **What actions it can apply:** the full server action set, including write and
-  blocking actions: **Block**, **Create Record**, **Update Record**, and **Delete
-  Record**. A fired **Block** action prevents the operation entirely and rolls back
-  any pending writes; write actions run atomically in the same transaction as the
-  triggering operation.
+## On create, update or delete
 
-## On form (client form library)
+The engine runs inside the save, in the same transaction.
 
-- **What triggers it:** the form loading, or a field on the form changing, matching
-  the rule's **On Form** trigger.
-- **What actions it can apply:** the client-facing action set (**Set Visible**,
-  **Set Required**, and **Show Message**), applied live to the form. Any
-  server-only actions (like Block or the write actions) attached to the same rule
-  are evaluated and reported, but never executed from the form; enforcement of
-  those still happens server-side when the record is saved.
+- A fired **Block** stops the save and rolls back any pending writes.
+- **Create Record**, **Update Record**, **Delete Record** and **Deactivate Record** can write one
+  record or a set of rows (every filtered row of a collection, or a new record per row).
+- Writes to the same record are merged (an update and a delete become the delete; rows that already
+  hold the values are skipped), then sent as creates, then updates, then deletes, in bulk where the
+  table allows it.
+- A failed write names what failed, for example `Update contact (action "Stop bulk email"): …` or,
+  for a bulk request, `UpdateMultiple contact: …`. See *Runtime Enforcement*.
 
-## Manual / on-demand
+## On form
 
-The ad-hoc path for checking a rule's outcome without changing any data: useful for
-integrations, admin tools, or testing a rule before publishing it.
+The form library applies **Set Visible**, **Set Required** and **Show Message** live. Block and the
+write actions on the same rule are evaluated but not run from the form; the server enforces them
+when the record is saved.
 
-- **What triggers it:** an explicit call to the `asx_RunRules` Custom API, matching
-  the rule's **Manual** trigger (the API's default trigger filter). The caller
-  passes a table name plus an existing record id, unsaved field values as JSON, or
-  both.
-- **What actions it can apply:** every fired action across all action types is
-  reported back to the caller, but `asx_RunRules` is always **non-enforcing**. Even
-  a fired **Block** is only reported, never thrown, and write actions are reported
-  as a resolved "would write" description rather than executed.
+## On demand
+
+### Preview: `asx_RunRules`
+
+Checks what a rule would do, without changing data. The caller passes a table and an existing
+record id, unsaved field values as JSON, or both. It can also pass a draft rule's id to run that
+draft in place of its live rule; that's how the Rule Builder previews a draft.
+
+It never enforces: a fired **Block** is reported, not thrown, and writes are described, not made.
+
+### Apply: Apply to records, Rule Runs and `asx_ApplyRules`
+
+- **Apply to records** (the **Run** dialog, from the Rule Builder's **Run** menu or the hub's
+  **Run now**) starts a **Rule Run**. The rule's **Runs for** setting decides whether it acts on the
+  records you choose or on every record that passes **Only if**.
+- In a Rule Run, a record that fires **Block** gets no writes and is counted **Blocked**; the run
+  carries on. A page of records shares one transaction: a failed write rolls the page back, that
+  record is counted **Failed**, and the page runs again without it.
+- `asx_ApplyRules` applies a rule to one record. A fired **Block** throws and nothing is written;
+  otherwise every write is applied in the call's transaction.
+
+See *Running Rules On Demand*.

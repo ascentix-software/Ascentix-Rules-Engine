@@ -1,3 +1,4 @@
+import type { EditorApi } from "../../src/editor/webapi";
 import { createDevApi, deleteDevRecord } from "../devApi";
 import { ENTITY_SET, BIND_NAV } from "../../src/editor/load/odata";
 import { configsVisible, enforcementSettled } from "./settle";
@@ -14,9 +15,16 @@ interface TrackedRecord {
 }
 
 async function deleteInReverse(created: TrackedRecord[]): Promise<void> {
+  const rule = created.find(rec => rec.set === ENTITY_SET.rule);
+  if (rule) {
+    await deleteDevRecord(rule.set, rule.id);
+    created.length = 0;
+    return;
+  }
   while (created.length) {
-    const rec = created.pop()!;
+    const rec = created[created.length - 1];
     await deleteDevRecord(rec.set, rec.id);
+    created.pop();
   }
 }
 
@@ -97,7 +105,7 @@ export async function ensureTableConfig(): Promise<TableConfigGraph> {
     await awaitConfigsVisible([order, customer, parent, line, product, shipment]);
     return { order, customer, parent, line, product, shipment, cleanup: () => deleteInReverse(created) };
   } catch (err) {
-    await deleteInReverse(created);
+    await deleteInReverse(created).catch(cleanupError => console.warn("Fixture cleanup failed:", cleanupError));
     throw err;
   }
 }
@@ -155,7 +163,34 @@ export async function ensureLineRootedConfig(): Promise<LineRootedGraph> {
     await awaitConfigsVisible([lineRoot, order, siblings]);
     return { lineRoot, order, siblings, cleanup: () => deleteInReverse(created) };
   } catch (err) {
-    await deleteInReverse(created);
+    await deleteInReverse(created).catch(cleanupError => console.warn("Fixture cleanup failed:", cleanupError));
+    throw err;
+  }
+}
+
+export interface AccountSetGraph { account: string; contacts: string; tasks: string; cleanup: () => Promise<void>; }
+
+// account (root) → contacts (child, parentcustomerid) → tasks (child of contact, regardingobjectid).
+// The set-action shape (spec §1.1): a two-level child collection off a standard-entity root, for
+// ruleBehaviorSetActions.dev.test.ts's account-keeps-contacts-and-tasks-in-step scenario.
+export async function ensureAccountSetConfig(): Promise<AccountSetGraph> {
+  const api = createDevApi();
+  const created: TrackedRecord[] = [];
+  async function createNode(data: Record<string, unknown>): Promise<string> {
+    const id = await api.createRecord(ENTITY_SET.tableConfig, data);
+    created.push({ set: ENTITY_SET.tableConfig, id });
+    return id;
+  }
+  try {
+    const account = await createNode({ asx_name: "ZZ_RB_TC_set_account", asx_tablelogicalname: "account", asx_tableconfigtype: 1 });
+    const contacts = await createNode({ asx_name: "ZZ_RB_TC_set_contacts", asx_tablelogicalname: "contact", asx_tableconfigtype: 3,
+      asx_childlinkfield: "parentcustomerid", [`${BIND_NAV.tableConfigParent}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${account})` });
+    const tasks = await createNode({ asx_name: "ZZ_RB_TC_set_tasks", asx_tablelogicalname: "task", asx_tableconfigtype: 3,
+      asx_childlinkfield: "regardingobjectid", [`${BIND_NAV.tableConfigParent}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${contacts})` });
+    await awaitConfigsVisible([account, contacts, tasks]);
+    return { account, contacts, tasks, cleanup: () => deleteInReverse(created) };
+  } catch (err) {
+    await deleteInReverse(created).catch((e) => console.warn("Fixture cleanup failed:", e));
     throw err;
   }
 }
@@ -172,6 +207,7 @@ export interface ConditionCfg {
   minRows?: number; // RowCount asx_minexpectedrows
   maxRows?: number; // RowCount asx_maxexpectedrows
   expression?: string; // Expression (Calculation, type 4): asx_conditionexpression (mathexpr LHS)
+  expressionFilters?: string; // Expression (Calculation): asx_expressionfilters JSON map
   nodeFilter?: {
     // "Only consider records where…": one flat AND asx_nodefiltergroup on targetNodeId.
     targetNodeId: string; // asx_tableconfignode, the node whose rows are filtered
@@ -179,7 +215,7 @@ export interface ConditionCfg {
       fieldName?: string;
       operator?: string; // TEXT token: eq/ne/gt/ge/lt/le/like/not-like/null/not-null/contains/not-contains
       value?: string; // literal RHS
-      valueSource?: number; // 1 Literal (default) | 2 FieldReference
+      valueSource?: number; // 1 Literal (default) | 2 FieldReference | 4 DateExpression (JSON in value)
       valueColumn?: string; // FieldReference RHS column
       valueNodeId?: string; // FieldReference RHS node (asx_comparisonvaluenode); omit ⇒ same record
       exists?: {
@@ -194,16 +230,45 @@ export interface ConditionCfg {
   };
 }
 
+// An action's "Fires when" tree (docs/Schema.md 2.18-2.19). A test names an outcome (a top-level
+// validation group of the rule, RuleConfig.outcomes[].name, or `${ruleName}_g` for the single
+// default group) and the value it must have; a node is ALL (`all`) or ANY (`any`) of its children.
+export type WhenTest = { outcome: string; is: boolean };
+export type WhenCfg = { all?: (WhenTest | WhenCfg)[]; any?: (WhenTest | WhenCfg)[] };
+
 export interface ActionCfg {
   actionType: number; // 1 SetVisible | 2 SetRequired | 3 ShowMessage | 4 Block
-  fireOn: number; // 1 OnMatch | 2 OnNoMatch
+  // Shorthand for the retired On match / On no match, translated to a Fires-when tree with the
+  // mapping data update 1 uses (OutcomeConversionUpdate.cs): 1 -> root ALL with every outcome "is
+  // true" (no outcomes -> empty ALL); 2 -> root ANY with every outcome "is false". 2 with no
+  // outcomes would never fire, so the helper throws. Ignored when `when` is given.
+  fireOn?: number; // 1 | 2
+  when?: WhenCfg; // explicit Fires-when tree; neither `when` nor `fireOn` -> Always (empty root ALL)
   targetColumn?: string; // SetVisible/SetRequired target; field-level Block; omit for form-level
   valueBool?: boolean; // SetVisible/SetRequired: asx_valuebool (show / required when true)
   message?: string; // ShowMessage / Block text (not used by SetVisible/SetRequired)
   severity?: number; // 1 Information | 2 Warning | 3 Error
   targetTable?: string; // CreateRecord: asx_targettable (logical name, singular)
-  targetNodeId?: string; // Update/Delete: asx_TargetNode @odata.bind (single-cardinality node)
+  targetNodeId?: string; // Update/Delete/Deactivate/CreateRecord: asx_TargetNode @odata.bind — a
+  // single-cardinality node (root/lookup: writes that one record), or a collection node (writes
+  // every filtered row: a set action, docs/Schema.md §2.9/§4)
   fieldMapping?: string; // Create/Update: asx_fieldmapping JSON string
+  applyToPrevious?: boolean; // Update Record: asx_applytoprevious
+  order?: number; // asx_order: dispatch order among the actions that fire (default 1)
+  // a set action's Rows filter: one AND group on targetNodeId (asx_RuleAction bind), criteria like ConditionCfg.nodeFilter
+  rowFilter?: {
+    criteria: Array<{
+      fieldName?: string;
+      operator?: string; // TEXT token: eq/ne/gt/ge/lt/le/like/not-like/null/not-null/contains/not-contains
+      value?: string;
+      exists?: {
+        collectionNodeId: string;
+        minCount?: number;
+        maxCount?: number;
+        sub: Array<{ fieldName: string; operator: string; value?: string }>;
+      };
+    }>;
+  };
 }
 
 export interface RuleConfig {
@@ -214,11 +279,19 @@ export interface RuleConfig {
   channels?: number[]; // asx_channels (1 Standard | 2 Portal); empty/omitted ⇒ all channels
   groupOp?: number; // 1 And (default) | 2 Or
   conditions: ConditionCfg[];
+  // Named outcomes (top-level validation groups). When given, replaces the single `conditions` group
+  // (which is ignored); each is created named exactly `name`, and actions' `when` trees refer to it.
+  outcomes?: { name: string; groupOp?: 1 | 2; conditions: ConditionCfg[] }[];
+  token?: string; // authors as this principal (e.g. the Author-only SP) instead of the az user; cleanup still runs as the az user
+  executionConditions?: ConditionCfg[]; // rule gate (asx_isexecutioncondition=true), its own group evaluated before `conditions` (docs/Schema.md §2.3)
   actions: ActionCfg[];
   publish?: boolean; // default true; false leaves the rule Draft (e2e specs publish via the UI)
   requireValid?: boolean; // default true; false skips the asx_ValidateRule gate (e2e invalid-rule fixtures)
   settleProbe?: () => Promise<boolean>; // post-publish enforcement settle (see awaitEnforcement)
+  settleConsecutive?: number; // consecutive successful probes required (default 1)
   evaluationContext?: number; // asx_evaluationcontext: 1 User (default) | 2 System
+  evaluationTimeZone?: string; // asx_evaluationtimezone: Windows time zone id (blank = UTC)
+  onDemandScope?: number; // asx_ondemandscope: 1 Given record (default) | 2 All records that pass its execution conditions; On demand rules only
 }
 
 // Enforcement settle: repeat a sacrificial violating probe until the block is observed (the
@@ -227,7 +300,7 @@ export interface RuleConfig {
 // message. A dead rule still fails: at this step, with this message, not in the real assertions.
 export async function awaitEnforcement(
   probe: () => Promise<boolean>, // true = enforcement observed
-  opts: { label?: string; intervalMs?: number; capMs?: number } = {},
+  opts: { label?: string; intervalMs?: number; capMs?: number; consecutive?: number } = {},
 ): Promise<void> {
   await enforcementSettled(probe, opts);
 }
@@ -238,42 +311,86 @@ export interface AuthoredRule {
   cleanup: () => Promise<void>;
 }
 
+type FilterCriteriaCfg = NonNullable<ConditionCfg["nodeFilter"]>["criteria"];
+
+// Creates the criteria (Comparison or Exists, with a nested sub-filter group for Exists) of one
+// already-created `asx_nodefiltergroup` (`fgId`). Shared by a condition's nodeFilter ("Only
+// consider records where…") and an action's rowFilter (Rows filter): both are one flat AND group
+// with the same criterion shape, just parented to a different owner (the condition group vs. the
+// action, via BIND_NAV.filterGroupCondition vs. BIND_NAV.filterGroupAction).
+async function createFilterCriteria(
+  api: EditorApi,
+  fgId: string,
+  criteria: FilterCriteriaCfg,
+  created: TrackedRecord[],
+): Promise<void> {
+  for (const crit of criteria) {
+    if (crit.exists) {
+      const ex = crit.exists;
+      const exCritId = await api.createRecord(ENTITY_SET.nodeFilterCriterion, {
+        asx_criteriontype: 2, // Exists
+        asx_mincount: ex.minCount,
+        ...(ex.maxCount !== undefined ? { asx_maxcount: ex.maxCount } : {}),
+        [`${BIND_NAV.filterCriterionGroup}@odata.bind`]: `/${ENTITY_SET.nodeFilterGroup}(${fgId})`,
+        [`${BIND_NAV.filterCriterionCollectionNode}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${ex.collectionNodeId})`,
+      });
+      created.push({ set: ENTITY_SET.nodeFilterCriterion, id: exCritId });
+      // Sub-filter group owned by the Exists criterion (NOT scoped to the condition group).
+      const subFgId = await api.createRecord(ENTITY_SET.nodeFilterGroup, {
+        asx_logicaloperator: 1, // And
+        [`${BIND_NAV.filterGroupOwningCriterion}@odata.bind`]: `/${ENTITY_SET.nodeFilterCriterion}(${exCritId})`,
+      });
+      created.push({ set: ENTITY_SET.nodeFilterGroup, id: subFgId });
+      for (const sc of ex.sub) {
+        const scId = await api.createRecord(ENTITY_SET.nodeFilterCriterion, {
+          asx_fieldname: sc.fieldName,
+          asx_operator: sc.operator,
+          asx_criteriontype: 1, // Comparison
+          asx_value: sc.value,
+          [`${BIND_NAV.filterCriterionGroup}@odata.bind`]: `/${ENTITY_SET.nodeFilterGroup}(${subFgId})`,
+        });
+        created.push({ set: ENTITY_SET.nodeFilterCriterion, id: scId });
+      }
+    } else {
+      const critData: Record<string, unknown> = {
+        asx_fieldname: crit.fieldName,
+        asx_operator: crit.operator,
+        asx_criteriontype: 1, // Comparison
+        [`${BIND_NAV.filterCriterionGroup}@odata.bind`]: `/${ENTITY_SET.nodeFilterGroup}(${fgId})`,
+      };
+      if ((crit.valueSource ?? 1) === 2) {
+        critData.asx_comparisonvaluesource = 2; // FieldReference
+        critData.asx_comparisonvaluecolumn = crit.valueColumn;
+        if (crit.valueNodeId)
+          critData[`${BIND_NAV.filterCriterionValueNode}@odata.bind`] = `/${ENTITY_SET.tableConfig}(${crit.valueNodeId})`;
+      } else if (crit.valueSource === 4) {
+        critData.asx_comparisonvaluesource = 4; // DateExpression
+        critData.asx_value = crit.value;
+      } else {
+        critData.asx_value = crit.value;
+      }
+      const critId = await api.createRecord(ENTITY_SET.nodeFilterCriterion, critData);
+      created.push({ set: ENTITY_SET.nodeFilterCriterion, id: critId });
+    }
+  }
+}
+
 // Assembles a rule + one exec group + its conditions + actions, then validates via
 // asx_ValidateRule before returning: the engine only enforces a valid Published rule, so a rule
 // this function returns is guaranteed structurally sound. Any failure along the way (create 400,
 // or a failed validate) drains everything created so far and rethrows.
 export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
-  const api = createDevApi();
+  const api = createDevApi(cfg.token);
   const created: TrackedRecord[] = [];
 
-  try {
-    const ruleName = cfg.name.startsWith("ZZ_RB_") ? cfg.name : `ZZ_RB_${cfg.name}`;
-
-    const ruleId = await api.createRecord(ENTITY_SET.rule, {
-      asx_name: ruleName,
-      asx_tablelogicalname: cfg.tableLogicalName ?? "sample_order",
-      // No statuscode here: the rule is born Draft, exactly like the editor's createRule
-      // (client/src/editor/save/operations.ts). Published happens later via publishRule below.
-      asx_triggers: cfg.triggers ?? "1,2,4",
-      // Multi-select choice: Web API wants a comma-separated string of the int values. Empty ⇒ omit ⇒ all channels.
-      ...(cfg.channels && cfg.channels.length ? { asx_channels: cfg.channels.join(",") } : {}),
-      ...(cfg.evaluationContext ? { asx_evaluationcontext: cfg.evaluationContext } : {}),
-      [`${BIND_NAV.ruleRootTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${cfg.rootNodeId})`,
-    });
-    created.push({ set: ENTITY_SET.rule, id: ruleId });
-
-    const groupId = await api.createRecord(ENTITY_SET.group, {
-      asx_name: `${ruleName}_g`,
-      asx_logicaloperator: cfg.groupOp ?? 1, // And
-      asx_isexecutioncondition: false,
-      [`${BIND_NAV.groupRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})`,
-    });
-    created.push({ set: ENTITY_SET.group, id: groupId });
-
-    for (let i = 0; i < cfg.conditions.length; i++) {
-      const c = cfg.conditions[i];
+  // Creates one asx_rulecondition (+ any node filter) per entry in `conditions`, all parented to
+  // `groupId`, named `${namePrefix}<n>`. Shared by the validation group and an optional
+  // execution-condition gate group (RuleConfig.executionConditions) below.
+  async function addConditions(groupId: string, conditions: ConditionCfg[], namePrefix: string): Promise<void> {
+    for (let i = 0; i < conditions.length; i++) {
+      const c = conditions[i];
       const data: Record<string, unknown> = {
-        asx_name: `${ruleName}_c${i + 1}`,
+        asx_name: `${namePrefix}${i + 1}`,
         asx_conditiontype: c.conditionType,
         [`${BIND_NAV.conditionGroup}@odata.bind`]: `/${ENTITY_SET.group}(${groupId})`,
         [`${BIND_NAV.conditionTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${c.nodeId})`,
@@ -304,6 +421,7 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
       } else if (c.conditionType === 4) {
         // Expression (Calculation): mathexpr LHS vs a literal numeric RHS.
         data.asx_conditionexpression = c.expression;
+        if (c.expressionFilters) data.asx_expressionfilters = c.expressionFilters;
         data.asx_comparisonoperator = c.operator;
         data.asx_comparisonvaluesource = 1; // Literal RHS
         data.asx_comparisonvalue = c.literal;
@@ -319,53 +437,136 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
           [`${BIND_NAV.filterGroupTargetNode}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${c.nodeFilter.targetNodeId})`,
         });
         created.push({ set: ENTITY_SET.nodeFilterGroup, id: fgId });
-        for (const crit of c.nodeFilter.criteria) {
-          if (crit.exists) {
-            const ex = crit.exists;
-            const exCritId = await api.createRecord(ENTITY_SET.nodeFilterCriterion, {
-              asx_criteriontype: 2, // Exists
-              asx_mincount: ex.minCount,
-              ...(ex.maxCount !== undefined ? { asx_maxcount: ex.maxCount } : {}),
-              [`${BIND_NAV.filterCriterionGroup}@odata.bind`]: `/${ENTITY_SET.nodeFilterGroup}(${fgId})`,
-              [`${BIND_NAV.filterCriterionCollectionNode}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${ex.collectionNodeId})`,
-            });
-            created.push({ set: ENTITY_SET.nodeFilterCriterion, id: exCritId });
-            // Sub-filter group owned by the Exists criterion (NOT scoped to the condition group).
-            const subFgId = await api.createRecord(ENTITY_SET.nodeFilterGroup, {
-              asx_logicaloperator: 1, // And
-              [`${BIND_NAV.filterGroupOwningCriterion}@odata.bind`]: `/${ENTITY_SET.nodeFilterCriterion}(${exCritId})`,
-            });
-            created.push({ set: ENTITY_SET.nodeFilterGroup, id: subFgId });
-            for (const sc of ex.sub) {
-              const scId = await api.createRecord(ENTITY_SET.nodeFilterCriterion, {
-                asx_fieldname: sc.fieldName,
-                asx_operator: sc.operator,
-                asx_criteriontype: 1, // Comparison
-                asx_value: sc.value,
-                [`${BIND_NAV.filterCriterionGroup}@odata.bind`]: `/${ENTITY_SET.nodeFilterGroup}(${subFgId})`,
-              });
-              created.push({ set: ENTITY_SET.nodeFilterCriterion, id: scId });
-            }
-          } else {
-            const critData: Record<string, unknown> = {
-              asx_fieldname: crit.fieldName,
-              asx_operator: crit.operator,
-              asx_criteriontype: 1, // Comparison
-              [`${BIND_NAV.filterCriterionGroup}@odata.bind`]: `/${ENTITY_SET.nodeFilterGroup}(${fgId})`,
-            };
-            if ((crit.valueSource ?? 1) === 2) {
-              critData.asx_comparisonvaluesource = 2; // FieldReference
-              critData.asx_comparisonvaluecolumn = crit.valueColumn;
-              if (crit.valueNodeId)
-                critData[`${BIND_NAV.filterCriterionValueNode}@odata.bind`] = `/${ENTITY_SET.tableConfig}(${crit.valueNodeId})`;
-            } else {
-              critData.asx_value = crit.value;
-            }
-            const critId = await api.createRecord(ENTITY_SET.nodeFilterCriterion, critData);
-            created.push({ set: ENTITY_SET.nodeFilterCriterion, id: critId });
-          }
-        }
+        await createFilterCriteria(api, fgId, c.nodeFilter.criteria, created);
       }
+    }
+  }
+
+  const ruleName = cfg.name.startsWith("ZZ_RB_") ? cfg.name : `ZZ_RB_${cfg.name}`;
+  let ruleId = "";
+  const outcomes: { name: string; id: string }[] = [];
+
+  async function createValidationGroup(name: string, op: number): Promise<string> {
+    const id = await api.createRecord(ENTITY_SET.group, {
+      asx_name: name,
+      asx_logicaloperator: op,
+      asx_isexecutioncondition: false,
+      [`${BIND_NAV.groupRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})`,
+    });
+    created.push({ set: ENTITY_SET.group, id });
+    return id;
+  }
+
+  // One node of an action's Fires-when tree. Every node (not just the root) is bound to the action
+  // (asx_RuleAction) so one query loads the whole tree; nested nodes also bind asx_ParentGroup.
+  async function createFiresWhenGroup(actionId: string, op: number, order: number, parentId?: string): Promise<string> {
+    const id = await api.createRecord(ENTITY_SET.actionConditionGroup, {
+      asx_logicaloperator: op,
+      asx_order: order,
+      [`${BIND_NAV.actionConditionGroupAction}@odata.bind`]: `/${ENTITY_SET.action}(${actionId})`,
+      ...(parentId
+        ? { [`${BIND_NAV.actionConditionGroupParent}@odata.bind`]: `/${ENTITY_SET.actionConditionGroup}(${parentId})` }
+        : {}),
+    });
+    created.push({ set: ENTITY_SET.actionConditionGroup, id });
+    return id;
+  }
+
+  async function createFiresWhenTest(groupId: string, outcomeName: string, expected: boolean, order: number): Promise<void> {
+    const outcome = outcomes.find(o => o.name === outcomeName);
+    if (!outcome)
+      throw new Error(`authorRule: a Fires-when test names outcome "${outcomeName}", which this rule does not have (outcomes: ${outcomes.map(o => o.name).join(", ")}).`);
+    const id = await api.createRecord(ENTITY_SET.actionConditionTest, {
+      asx_expected: expected,
+      asx_order: order,
+      [`${BIND_NAV.actionConditionTestGroup}@odata.bind`]: `/${ENTITY_SET.actionConditionGroup}(${groupId})`,
+      [`${BIND_NAV.actionConditionTestOutcome}@odata.bind`]: `/${ENTITY_SET.group}(${outcome.id})`,
+    });
+    created.push({ set: ENTITY_SET.actionConditionTest, id });
+  }
+
+  // Creates `node`'s children under the already-created group `groupId`, recursively.
+  async function createFiresWhenChildren(actionId: string, groupId: string, children: (WhenTest | WhenCfg)[]): Promise<void> {
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      if ("outcome" in child) {
+        await createFiresWhenTest(groupId, child.outcome, child.is, i + 1);
+      } else {
+        const childId = await createFiresWhenGroup(actionId, whenOp(child), i + 1, groupId);
+        await createFiresWhenChildren(actionId, childId, whenChildren(child));
+      }
+    }
+  }
+
+  function whenOp(node: WhenCfg): number {
+    if (node.all && node.any) throw new Error("authorRule: a Fires-when node is either `all` or `any`, not both.");
+    return node.any ? 2 : 1;
+  }
+  function whenChildren(node: WhenCfg): (WhenTest | WhenCfg)[] {
+    return node.all ?? node.any ?? [];
+  }
+
+  // The action's tree: `when`, else the fireOn shorthand (the migration's mapping), else Always.
+  async function createFiresWhenTree(actionId: string, a: ActionCfg, actionIndex: number): Promise<void> {
+    let root: WhenCfg;
+    if (a.when) {
+      root = a.when;
+    } else if (a.fireOn === 1) {
+      root = { all: outcomes.map(o => ({ outcome: o.name, is: true })) };
+    } else if (a.fireOn === 2) {
+      if (!outcomes.length)
+        throw new Error(`authorRule: action ${actionIndex + 1} has fireOn 2 (On no match) but the rule has no outcomes, so its tree would never fire. Give it outcomes or an explicit \`when\`.`);
+      root = { any: outcomes.map(o => ({ outcome: o.name, is: false })) };
+    } else if (a.fireOn !== undefined) {
+      throw new Error(`authorRule: action ${actionIndex + 1} has fireOn ${a.fireOn}; only 1 (On match) or 2 (On no match) are translated. Omit fireOn for Always, or give a when tree.`);
+    } else {
+      root = { all: [] }; // Always
+    }
+    const rootId = await createFiresWhenGroup(actionId, whenOp(root), 1);
+    await createFiresWhenChildren(actionId, rootId, whenChildren(root));
+  }
+
+  try {
+    ruleId = await api.createRecord(ENTITY_SET.rule, {
+      asx_name: ruleName,
+      asx_tablelogicalname: cfg.tableLogicalName ?? "sample_order",
+      // No statuscode here: the rule is born Draft, exactly like the editor's createRule
+      // (client/src/editor/save/operations.ts). Published happens later via publishRule below.
+      asx_triggers: cfg.triggers ?? "1,2,4",
+      // Multi-select choice: Web API wants a comma-separated string of the int values. Empty ⇒ omit ⇒ all channels.
+      ...(cfg.channels && cfg.channels.length ? { asx_channels: cfg.channels.join(",") } : {}),
+      ...(cfg.evaluationContext ? { asx_evaluationcontext: cfg.evaluationContext } : {}),
+      ...(cfg.evaluationTimeZone ? { asx_evaluationtimezone: cfg.evaluationTimeZone } : {}),
+      ...(cfg.onDemandScope ? { asx_ondemandscope: cfg.onDemandScope } : {}),
+      [`${BIND_NAV.ruleRootTableConfig}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${cfg.rootNodeId})`,
+    });
+    created.push({ set: ENTITY_SET.rule, id: ruleId });
+
+    // Outcomes: one validation group per cfg.outcomes entry, named exactly `name`; without
+    // `outcomes`, the single group `${ruleName}_g` (unique per rule) holding cfg.conditions.
+    if (cfg.outcomes) {
+      for (const o of cfg.outcomes) {
+        const id = await createValidationGroup(o.name, o.groupOp ?? 1);
+        await addConditions(id, o.conditions, `${o.name}_c`);
+        outcomes.push({ name: o.name, id });
+      }
+    } else {
+      const id = await createValidationGroup(`${ruleName}_g`, cfg.groupOp ?? 1);
+      await addConditions(id, cfg.conditions, `${ruleName}_c`);
+      outcomes.push({ name: `${ruleName}_g`, id });
+    }
+
+    // Optional execution-condition gate group (asx_isexecutioncondition=true), evaluated before
+    // the validation group above: a record that doesn't pass it never reaches match/no-match.
+    if (cfg.executionConditions && cfg.executionConditions.length) {
+      const execGroupId = await api.createRecord(ENTITY_SET.group, {
+        asx_name: `${ruleName}_eg`,
+        asx_logicaloperator: 1, // And
+        asx_isexecutioncondition: true,
+        [`${BIND_NAV.groupRule}@odata.bind`]: `/${ENTITY_SET.rule}(${ruleId})`,
+      });
+      created.push({ set: ENTITY_SET.group, id: execGroupId });
+      await addConditions(execGroupId, cfg.executionConditions, `${ruleName}_ec`);
     }
 
     for (let i = 0; i < cfg.actions.length; i++) {
@@ -373,8 +574,7 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
       const data: Record<string, unknown> = {
         asx_name: `${ruleName}_a${i + 1}`,
         asx_actiontype: a.actionType,
-        asx_fireon: a.fireOn,
-        asx_order: 1,
+        asx_order: a.order ?? 1,
         asx_isactive: true,
         ...(a.targetColumn ? { asx_targetcolumn: a.targetColumn } : {}),
         ...(a.valueBool !== undefined ? { asx_valuebool: a.valueBool } : {}),
@@ -382,6 +582,7 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
         ...(a.severity ? { asx_severity: a.severity } : {}),
         ...(a.targetTable ? { asx_targettable: a.targetTable } : {}),
         ...(a.fieldMapping !== undefined ? { asx_fieldmapping: a.fieldMapping } : {}),
+        ...(a.applyToPrevious !== undefined ? { asx_applytoprevious: a.applyToPrevious } : {}),
         ...(a.targetNodeId
           ? { [`${BIND_NAV.actionTargetNode}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${a.targetNodeId})` }
           : {}),
@@ -389,6 +590,19 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
       };
       const actionId = await api.createRecord(ENTITY_SET.action, data);
       created.push({ set: ENTITY_SET.action, id: actionId });
+      await createFiresWhenTree(actionId, a, i);
+
+      if (a.rowFilter) {
+        if (!a.targetNodeId)
+          throw new Error(`authorRule: action ${i + 1} has a rowFilter but no targetNodeId to filter — a Rows filter needs the action's own target node.`);
+        const fgId = await api.createRecord(ENTITY_SET.nodeFilterGroup, {
+          asx_logicaloperator: 1, // And
+          [`${BIND_NAV.filterGroupAction}@odata.bind`]: `/${ENTITY_SET.action}(${actionId})`,
+          [`${BIND_NAV.filterGroupTargetNode}@odata.bind`]: `/${ENTITY_SET.tableConfig}(${a.targetNodeId})`,
+        });
+        created.push({ set: ENTITY_SET.nodeFilterGroup, id: fgId });
+        await createFilterCriteria(api, fgId, a.rowFilter.criteria, created);
+      }
     }
 
     // Validate before publishing: reaching this point proves the rule is structurally sound.
@@ -413,12 +627,12 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
     // transaction. This suite's Block cases passing live are the real-org proof of that fix.
     if (cfg.publish ?? true) {
       await api.publishRule(ruleId);
-      if (cfg.settleProbe) await awaitEnforcement(cfg.settleProbe, { label: ruleName });
+      if (cfg.settleProbe) await awaitEnforcement(cfg.settleProbe, { label: ruleName, consecutive: cfg.settleConsecutive });
     }
 
     return { ruleId, ruleName, cleanup: () => deleteInReverse(created) };
   } catch (err) {
-    await deleteInReverse(created);
+    await deleteInReverse(created).catch(cleanupError => console.warn("Fixture cleanup failed:", cleanupError));
     throw err;
   }
 }

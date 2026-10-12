@@ -3,10 +3,10 @@ import { createDevApi } from "../test-dev/devApi";
 import { ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { sweepRuleBehaviorOrphans } from "../test-dev/ruleBehavior/sweep";
 import { resolveAppId, createRuleFixture, deleteRuleCascade } from "./devHelpers";
-import { openRuleFromHub, toolbar } from "./editorHarness";
+import { openRuleFromHub, saveRule } from "./editorHarness";
 
-// The WHEN bands' own structure, built through the editor UI: the validation band, the And/Or
-// toggle, subgroup nesting, and the delete affordances. Those four decide, respectively, whether
+// The WHEN bands' own structure, built through the editor UI: the validation band, the All/Any
+// toggle (And/Or), subgroup nesting, and the delete affordances. Those four decide, respectively, whether
 // a rule gates execution or reports a violation, how its conditions combine, how deep the tree
 // goes, and whether removing a node actually deletes the row rather than orphaning it.
 //
@@ -46,23 +46,24 @@ test("validation band, Or operator, and a nested subgroup all persist", async ({
   try {
     const frame = await openRuleFromHub(page, appId, fixture.ruleName);
 
-    // Both bands render an "+ Add group" button; execution is band 1, validation band 2.
-    // nth(1) targets the VALIDATION band: its rows must persist asx_isexecutioncondition false.
-    await frame.getByRole("button", { name: "+ Add group" }).nth(1).click();
+    // The validation band is the Outcomes band ("Add outcome"): a top-level group in it is an
+    // outcome, and its rows must persist asx_isexecutioncondition false.
+    await frame.getByRole("button", { name: "Add outcome" }).first().click();
 
-    // The new group is auto-selected? Not necessarily. Open it explicitly.
-    await frame.getByRole("button", { name: /^Edit group/ }).click();
-    await frame.getByRole("textbox", { name: "Group name" }).fill("ZZ_RB_grpui_outer");
+    // The new outcome is auto-selected? Not necessarily. Open it explicitly: a top-level validation
+    // group reads "Edit outcome <name>" and its panel's name field is "Name" (required for an
+    // outcome, so its label may carry the required marker).
+    await frame.getByRole("button", { name: /^Edit outcome/ }).click();
+    await frame.getByRole("textbox", { name: /^Name\s*\*?$/ }).fill("ZZ_RB_grpui_outer");
 
-    const op = frame.getByRole("combobox", { name: "Logical operator" });
-    await op.click();
-    await frame.getByRole("option", { name: "Or", exact: true }).click();
+    // And/Or is the "True when it matches" All / Any toggle: Any is Or.
+    await frame.getByRole("radiogroup", { name: "True when it matches" })
+      .getByRole("radio", { name: "Any", exact: true }).click();
 
-    // Nest a subgroup under it via the group header's "Subgroup" chip.
-    await frame.getByRole("button", { name: "Subgroup" }).click();
+    // Nest a subgroup under it via the group's "Add subgroup" link.
+    await frame.getByRole("button", { name: "Add subgroup", exact: true }).click();
 
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
 
     const groups = await groupsOf(fixture.ruleId);
     expect(groups.length).toBe(2);
@@ -93,19 +94,20 @@ test("deleting a condition and a group removes the rows, not just the tree nodes
     expect(await conditionCount(before[0].asx_conditiongroupid as string)).toBe(1);
 
     // Delete the condition (row-level trash button), then save.
+    // Row actions reveal on hover/focus-within.
+    await frame.getByRole("button", { name: /^Edit condition/ }).hover();
     await frame.getByRole("button", { name: "Delete condition" }).click();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    await saveRule(frame);
     expect(await conditionCount(before[0].asx_conditiongroupid as string)).toBe(0);
 
-    // Now delete the (empty) group and save again.
-    await frame.getByRole("button", { name: "Delete group" }).click();
-    await toolbar(frame).getByRole("button", { name: "Save" }).click();
-    await expect(frame.getByText("Saved.")).toBeVisible({ timeout: 30_000 });
+    // Now delete the (empty) group from its ⋯ menu and save again.
+    await frame.getByRole("button", { name: /^More actions for / }).click();
+    await frame.getByRole("menuitem", { name: "Delete group" }).click();
+    await saveRule(frame);
     expect(await groupsOf(fixture.ruleId)).toEqual([]);
 
-    // The band falls back to its empty-state call to action.
-    await expect(frame.getByRole("button", { name: "+ Add group" }).first()).toBeVisible();
+    // The band falls back to its empty state.
+    await expect(frame.getByText(/^No groups yet/)).toBeVisible();
   } finally {
     await deleteRuleCascade(fixture.ruleId);
     await fixture.cleanup();

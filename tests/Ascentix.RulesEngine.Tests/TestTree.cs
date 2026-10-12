@@ -76,7 +76,7 @@ namespace Ascentix.RulesEngine.Tests
             int languageId = 1033,
             DateTime? utcNow = null,
             RuleEvaluationContext context = RuleEvaluationContext.User,
-            RuleTrigger trigger = RuleTrigger.Manual,
+            RuleTrigger trigger = RuleTrigger.OnDemand,
             PushdownPlan pushdown = null,
             IReadOnlyDictionary<Guid, List<FieldMappingEntry>> mappings = null,
             IEnumerable<Guid> ruleIds = null) =>
@@ -94,7 +94,7 @@ namespace Ascentix.RulesEngine.Tests
             int languageId = 1033,
             DateTime? utcNow = null,
             RuleEvaluationContext context = RuleEvaluationContext.User,
-            RuleTrigger trigger = RuleTrigger.Manual,
+            RuleTrigger trigger = RuleTrigger.OnDemand,
             PushdownPlan pushdown = null,
             IReadOnlyDictionary<Guid, List<FieldMappingEntry>> mappings = null,
             IEnumerable<Guid> ruleIds = null)

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseFrontMatter, renderBody, rewriteImages, buildBundle } from "./build-docs-lib.mjs";
+import { parseFrontMatter, renderBody, rewriteImages, buildBundle, screenshotCaptions, wrapFigures } from "./build-docs-lib.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEB = join(HERE, "..", "..", "docs", "guide");
@@ -19,8 +19,9 @@ function walk(dir) {
 
 const pages = [];
 for (const file of walk(WEB)) {
-  const { meta, body } = parseFrontMatter(readFileSync(file, "utf8"));
-  let html = rewriteImages(renderBody(body));
+  const text = readFileSync(file, "utf8");
+  const { meta, body } = parseFrontMatter(text);
+  let html = rewriteImages(wrapFigures(renderBody(body), screenshotCaptions(text)));
   // fail on missing referenced image
   for (const ref of [...html.matchAll(/src="asx_\/docs\/images\/([^"]+)"/g)]) {
     if (!existsSync(join(IMAGES, ref[1]))) throw new Error(`${meta.slug}: missing image ${ref[1]}`);

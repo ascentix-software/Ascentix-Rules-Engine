@@ -5,60 +5,70 @@ order: 204
 slug: editor-layout
 screenshots:
   - file: images/02-04-editor-layout-01.png
-    caption: The rule editor, showing header actions, properties band, data-map tree, and the WHEN (execution + validation) and THEN (actions) zones.
-    alt: "Rule editor for 'Order total within credit limit': breadcrumb, Save/Reload/Validate/Publish actions, a properties band (Table sample_order, Triggers, Channels All), a DATA MAP row (Orders, sample_customer, sample_orderline, sample_product), a WHEN Execution conditions zone, a WHEN Validation conditions zone with a 'Credit check' ALL·AND group and one condition, and a THEN Actions zone with a 'Block save' action."
+    caption: The rule editor, showing the header actions, the Rule settings strip, the data model, and the Only if, Outcomes and Then bands.
+    alt: "The rule editor for “Order total within credit limit”: Not live and Draft pills, Undo, Redo, Preview, Saved, Publish… and More actions; the Rule settings strip (Order · On create, On form, On update · All channels); the Orders data model chip; an Only if group “Has a customer”; a Credit check outcome; and a Then band with a Block save action; Rule settings open on the right."
 ---
 
 # Editor Layout
 
-The editor has four regions: the header, the properties band, the data map,
-and the WHEN/THEN zones that hold the rule body.
+The editor has a header, the **Rule settings** strip, the data model chip, and three bands that
+hold the rule: **Only if**, **Outcomes** and **Then**.
 
-![Rule editor for "Order total within credit limit": breadcrumb, Save/Reload/Validate/Publish actions, a properties band (Table sample_order, Triggers, Channels All), a DATA MAP row (Orders, sample_customer, sample_orderline, sample_product), a WHEN Execution conditions zone, a WHEN Validation conditions zone with a "Credit check" ALL·AND group and one condition, and a THEN Actions zone with a "Block save" action.](../images/02-04-editor-layout-01.png)
+![The rule editor for “Order total within credit limit”: Not live and Draft pills, Undo, Redo, Preview, Saved, Publish… and More actions; the Rule settings strip (Order · On create, On form, On update · All channels); the Orders data model chip; an Only if group “Has a customer”; a Credit check outcome; and a Then band with a Block save action; Rule settings open on the right.](../images/02-04-editor-layout-01.png)
 
 ## Header
 
-A **breadcrumb** back to the hub, the rule's **name**, a
-**Draft**/**Published** status badge, and the header actions:
+A breadcrumb back to the hub, the rule's name (**Rename rule** while you can edit it), a status
+pill, and the actions.
 
-- **Save**: writes changes to the server.
-- **Reload**: discards in-memory edits and re-fetches the rule from the
-  server.
-- **Validate**: runs the rule through the validator without publishing.
-- **Publish**: validates and, if it passes, moves the rule to Published.
+| Status pill | Meaning |
+|---|---|
+| **Live · vN** | Version N is published and enforcing. |
+| **Not live · vN** | Version N was published, then unpublished. |
+| **Editing draft** | A draft of a published rule is open (with its unsaved change count). |
+| **Draft** | Never published (shown with **Not live**). |
+| **Viewing live vN** | The published version, read-only. |
+| **Archived** | Retired; never enforced. |
 
-See *Validating & Publishing* for what those checks cover.
+Actions, left to right (only the ones that apply are shown):
 
-## Properties band
+| Action | Does |
+|---|---|
+| **Undo** / **Redo** | Steps through your edits (Ctrl+Z / Ctrl+Y). |
+| Issues button | Shows the error and warning count and opens the **Issues** drawer (*Validating & Publishing*). |
+| **Run** | Previews the rule on a record, applies the live version to records, or shows its runs. A never-published rule shows **Preview** instead (*Running Rules On Demand*). |
+| **Save** | Saves the draft; the published version keeps enforcing. Shows **Saved** when there's nothing to save. |
+| **Edit rule** | On a live rule: opens its working draft. |
+| **Publish…** | On a draft: saves, checks, and publishes it as the next version. On a rule that isn't live with no draft open, it sits beside **Edit rule**. |
+| **Back to draft** | While viewing the published version: returns to the draft. |
+| **More actions** (⋯) | **Review changes**, **Check for issues**, the **Published vN** group (**View published**, **Restore published to draft…**, **Discard draft…**), **Reload from server**, **Unpublish…**. |
 
-The properties band summarizes the rule's **Table**, **Triggers**, and
-**Channels**. To change them, use the **Properties** inspector, the same panel
-the condition and action inspectors use: on wide viewports it's docked
-alongside the editor by default, and on narrow viewports a **Properties**
-button appears at the end of the band to bring it up as an overlay.
+**Check for issues** saves and validates without publishing. **Restore published to draft…**
+replaces the draft's changes; **Discard draft…** deletes the draft and reopens the live rule. Neither
+changes what's enforcing. **Reload from server** drops unsaved edits.
 
-> The properties inspector also exposes settings that don't fit in the
-> resting band: **Fire on change of these columns** (trigger columns),
-> **Effective from** / **Effective to**, and **Evaluation context**. See
-> *Creating a New Rule* for trigger columns and *Evaluation Context* for
-> what evaluation context controls.
+## Rule settings strip
 
-## Data map
+The strip sums up the rule's table, triggers, schedule and channels. Click it to open **Rule
+settings** in the side panel (docked on wide screens, an overlay on narrow ones). It has three
+sections:
 
-The **DATA MAP** row shows the rule's table-config tree: the root table and
-any lookup/child nodes reachable from it. An **Edit data model** link opens
-the tree for editing. See *Table Configuration Tree* for how the tree is
-built and extended.
+- **When it runs**: the table, **Triggers**, **Also run on update when these change** (*Creating a
+  New Rule*), **Channels**, and for On demand rules the **On demand** card.
+- **Active period**: **Starts** and **Ends**.
+- **Evaluation**: **Run as** (*Evaluation Context*) and **Rule time zone**.
 
-## WHEN and THEN zones
+## Data model
 
-The rule body is organized into three zones:
+The chip beside the strip shows the root table and how many related tables the model reaches. Click
+it to see the tree; **Edit data model** opens it for editing (*Table Configuration Tree*).
 
-- **WHEN · Execution conditions**: gate whether the rule is evaluated at all.
-- **WHEN · Validation conditions**: the condition groups (AND/OR trees)
-  checked at save time. Whether they match determines whether the rule's
-  actions fire.
-- **THEN · Actions**: the actions the rule performs, run in order when the
-  rule fires.
+## Only if, Outcomes and Then
 
-See *Building Conditions* and *Building Actions* for how to build out each of these zones.
+| Band | Holds |
+|---|---|
+| **Only if** | Conditions that decide whether the rule runs at all. **Add group**. |
+| **Outcomes** | Named condition groups, each true or false. **Add outcome**. |
+| **Then** | Actions, run in order. Each fires when its **When** test on the outcomes holds. **Add action**. |
+
+See *Building Conditions* and *Building Actions*.

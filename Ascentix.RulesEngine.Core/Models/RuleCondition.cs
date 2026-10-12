@@ -47,5 +47,10 @@ namespace Ascentix.RulesEngine.Core.Models
 
         /// <summary>Expression condition only: the LHS mathexpr.</summary>
         public string Expression { get; set; }
+
+        /// <summary>Expression condition only: the aggregate filters map, raw JSON
+        /// <c>{ "&lt;key&gt;": &lt;criteria-tree&gt; }</c>, same format as a field-mapping entry's
+        /// <c>filters</c>. Parsed by <see cref="Ascentix.RulesEngine.Core.Actions.AggregateFilterParser.ParseJson"/>.</summary>
+        public string ExpressionFilters { get; set; }
     }
 }

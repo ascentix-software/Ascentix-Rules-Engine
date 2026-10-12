@@ -5,147 +5,104 @@ order: 208
 slug: filtering-child-records
 screenshots:
   - file: images/02-08-filtering-child-records-01.png
-    caption: The "Only consider records where…" modal, a filter block that targets one node and builds an AND/OR set of column criteria.
-    alt: The "Only consider records where…" filter modal opened from a Row Count condition, with a filter block showing a "FILTER ON (this record's collection)" node selector, a "Match AND/OR of the following" toggle, a column/operator criteria row, "Add" and "Add filter" buttons, and Cancel/Apply.
+    caption: The “Only consider records where…” dialog, a filter block that targets one node and builds an AND/OR set of column criteria.
+    alt: "The “Only consider records where…” dialog: Filter on “(this record's collection)”, Match All of the following, and the criterion Line Amount, Greater than, Literal, 100, with Add, Add filter, Cancel and Apply."
   - file: images/02-08-filtering-child-records-02.png
-    caption: A completed filter in which the condition only evaluates child records where Line Amount is greater than 100.
-    alt: 'The filter modal with a completed criterion: FILTER ON "(this record''s collection)", Match AND, and a row reading Line Amount (sample_lineamount) · Greater than · Literal · 100, plus Add, Add filter, and Cancel/Apply.'
+    caption: A completed filter, so the condition only counts order lines where Line Amount is more than 100.
+    alt: "A Count rows condition “Order lines has at least 1 row” with Only count rows where “Line Amount is more than 100” and an Edit link."
   - file: images/02-08-filtering-child-records-03.png
-    caption: The "How many matching rows?" count-mode dropdown, reusing the same modes as a Row Count condition.
-    alt: The Row Count condition inspector with the "How many matching rows?" dropdown open, listing At least one (exists), None (does not exist), At least N, At most N, Exactly N, Between N and M, and Custom (min / max).
+    caption: The Count dropdown sets how many matching rows the condition needs (at least, at most, between, or none).
+    alt: "The Count rows condition with its Count dropdown open: has at least (selected), has at most, has between, and has no."
 ---
 
 # Filtering a Condition's Child Records
 
-When a condition targets a **child (collection) node**, the condition editor
-offers an **"Only consider records where…"** section. The condition evaluates
-only the child records that match the filter.
+When a condition targets a **child (collection) node**, its panel shows **Only consider rows where**
+(**Only count rows where** for a Count rows condition). **Add filter** (or **Edit**) opens the
+**"Only consider records where…"** dialog. The condition then evaluates only the child records that
+match.
 
 ## How filters work
 
-Each filter is a **block that targets one specific node** and specifies an
-**AND/OR set of criteria** on that node's columns.
+- Each filter targets **one node** and holds an AND/OR set of criteria on that node's columns.
+- The first filter targets the condition's own child node. **Add filter** adds another, on the same
+  node or on an **ancestor node** (to filter by a related record's columns).
+- A child record counts only if it matches **all** filters.
 
-- **First filter targets the child node**: a new filter starts on the
-  condition's own child node.
-- **Add more filters**: each additional filter can target the same child node,
-  or an **ancestor node** to filter by that related record's columns.
-- **All filters must match**: a child record is evaluated only if it satisfies
-  **all** filters you add. An ancestor filter acts as an additional constraint
-  via the parent relationship.
+![The “Only consider records where…” dialog: Filter on “(this record's collection)”, Match All of the following, and the criterion Line Amount, Greater than, Literal, 100, with Add, Add filter, Cancel and Apply.](../images/02-08-filtering-child-records-01.png)
 
-![The "Only consider records where…" filter modal opened from a Row Count condition, with a filter block showing a "FILTER ON (this record's collection)" node selector, a "Match AND/OR of the following" toggle, a column/operator criteria row, "Add" and "Add filter" buttons, and Cancel/Apply.](../images/02-08-filtering-child-records-01.png)
+## Operators and values
 
-## Supported operators
+| | |
+|---|---|
+| Operators | **Equals**, **Not equals**, **Greater than**, **Greater or equal**, **Less than**, **Less or equal**, **Contains**, **Does not contain**, **Is null**, **Is not null** (only those that fit the column's type) |
+| Grouping | Each group has a **Match** **All** / **Any** toggle |
+| Values | **Literal** (a value you type), or **From record** (a column of a related record, such as the order's due date) |
+| Dates | Also **Date expression**: relative to when the rule runs ("now minus 90 days") or to another date ("the row's estimated close date plus 2 days") |
 
-A filter's criteria support the same comparison operators as Field Comparison
-conditions:
+- A row whose date is empty, or whose related record is missing or has no date, doesn't match.
+- For a window such as "in the next 120 days", add two criteria: on or after now, and on or before
+  now plus 120 days.
+- Date comparisons against a literal, "now", or a date on the rule's own record or a record it looks
+  up are applied in the Dataverse query. A date expression based on a date on the same row is
+  applied after the rows load.
 
-- **Equals**
-- **Not Equals**
-- **Greater Than**
-- **Greater Than Or Equal**
-- **Less Than**
-- **Less Than Or Equal**
-- **Contains**
-- **Does Not Contain**
-- **Is Null**
-- **Is Not Null**
+### Which day it is
 
-The editor only offers operators that make sense for the column's data type.
+| Column kind | Compared as |
+|---|---|
+| **User Local** | Exact moments |
+| **Date Only** | Calendar dates: "on or after yesterday" means any time yesterday |
+| **Time Zone Independent** | Clock times with no time zone |
 
-## Comparison values: literal or field reference
-
-Each criterion's comparison value can be:
-
-- **Literal**: a fixed value you type in.
-- **Field reference**: read from a related record's column through a
-  lookup-chain or single-record reference. For example, compare a line item's
-  date against the order's due date.
+For Date Only and Time Zone Independent columns, set **Rule time zone** (rule settings →
+**Evaluation**) so the rule knows which day it is. The default is UTC, so a rule used in Eastern
+Canada moves to the next day at 8 pm (7 pm in winter). The same setting reads a date without a time
+zone against a User Local column: "Created On on or after 2026-09-01" means midnight in the rule's
+time zone.
 
 ## Examples
 
-### Example 1: Filter child records by a column on the child node
+**Filter by a column on the child.** "Every line with status = Active must have amount > 0":
+condition `amount > 0` on the order-line node, plus a filter on the order-line node
+`status Equals Active`.
 
-A rule on **order lines** checks "every line **with status = Active** must have
-amount > 0."
+![A Count rows condition “Order lines has at least 1 row” with Only count rows where “Line Amount is more than 100” and an Edit link.](../images/02-08-filtering-child-records-02.png)
 
-- Create a condition on the order-line node: `amount > 0`.
-- Add a filter targeting the order-line node: `status Equals Active`.
-- Result: only order lines with `status = Active` are checked.
-
-![The filter modal with a completed criterion: FILTER ON "(this record's collection)", Match AND, and a row reading Line Amount (sample_lineamount) · Greater than · Literal · 100, plus Add, Add filter, and Cancel/Apply.](../images/02-08-filtering-child-records-02.png)
-
-### Example 2: Filter child records by a column on an ancestor node
-
-A rule on **order lines** checks "every line must have amount > 0, but only for
-orders in the **Northeast region**."
-
-- Create a condition on the order-line node: `amount > 0`.
-- Add a filter that targets the **parent order node**: `region Equals Northeast`.
-- Result: only lines that belong to a Northeast order are checked.
+**Filter by a column on an ancestor.** "Every line must have amount > 0, for Northeast orders only":
+condition `amount > 0` on the order-line node, plus a filter on the parent order node
+`region Equals Northeast`.
 
 ## Has related rows… (existence filtering)
 
-A filter's **Add ▾** menu offers **Condition**, **Group**, and a third option:
-**Related-rows filter**. Adding one turns **the criterion** into an existence
-check: the criterion is satisfied when another related collection has a **count
-of matching rows** within a range you choose, instead of comparing a single
-column.
+The filter's **Add ▾** menu offers **Condition**, **Group** and **Related-rows filter**. A
+related-rows filter is satisfied when another related collection has a **count of matching rows**
+in a range, for example "this order has at least one Active line item", without a separate Row
+Count condition.
 
-This expresses "this order has at least one line item with status = Active"
-inside the filter, without a separate Row Count condition.
+1. In **"Related rows collection"**, pick one of the rule's child-collection nodes. It's related to
+   the filtered node through the ancestor they share (lines and shipments of the same order).
+2. In **"How many matching rows?"**, pick the count:
 
-### Picking the related collection
+   | Mode | Range |
+   |---|---|
+   | **At least one (exists)** | min 1 |
+   | **None (does not exist)** | max 0 |
+   | **At least N** | min N |
+   | **At most N** | max N |
+   | **Exactly N** | min and max N |
+   | **Between N and M** | min N, max M |
+   | **Custom (min / max)** | the bounds, set directly |
 
-A **"Related rows collection"** picker lists the rule's child-collection nodes
-from the configuration tree. The engine relates the picked collection to the
-node the filter targets through the **common ancestor** the two nodes share in
-the tree. A line node and a shipment
-node that both hang off the same order node are related through that order.
+3. Add the **sub-filter**: criteria on the related collection's columns. Its **Add** menu offers
+   only **Condition** and **Group** (one level of nesting).
 
-### Count modes
+![The Count rows condition with its Count dropdown open: has at least (selected), has at most, has between, and has no.](../images/02-08-filtering-child-records-03.png)
 
-The **"How many matching rows?"** dropdown sets the count range, reusing the
-same modes as a Row Count condition:
-
-- **At least one (exists)**: min 1, no upper bound.
-- **None (does not exist)**: max 0.
-- **At least N**: min N, no upper bound.
-- **At most N**: max N, no lower bound.
-- **Exactly N**: min and max both N.
-- **Between N and M**: min N, max M.
-- **Custom (min / max)**: the raw bounds, set directly.
-
-![The Row Count condition inspector with the "How many matching rows?" dropdown open, listing At least one (exists), None (does not exist), At least N, At most N, Exactly N, Between N and M, and Custom (min / max).](../images/02-08-filtering-child-records-03.png)
-
-### The sub-filter
-
-Once a collection is picked, a **sub-filter** appears below the count mode: an
-AND/OR set of criteria on the related collection's columns, with the same
-operators and value sources as any other filter. Its **Add** menu offers only
-**Condition** and **Group**: existence filtering supports **one level of
-nesting**.
-
-### Available in both surfaces
-
-"Has related rows…" appears wherever a filter builder does: a
-condition's **"Only consider records where…"** section (this page) and an
-aggregate's **"Filter this aggregate…"** builder (see *Field Mapping* →
+The same option is in an aggregate's **"Filter this aggregate…"** builder (*Field Mapping* →
 *Filtering an aggregate*).
 
-### Example: filter by an existence check on a different collection
-
-A rule on **order lines** checks "only consider a line when its **order also
-has an expedited shipment**."
-
-- Create a filter on the order-line node.
-- Use the **Add** menu and choose **Related-rows filter**.
-- Pick the **shipments** collection.
-- Set the count mode to **At least one (exists)**.
-- In the sub-filter, add `type Equals Expedited`.
-- Result: only order lines whose order has at least one expedited shipment
-  are checked.
-
-Switching the count mode to **None (does not exist)** inverts the criterion to
-"…order has **no** expedited shipment" instead.
+**Example.** "Only consider a line when its order also has an expedited shipment": on the
+order-line filter, **Add** → **Related-rows filter**, pick **shipments**, **At least one (exists)**,
+sub-filter `type Equals Expedited`. Switch to **None (does not exist)** for "…has no expedited
+shipment".

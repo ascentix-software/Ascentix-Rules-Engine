@@ -17,7 +17,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
     /// Rules × rows, table-driven, at the evaluation seam: every case is an
     /// <see cref="EvaluationInput"/> built by hand (tree, a cache with the roots already stored,
     /// groups, actions, dictionary-backed metadata, a fixed instant, a null-object trace) and an
-    /// exact, ORDERED list of fired actions: type, FireOn, rendered message, write-intent values.
+    /// exact, ORDERED list of fired actions: type, rendered message, write-intent values.
     /// No Dataverse, no FakeXrmEasy context: what <see cref="BucketEvaluator"/> decides is a
     /// function of the input alone. The facts below the table cover the trace-shaped and
     /// fault-shaped behaviours a verdict cannot express.
@@ -85,7 +85,6 @@ namespace Ascentix.RulesEngine.Tests.Engine
         private sealed class Expected
         {
             public ActionType Type;
-            public ActionFireOn FireOn;
             public string Message;
             public Dictionary<string, object> Values;   // null ⇒ no write intent expected
             public string TargetTable;
@@ -101,9 +100,9 @@ namespace Ascentix.RulesEngine.Tests.Engine
 
         private static readonly DateTime Now = new DateTime(2026, 8, 23, 12, 0, 0, DateTimeKind.Utc);
 
-        private static Expected Fired(ActionType type, ActionFireOn fireOn, string message = null,
+        private static Expected Fired(ActionType type, string message = null,
             Dictionary<string, object> values = null) =>
-            new Expected { Type = type, FireOn = fireOn, Message = message, Values = values };
+            new Expected { Type = type, Message = message, Values = values };
 
         private static object Normalize(object v)
         {
@@ -141,27 +140,27 @@ namespace Ascentix.RulesEngine.Tests.Engine
                 ComparisonValue = value,
             };
 
-        private static RuleAction Message(Guid ruleId, ActionType type, ActionFireOn fireOn, string text, int order,
+        private static RuleAction Message(Guid ruleId, ActionType type, ActionConditionGroup when, string text, int order,
             Dictionary<int, string> localized = null) =>
             new RuleAction
             {
                 Id = NewId(),
                 RuleId = ruleId,
                 ActionType = type,
-                FireOn = fireOn,
+                Condition = when,
                 Message = text,
                 Order = order,
                 IsActive = true,
                 LocalizedMessages = localized ?? new Dictionary<int, string>(),
             };
 
-        private static RuleAction Create(Guid ruleId, string table, string mapping, int order = 1) =>
+        private static RuleAction Create(Guid ruleId, string table, string mapping, ActionConditionGroup when, int order = 1) =>
             new RuleAction
             {
                 Id = NewId(),
                 RuleId = ruleId,
                 ActionType = ActionType.CreateRecord,
-                FireOn = ActionFireOn.OnMatch,
+                Condition = when,
                 TargetTable = table,
                 FieldMapping = mapping,
                 Order = order,
@@ -171,7 +170,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
         private const string SubjectHello = "[{\"target\":\"subject\",\"source\":\"literal\",\"value\":\"Hello\"}]";
 
         /// <summary>account root only. The rule: name == "Acme" (main group). Two message
-        /// actions OnMatch: ShowMessage (order 1) then Block (order 2).</summary>
+        /// actions fire when it holds: ShowMessage (order 1) then Block (order 2).</summary>
         private static (EvaluationInput input, Guid rule) AcmeRoot(
             string showText, string blockText, string rootName = "Acme", int languageId = 1033,
             Dictionary<int, string> localizedShow = null)
@@ -184,8 +183,8 @@ namespace Ascentix.RulesEngine.Tests.Engine
             var groups = new[] { Group(rule, false, Compare(rootId, "name", ComparisonOperator.Equals, "Acme")) };
             var actions = new[]
             {
-                Message(rule, ActionType.ShowMessage, ActionFireOn.OnMatch, showText, 1, localizedShow),
-                Message(rule, ActionType.Block, ActionFireOn.OnMatch, blockText, 2),
+                Message(rule, ActionType.ShowMessage, ActionTrees.AllTrue(groups[0].Id), showText, 1, localizedShow),
+                Message(rule, ActionType.Block, ActionTrees.AllTrue(groups[0].Id), blockText, 2),
             };
             return (TestTree.Input(tree, cache, root, groups, actions, new DictMetadata(), languageId: languageId, utcNow: Now), rule);
         }
@@ -211,10 +210,10 @@ namespace Ascentix.RulesEngine.Tests.Engine
             var groups = new[] { Group(rule, false, Compare(rootId, "name", ComparisonOperator.Equals, "Acme")) };
             var actions = new List<RuleAction>
             {
-                Message(rule, ActionType.ShowMessage, ActionFireOn.OnMatch, showText(lookupId), 1),
+                Message(rule, ActionType.ShowMessage, ActionTrees.AllTrue(groups[0].Id), showText(lookupId), 1),
             };
             if (blockText != null)
-                actions.Add(Message(rule, ActionType.Block, ActionFireOn.OnMatch, blockText(lookupId), 2));
+                actions.Add(Message(rule, ActionType.Block, ActionTrees.AllTrue(groups[0].Id), blockText(lookupId), 2));
             return (TestTree.Input(tree, cache, root, groups, actions, new DictMetadata(), utcNow: Now), lookupId);
         }
 
@@ -258,7 +257,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
             TestTree.Row("sample_shipment", NewId(), ("statuscode", status));
 
         /// <summary>RowCount(line, min 1) filtered by EXISTS(shipment, min 1, statuscode eq
-        /// expedited); CreateRecord task subject=Hello OnMatch.</summary>
+        /// expedited); CreateRecord task subject=Hello when that outcome is true.</summary>
         private static EvaluationInput ExistsInput(string shipmentStatus)
         {
             var (tree, _, lineCfg, shipmentCfg, root, cache) = OrderTree(
@@ -296,12 +295,12 @@ namespace Ascentix.RulesEngine.Tests.Engine
                     },
                 },
             });
-            return TestTree.Input(tree, cache, root, new[] { group }, new[] { Create(rule, "task", SubjectHello) },
+            return TestTree.Input(tree, cache, root, new[] { group }, new[] { Create(rule, "task", SubjectHello, ActionTrees.AllTrue(group.Id)) },
                 new DictMetadata(), utcNow: Now, trigger: RuleTrigger.OnCreate);
         }
 
         /// <summary>EXECUTION group: sum(node:line.lineamount) > 100; CreateRecord task
-        /// subject=Hello OnMatch with no main groups (vacuously matched).</summary>
+        /// subject=Hello, Always (the rule has no outcomes).</summary>
         private static EvaluationInput ChildSumGateInput(params decimal[] lineAmounts)
         {
             var (tree, rootCfg, lineCfg, _, root, cache) = OrderTree(lineAmounts.Select(Line));
@@ -315,7 +314,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
                 ComparisonOperator = ComparisonOperator.GreaterThan,
                 ComparisonValue = "100",
             });
-            return TestTree.Input(tree, cache, root, new[] { gate }, new[] { Create(rule, "task", SubjectHello) },
+            return TestTree.Input(tree, cache, root, new[] { gate }, new[] { Create(rule, "task", SubjectHello, ActionTrees.Always()) },
                 new DictMetadata(), utcNow: Now, trigger: RuleTrigger.OnCreate);
         }
 
@@ -331,20 +330,21 @@ namespace Ascentix.RulesEngine.Tests.Engine
 
         private static readonly Dictionary<string, Func<Case>> Table = new Dictionary<string, Func<Case>>
         {
-            // RulesEngineRunnerTests: Block OnNoMatch fires when the condition fails; nothing
-            // fires when it holds.
-            ["block_on_no_match_fires_when_rule_fails"] = () =>
+            // RulesEngineRunnerTests: a Block that fires when the outcome is false fires when the
+            // condition fails; nothing fires when it holds.
+            ["block_when_outcome_false_fires_when_rule_fails"] = () =>
             {
                 var rootId = NewId();
                 var rule = NewId();
                 var tree = TestTree.Tree(TestTree.Node(rootId, "account", TableConfigType.RootTable, null));
                 var root = TestTree.Row("account", NewId(), ("name", "Invalid"));
                 var cache = TestTree.Cache((rootId, new List<Entity> { root }));
+                var group = Group(rule, false, Compare(rootId, "name", ComparisonOperator.Equals, "Valid"));
                 var input = TestTree.Input(tree, cache, root,
-                    new[] { Group(rule, false, Compare(rootId, "name", ComparisonOperator.Equals, "Valid")) },
-                    new[] { Message(rule, ActionType.Block, ActionFireOn.OnNoMatch, "Name must be Valid.", 1) },
+                    new[] { group },
+                    new[] { Message(rule, ActionType.Block, ActionTrees.AnyFalse(group.Id), "Name must be Valid.", 1) },
                     new DictMetadata(), utcNow: Now);
-                return Single(input, Fired(ActionType.Block, ActionFireOn.OnNoMatch, "Name must be Valid."));
+                return Single(input, Fired(ActionType.Block, "Name must be Valid."));
             },
             ["nothing_fires_when_rule_matches"] = () =>
             {
@@ -353,9 +353,10 @@ namespace Ascentix.RulesEngine.Tests.Engine
                 var tree = TestTree.Tree(TestTree.Node(rootId, "account", TableConfigType.RootTable, null));
                 var root = TestTree.Row("account", NewId(), ("name", "Valid"));
                 var cache = TestTree.Cache((rootId, new List<Entity> { root }));
+                var group = Group(rule, false, Compare(rootId, "name", ComparisonOperator.Equals, "Valid"));
                 var input = TestTree.Input(tree, cache, root,
-                    new[] { Group(rule, false, Compare(rootId, "name", ComparisonOperator.Equals, "Valid")) },
-                    new[] { Message(rule, ActionType.Block, ActionFireOn.OnNoMatch, "Name must be Valid.", 1) },
+                    new[] { group },
+                    new[] { Message(rule, ActionType.Block, ActionTrees.AnyFalse(group.Id), "Name must be Valid.", 1) },
                     new DictMetadata(), utcNow: Now);
                 return Single(input);
             },
@@ -364,31 +365,31 @@ namespace Ascentix.RulesEngine.Tests.Engine
             // an unknown token degrades to the raw text and the rule still fires.
             ["root_token_renders_in_show_message_and_block"] = () =>
                 Single(AcmeRoot("Total for {root.name}.", "Blocked: {root.name}.").input,
-                    Fired(ActionType.ShowMessage, ActionFireOn.OnMatch, "Total for Acme."),
-                    Fired(ActionType.Block, ActionFireOn.OnMatch, "Blocked: Acme.")),
+                    Fired(ActionType.ShowMessage, "Total for Acme."),
+                    Fired(ActionType.Block, "Blocked: Acme.")),
             ["unknown_token_degrades_to_raw_text_and_rule_still_fires"] = () =>
                 Single(AcmeRoot("Total for {oops.name}.", "Blocked: {root.name}.").input,
-                    Fired(ActionType.ShowMessage, ActionFireOn.OnMatch, "Total for {oops.name}."),
-                    Fired(ActionType.Block, ActionFireOn.OnMatch, "Blocked: Acme.")),
+                    Fired(ActionType.ShowMessage, "Total for {oops.name}."),
+                    Fired(ActionType.Block, "Blocked: Acme.")),
             ["localized_message_with_token_renders_in_selected_language"] = () =>
                 Single(AcmeRoot("Total for {root.name}.", "Blocked: {root.name}.", languageId: 1036,
                         localizedShow: new Dictionary<int, string> { [1036] = "Total pour {root.name}." }).input,
-                    Fired(ActionType.ShowMessage, ActionFireOn.OnMatch, "Total pour Acme."),
-                    Fired(ActionType.Block, ActionFireOn.OnMatch, "Blocked: Acme.")),
+                    Fired(ActionType.ShowMessage, "Total pour Acme."),
+                    Fired(ActionType.Block, "Blocked: Acme.")),
             ["message_with_no_tokens_renders_unchanged"] = () =>
                 Single(AcmeRoot("Just a plain message, no tokens.", "Also plain, no tokens.").input,
-                    Fired(ActionType.ShowMessage, ActionFireOn.OnMatch, "Just a plain message, no tokens."),
-                    Fired(ActionType.Block, ActionFireOn.OnMatch, "Also plain, no tokens.")),
+                    Fired(ActionType.ShowMessage, "Just a plain message, no tokens."),
+                    Fired(ActionType.Block, "Also plain, no tokens.")),
             // An empty configured Message never reaches the renderer as "": MessageResolver
             // substitutes the engine's localized default, which itself has no tokens.
             ["empty_message_falls_back_to_the_engine_default"] = () =>
                 Single(AcmeRoot("", "").input,
-                    Fired(ActionType.ShowMessage, ActionFireOn.OnMatch, DefaultMessage),
-                    Fired(ActionType.Block, ActionFireOn.OnMatch, DefaultMessage)),
+                    Fired(ActionType.ShowMessage, DefaultMessage),
+                    Fired(ActionType.Block, DefaultMessage)),
             ["node_token_renders_the_related_records_value"] = () =>
                 Single(AcmeWithContact(id => $"Contact: {{node:{id}.fullname}}.", null,
                         TestTree.Row("contact", NewId(), ("fullname", "Sam Roe"))).input,
-                    Fired(ActionType.ShowMessage, ActionFireOn.OnMatch, "Contact: Sam Roe.")),
+                    Fired(ActionType.ShowMessage, "Contact: Sam Roe.")),
             // The referenced guid is simply never in the rule's config tree: TemplateRenderer's
             // "not in the rule's config tree" throw, swallowed by the degrade catch. The root
             // token in the OTHER message still renders.
@@ -397,8 +398,8 @@ namespace Ascentix.RulesEngine.Tests.Engine
                 var unknown = NewId();
                 var (input, _) = AcmeRoot($"Contact: {{node:{unknown}.fullname}}.", "Blocked: {root.name}.");
                 return Single(input,
-                    Fired(ActionType.ShowMessage, ActionFireOn.OnMatch, $"Contact: {{node:{unknown}.fullname}}."),
-                    Fired(ActionType.Block, ActionFireOn.OnMatch, "Blocked: Acme."));
+                    Fired(ActionType.ShowMessage, $"Contact: {{node:{unknown}.fullname}}."),
+                    Fired(ActionType.Block, "Blocked: Acme."));
             },
             // A misconfigured lookup whose fetch resolved two records for one root reference:
             // TemplateRenderer's ">1 records; expected at most one" throw, swallowed by the
@@ -411,15 +412,15 @@ namespace Ascentix.RulesEngine.Tests.Engine
                     TestTree.Row("contact", NewId(), ("fullname", "Sam Roe")),
                     TestTree.Row("contact", NewId(), ("fullname", "Alex Kim")));
                 return Single(input,
-                    Fired(ActionType.ShowMessage, ActionFireOn.OnMatch, $"Contact: {{node:{lookupCfg}.fullname}}."),
-                    Fired(ActionType.Block, ActionFireOn.OnMatch, $"Blocked: {{node:{lookupCfg}.fullname}}."));
+                    Fired(ActionType.ShowMessage, $"Contact: {{node:{lookupCfg}.fullname}}."),
+                    Fired(ActionType.Block, $"Blocked: {{node:{lookupCfg}.fullname}}."));
             },
 
             // RunnerExistsCriterionTests: the EXISTS criterion's sub-filter drives the verdict, so
             // an expedited shipment lets the line count, a standard one filters it out.
             ["exists_criterion_matches_when_a_related_shipment_is_expedited"] = () =>
                 Single(ExistsInput("expedited"),
-                    Fired(ActionType.CreateRecord, ActionFireOn.OnMatch, values: Values(("subject", "Hello")))),
+                    Fired(ActionType.CreateRecord, values: Values(("subject", "Hello")))),
             ["exists_criterion_does_not_match_when_no_shipment_is_expedited"] = () =>
                 Single(ExistsInput("standard")),
 
@@ -431,18 +432,19 @@ namespace Ascentix.RulesEngine.Tests.Engine
                 var tree = TestTree.Tree(TestTree.Node(rootId, "account", TableConfigType.RootTable, null));
                 var root = TestTree.Row("account", NewId(), ("name", "Acme Corp"));
                 var cache = TestTree.Cache((rootId, new List<Entity> { root }));
+                var group = Group(rule, false, Compare(rootId, "name", ComparisonOperator.IsNotNull));
                 var input = TestTree.Input(tree, cache, root,
-                    new[] { Group(rule, false, Compare(rootId, "name", ComparisonOperator.IsNotNull)) },
-                    new[] { Create(rule, "task", SubjectHello) },
+                    new[] { group },
+                    new[] { Create(rule, "task", SubjectHello, ActionTrees.AllTrue(group.Id)) },
                     new DictMetadata(), utcNow: Now, trigger: RuleTrigger.OnCreate);
                 return Single(input, new Expected
                 {
-                    Type = ActionType.CreateRecord, FireOn = ActionFireOn.OnMatch,
+                    Type = ActionType.CreateRecord,
                     Values = Values(("subject", "Hello")), TargetTable = "task", RootTargeted = false,
                 });
             },
-            // No condition groups at all: All() over empty is true, the rule matches, and the
-            // UpdateRecord on the root node resolves against the root's own identity.
+            // No condition groups at all: an Always action fires, and the UpdateRecord on the
+            // root node resolves against the root's own identity.
             ["update_record_on_root_with_no_conditions_has_resolved_write_intent"] = () =>
             {
                 var rootId = NewId();
@@ -452,7 +454,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
                 var cache = TestTree.Cache((rootId, new List<Entity> { root }));
                 var update = new RuleAction
                 {
-                    Id = NewId(), RuleId = rule, ActionType = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch,
+                    Id = NewId(), RuleId = rule, ActionType = ActionType.UpdateRecord, Condition = ActionTrees.Always(),
                     TargetNodeId = rootId, Order = 1, IsActive = true,
                     FieldMapping = "[{\"target\":\"name\",\"source\":\"literal\",\"value\":\"Patched\"}]",
                 };
@@ -460,7 +462,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
                     new DictMetadata(), utcNow: Now, trigger: RuleTrigger.OnCreate);
                 return Single(input, new Expected
                 {
-                    Type = ActionType.UpdateRecord, FireOn = ActionFireOn.OnMatch,
+                    Type = ActionType.UpdateRecord,
                     Values = Values(("name", "Patched")), TargetTable = "account", TargetId = root.Id, RootTargeted = true,
                 });
             },
@@ -471,26 +473,27 @@ namespace Ascentix.RulesEngine.Tests.Engine
                 var tree = TestTree.Tree(TestTree.Node(rootId, "account", TableConfigType.RootTable, null));
                 var root = TestTree.Row("account", NewId(), ("name", "Acme Corp"), ("numberofemployees", 3));
                 var cache = TestTree.Cache((rootId, new List<Entity> { root }));
+                var group = Group(rule, false, Compare(rootId, "name", ComparisonOperator.IsNotNull));
                 var input = TestTree.Input(tree, cache, root,
-                    new[] { Group(rule, false, Compare(rootId, "name", ComparisonOperator.IsNotNull)) },
-                    new[] { Create(rule, "task", "[{\"target\":\"amount\",\"source\":\"mathexpr\",\"expression\":\"{root.numberofemployees} * 2\"}]") },
+                    new[] { group },
+                    new[] { Create(rule, "task", "[{\"target\":\"amount\",\"source\":\"mathexpr\",\"expression\":\"{root.numberofemployees} * 2\"}]", ActionTrees.AllTrue(group.Id)) },
                     new DictMetadata().Type("task", "amount", AttributeTypeCode.Money), utcNow: Now, trigger: RuleTrigger.OnCreate);
-                return Single(input, Fired(ActionType.CreateRecord, ActionFireOn.OnMatch, values: Values(("amount", 6m))));
+                return Single(input, Fired(ActionType.CreateRecord, values: Values(("amount", 6m))));
             },
 
             // The execution-condition gate runs BEFORE the main groups: when it fails nothing
-            // fires at all (not even OnNoMatch); when it passes, the (empty) main groups match.
+            // fires at all (not even an Always action); when it passes, the Always action fires.
             ["execution_condition_passes_when_child_sum_exceeds_threshold"] = () =>
                 Single(ChildSumGateInput(50m, 70m),
-                    Fired(ActionType.CreateRecord, ActionFireOn.OnMatch, values: Values(("subject", "Hello")))),
+                    Fired(ActionType.CreateRecord, values: Values(("subject", "Hello")))),
             ["execution_condition_blocks_every_action_when_child_sum_is_below_threshold"] = () =>
                 Single(ChildSumGateInput(10m, 20m)),
-            ["failed_execution_condition_skips_on_no_match_actions_too"] = () =>
+            ["failed_execution_condition_skips_always_actions_too"] = () =>
             {
                 var input = ChildSumGateInput(10m, 20m);
                 var rule = input.RuleIds.Single();
                 var actions = input.ActionsByRule[rule].ToList();
-                actions.Add(Message(rule, ActionType.Block, ActionFireOn.OnNoMatch, "never", 2));
+                actions.Add(Message(rule, ActionType.Block, ActionTrees.Always(), "never", 2));
                 var rebuilt = TestTree.Input(input.Tree, input.Records[0].Cache, input.Records[0].Root,
                     input.RootGroups, actions, input.Metadata, utcNow: Now, trigger: RuleTrigger.OnCreate);
                 return Single(rebuilt);
@@ -505,23 +508,21 @@ namespace Ascentix.RulesEngine.Tests.Engine
                 var tree = TestTree.Tree(TestTree.Node(rootId, "account", TableConfigType.RootTable, null));
                 var root = TestTree.Row("account", NewId(), ("name", "Acme"));
                 var cache = TestTree.Cache((rootId, new List<Entity> { root }));
+                var groupB = Group(ruleB, false, Compare(rootId, "name", ComparisonOperator.IsNotNull));
+                var groupA = Group(ruleA, false, Compare(rootId, "name", ComparisonOperator.IsNotNull));
                 var input = TestTree.Input(tree, cache, root,
+                    new[] { groupB, groupA },
                     new[]
                     {
-                        Group(ruleB, false, Compare(rootId, "name", ComparisonOperator.IsNotNull)),
-                        Group(ruleA, false, Compare(rootId, "name", ComparisonOperator.IsNotNull)),
-                    },
-                    new[]
-                    {
-                        Message(ruleA, ActionType.ShowMessage, ActionFireOn.OnMatch, "A2", 2),
-                        Message(ruleB, ActionType.ShowMessage, ActionFireOn.OnMatch, "B1", 1),
-                        Message(ruleA, ActionType.ShowMessage, ActionFireOn.OnMatch, "A1", 1),
+                        Message(ruleA, ActionType.ShowMessage, ActionTrees.AllTrue(groupA.Id), "A2", 2),
+                        Message(ruleB, ActionType.ShowMessage, ActionTrees.AllTrue(groupB.Id), "B1", 1),
+                        Message(ruleA, ActionType.ShowMessage, ActionTrees.AllTrue(groupA.Id), "A1", 1),
                     },
                     new DictMetadata(), utcNow: Now, ruleIds: new[] { ruleA, ruleB });
                 return Single(input,
-                    Fired(ActionType.ShowMessage, ActionFireOn.OnMatch, "A1"),
-                    Fired(ActionType.ShowMessage, ActionFireOn.OnMatch, "A2"),
-                    Fired(ActionType.ShowMessage, ActionFireOn.OnMatch, "B1"));
+                    Fired(ActionType.ShowMessage, "A1"),
+                    Fired(ActionType.ShowMessage, "A2"),
+                    Fired(ActionType.ShowMessage, "B1"));
             },
 
             // One cache per record: each record's verdict reads only its own rows.
@@ -532,14 +533,15 @@ namespace Ascentix.RulesEngine.Tests.Engine
                 var tree = TestTree.Tree(TestTree.Node(rootId, "account", TableConfigType.RootTable, null));
                 var good = TestTree.Row("account", NewId(), ("name", "Valid"));
                 var bad = TestTree.Row("account", NewId(), ("name", "Invalid"));
+                var group = Group(rule, false, Compare(rootId, "name", ComparisonOperator.Equals, "Valid"));
                 var input = TestTree.Input(tree,
                     new[]
                     {
                         (good, TestTree.Cache((rootId, new List<Entity> { good }))),
                         (bad, TestTree.Cache((rootId, new List<Entity> { bad }))),
                     },
-                    new[] { Group(rule, false, Compare(rootId, "name", ComparisonOperator.Equals, "Valid")) },
-                    new[] { Message(rule, ActionType.Block, ActionFireOn.OnNoMatch, "Name must be Valid for {root.name}.", 1) },
+                    new[] { group },
+                    new[] { Message(rule, ActionType.Block, ActionTrees.AnyFalse(group.Id), "Name must be Valid for {root.name}.", 1) },
                     new DictMetadata(), utcNow: Now);
                 return new Case
                 {
@@ -547,7 +549,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
                     ExpectedByRecord = new List<List<Expected>>
                     {
                         new List<Expected>(),
-                        new List<Expected> { Fired(ActionType.Block, ActionFireOn.OnNoMatch, "Name must be Valid for Invalid.") },
+                        new List<Expected> { Fired(ActionType.Block, "Name must be Valid for Invalid.") },
                     },
                 };
             },
@@ -574,7 +576,6 @@ namespace Ascentix.RulesEngine.Tests.Engine
                     var e = expected[i];
                     var a = actual[i];
                     Assert.Equal(e.Type, a.ActionType);
-                    Assert.Equal(e.FireOn, a.FireOn);
                     Assert.Equal(e.Message, a.Message);
                     if (e.Values == null)
                     {
@@ -640,7 +641,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
             var tree = TestTree.Tree(TestTree.Node(rootId, "account", TableConfigType.RootTable, null));
             var root = TestTree.Row("account", NewId(), ("name", "Acme"));
             var cache = TestTree.Cache((rootId, new List<Entity> { root }));
-            var input = TestTree.Input(tree, cache, root, null, new[] { Create(rule, "task", SubjectHello) },
+            var input = TestTree.Input(tree, cache, root, null, new[] { Create(rule, "task", SubjectHello, ActionTrees.Always()) },
                 new DictMetadata(), utcNow: Now, mappings: new Dictionary<Guid, List<FieldMappingEntry>>());
 
             var fired = BucketEvaluator.Evaluate(input, new NullTrace()).FiredByRecord.Single().Single();
@@ -656,19 +657,20 @@ namespace Ascentix.RulesEngine.Tests.Engine
             var tree = TestTree.Tree(TestTree.Node(rootId, "account", TableConfigType.RootTable, null));
             var root = TestTree.Row("account", NewId(), ("name", "Acme"));
             var cache = TestTree.Cache((rootId, new List<Entity> { root }));
-            var bad = Create(rule, "task", "not json at all");
             var empty = new Dictionary<Guid, List<FieldMappingEntry>>();
 
-            // Condition fails → the OnMatch action never fires → no parse, no fault.
+            // Condition fails → the action that fires when it holds never fires → no parse, no fault.
+            var other = Group(rule, false, Compare(rootId, "name", ComparisonOperator.Equals, "Other"));
             var dormant = TestTree.Input(tree, cache, root,
-                new[] { Group(rule, false, Compare(rootId, "name", ComparisonOperator.Equals, "Other")) },
-                new[] { bad }, new DictMetadata(), utcNow: Now, mappings: empty);
+                new[] { other },
+                new[] { Create(rule, "task", "not json at all", ActionTrees.AllTrue(other.Id)) }, new DictMetadata(), utcNow: Now, mappings: empty);
             Assert.Empty(BucketEvaluator.Evaluate(dormant, new NullTrace()).FiredByRecord.Single());
 
             // Condition holds → the action fires → the mapping parses → the fault surfaces raw.
+            var acme = Group(rule, false, Compare(rootId, "name", ComparisonOperator.Equals, "Acme"));
             var firing = TestTree.Input(tree, cache, root,
-                new[] { Group(rule, false, Compare(rootId, "name", ComparisonOperator.Equals, "Acme")) },
-                new[] { bad }, new DictMetadata(), utcNow: Now, mappings: empty);
+                new[] { acme },
+                new[] { Create(rule, "task", "not json at all", ActionTrees.AllTrue(acme.Id)) }, new DictMetadata(), utcNow: Now, mappings: empty);
             Assert.Throws<InvalidPluginExecutionException>(() => BucketEvaluator.Evaluate(firing, new NullTrace()));
         }
 
@@ -680,7 +682,7 @@ namespace Ascentix.RulesEngine.Tests.Engine
             var tree = TestTree.Tree(TestTree.Node(rootId, "account", TableConfigType.RootTable, null));
             var root = TestTree.Row("account", NewId(), ("name", "Acme"));
             var cache = TestTree.Cache((rootId, new List<Entity> { root }));
-            var input = TestTree.Input(tree, cache, root, null, new[] { Create(rule, "task", SubjectHello) },
+            var input = TestTree.Input(tree, cache, root, null, new[] { Create(rule, "task", SubjectHello, ActionTrees.Always()) },
                 new DictMetadata(), utcNow: Now, context: RuleEvaluationContext.System);
 
             var fired = BucketEvaluator.Evaluate(input, new NullTrace()).FiredByRecord.Single().Single();

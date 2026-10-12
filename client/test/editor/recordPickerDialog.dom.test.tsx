@@ -115,6 +115,26 @@ describe("RecordPickerDialog", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /^select$/i })).toBeDisabled());
   });
 
+  // A row picked just before a debounced requery lands (e.g. clicked while the search box is
+  // still settling) stays picked when the new results still contain it.
+  it("keeps the selection when a requery's results still contain the picked row", async () => {
+    const acme = { id: "g1", name: "Acme", entity: { accountid: "g1", name: "Acme" } };
+    const globex = { id: "g2", name: "Globex", entity: { accountid: "g2", name: "Globex" } };
+    const query = vi.fn<(table: string, fetchXml: string) => Promise<RecordRow[]>>()
+      .mockResolvedValueOnce([acme, globex])
+      .mockResolvedValue([acme]);
+    const { onSelect } = harnessWith(query);
+
+    fireEvent.click(await screen.findByText("Acme"));
+    fireEvent.change(screen.getByRole("textbox", { name: /search records/i }), { target: { value: "acm" } });
+    await waitFor(() => expect(screen.queryByText("Globex")).not.toBeInTheDocument());
+
+    const select = screen.getByRole("button", { name: /^select$/i });
+    expect(select).toBeEnabled();
+    fireEvent.click(select);
+    expect(onSelect).toHaveBeenCalledWith("g1", "Acme");
+  });
+
   // FIX B: a late in-flight append must not land after a newer page-1 query.
   it("drops a stale in-flight append when a newer query supersedes it", async () => {
     const deferreds: Array<(r: RecordRow[]) => void> = [];

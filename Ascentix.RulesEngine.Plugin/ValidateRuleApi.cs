@@ -3,6 +3,8 @@ using System.Linq;
 using Microsoft.Xrm.Sdk;
 using Ascentix.RulesEngine.Core.Resolution;
 using Ascentix.RulesEngine.Core.Validation;
+using Ascentix.RulesEngine.Core.Publication;
+using Ascentix.RulesEngine.Plugin.Publication;
 
 namespace Ascentix.RulesEngine.Plugin
 {
@@ -28,24 +30,22 @@ namespace Ascentix.RulesEngine.Plugin
             if (!Guid.TryParse(raw, out var ruleId))
                 throw new InvalidPluginExecutionException($"asx_ValidateRule: RuleId '{raw}' is not a valid GUID.");
 
-            var model = RuleValidationLoader.Load(service, ruleId);
+            var snapshot = RuleSnapshot.Capture(service, ruleId);
+            var model = RuleValidationLoader.Load(new SnapshotService(service, snapshot), ruleId);
             if (model == null)
                 throw new InvalidPluginExecutionException($"asx_ValidateRule: rule '{ruleId}' was not found.");
 
-            var report = RuleValidator.Validate(model, new AttributeFlagsProvider(service));
+            var metadata = new AttributeFlagsProvider(service);
+            var report = RuleValidator.Validate(model, metadata);
 
-            // SEC issues are publisher-relative: the SEC_SYSWRITE_REQ warning always surfaces the
-            // Global-privilege requirement (so the editor shows it to everyone), while the blocking
-            // SEC_SYSWRITE_PRIV error reflects the CALLER's own privileges. The hard failure is
-            // re-evaluated for the actual publisher at publish time (RulePublishPlugin).
-            var secIssues = SecurityChecks.Check(
-                model, new PublisherPrivilegeProvider(service, context.InitiatingUserId));
-            // TRAV_PUSHDOWN advisory (non-blocking): criteria that can't filter server-side.
-            var pushdownIssues = PushdownChecks.Check(model);
-            var combined = ValidationReport.From(report.Issues.Concat(secIssues).Concat(pushdownIssues));
+            // TRAV_PUSHDOWN advisory (non-blocking): criteria that can't filter server-side,
+            // judged with the column behaviors the runtime planner reads.
+            var pushdownIssues = PushdownChecks.Check(model, metadata);
+            var combined = ValidationReport.From(report.Issues.Concat(pushdownIssues));
 
             context.OutputParameters["IsValid"] = combined.IsValid;
             context.OutputParameters["Issues"] = ValidationReportSerializer.Serialize(combined);
+            context.OutputParameters["DraftHash"] = snapshot.Hash();
         }
     }
 }

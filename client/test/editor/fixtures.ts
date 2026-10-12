@@ -42,7 +42,6 @@ export const rawAction = {
   asx_name: "Require approver",
   asx_order: 1,
   asx_actiontype: 2,
-  asx_fireon: 1,
   asx_targetcolumn: "creditlimitapprovedby",
   asx_targettable: null,
   asx_message: null,

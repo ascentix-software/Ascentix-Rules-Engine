@@ -37,7 +37,7 @@ describe("TableConfigNodeInspector", () => {
     expect(onRename).toHaveBeenCalledWith("Order lines");
   });
 
-  it("shows the canDelete reason and disables Delete node when deletion is blocked", () => {
+  it("shows the canDelete reason and disables Delete when deletion is blocked", () => {
     renderWithMeta(
       <TableConfigNodeInspector
         node={childNode()}
@@ -47,11 +47,12 @@ describe("TableConfigNodeInspector", () => {
       />,
       META,
     );
-    expect(screen.getByText("Has children")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /delete node/i })).toBeDisabled();
+    // The reason is visible under the buttons (and in the button's tooltip).
+    expect(screen.getAllByText("Has children").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /^Delete/ })).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("calls onDelete when Delete node is clicked and deletion is allowed", () => {
+  it("calls onDelete when Delete is clicked and deletion is allowed", () => {
     const onDelete = vi.fn();
     renderWithMeta(
       <TableConfigNodeInspector
@@ -62,15 +63,15 @@ describe("TableConfigNodeInspector", () => {
       />,
       META,
     );
-    fireEvent.click(screen.getByRole("button", { name: /delete node/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Delete/ }));
     expect(onDelete).toHaveBeenCalled();
   });
 
-  it("renders no Delete node button for a root node", () => {
+  it("renders no Delete button for a root node", () => {
     renderWithMeta(
       <TableConfigNodeInspector node={rootNode()} onRename={vi.fn()} onDelete={vi.fn()} />,
       META,
     );
-    expect(screen.queryByRole("button", { name: /delete node/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Delete/ })).not.toBeInTheDocument();
   });
 });

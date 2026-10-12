@@ -7,77 +7,60 @@ slug: triggers-and-channels
 
 # Triggers & Channels
 
-Every rule declares **Triggers** (which events invoke it) and, optionally,
-**Channels** (which origin of write it should respond to). Together these two
-settings control when a rule fires.
+**Triggers** decide which events run a rule. **Channels** decide which origin of a write it
+responds to.
 
 ## Triggers
 
-**Triggers** is a multi-select field on the rule, and a rule needs **at least one**
-selected. The available values are:
+Set in the rule settings under **When it runs**. A rule needs at least one:
 
-- **On Create**
-- **On Form**
-- **Manual**
-- **On Update**
-- **On Delete**
+- **On create**, **On update**, **On delete**
+- **On form**
+- **On demand** (labelled **Manual** before this release; the API accepts `Manual` and `OnDemand`)
 
-See *How Rules Run* for what each trigger invokes and which actions apply under it.
+The **New rule** dialog groups them under **Runs**: **On the form** (**While editing**), **When
+saved** (**Create**, **Update**, **Delete**) and **On demand**. See *How Rules Run*.
 
-## Trigger Columns
+## Runs for
 
-When you select **On Update**, an additional optional setting appears:
-**Fire on change of these columns**, a multi-select listing the root table's
-columns.
+Appears on the **On demand** card once **On demand** is ticked (`asx_ondemandscope`):
 
-By default (no columns selected) the rule's update firing is driven by the
-columns its **conditions** reference, so a rule only re-runs on update when
-one of its condition columns changes. Trigger columns are **added** to that
-set: pick a column here and the rule *also* fires when it changes. Use one when
-the rule's actions depend on a column its conditions don't reference:
+| Setting | What an On demand run acts on |
+|---|---|
+| **Records it's given** (default) | The records you add to **Apply to records** (a Rule Run takes up to 250), or the one record `asx_ApplyRules` names |
+| **All records that match "Only if"** | Every record on the table that passes the rule's **Only if** conditions, read a page at a time |
 
-> A rule on `sample_orderline` recomputes the order total by summing all line
-> amounts in an aggregate action, while its conditions only check whether the
-> order is locked. The aggregate reads `sample_lineamount`, so without
-> **`sample_lineamount` as a trigger column** the rule never fires when a line
-> amount is edited and the total goes stale.
+See *Running Rules On Demand* and *Beta Limitations*.
 
-Trigger columns only apply to **On Update**. Create and Delete triggers always
-fire on the entire record regardless of what columns changed.
+## Trigger columns
+
+With **On update** ticked, **Also run on update when these change** lists the table's columns.
+
+By default a rule re-runs on update only when a column its **conditions** use changes. Columns you
+pick here are added to that set. Use it when an action depends on a column the conditions don't
+read:
+
+> A rule on `sample_orderline` totals the line amounts into the order, but its conditions only
+> check whether the order is locked. Without `sample_lineamount` as a trigger column, editing a
+> line amount never re-runs the rule and the total goes stale.
+
+Create and Delete always run.
 
 ## Channels
 
-**Channels** is also a multi-select field, but it's optional, and it works the
-opposite way from Triggers: **leaving it empty means the rule applies to every
-channel**. The available values are:
+Optional. **Empty means every channel** (it reads **All channels**).
 
-- **Standard** covers every origin that is not a portal: a person saving a
-  model-driven form, the Web API, scripts and CLI tools, integrations,
-  connectors, service principals, and the platform's own system or
-  asynchronous operations.
-- **Portal** covers writes coming from a Power Pages portal.
+| Channel | Covers |
+|---|---|
+| **Standard** | Everything that isn't a portal: model-driven forms, the Web API, scripts, integrations, connectors, service principals, system and background operations |
+| **Portal** | Writes from a Power Pages portal |
 
-The engine does not try to tell a human apart from an integration: Dataverse does
-not expose that reliably, since an interactive session can present an application
-id on the write exactly as a service principal does. The one origin signal the
-platform guarantees is whether the call came through a Power Pages portal.
-Channels gate which **origin** a rule fires on, independent of which table
-operation triggered it.
+The engine can't tell a person from an integration, because Dataverse doesn't expose that
+reliably. The one origin it can rely on is whether a write came through a portal.
 
-## A practical example
+**Example:** a rule on `account` that should only gate Power Pages submissions gets **Triggers**
+**On create** and **On update** and **Channels** **Portal**. Saves from the app and the nightly
+integration (both **Standard**) aren't affected. **Standard** alone does the reverse.
 
-A validation rule on `account` blocks a save without a credit limit approver when
-the credit limit is large, and you want it enforced only on Power Pages
-submissions, not on internal users or the nightly integration.
-
-1. Set **Triggers** to **On Create** and **On Update**.
-2. Set **Channels** to **Portal** only.
-3. The rule blocks a portal submission, but a save from the model-driven app or a
-   write from the integration (both **Standard**) is not gated by this rule at all.
-
-The mirror works too: **Standard** only enforces the rule everywhere except
-the portal.
-
-To exempt an integration from a rule while still enforcing it on people, use
-the platform's own bypass (`BypassCustomPluginExecution`) rather than a
-channel. See *Security Roles → Administrative bypass*.
+To exempt an integration while still enforcing a rule on people, use the platform's
+`BypassCustomPluginExecution` instead of a channel (*Security Roles → Administrative bypass*).

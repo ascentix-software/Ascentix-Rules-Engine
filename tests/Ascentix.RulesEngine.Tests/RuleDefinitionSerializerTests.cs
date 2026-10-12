@@ -80,7 +80,7 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [ruleId] = new List<RuleAction>
                 {
-                    new RuleAction { RuleId = ruleId, ActionType = ActionType.Block, FireOn = ActionFireOn.OnNoMatch,
+                    new RuleAction { RuleId = ruleId, ActionType = ActionType.Block, Condition = ActionTrees.AnyFalse(group.Id),
                                      Message = "Approver required.", Severity = Severity.Error, Order = 1 }
                 }
             };
@@ -100,6 +100,7 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Contains("\"actionType\":\"Block\"", json);
             Assert.Contains("\"message\":\"Approver required.\"", json);
             Assert.Contains("\"value\":null", json);
+            Assert.DoesNotContain("fireOn", json);
         }
 
         [Fact]
@@ -254,7 +255,7 @@ namespace Ascentix.RulesEngine.Tests
             {
                 [ruleId] = new List<RuleAction>
                 {
-                    new RuleAction { RuleId = ruleId, ActionType = ActionType.SetVisible, FireOn = ActionFireOn.OnMatch,
+                    new RuleAction { RuleId = ruleId, ActionType = ActionType.SetVisible, Condition = ActionTrees.Always(),
                                      TargetColumn = "telephone1", ValueBool = true, ApplyInverseWhenNotFired = true, Order = 1 }
                 }
             };
@@ -294,7 +295,7 @@ namespace Ascentix.RulesEngine.Tests
                 [ruleId] = new List<RuleAction>
                 {
                     new RuleAction { RuleId = ruleId, ActionType = ActionType.CreateRecord,
-                        FireOn = ActionFireOn.OnMatch, TargetTable = "task",
+                        Condition = ActionTrees.Always(), TargetTable = "task",
                         FieldMapping = "[{\"target\":\"subject\",\"source\":\"literal\",\"value\":\"Hi\"}]", Order = 1 }
                 }
             };

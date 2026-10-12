@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { createDevApi, deleteDevRecord } from "./devApi";
-import { BIND_NAV, ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
+import { BIND_NAV, ENTITY, ENTITY_SET, LOOKUP } from "../src/editor/load/odata";
 import { readDevEnv } from "./devEnv";
+import { authorRule } from "./ruleBehavior/authoring";
+import { loadRuleGraph } from "../src/editor/load/index";
 
 // Round-trips every @odata.bind nav prop in BIND_NAV against live DEV: create a
 // child record binding the nav prop to a parent, read back the lookup's
@@ -73,14 +75,26 @@ async function makeCondition(label: string): Promise<string> {
   return id;
 }
 
+// An action needs a Fires-when tree to be publishable: an empty root ALL group is "Always". The
+// bind-nav shape under test is unaffected by the tree; the group is pushed after the action so the
+// shared afterEach (reverse order) removes it first. (It also cascades with its action.)
+async function makeAlwaysTree(actionId: string): Promise<void> {
+  const id = await api.createRecord(ENTITY_SET.actionConditionGroup, {
+    asx_logicaloperator: 1, // ALL
+    asx_order: 1,
+    [`${BIND_NAV.actionConditionGroupAction}@odata.bind`]: `/${ENTITY_SET.action}(${actionId})`,
+  });
+  created.push({ set: ENTITY_SET.actionConditionGroup, id });
+}
+
 async function makeAction(label: string): Promise<string> {
   const id = await api.createRecord(ENTITY_SET.action, {
     asx_name: `${runPrefix}${label}`,
     "asx_rule@odata.bind": `/${ENTITY_SET.rule}(${ruleId})`,
     asx_actiontype: 4,
-    asx_fireon: 1,
   });
   created.push({ set: ENTITY_SET.action, id });
+  await makeAlwaysTree(id);
   return id;
 }
 
@@ -103,6 +117,44 @@ async function makeFilterCriterion(label: string, filterGroupId: string): Promis
   });
   created.push({ set: ENTITY_SET.nodeFilterCriterion, id });
   return id;
+}
+
+// A dedicated Published On demand rule for the runRule bind check below: RuleRunPlugin resolves
+// the bound rule via OnDemandRules.Resolve (docs/Schema.md §2.13 Lifecycle) before allowing an
+// asx_rulerun create, so the shared ZZ_P2SEED_Rule (not On demand) can't stand in for it here.
+// Built via authorRule (ruleBehavior/authoring.ts), NOT hand-rolled records pushed into the
+// shared `created` array like the other make* helpers: a published rule's own children can't be
+// deleted directly ("Edit this rule's working draft in the Rule Builder", a 400 this file's plain
+// afterEach delete loop can't work around), so cleanup needs authorRule's own cleanup(), which
+// deletes the rule via asx_DeleteRule (a cascade over its owned graph) instead. Scoped to All
+// records (asx_ondemandscope=2) so creating the run below needs no record ids. Named
+// ZZ_RB_bindNav_runRule* (authorRule prefixes ZZ_RB_ automatically) so sweepRuleBehaviorOrphans
+// (ruleBehavior/sweep.ts, which every other live rule-behavior suite runs in its own beforeAll)
+// recovers this fixture's rule/group/condition/action if a run here is interrupted; the root
+// table-config node below shares that ZZ_RB_ prefix for the same reason (sweep.ts sweeps
+// asx_tableconfig by name prefix too).
+async function makeOnDemandRule(): Promise<{ ruleId: string; cleanup: () => Promise<void> }> {
+  const rootId = await api.createRecord(ENTITY_SET.tableConfig, {
+    asx_name: "ZZ_RB_bindNav_runRule_root",
+    asx_tablelogicalname: "sample_order",
+    asx_tableconfigtype: 1, // Root
+  });
+  const rule = await authorRule({
+    name: "bindNav_runRule", // -> ZZ_RB_bindNav_runRule
+    rootNodeId: rootId,
+    tableLogicalName: "sample_order",
+    triggers: "3", // On demand
+    onDemandScope: 2, // All records that pass its execution conditions: a run needs no record ids
+    conditions: [{ nodeId: rootId, conditionType: 1, column: "sample_ordertotal", operator: 10 /* IsNotNull */ }],
+    actions: [{ actionType: 3 /* ShowMessage */, fireOn: 1, message: "runRule bind check" }],
+  });
+  return {
+    ruleId: rule.ruleId,
+    cleanup: async () => {
+      await rule.cleanup(); // asx_DeleteRule cascade: the rule + its owned group/condition/action
+      await deleteDevRecord(ENTITY_SET.tableConfig, rootId).catch(() => {}); // not owned by the rule; shared models survive rule deletion
+    },
+  };
 }
 
 describe("BIND_NAV @odata.bind round-trips against DEV", () => {
@@ -164,26 +216,93 @@ describe("BIND_NAV @odata.bind round-trips against DEV", () => {
       },
     }));
 
-  it("actionRule binds a rule action to its rule", () =>
-    roundTrip({
+  it("actionRule binds a rule action to its rule", async () => {
+    const id = await roundTrip({
       label: "actionRule",
       set: ENTITY_SET.action, navProp: BIND_NAV.actionRule,
       parentSet: ENTITY_SET.rule, parentId: ruleId,
       lookupValueField: LOOKUP.ruleOfAction, // "_asx_rule_value"
-      extra: { asx_actiontype: 4, asx_fireon: 1 },
-    }));
+      extra: { asx_actiontype: 4 },
+    });
+    await makeAlwaysTree(id);
+  });
 
-  it("actionTargetNode binds a rule action's Update/Delete target node", () =>
-    roundTrip({
+  it("actionTargetNode binds a rule action's Update/Delete target node", async () => {
+    const id = await roundTrip({
       label: "actionTargetNode",
       set: ENTITY_SET.action, navProp: BIND_NAV.actionTargetNode, // PascalCase: asx_TargetNode
       parentSet: ENTITY_SET.tableConfig, parentId: rootCfg,
       lookupValueField: LOOKUP.actionTargetNode, // "_asx_targetnode_value"
       extra: {
         "asx_rule@odata.bind": `/${ENTITY_SET.rule}(${ruleId})`,
-        asx_actiontype: 4, asx_fireon: 1,
+        asx_actiontype: 4,
       },
-    }));
+    });
+    await makeAlwaysTree(id);
+  });
+
+  it("actionConditionGroupParent binds a Fires-when group to its parent group (and its action)", async () => {
+    const actionId = await makeAction("actionConditionGroupParent_action");
+    const parent = await api.retrieveMultipleRecords(ENTITY_SET.actionConditionGroup,
+      `?$filter=_asx_ruleaction_value eq ${actionId}&$select=asx_actionconditiongroupid`);
+    const parentId = parent.entities[0].asx_actionconditiongroupid as string;
+    await roundTrip({
+      label: "actionConditionGroupParent",
+      set: ENTITY_SET.actionConditionGroup, navProp: BIND_NAV.actionConditionGroupParent, // PascalCase: asx_ParentGroup
+      parentSet: ENTITY_SET.actionConditionGroup, parentId,
+      lookupValueField: "_asx_parentgroup_value",
+      extra: {
+        [`${BIND_NAV.actionConditionGroupAction}@odata.bind`]: `/${ENTITY_SET.action}(${actionId})`, // PascalCase: asx_RuleAction
+        asx_logicaloperator: 1, asx_order: 1,
+      },
+    });
+  });
+
+  it("actionConditionTestGroup and actionConditionTestOutcome bind a Fires-when test to its group and outcome", async () => {
+    const actionId = await makeAction("actionConditionTest_action");
+    const root = await api.retrieveMultipleRecords(ENTITY_SET.actionConditionGroup,
+      `?$filter=_asx_ruleaction_value eq ${actionId}&$select=asx_actionconditiongroupid`);
+    const groupOfAction = root.entities[0].asx_actionconditiongroupid as string;
+    await roundTrip({
+      label: "actionConditionTestGroup",
+      set: ENTITY_SET.actionConditionTest, navProp: BIND_NAV.actionConditionTestGroup, // PascalCase: asx_ActionConditionGroup
+      parentSet: ENTITY_SET.actionConditionGroup, parentId: groupOfAction,
+      lookupValueField: "_asx_actionconditiongroup_value",
+      extra: {
+        [`${BIND_NAV.actionConditionTestOutcome}@odata.bind`]: `/${ENTITY_SET.group}(${groupId})`, // PascalCase: asx_Outcome
+        asx_expected: true, asx_order: 1,
+      },
+    });
+    const testRows = await api.retrieveMultipleRecords(ENTITY_SET.actionConditionTest,
+      `?$filter=_asx_actionconditiongroup_value eq ${groupOfAction}&$select=_asx_outcome_value`);
+    expect(String(testRows.entities[0]._asx_outcome_value).toLowerCase()).toBe(groupId.toLowerCase());
+  });
+
+  it("the editor loads a Fires-when tree in one request (LOOKUP.acgRule filter, NAV.actionConditionGroupTests expand)", async () => {
+    const actionId = await makeAction("firesWhenLoad_action");
+    const root = await api.retrieveMultipleRecords(ENTITY_SET.actionConditionGroup,
+      `?$filter=_asx_ruleaction_value eq ${actionId}&$select=asx_actionconditiongroupid`);
+    const rootId = root.entities[0].asx_actionconditiongroupid as string;
+    const testId = await api.createRecord(ENTITY_SET.actionConditionTest, {
+      [`${BIND_NAV.actionConditionTestGroup}@odata.bind`]: `/${ENTITY_SET.actionConditionGroup}(${rootId})`,
+      [`${BIND_NAV.actionConditionTestOutcome}@odata.bind`]: `/${ENTITY_SET.group}(${groupId})`,
+      asx_expected: false, asx_order: 1,
+    });
+    created.push({ set: ENTITY_SET.actionConditionTest, id: testId });
+    // The editor's port takes logical names (Xrm.WebApi); the dev API takes entity set names.
+    const toSet = (logical: string) => {
+      const key = (Object.keys(ENTITY) as (keyof typeof ENTITY)[]).find((k) => ENTITY[k] === logical);
+      return key && key in ENTITY_SET ? ENTITY_SET[key as keyof typeof ENTITY_SET] : logical;
+    };
+    const port = { ...api,
+      retrieveRecord: (e: string, id: string, o?: string) => api.retrieveRecord(toSet(e), id, o),
+      retrieveMultipleRecords: (e: string, o?: string) => api.retrieveMultipleRecords(toSet(e), o) };
+    const graph = await loadRuleGraph(port as typeof api, ruleId);
+    const loaded = graph.actions.find((a) => a.id.toLowerCase() === actionId.toLowerCase());
+    expect(loaded?.firesWhen?.id.toLowerCase()).toBe(rootId.toLowerCase());
+    expect(loaded?.firesWhen?.tests.map((t) => [t.id.toLowerCase(), t.outcomeId?.toLowerCase(), t.expected]))
+      .toEqual([[testId.toLowerCase(), groupId.toLowerCase(), false]]);
+  });
 
   it("localizedMessageAction binds a localized message to its parent action", async () => {
     const actionId = await makeAction("localizedMessageAction_action");
@@ -316,4 +435,41 @@ describe("BIND_NAV @odata.bind round-trips against DEV", () => {
       },
     });
   });
+
+  it("runRule binds a rule run to its rule", async () => {
+    const fixture = await makeOnDemandRule();
+    try {
+      // roundTrip creates the asx_rulerun (tracked in `created`, deleted by the shared afterEach —
+      // a Rule Run isn't an owned-graph child of the rule, so a plain DELETE works), reads back
+      // _asx_rule_value, and asserts it resolved to the rule id.
+      await roundTrip({
+        label: "runRule",
+        set: ENTITY_SET.ruleRun, navProp: BIND_NAV.runRule, // PascalCase: asx_Rule
+        parentSet: ENTITY_SET.rule, parentId: fixture.ruleId,
+        lookupValueField: LOOKUP.ruleOfRun, // "_asx_rule_value"
+      });
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 30000);
+
+  it("scheduleRule binds a rule schedule to its rule", async () => {
+    // A schedule can only attach to a Published On demand rule scoped to all records
+    // (RuleSchedulePlugin.IsRunnable) — the same fixture shape runRule needs above.
+    const fixture = await makeOnDemandRule();
+    try {
+      // roundTrip creates the asx_ruleschedule (tracked in `created`, deleted by the shared
+      // afterEach — like a Rule Run, a schedule isn't an owned-graph child of the rule, so a
+      // plain DELETE works), reads back _asx_rule_value, and asserts it resolved to the rule id.
+      await roundTrip({
+        label: "scheduleRule",
+        set: ENTITY_SET.ruleSchedule, navProp: BIND_NAV.scheduleRule, // PascalCase: asx_Rule
+        parentSet: ENTITY_SET.rule, parentId: fixture.ruleId,
+        lookupValueField: LOOKUP.ruleOfSchedule, // "_asx_rule_value"
+        extra: { asx_on: true, asx_pattern: 1, asx_every: 15 }, // EveryMinutes: valid without a time of day
+      });
+    } finally {
+      await fixture.cleanup();
+    }
+  }, 30000);
 });
