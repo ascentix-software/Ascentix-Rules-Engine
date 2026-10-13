@@ -25,6 +25,7 @@
           <order attribute="asx_name" descending="false" />
           <filter type="and">
             <condition attribute="statecode" operator="eq" value="0" />
+            <condition attribute="asx_draftof" operator="null" />
           </filter>
           <filter type="or" isquickfindfields="1">
             <condition attribute="asx_name" operator="like" value="{0}" />

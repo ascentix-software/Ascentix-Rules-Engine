@@ -23,6 +23,9 @@
           <attribute name="asx_name" />
           <attribute name="createdon" />
           <order attribute="asx_name" descending="false" />
+          <filter type="and">
+            <condition attribute="asx_isprivate" operator="ne" value="1" />
+          </filter>
         </entity>
       </fetch>
     </fetchxml>

@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Skipped">
+  <description default="Running total of records that did not pass the execution conditions.">
+    <label description="Running total of records that did not pass the execution conditions." languagecode="1033" />
+  </description>
+  <displayname default="Skipped">
+    <label description="Skipped" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Skipped</name>
+  <type>7</type>
+</customapiresponseproperty>

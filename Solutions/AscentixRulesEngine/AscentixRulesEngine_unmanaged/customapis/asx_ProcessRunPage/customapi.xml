@@ -1,0 +1,19 @@
+<customapi uniquename="asx_ProcessRunPage">
+  <allowedcustomprocessingsteptype>0</allowedcustomprocessingsteptype>
+  <bindingtype>0</bindingtype>
+  <description default="Processes the next page of a Rule Run.">
+    <label description="Processes the next page of a Rule Run." languagecode="1033" />
+  </description>
+  <displayname default="Process Run Page">
+    <label description="Process Run Page" languagecode="1033" />
+  </displayname>
+  <executeprivilegename>prvCreateasx_RuleRun</executeprivilegename>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>0</isfunction>
+  <isprivate>0</isprivate>
+  <name>asx_ProcessRunPage</name>
+  <plugintypeid>
+    <plugintypeexportkey>962b5402-5fbb-f111-aaaf-70a8a5acb5f7</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>

@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Blocked">
+  <description default="Running total of records that fired a Block action.">
+    <label description="Running total of records that fired a Block action." languagecode="1033" />
+  </description>
+  <displayname default="Blocked">
+    <label description="Blocked" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Blocked</name>
+  <type>7</type>
+</customapiresponseproperty>

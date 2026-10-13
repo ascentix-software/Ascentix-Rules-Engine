@@ -1,0 +1,19 @@
+<customapi uniquename="asx_ReadPublishedRule">
+  <allowedcustomprocessingsteptype>0</allowedcustomprocessingsteptype>
+  <bindingtype>0</bindingtype>
+  <description default="Read the immutable configuration of the active published rule revision.">
+    <label description="Read the immutable configuration of the active published rule revision." languagecode="1033" />
+  </description>
+  <displayname default="asx_ReadPublishedRule">
+    <label description="asx_ReadPublishedRule" languagecode="1033" />
+  </displayname>
+  <executeprivilegename>prvReadasx_rule</executeprivilegename>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>0</isfunction>
+  <isprivate>0</isprivate>
+  <name>asx_ReadPublishedRule</name>
+  <plugintypeid>
+    <plugintypeexportkey>6d1d3b7d-57ae-f111-aaac-70a8a5acb5f7</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>

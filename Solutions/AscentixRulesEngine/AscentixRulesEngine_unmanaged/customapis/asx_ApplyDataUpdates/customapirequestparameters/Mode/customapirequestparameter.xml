@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="Mode">
+  <description default="Status reports pending data updates; Apply runs them (System Administrator or System Customizer only).">
+    <label description="Status reports pending data updates; Apply runs them (System Administrator or System Customizer only)." languagecode="1033" />
+  </description>
+  <displayname default="Mode">
+    <label description="Mode" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>0</isoptional>
+  <name>Mode</name>
+  <type>10</type>
+</customapirequestparameter>

@@ -65,6 +65,14 @@
                         <control id="asx_triggers" classid="{4AA28AB7-9C13-4F57-A73D-AD894D048B5F}" datafieldname="asx_triggers" />
                       </cell>
                     </row>
+                    <row>
+                      <cell id="{c8da2cc3-d012-4e6c-b881-c3f2919a671a}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Runs For" languagecode="1033" />
+                        </labels>
+                        <control id="asx_ondemandscope" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_ondemandscope" disabled="false" />
+                      </cell>
+                    </row>
                   </rows>
                 </section>
                 <section showlabel="true" showbar="false" IsUserDefined="0" id="{70507D52-09C6-412F-B925-7E0FC8D0CDA0}" name="rule_lifecycle">
@@ -102,6 +110,14 @@
                           <label description="Evaluation Context" languagecode="1033" />
                         </labels>
                         <control id="asx_evaluationcontext" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_evaluationcontext" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{217fa3c2-47d8-4fec-95c5-1d17561e8fbc}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Evaluation Time Zone" languagecode="1033" />
+                        </labels>
+                        <control id="asx_evaluationtimezone" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_evaluationtimezone" disabled="false" />
                       </cell>
                     </row>
                     <row>

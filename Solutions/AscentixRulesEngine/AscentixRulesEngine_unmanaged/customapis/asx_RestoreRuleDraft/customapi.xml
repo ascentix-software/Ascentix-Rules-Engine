@@ -1,0 +1,19 @@
+<customapi uniquename="asx_RestoreRuleDraft">
+  <allowedcustomprocessingsteptype>0</allowedcustomprocessingsteptype>
+  <bindingtype>0</bindingtype>
+  <description default="Restore the published configuration into a draft without changing active enforcement.">
+    <label description="Restore the published configuration into a draft without changing active enforcement." languagecode="1033" />
+  </description>
+  <displayname default="asx_RestoreRuleDraft">
+    <label description="asx_RestoreRuleDraft" languagecode="1033" />
+  </displayname>
+  <executeprivilegename>prvWriteasx_rule</executeprivilegename>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>0</isfunction>
+  <isprivate>0</isprivate>
+  <name>asx_RestoreRuleDraft</name>
+  <plugintypeid>
+    <plugintypeexportkey>6d1d3b7d-57ae-f111-aaac-70a8a5acb5f7</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>

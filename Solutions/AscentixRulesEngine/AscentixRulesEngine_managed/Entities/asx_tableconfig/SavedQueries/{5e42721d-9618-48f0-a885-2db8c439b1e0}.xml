@@ -24,6 +24,7 @@
           <attribute name="createdon" />
           <filter type="and">
             <condition attribute="statecode" operator="eq" value="0" />
+            <condition attribute="asx_isprivate" operator="ne" value="1" />
           </filter>
         </entity>
       </fetch>

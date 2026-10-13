@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Definition">
+  <description default="Serialized configuration of the active published rule revision.">
+    <label description="Serialized configuration of the active published rule revision." languagecode="1033" />
+  </description>
+  <displayname default="Definition">
+    <label description="Definition" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Definition</name>
+  <type>10</type>
+</customapiresponseproperty>

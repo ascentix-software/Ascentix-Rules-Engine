@@ -23,6 +23,9 @@
           <attribute name="asx_name" />
           <attribute name="asx_tablelogicalname" />
           <attribute name="asx_tableconfigtype" />
+          <filter type="and">
+            <condition attribute="asx_isprivate" operator="ne" value="1" />
+          </filter>
         </entity>
       </fetch>
     </fetchxml>

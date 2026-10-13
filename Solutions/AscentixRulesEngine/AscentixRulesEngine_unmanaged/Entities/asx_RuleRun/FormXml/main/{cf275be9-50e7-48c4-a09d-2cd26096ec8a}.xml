@@ -1,0 +1,159 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<forms xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <systemform>
+    <formid>{cf275be9-50e7-48c4-a09d-2cd26096ec8a}</formid>
+    <IntroducedVersion>0.0.0.2</IntroducedVersion>
+    <FormPresentation>1</FormPresentation>
+    <FormActivationState>1</FormActivationState>
+    <form>
+      <tabs>
+        <tab verticallayout="true" id="{597fdc53-7aa3-4d8c-8018-16d1ccb92c6a}" IsUserDefined="1">
+          <labels>
+            <label description="General" languagecode="1033" />
+          </labels>
+          <columns>
+            <column width="100%">
+              <sections>
+                <section showlabel="false" showbar="false" IsUserDefined="0" id="{359d9a56-4528-4005-a5de-680c85e5a1f2}">
+                  <labels>
+                    <label description="General" languagecode="1033" />
+                  </labels>
+                  <rows>
+                    <row>
+                      <cell id="{82d85132-db8f-4633-bd24-43011eb0d2b8}">
+                        <labels>
+                          <label description="Name" languagecode="1033" />
+                        </labels>
+                        <control id="asx_name" classid="{4273EDBD-AC1D-40d3-9FB2-095C621B552D}" datafieldname="asx_name" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{21c9e0da-d0c5-4de0-8c94-fff9bb46e7b8}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Rule" languagecode="1033" />
+                        </labels>
+                        <control id="asx_rule" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="asx_rule" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{c1dcb0bc-7d39-4029-84dd-8de48972bc2b}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Status" languagecode="1033" />
+                        </labels>
+                        <control id="asx_status" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_status" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{c87894c2-848e-432d-ac3e-105b35882020}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Scope" languagecode="1033" />
+                        </labels>
+                        <control id="asx_scope" classid="{3EF39988-22BB-4f0b-BBBE-64B5A3748AEE}" datafieldname="asx_scope" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{d927003d-03b3-4295-ab69-0187282be733}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Evaluated" languagecode="1033" />
+                        </labels>
+                        <control id="asx_evaluated" classid="{C6D124CA-7EDA-4a60-AEA9-7FB8D318B68F}" datafieldname="asx_evaluated" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{03540ffb-655e-4ff7-9f85-3c9c79edde27}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Changed" languagecode="1033" />
+                        </labels>
+                        <control id="asx_changed" classid="{C6D124CA-7EDA-4a60-AEA9-7FB8D318B68F}" datafieldname="asx_changed" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{be4acba6-adce-41c3-b25e-bc4ec9ec8ce1}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Blocked" languagecode="1033" />
+                        </labels>
+                        <control id="asx_blocked" classid="{C6D124CA-7EDA-4a60-AEA9-7FB8D318B68F}" datafieldname="asx_blocked" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{2250c380-279f-4327-bd0a-f0c4118a440e}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Failed" languagecode="1033" />
+                        </labels>
+                        <control id="asx_failed" classid="{C6D124CA-7EDA-4a60-AEA9-7FB8D318B68F}" datafieldname="asx_failed" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{60442723-747d-4116-a9cb-c0ada93e2c73}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Skipped" languagecode="1033" />
+                        </labels>
+                        <control id="asx_skipped" classid="{C6D124CA-7EDA-4a60-AEA9-7FB8D318B68F}" datafieldname="asx_skipped" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{49d7fa51-e94e-4b09-93ed-06f9325f8fec}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Started On" languagecode="1033" />
+                        </labels>
+                        <control id="asx_startedon" classid="{5B773807-9FB2-42db-97C3-7A91EFF8ADFF}" datafieldname="asx_startedon" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{1ec9884f-742d-442e-9410-effe0cc9bf61}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Last Page On" languagecode="1033" />
+                        </labels>
+                        <control id="asx_lastpageon" classid="{5B773807-9FB2-42db-97C3-7A91EFF8ADFF}" datafieldname="asx_lastpageon" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{d4ca4e5d-a118-4a83-8cb8-a82004e65d77}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Finished On" languagecode="1033" />
+                        </labels>
+                        <control id="asx_finishedon" classid="{5B773807-9FB2-42db-97C3-7A91EFF8ADFF}" datafieldname="asx_finishedon" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{d3b9f778-d553-44a9-a165-9ed20f4654e9}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Record Ids" languagecode="1033" />
+                        </labels>
+                        <control id="asx_recordids" classid="{E0DECE4B-6FC8-4a8f-A065-082708572369}" datafieldname="asx_recordids" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{b000281b-ebb2-46d9-9412-b7d1cbf03417}" showlabel="true" locklevel="0">
+                        <labels>
+                          <label description="Failures" languagecode="1033" />
+                        </labels>
+                        <control id="asx_failures" classid="{E0DECE4B-6FC8-4a8f-A065-082708572369}" datafieldname="asx_failures" disabled="false" />
+                      </cell>
+                    </row>
+                    <row>
+                      <cell id="{1b6a811f-847d-4d6e-b6e7-a91e7d8279d4}">
+                        <labels>
+                          <label description="Owner" languagecode="1033" />
+                        </labels>
+                        <control id="ownerid" classid="{270BD3DB-D9AF-4782-9025-509E298DEC0A}" datafieldname="ownerid" />
+                      </cell>
+                    </row>
+                  </rows>
+                </section>
+              </sections>
+            </column>
+          </columns>
+        </tab>
+      </tabs>
+    </form>
+    <IsCustomizable>1</IsCustomizable>
+    <CanBeDeleted>1</CanBeDeleted>
+    <LocalizedNames>
+      <LocalizedName description="Information" languagecode="1033" />
+    </LocalizedNames>
+    <Descriptions>
+      <Description description="A form for this entity." languagecode="1033" />
+    </Descriptions>
+  </systemform>
+</forms>

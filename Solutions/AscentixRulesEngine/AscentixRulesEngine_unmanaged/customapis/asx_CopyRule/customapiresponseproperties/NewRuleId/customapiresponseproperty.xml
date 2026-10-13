@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="NewRuleId">
+  <description default="Identifier of the new unpublished rule.">
+    <label description="Identifier of the new unpublished rule." languagecode="1033" />
+  </description>
+  <displayname default="NewRuleId">
+    <label description="NewRuleId" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>NewRuleId</name>
+  <type>10</type>
+</customapiresponseproperty>

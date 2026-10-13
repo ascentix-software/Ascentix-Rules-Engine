@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="DraftHash">
+  <description default="SHA-256 hash of the saved draft configuration checked by validation.">
+    <label description="SHA-256 hash of the saved draft configuration checked by validation." languagecode="1033" />
+  </description>
+  <displayname default="DraftHash">
+    <label description="DraftHash" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>DraftHash</name>
+  <type>10</type>
+</customapiresponseproperty>

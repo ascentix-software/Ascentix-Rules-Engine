@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="RuleId">
+  <description default="Identifier of the rule to edit.">
+    <label description="Identifier of the rule to edit." languagecode="1033" />
+  </description>
+  <displayname default="RuleId">
+    <label description="RuleId" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>0</isoptional>
+  <name>RuleId</name>
+  <type>10</type>
+</customapirequestparameter>

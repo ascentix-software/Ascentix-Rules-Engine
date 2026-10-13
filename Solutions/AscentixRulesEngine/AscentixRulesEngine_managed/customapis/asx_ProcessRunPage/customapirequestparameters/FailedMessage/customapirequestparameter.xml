@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="FailedMessage">
+  <description default="Error text for a record that failed evaluation on this page.">
+    <label description="Error text for a record that failed evaluation on this page." languagecode="1033" />
+  </description>
+  <displayname default="FailedMessage">
+    <label description="FailedMessage" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>FailedMessage</name>
+  <type>10</type>
+</customapirequestparameter>

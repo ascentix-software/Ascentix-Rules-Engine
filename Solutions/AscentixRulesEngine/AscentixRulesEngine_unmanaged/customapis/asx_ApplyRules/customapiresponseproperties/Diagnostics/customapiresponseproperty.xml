@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Diagnostics">
+  <description default="JSON timings and counts for this call; set only when IncludeDiagnostics is true.">
+    <label description="JSON timings and counts for this call; set only when IncludeDiagnostics is true." languagecode="1033" />
+  </description>
+  <displayname default="Diagnostics">
+    <label description="Diagnostics" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Diagnostics</name>
+  <type>10</type>
+</customapiresponseproperty>

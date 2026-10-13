@@ -465,7 +465,14 @@ foreach ($interrupt in @($false, $true)) {
             foreach ($file in Get-ChildItem -LiteralPath $folder -Filter '*.xml') {
                 [xml]$source = Get-Content -LiteralPath $file.FullName -Raw
                 $id = ([string]$source.savedqueries.savedquery.savedqueryid).Trim('{}')
-                $views[$id] = $source.savedqueries.savedquery.fetchxml.fetch.OuterXml
+                # The mirror is exported from an environment that already has the authoring filter;
+                # strip it so every shipped view starts as a fresh install sees it and is patched.
+                [xml]$shipped = $source.savedqueries.savedquery.fetchxml.fetch.OuterXml
+                foreach ($condition in @($shipped.SelectNodes("//condition[@attribute='asx_draftof' or @attribute='asx_isprivate']"))) {
+                    $parent = $condition.ParentNode; $parent.RemoveChild($condition) | Out-Null
+                    if (!$parent.HasChildNodes) { $parent.ParentNode.RemoveChild($parent) | Out-Null }
+                }
+                $views[$id] = $shipped.OuterXml
                 $viewContexts[$id] = @{ layoutxml = $source.savedqueries.savedquery.layoutxml.grid.OuterXml;
                     returnedtypecode = $table; querytype = [int]$source.savedqueries.savedquery.querytype;
                     isquickfindquery = $source.savedqueries.savedquery.isquickfindquery -eq '1' }

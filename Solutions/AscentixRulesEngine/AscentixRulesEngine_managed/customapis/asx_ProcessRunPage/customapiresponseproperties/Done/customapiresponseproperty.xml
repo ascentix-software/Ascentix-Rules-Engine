@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Done">
+  <description default="True when the run has no further pages to process.">
+    <label description="True when the run has no further pages to process." languagecode="1033" />
+  </description>
+  <displayname default="Done">
+    <label description="Done" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Done</name>
+  <type>0</type>
+</customapiresponseproperty>

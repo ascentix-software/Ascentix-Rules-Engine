@@ -1,0 +1,14 @@
+<environmentvariabledefinition schemaname="asx_CaptureDiagnostics">
+  <defaultvalue>no</defaultvalue>
+  <description default="When yes, every form save the rules engine evaluates writes one Rule Diagnostic row per saved record with its timings and counts. Leave it at no outside a measurement.">
+    <label description="When yes, every form save the rules engine evaluates writes one Rule Diagnostic row per saved record with its timings and counts. Leave it at no outside a measurement." languagecode="1033" />
+  </description>
+  <displayname default="Capture diagnostics">
+    <label description="Capture diagnostics" languagecode="1033" />
+  </displayname>
+  <introducedversion>0.0.0.2</introducedversion>
+  <iscustomizable>1</iscustomizable>
+  <isrequired>0</isrequired>
+  <secretstore>0</secretstore>
+  <type>100000002</type>
+</environmentvariabledefinition>

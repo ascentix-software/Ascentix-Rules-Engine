@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="RunIds">
+  <description default="JSON array of the ids of the Rule Runs to drive: started, continued or resumed by this call.">
+    <label description="JSON array of the ids of the Rule Runs to drive: started, continued or resumed by this call." languagecode="1033" />
+  </description>
+  <displayname default="RunIds">
+    <label description="RunIds" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>RunIds</name>
+  <type>10</type>
+</customapiresponseproperty>

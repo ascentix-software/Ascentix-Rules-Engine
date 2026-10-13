@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="Retry">
+  <description default="Number of a data update that completed with failures, to run again from the start.">
+    <label description="Number of a data update that completed with failures, to run again from the start." languagecode="1033" />
+  </description>
+  <displayname default="Retry">
+    <label description="Retry" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>Retry</name>
+  <type>7</type>
+</customapirequestparameter>

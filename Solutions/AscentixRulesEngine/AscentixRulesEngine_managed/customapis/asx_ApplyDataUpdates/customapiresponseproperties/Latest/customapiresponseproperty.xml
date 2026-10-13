@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Latest">
+  <description default="JSON of the last data update run, with its failures.">
+    <label description="JSON of the last data update run, with its failures." languagecode="1033" />
+  </description>
+  <displayname default="Latest">
+    <label description="Latest" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Latest</name>
+  <type>10</type>
+</customapiresponseproperty>
