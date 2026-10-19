@@ -1,0 +1,257 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
+using System.Text;
+using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Messages;
+using Microsoft.Xrm.Sdk.Metadata;
+using Microsoft.Xrm.Sdk.Query;
+using Ascentix.RulesEngine.Core.Models;
+using Ascentix.RulesEngine.Core.Publication;
+using Ascentix.RulesEngine.Plugin.DataUpdates;
+
+namespace Ascentix.RulesEngine.Plugin.Publication
+{
+    public sealed class ImportOptions
+    {
+        public string SourceEnvironment { get; set; }
+        public bool ValidateOnly { get; set; }
+        public bool OverwriteTargetChanges { get; set; }
+        public Guid? OwnerTeamId { get; set; }
+        public IReadOnlyList<IDataUpdate> Updates { get; set; }
+    }
+
+    /// <summary>What importing one rule did. Outcome: created, updated, unchanged, conflict, collision, wouldCreate or wouldUpdate.</summary>
+    [DataContract]
+    public sealed class ImportResult
+    {
+        [DataMember] public Guid RuleId { get; set; }
+        [DataMember] public string Name { get; set; }
+        [DataMember] public string Outcome { get; set; }
+        [DataMember] public List<string> Messages { get; set; } = new List<string>();
+        /// <summary>The rule's published version in this environment after the import; null when it has none.</summary>
+        [DataMember] public int? TargetVersion { get; set; }
+
+        public string Serialize()
+        {
+            using (var stream = new MemoryStream())
+            {
+                new DataContractJsonSerializer(typeof(ImportResult)).WriteObject(stream, this);
+                return Encoding.UTF8.GetString(stream.ToArray());
+            }
+        }
+    }
+
+    /// <summary>
+    /// Imports one rule from a transport entry the way an admin would by hand: the definition goes into the rule
+    /// (a new header) or a working draft (an existing one) and is published through the normal publish path.
+    /// Every check runs before the first write, so a refused rule leaves nothing behind.
+    /// </summary>
+    public static class RuleImport
+    {
+        public static ImportResult Run(IPluginExecutionContext context, IOrganizationService service, TransportEntry entry, ImportOptions options)
+        {
+            var installed = TransportEntry.InstalledEngineVersion(service);
+            if (!Version.TryParse(entry.EngineVersion, out var exportedBy))
+                throw new InvalidPluginExecutionException("The rule package entry cannot be read.");
+            if (Normalize(exportedBy) > Normalize(Version.Parse(installed)))
+                throw new InvalidPluginExecutionException($"This package was exported by engine {entry.EngineVersion}; this environment runs {installed}. Upgrade the engine first.");
+
+            var definition = RuleDrafts.Reidentify(entry.Definition, entry.Id);
+            var result = new ImportResult { RuleId = entry.Id, Name = entry.Name };
+            var setName = string.IsNullOrWhiteSpace(entry.RuleSet) ? null : entry.RuleSet.Trim();
+            var ruleSet = setName == null ? null : FindRuleSet(service, setName);
+
+            if (setName == null || ruleSet != null)
+            {
+                var others = new QueryExpression("asx_rule") { ColumnSet = new ColumnSet(false), TopCount = 1 };
+                others.Criteria.AddCondition("asx_name", ConditionOperator.Equal, entry.Name);
+                others.Criteria.AddCondition("asx_ruleid", ConditionOperator.NotEqual, entry.Id);
+                others.Criteria.AddCondition(PublicationSchema.DraftOf, ConditionOperator.Null);
+                if (ruleSet == null) others.Criteria.AddCondition(PublicationSchema.RuleSet, ConditionOperator.Null);
+                else others.Criteria.AddCondition(PublicationSchema.RuleSet, ConditionOperator.Equal, ruleSet.Id);
+                if (service.RetrieveMultiple(others).Entities.Count > 0)
+                {
+                    result.Outcome = "collision";
+                    result.Messages.Add($"Another rule named {entry.Name} is already {(setName == null ? "outside any rule set" : "in rule set " + setName)} in this environment.");
+                    return result;
+                }
+            }
+
+            var existing = new QueryExpression("asx_rule") { ColumnSet = new ColumnSet(true), TopCount = 1 };
+            existing.Criteria.AddCondition("asx_ruleid", ConditionOperator.Equal, entry.Id);
+            var header = service.RetrieveMultiple(existing).Entities.SingleOrDefault();
+            Entity draft = null;
+            if (header != null)
+            {
+                draft = RuleDrafts.Find(service, header.Id);
+                var pointer = header.GetAttributeValue<EntityReference>(PublicationSchema.Pointer);
+                var sourceHash = pointer == null ? null : service.Retrieve(PublicationSchema.Revision, pointer.Id,
+                    new ColumnSet(PublicationSchema.SourceHash)).GetAttributeValue<string>(PublicationSchema.SourceHash);
+                if (pointer != null) result.TargetVersion = header.GetAttributeValue<int>(PublicationSchema.Number);
+                var published = header.GetAttributeValue<OptionSetValue>("statuscode")?.Value == (int)RuleStatus.Published;
+                if (draft == null && published && sourceHash != null && sourceHash == entry.Hash)
+                {
+                    result.Outcome = "unchanged";
+                    return result;
+                }
+                if (!options.OverwriteTargetChanges && (draft != null || sourceHash == null))
+                {
+                    result.Outcome = "conflict";
+                    result.Messages.Add(draft != null
+                        ? $"Rule {entry.Name} has an open working draft in this environment."
+                        : $"Rule {entry.Name} was published in this environment, not imported.");
+                    return result;
+                }
+                var table = definition.Rows.Single(row => row.Entity == "asx_rule").ToSdk().GetAttributeValue<string>("asx_tablelogicalname");
+                if (!string.Equals(table, header.GetAttributeValue<string>("asx_tablelogicalname"), StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidPluginExecutionException($"Rule {entry.Name} runs on {header.GetAttributeValue<string>("asx_tablelogicalname")} in this environment and on {table} in the package. A rule's business table cannot be changed.");
+            }
+
+            RulePublication.Validate(service, definition, entry.Id);
+            CheckRecords(service, entry, result);
+            if (options.ValidateOnly)
+            {
+                result.Outcome = header == null ? "wouldCreate" : "wouldUpdate";
+                return result;
+            }
+
+            if (ruleSet == null && setName != null)
+            {
+                ruleSet = new Entity(PublicationSchema.RuleSet) { ["asx_name"] = setName };
+                ruleSet.Id = service.Create(ruleSet);
+            }
+            var owner = options.OwnerTeamId is Guid team ? new EntityReference("team", team) : new EntityReference("systemuser", context.InitiatingUserId);
+            Guid? draftId = null;
+            var revision = header == null
+                ? Create(context, service, entry, definition, ruleSet, owner, options.Updates)
+                : Update(context, service, header, draft, definition, ruleSet, options.Updates, out draftId);
+
+            PublicationCoordinator.Internal(context, service, writer => writer.Update(new Entity(PublicationSchema.Revision, revision.Id) {
+                [PublicationSchema.SourceEnvironment] = options.SourceEnvironment,
+                [PublicationSchema.SourceVersion] = entry.Version,
+                [PublicationSchema.SourceHash] = entry.Hash }));
+            // While the working draft exists the schedule plug-in also reads the draft's triggers.
+            WriteSchedule(service, entry);
+            if (draftId != null)
+            {
+                var stale = service.Retrieve("asx_rule", draftId.Value, new ColumnSet(true));
+                PublicationCoordinator.Internal(context, service, writer => RuleDrafts.DeleteContents(writer, stale));
+                PublicationCoordinator.Internal(context, service, writer => writer.Delete("asx_rule", stale.Id), reconcile: true);
+            }
+
+            result.Outcome = header == null ? "created" : "updated";
+            result.TargetVersion = revision.GetAttributeValue<int>("asx_version");
+            return result;
+        }
+
+        private static Version Normalize(Version version) =>
+            new Version(version.Major, version.Minor, Math.Max(version.Build, 0), Math.Max(version.Revision, 0));
+
+        private static Entity FindRuleSet(IOrganizationService service, string name) =>
+            RuleSnapshot.QueryAll(service, new QueryExpression(PublicationSchema.RuleSet) { ColumnSet = new ColumnSet("asx_name") })
+                .FirstOrDefault(set => string.Equals(set.GetAttributeValue<string>("asx_name")?.Trim(), name, StringComparison.OrdinalIgnoreCase));
+
+        // A new header with the source id, its definition restored as private copies, then published.
+        private static Entity Create(IPluginExecutionContext context, IOrganizationService service, TransportEntry entry, RuleSnapshot definition,
+            Entity ruleSet, EntityReference owner, IReadOnlyList<IDataUpdate> updates)
+        {
+            var source = definition.Rows.Single(row => row.Entity == "asx_rule").ToSdk();
+            var header = new Entity("asx_rule", entry.Id) {
+                ["asx_name"] = entry.Name, ["asx_tablelogicalname"] = source.GetAttributeValue<string>("asx_tablelogicalname"),
+                ["statuscode"] = new OptionSetValue((int)RuleStatus.Draft), ["ownerid"] = owner };
+            PublicationCoordinator.Internal(context, service, writer => {
+                writer.Create(header);
+                RuleRevisionApi.Restore(writer, header, definition);
+            });
+            var target = new Entity("asx_rule", entry.Id) { ["statuscode"] = new OptionSetValue((int)RuleStatus.Published) };
+            var revision = RulePublication.Publish(context, service, target, updates);
+            target[PublicationSchema.RuleSet] = ruleSet?.ToEntityReference();
+            // The publish write, as the publish plug-in's own Update would make it: registration reconciles enforcement.
+            PublicationCoordinator.Internal(context, service, writer => writer.Update(target), reconcile: true);
+            return revision;
+        }
+
+        // The definition goes into a working draft (the open one when overwriting), which is published. The caller deletes the draft.
+        private static Entity Update(IPluginExecutionContext context, IOrganizationService service, Entity header, Entity openDraft,
+            RuleSnapshot definition, Entity ruleSet, IReadOnlyList<IDataUpdate> updates, out Guid? draftId)
+        {
+            Guid id;
+            if (openDraft != null)
+            {
+                id = openDraft.Id;
+                PublicationCoordinator.Internal(context, service, writer => {
+                    RuleRevisionApi.Restore(writer, openDraft, RuleDrafts.Reidentify(definition, openDraft.Id));
+                    writer.Update(new Entity("asx_rule", openDraft.Id) {
+                        [PublicationSchema.DraftBaseVersion] = header.GetAttributeValue<int>(PublicationSchema.Number) });
+                });
+            }
+            else id = RuleDrafts.Copy(service, context, header, definition, workingDraft: true);
+            draftId = id;
+            // Publishing a draft writes the original header itself (pointer, number, status, name) with registration.
+            var revision = RulePublication.Publish(context, service, new Entity("asx_rule", id) {
+                ["statuscode"] = new OptionSetValue((int)RuleStatus.Published) }, updates);
+            PublicationCoordinator.Internal(context, service, writer => writer.Update(new Entity("asx_rule", header.Id) {
+                [PublicationSchema.RuleSet] = ruleSet?.ToEntityReference() }));
+            return revision;
+        }
+
+        // Schedules belong to the published rule (never a draft row) and a rule has at most one.
+        // Written through the platform so the schedule plug-in validates it and computes the next run.
+        private static void WriteSchedule(IOrganizationService service, TransportEntry entry)
+        {
+            var query = new QueryExpression("asx_ruleschedule") { ColumnSet = new ColumnSet(false), TopCount = 1 };
+            query.Criteria.AddCondition("asx_rule", ConditionOperator.Equal, entry.Id);
+            var current = service.RetrieveMultiple(query).Entities.FirstOrDefault();
+            var schedule = entry.Schedule;
+            if (schedule == null)
+            {
+                if (current != null) service.Delete(current.LogicalName, current.Id);
+                return;
+            }
+            var row = new Entity("asx_ruleschedule", current?.Id ?? Guid.Empty) {
+                ["asx_on"] = schedule.On,
+                ["asx_pattern"] = schedule.Pattern == null ? null : new OptionSetValue(schedule.Pattern.Value),
+                ["asx_every"] = schedule.Every,
+                ["asx_timeofday"] = schedule.TimeOfDay,
+                ["asx_daysofweek"] = string.IsNullOrEmpty(schedule.DaysOfWeek) ? null : new OptionSetValueCollection(
+                    schedule.DaysOfWeek.Split(',').Select(day => new OptionSetValue(int.Parse(day.Trim()))).ToList()),
+                ["asx_dayofmonth"] = schedule.DayOfMonth };
+            if (current != null) service.Update(row);
+            else
+            {
+                row["asx_rule"] = new EntityReference("asx_rule", entry.Id);
+                service.Create(row);
+            }
+        }
+
+        // Record ids the definition stores must name records that exist here; an id whose table is unknown is only reported.
+        private static void CheckRecords(IOrganizationService service, TransportEntry entry, ImportResult result)
+        {
+            var primaryIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            bool Exists(string table, Guid id)
+            {
+                if (!primaryIds.TryGetValue(table, out var column))
+                    primaryIds[table] = column = ((RetrieveEntityResponse)service.Execute(new RetrieveEntityRequest {
+                        LogicalName = table, EntityFilters = EntityFilters.Entity })).EntityMetadata.PrimaryIdAttribute;
+                var query = new QueryExpression(table) { ColumnSet = new ColumnSet(false), TopCount = 1 };
+                query.Criteria.AddCondition(column, ConditionOperator.Equal, id);
+                return service.RetrieveMultiple(query).Entities.Count > 0;
+            }
+            foreach (var reference in entry.RecordReferences)
+            {
+                if (reference.Tables == null || reference.Tables.Count == 0)
+                {
+                    result.Messages.Add($"Could not check record {reference.RecordId} in {reference.Attribute}: its table is unknown.");
+                    continue;
+                }
+                if (!reference.Tables.Any(table => Exists(table, reference.RecordId)))
+                    throw new InvalidPluginExecutionException(
+                        $"Rule {entry.Name} refers to {string.Join(" or ", reference.Tables)} record {reference.RecordId}, which does not exist in this environment.");
+            }
+        }
+    }
+}

@@ -538,7 +538,7 @@ EnsureParameter $id 'Latest' 10 $true 'JSON of the last data update run, with it
 EnsureParameter $id 'CanApply' 0 $true 'True when the caller may apply data updates.'
 EnsureParameter $id 'Done' 0 $true 'True when no data update is pending.'
 $transportType = PluginType 'RuleTransportApi'
-$transportApis = @('asx_ExportRule')
+$transportApis = @('asx_ExportRule', 'asx_ImportRule')
 $ownedTransportApis = Request GET "customapis?`$select=customapiid,uniquename&`$filter=_plugintypeid_value eq $transportType"
 foreach ($api in $ownedTransportApis.value) {
     if ($api.uniquename -notin $transportApis) { Request DELETE "customapis($($api.customapiid))" | Out-Null }
@@ -546,4 +546,11 @@ foreach ($api in $ownedTransportApis.value) {
 $id = EnsureApi 'asx_ExportRule' 'prvReadasx_rule' 'Exports one published rule as a transport entry: its published definition, rule set, schedule and the record ids it stores.' 'Export Rule' $transportType
 EnsureParameter $id 'RuleId' 10 $false 'Identifier of the published rule to export.'
 EnsureParameter $id 'Entry' 10 $true 'The rule package entry, serialized as JSON.'
+$id = EnsureApi 'asx_ImportRule' 'prvCreateasx_rule' 'Imports one rule from a transport entry: creates or updates it through a draft and publishes it, or reports why it was left alone.' 'Import Rule' $transportType
+EnsureParameter $id 'Entry' 10 $false 'The rule package entry, serialized as JSON.'
+EnsureParameter $id 'SourceEnvironment' 10 $false 'The environment the package was exported from, stamped on the new revision.'
+EnsureParameter $id 'ValidateOnly' 0 $false 'When true, runs every check and writes nothing.' $true
+EnsureParameter $id 'OverwriteTargetChanges' 0 $false 'When true, imports over a working draft or a version published in this environment.' $true
+EnsureParameter $id 'OwnerTeamId' 10 $false 'Identifier of the team that owns new rows; the caller owns them when empty.' $true
+EnsureParameter $id 'Result' 10 $true 'JSON: RuleId, Name, Outcome, Messages and TargetVersion.'
 Write-Host '[revisions] guards, lifecycle ordering, and APIs registered'

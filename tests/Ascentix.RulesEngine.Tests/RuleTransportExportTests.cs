@@ -14,7 +14,7 @@ namespace Ascentix.RulesEngine.Tests
 {
     public class RuleTransportExportTests
     {
-        private static TransactionalPluginContext Prepare(List<Entity> rule, params Entity[] extra)
+        internal static TransactionalPluginContext Prepare(List<Entity> rule, params Entity[] extra)
         {
             var context = RuleRevisionTests.Context(rule);
             var service = context.GetOrganizationService();
@@ -33,7 +33,7 @@ namespace Ascentix.RulesEngine.Tests
             return context;
         }
 
-        private static TransportEntry Export(TransactionalPluginContext context, Guid ruleId)
+        internal static TransportEntry Export(TransactionalPluginContext context, Guid ruleId)
         {
             var request = new XrmFakedPluginExecutionContext { Stage = 30, MessageName = "asx_ExportRule", InitiatingUserId = Guid.NewGuid(),
                 InputParameters = new ParameterCollection { { "RuleId", ruleId.ToString() } }, OutputParameters = new ParameterCollection() };

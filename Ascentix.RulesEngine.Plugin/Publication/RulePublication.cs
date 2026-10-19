@@ -45,13 +45,7 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                     field != PublicationSchema.DraftStamp && field != "asx_ruleid")
                     throw new InvalidPluginExecutionException("Save draft changes before publishing: " + field + ".");
             var snapshot = RuleSnapshot.Capture(service, target.Id);
-            var model = RuleValidationLoader.Load(new SnapshotService(service, snapshot), target.Id);
-
-            var report = RuleValidator.Validate(model, new AttributeFlagsProvider(service));
-            if (!report.IsValid)
-                throw new InvalidPluginExecutionException(
-                    "This rule can't be published until these problems are fixed:\n" +
-                    ValidationReportSerializer.JoinErrors(report));
+            Validate(service, snapshot, target.Id);
 
             var source = header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf);
             Entity revision = null;
@@ -78,6 +72,17 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                 target[PublicationSchema.PublishHash] = null;
             });
             return revision;
+        }
+
+        /// <summary>Validates a rule definition against this environment's metadata; throws with the validator's errors.</summary>
+        public static void Validate(IOrganizationService service, RuleSnapshot snapshot, Guid ruleId)
+        {
+            var model = RuleValidationLoader.Load(new SnapshotService(service, snapshot), ruleId);
+            var report = RuleValidator.Validate(model, new AttributeFlagsProvider(service));
+            if (!report.IsValid)
+                throw new InvalidPluginExecutionException(
+                    "This rule can't be published until these problems are fixed:\n" +
+                    ValidationReportSerializer.JoinErrors(report));
         }
     }
 }

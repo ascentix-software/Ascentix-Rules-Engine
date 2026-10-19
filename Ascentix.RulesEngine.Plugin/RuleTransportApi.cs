@@ -6,6 +6,8 @@ using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Metadata;
 using Microsoft.Xrm.Sdk.Query;
 using Ascentix.RulesEngine.Core.Publication;
+using Ascentix.RulesEngine.Plugin.DataUpdates;
+using Ascentix.RulesEngine.Plugin.Publication;
 
 namespace Ascentix.RulesEngine.Plugin
 {
@@ -21,6 +23,9 @@ namespace Ascentix.RulesEngine.Plugin
             {
                 case "asx_ExportRule":
                     Export(local);
+                    break;
+                case "asx_ImportRule":
+                    Import(local);
                     break;
                 default:
                     throw new InvalidPluginExecutionException("Unknown rule transport operation.");
@@ -40,6 +45,27 @@ namespace Ascentix.RulesEngine.Plugin
             var service = local.SystemUserService;
             var header = service.Retrieve("asx_rule", RuleId(context), new ColumnSet(true));
             context.OutputParameters["Entry"] = BuildEntry(service, header).Serialize();
+        }
+
+        private static void Import(ILocalPluginContext local)
+        {
+            var context = local.PluginExecutionContext;
+            var inputs = context.InputParameters;
+            var entry = inputs.TryGetValue("Entry", out var raw) ? raw as string : null;
+            if (string.IsNullOrWhiteSpace(entry)) throw new InvalidPluginExecutionException("Entry is required.");
+            var source = inputs.TryGetValue("SourceEnvironment", out var environment) ? environment as string : null;
+            if (string.IsNullOrWhiteSpace(source)) throw new InvalidPluginExecutionException("SourceEnvironment is required.");
+            Guid? team = null;
+            if (inputs.TryGetValue("OwnerTeamId", out var owner) && !string.IsNullOrWhiteSpace(owner as string))
+                team = Guid.TryParse((string)owner, out var id) ? id : throw new InvalidPluginExecutionException("OwnerTeamId is not a team id.");
+            var result = RuleImport.Run(context, local.SystemUserService, TransportEntry.Parse(entry), new ImportOptions {
+                SourceEnvironment = source.Trim(),
+                ValidateOnly = inputs.TryGetValue("ValidateOnly", out var validateOnly) && validateOnly is bool dryRun && dryRun,
+                OverwriteTargetChanges = inputs.TryGetValue("OverwriteTargetChanges", out var overwrite) && overwrite is bool replace && replace,
+                OwnerTeamId = team,
+                Updates = DataUpdateRegistry.All
+            });
+            context.OutputParameters["Result"] = result.Serialize();
         }
 
         public static TransportEntry BuildEntry(IOrganizationService service, Entity header)
