@@ -537,4 +537,13 @@ EnsureParameter $id 'Pending' 10 $true 'JSON array of the data updates still to 
 EnsureParameter $id 'Latest' 10 $true 'JSON of the last data update run, with its failures.'
 EnsureParameter $id 'CanApply' 0 $true 'True when the caller may apply data updates.'
 EnsureParameter $id 'Done' 0 $true 'True when no data update is pending.'
+$transportType = PluginType 'RuleTransportApi'
+$transportApis = @('asx_ExportRule')
+$ownedTransportApis = Request GET "customapis?`$select=customapiid,uniquename&`$filter=_plugintypeid_value eq $transportType"
+foreach ($api in $ownedTransportApis.value) {
+    if ($api.uniquename -notin $transportApis) { Request DELETE "customapis($($api.customapiid))" | Out-Null }
+}
+$id = EnsureApi 'asx_ExportRule' 'prvReadasx_rule' 'Exports one published rule as a transport entry: its published definition, rule set, schedule and the record ids it stores.' 'Export Rule' $transportType
+EnsureParameter $id 'RuleId' 10 $false 'Identifier of the published rule to export.'
+EnsureParameter $id 'Entry' 10 $true 'The rule package entry, serialized as JSON.'
 Write-Host '[revisions] guards, lifecycle ordering, and APIs registered'
