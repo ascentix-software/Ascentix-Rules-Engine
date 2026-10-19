@@ -27,6 +27,9 @@ namespace Ascentix.RulesEngine.Plugin
                 case "asx_ImportRule":
                     Import(local);
                     break;
+                case "asx_ArchiveRule":
+                    context.OutputParameters["Result"] = RuleArchive.Run(context, local.SystemUserService, RuleId(context)).Serialize();
+                    break;
                 default:
                     throw new InvalidPluginExecutionException("Unknown rule transport operation.");
             }

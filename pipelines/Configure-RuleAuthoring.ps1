@@ -538,7 +538,7 @@ EnsureParameter $id 'Latest' 10 $true 'JSON of the last data update run, with it
 EnsureParameter $id 'CanApply' 0 $true 'True when the caller may apply data updates.'
 EnsureParameter $id 'Done' 0 $true 'True when no data update is pending.'
 $transportType = PluginType 'RuleTransportApi'
-$transportApis = @('asx_ExportRule', 'asx_ImportRule')
+$transportApis = @('asx_ExportRule', 'asx_ImportRule', 'asx_ArchiveRule')
 $ownedTransportApis = Request GET "customapis?`$select=customapiid,uniquename&`$filter=_plugintypeid_value eq $transportType"
 foreach ($api in $ownedTransportApis.value) {
     if ($api.uniquename -notin $transportApis) { Request DELETE "customapis($($api.customapiid))" | Out-Null }
@@ -553,4 +553,7 @@ EnsureParameter $id 'ValidateOnly' 0 $false 'When true, runs every check and wri
 EnsureParameter $id 'OverwriteTargetChanges' 0 $false 'When true, imports over a working draft or a version published in this environment.' $true
 EnsureParameter $id 'OwnerTeamId' 10 $false 'Identifier of the team that owns new rows; the caller owns them when empty.' $true
 EnsureParameter $id 'Result' 10 $true 'JSON: RuleId, Name, Outcome, Messages and TargetVersion.'
+$id = EnsureApi 'asx_ArchiveRule' 'prvWriteasx_rule' 'Archives one rule so it stops running and its enforcement steps are removed; archiving an archived rule does nothing.' 'Archive Rule' $transportType
+EnsureParameter $id 'RuleId' 10 $false 'Identifier of the rule to archive.'
+EnsureParameter $id 'Result' 10 $true 'JSON: RuleId, Name and Outcome (archived or alreadyArchived).'
 Write-Host '[revisions] guards, lifecycle ordering, and APIs registered'

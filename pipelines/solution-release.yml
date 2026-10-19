@@ -155,7 +155,7 @@ stages:
                     if ($entities -notcontains $table) { throw "Package is missing $table" }
                   }
                   # Custom APIs are packaged as customapis/<name>/customapi.xml, not in customizations.xml.
-                  foreach ($name in @('asx_OpenRuleDraft','asx_ReadPublishedRule','asx_RestoreRuleDraft','asx_CopyRule','asx_ExportRule','asx_ImportRule')) {
+                  foreach ($name in @('asx_OpenRuleDraft','asx_ReadPublishedRule','asx_RestoreRuleDraft','asx_CopyRule','asx_ExportRule','asx_ImportRule','asx_ArchiveRule')) {
                     $entry = $zip.GetEntry("customapis/$name/customapi.xml")
                     if (!$entry) { throw "Package is missing authoring API $name" }
                     $apiReader = [IO.StreamReader]::new($entry.Open())

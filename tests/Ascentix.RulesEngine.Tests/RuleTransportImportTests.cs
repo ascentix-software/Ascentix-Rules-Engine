@@ -608,5 +608,63 @@ namespace Ascentix.RulesEngine.Tests
             foreach (var row in graph.Rows.Where(row => row.Entity != "asx_rule"))
                 Assert.Equal(owner, service.Retrieve(row.Entity, row.Id, new ColumnSet("ownerid")).GetAttributeValue<EntityReference>("ownerid"));
         }
+
+        private static ArchiveResult Archive(TransactionalPluginContext context, Guid ruleId)
+        {
+            var request = new XrmFakedPluginExecutionContext { Stage = 30, MessageName = "asx_ArchiveRule", InitiatingUserId = Caller,
+                InputParameters = new ParameterCollection { { "RuleId", ruleId.ToString() } }, OutputParameters = new ParameterCollection() };
+            context.ExecuteTransactional<RuleTransportApi>(request);
+            using (var stream = new MemoryStream(Encoding.UTF8.GetBytes((string)request.OutputParameters["Result"])))
+                return (ArchiveResult)new DataContractJsonSerializer(typeof(ArchiveResult)).ReadObject(stream);
+        }
+
+        private static int RulesFor(IOrganizationService service, string table) =>
+            Ascentix.RulesEngine.Core.Engine.RuleBuckets.Load(service, table, Ascentix.RulesEngine.Core.Models.RuleTrigger.OnDemand,
+                Ascentix.RulesEngine.Core.Models.RuleChannel.Standard, new Ascentix.RulesEngine.Core.Diagnostics.RunDiagnostics(),
+                new XrmFakedTracingService()).Sum(bucket => bucket.Rules.Count);
+
+        [Fact]
+        public void Archive_sets_status_2_and_rule_no_longer_runs()
+        {
+            var entry = Source();
+            var context = Target(); var service = context.GetOrganizationService();
+            Import(context, entry);
+            Assert.Equal(1, RulesFor(service, "account"));
+
+            var result = Archive(context, entry.Id);
+
+            Assert.Equal("archived", result.Outcome);
+            Assert.Equal(entry.Id, result.RuleId);
+            Assert.Equal("Live", result.Name);
+            Assert.Equal(2, Header(service, entry.Id).GetAttributeValue<OptionSetValue>("statuscode").Value);
+            Assert.Equal(0, RulesFor(service, "account"));
+        }
+
+        [Fact]
+        public void Archive_is_idempotent()
+        {
+            var entry = Source();
+            var context = Target(); var service = context.GetOrganizationService();
+            Import(context, entry);
+            Archive(context, entry.Id);
+
+            var result = Archive(context, entry.Id);
+
+            Assert.Equal("alreadyArchived", result.Outcome);
+            Assert.Equal(2, Header(service, entry.Id).GetAttributeValue<OptionSetValue>("statuscode").Value);
+        }
+
+        [Fact]
+        public void Archive_refuses_a_working_draft()
+        {
+            var entry = Source();
+            var context = Target();
+            Import(context, entry);
+            var draft = OpenDraft(context, entry.Id);
+
+            var error = Assert.Throws<InvalidPluginExecutionException>(() => Archive(context, draft));
+
+            Assert.Contains("working draft", error.Message);
+        }
     }
 }
