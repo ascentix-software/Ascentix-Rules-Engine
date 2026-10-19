@@ -1,6 +1,6 @@
 import * as React from "react";
 import { SearchBox, Dropdown, Option, Button, TabList, Tab, Tooltip } from "@fluentui/react-components";
-import { Add16Regular, Copy16Regular, Delete16Regular, Play16Regular, History16Regular, Clock16Regular } from "@fluentui/react-icons";
+import { Add16Regular, Copy16Regular, Delete16Regular, Play16Regular, History16Regular, Clock16Regular, Tag16Regular } from "@fluentui/react-icons";
 import { AppProvider } from "./AppProvider";
 import { ScreenShell } from "./ScreenShell";
 import { navigate } from "./router";
@@ -22,6 +22,7 @@ import {
 } from "../save/operations";
 import { NewRuleDialog } from "./hub/NewRuleDialog";
 import { NewConfigDialog } from "./hub/NewConfigDialog";
+import { SetRuleSetDialog } from "./hub/SetRuleSetDialog";
 import { ConfirmDeleteDialog } from "./hub/ConfirmDeleteDialog";
 import { activateOnKey } from "./keyboard";
 import { formatError } from "./errors";
@@ -32,7 +33,7 @@ import { canApply, PUBLISHED } from "./header/lifecycle";
 import { RunsDialog } from "../runs/RunsDialog";
 
 const PAGE_SIZE_DEFAULT = 10;
-const RULES_COLS = "2.5fr 1fr 0.95fr 1.25fr 0.8fr 1.15fr 92px";
+const RULES_COLS = "2.5fr 1fr 1fr 0.95fr 1.25fr 0.8fr 1.15fr 120px";
 const CONFIG_COLS = "2.5fr 1.1fr 0.9fr 1.1fr 1.15fr 92px";
 
 interface RowCell { label: string; node: React.ReactNode; }
@@ -126,6 +127,8 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   const [search, setSearch] = React.useState("");
   const [ruleTable, setRuleTable] = React.useState("all");
   const [ruleStatus, setRuleStatus] = React.useState("all");
+  const [ruleSetFilter, setRuleSetFilter] = React.useState("all"); // "all" | "none" | a rule set id
+  const [setRuleSetRule, setSetRuleSetRule] = React.useState<RuleListItem | null>(null);
   const [configRoot, setConfigRoot] = React.useState("all");
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(PAGE_SIZE_DEFAULT);
@@ -137,7 +140,11 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   const filteredRules = rules.filter((r) =>
     (!q || r.name.toLowerCase().includes(q)) &&
     (ruleTable === "all" || r.tableLogicalName === ruleTable) &&
-    (ruleStatus === "all" || String(r.statusCode) === ruleStatus));
+    (ruleStatus === "all" || String(r.statusCode) === ruleStatus) &&
+    (ruleSetFilter === "all" || (ruleSetFilter === "none" ? !r.ruleSetId : r.ruleSetId === ruleSetFilter)));
+  const ruleSetOptions = Array.from(new Map(rules.filter((r) => r.ruleSetId)
+    .map((r) => [r.ruleSetId!, r.ruleSetName ?? r.ruleSetId!] as const)).entries())
+    .sort((a, b) => a[1].localeCompare(b[1]));
   const filteredConfigs = configs.filter((c) =>
     (!q || c.name.toLowerCase().includes(q)) &&
     (configRoot === "all" || c.rootTableLogicalName === configRoot));
@@ -276,6 +283,14 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                   <Option value="all">Table: All</Option>
                   {distinct(rules.map((r) => r.tableLogicalName)).map((t) => <Option key={t} value={t}>{t}</Option>)}
                 </Dropdown>
+                <Dropdown style={{ minWidth: 170 }} aria-label="Rule set filter"
+                  value={ruleSetFilter === "all" ? "Rule set: All" : ruleSetFilter === "none" ? "Rule set: None"
+                    : `Rule set: ${ruleSetOptions.find(([id]) => id === ruleSetFilter)?.[1] ?? ""}`}
+                  selectedOptions={[ruleSetFilter]} onOptionSelect={(_e, d) => { d.optionValue && setRuleSetFilter(d.optionValue); reset(); }}>
+                  <Option value="all">Rule set: All</Option>
+                  <Option value="none">No rule set</Option>
+                  {ruleSetOptions.map(([id, name]) => <Option key={id} value={id}>{name}</Option>)}
+                </Dropdown>
                 <Dropdown style={{ minWidth: 150 }} value={ruleStatus === "all" ? "Status: All"
                   : ruleStatus === "1" ? "Status: Draft" : ruleStatus === "753840000" ? "Status: Published" : "Status: Archived"}
                   selectedOptions={[ruleStatus]} onOptionSelect={(_e, d) => { d.optionValue && setRuleStatus(d.optionValue); reset(); }}>
@@ -302,7 +317,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
 
           {/* Grid */}
           {tab === "rules" ? (
-            <GridCard cols={RULES_COLS} headers={["Rule", "Table", "Status", "Triggers", "Actions", "Modified", ""]} stacked={stacked}>
+            <GridCard cols={RULES_COLS} headers={["Rule", "Table", "Rule set", "Status", "Triggers", "Actions", "Modified", ""]} stacked={stacked}>
               {pageRules.length === 0
                 ? <div style={{ padding: 24, textAlign: "center", color: color.inkMuted, fontSize: 13 }}>No rules match.</div>
                 : pageRules.map((r) => {
@@ -326,6 +341,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                       </div>
                     ) },
                     { label: "Table", node: <span><NodeTag>{r.tableLogicalName}</NodeTag></span> },
+                    { label: "Rule set", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{r.ruleSetName ?? "—"}</span> },
                     { label: "Status", node: <span><StatusBadge statusCode={r.statusCode} /></span> },
                     { label: "Triggers", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{r.triggers.map(triggerLabel).join(", ") || "—"}</span> },
                     { label: "Actions", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{r.actionCount}</span> },
@@ -341,6 +357,10 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                             disabled={busy} onClick={() => setRunsRule({ id: r.id, name: r.name, table: r.tableLogicalName })} />
                         )}
                         {!readOnly && (<>
+                          {api.listRuleSets && api.createRuleSet && api.setRuleSet && (
+                            <Button size="small" appearance="subtle" icon={<Tag16Regular />} aria-label="Set rule set" title="Set rule set"
+                              disabled={busy} onClick={() => setSetRuleSetRule(r)} />
+                          )}
                           <Button size="small" appearance="subtle" icon={<Copy16Regular />} aria-label="Duplicate" title="Duplicate" disabled={busy} onClick={() => onDuplicateRule(r.id)} />
                           <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete" title="Delete" disabled={busy} style={{ color: color.danger }} onClick={() => setPendingDelete({ kind: "rule", id: r.id, name: r.name })} />
                         </>)}
@@ -396,6 +416,13 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
           <NewConfigDialog open={newConfigOpen}
             onCancel={() => setNewConfigOpen(false)}
             onCreate={(args) => { setNewConfigOpen(false); onCreateConfig(args); }} />
+          {setRuleSetRule && api.listRuleSets && api.createRuleSet && api.setRuleSet && (
+            <SetRuleSetDialog open
+              api={{ listRuleSets: api.listRuleSets, createRuleSet: api.createRuleSet, setRuleSet: api.setRuleSet }}
+              ruleId={setRuleSetRule.id} ruleName={setRuleSetRule.name} currentRuleSetId={setRuleSetRule.ruleSetId ?? null}
+              onCancel={() => setSetRuleSetRule(null)}
+              onDone={() => { setSetRuleSetRule(null); void run(refresh); }} />
+          )}
           <ConfirmDeleteDialog open={!!pendingDelete} name={pendingDelete?.name ?? ""}
             onCancel={() => setPendingDelete(null)} onConfirm={onConfirmDelete} />
           {runNowRule && (

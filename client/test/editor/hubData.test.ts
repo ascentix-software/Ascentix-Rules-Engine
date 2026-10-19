@@ -53,7 +53,8 @@ function port(): WebApiPort {
       if (entity === ENTITY.rule) return { entities: [
         { asx_ruleid: RULE1, asx_name: "Rule One", asx_tablelogicalname: "account", statuscode: 1,
           asx_triggers: "1,4", asx_ondemandscope: 2, [LOOKUP.ruleOfTableConfig]: ROOT, modifiedon: "2026-06-20T00:00:00Z",
-          ["_modifiedby_value" + FV]: "A. Chen" },
+          ["_modifiedby_value" + FV]: "A. Chen",
+          [LOOKUP.ruleSetOfRule]: "cccccccc-cccc-cccc-cccc-cccccccccccc", [LOOKUP.ruleSetOfRule + FV]: "Finance" },
         { asx_ruleid: RULE2, asx_name: "Rule Two", asx_tablelogicalname: "contact", statuscode: 753840000,
           asx_triggers: "1", [LOOKUP.ruleOfTableConfig]: null, modifiedon: "2026-06-19T00:00:00Z" },
       ] };
@@ -86,6 +87,26 @@ describe("loadHubData", () => {
     expect(r2.actionCount).toBe(0);
     expect(r2.rootConfigName).toBeNull();
     expect(r2.modifiedBy).toBeNull();
+  });
+  it("selects the rule set lookup and maps ruleSetId / ruleSetName from its formatted value", async () => {
+    let ruleOptions = "";
+    const base = port();
+    const capturing: WebApiPort = {
+      ...base,
+      retrieveMultipleRecords: async (entity, options) => {
+        if (entity === ENTITY.rule) ruleOptions = options ?? "";
+        return base.retrieveMultipleRecords(entity, options);
+      },
+    };
+    const { rules } = await loadHubData(capturing);
+    expect(ruleOptions).toContain("_asx_ruleset_value");
+    expect(ruleOptions).toContain("_asx_draftof_value eq null");
+    const r1 = rules.find((r) => r.id === RULE1)!;
+    expect(r1.ruleSetId).toBe("cccccccc-cccc-cccc-cccc-cccccccccccc");
+    expect(r1.ruleSetName).toBe("Finance");
+    const r2 = rules.find((r) => r.id === RULE2)!;
+    expect(r2.ruleSetId).toBeNull();
+    expect(r2.ruleSetName).toBeNull();
   });
   it("selects asx_ondemandscope on the rule query and maps RuleListItem.onDemandScope", async () => {
     let ruleOptions = "";

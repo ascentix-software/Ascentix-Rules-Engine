@@ -1,3 +1,4 @@
+import { ENTITY, ENTITY_SET, BIND_NAV } from "./load/odata";
 import { parseDryRun, type DryRunResult } from "./runs/dryRunFormat";
 
 /** Parsed issue returned by the asx_ValidateRule Custom API. */
@@ -62,6 +63,12 @@ export interface WebApiPort {
   copyRule?(ruleId: string): Promise<string>;
   deleteRule?(ruleId: string): Promise<void>;
   restoreRuleDraft?(ruleId: string): Promise<void>;
+  /** All rule sets, sorted by name. */
+  listRuleSets?(): Promise<{ id: string; name: string }[]>;
+  /** Creates a rule set and returns its id. */
+  createRuleSet?(name: string): Promise<string>;
+  /** PATCHes only the rule set lookup on the STABLE rule row (never a draft); null clears it. */
+  setRuleSet?(ruleId: string, ruleSetId: string | null): Promise<void>;
   /** PATCH the rule's statuscode back to Draft (1), the inverse of publishRule. */
   unpublishRule(ruleId: string): Promise<void>;
   /** Call asx_RunRules (report-only) for one record and return its fired actions, change set and outcome values.
@@ -109,6 +116,18 @@ function clientUrl(xrm: any): string {
 export function createWebApiPort(): EditorApi {
   const xrm = resolveXrm();
   const base = clientUrl(xrm);
+  const updateRecord: WebApiPort["updateRecord"] = async (entitySet, id, data) => {
+    const res = await fetch(`${base}/api/data/${API_VERSION}/${entitySet}(${id})`, {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: PATCH_HEADERS,
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const raw = await res.json().catch(() => null);
+      throw new Error(raw?.error?.message ?? `updateRecord PATCH failed (${res.status})`);
+    }
+  };
   return {
     retrieveRecord: (entity, id, options) => xrm.WebApi.retrieveRecord(entity, id, options),
     retrieveMultipleRecords: (entity, options) => xrm.WebApi.retrieveMultipleRecords(entity, options),
@@ -116,18 +135,7 @@ export function createWebApiPort(): EditorApi {
       const r = await xrm.WebApi.createRecord(entity, data);
       return String(r.id).replace(/[{}]/g, "");
     },
-    async updateRecord(entitySet, id, data) {
-      const res = await fetch(`${base}/api/data/${API_VERSION}/${entitySet}(${id})`, {
-        method: "PATCH",
-        credentials: "same-origin",
-        headers: PATCH_HEADERS,
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) {
-        const raw = await res.json().catch(() => null);
-        throw new Error(raw?.error?.message ?? `updateRecord PATCH failed (${res.status})`);
-      }
-    },
+    updateRecord,
     async processRunPage(runId, failed) {
       const raw = await revisionRequest(base, "asx_ProcessRunPage", {
         RunId: runId,
@@ -214,6 +222,19 @@ export function createWebApiPort(): EditorApi {
     copyRule: async (ruleId) => (await revisionRequest(base, "asx_CopyRule", { RuleId: ruleId })).NewRuleId,
     deleteRule: async (ruleId) => { await revisionRequest(base, "asx_DeleteRule", { RuleId: ruleId }); },
     restoreRuleDraft: async (ruleId) => { await revisionRequest(base, "asx_RestoreRuleDraft", { RuleId: ruleId }); },
+    async listRuleSets() {
+      const r = await xrm.WebApi.retrieveMultipleRecords(ENTITY.ruleSet, "?$select=asx_rulesetid,asx_name&$orderby=asx_name asc");
+      return r.entities.map((e: any) => ({ id: String(e.asx_rulesetid), name: String(e.asx_name) }));
+    },
+    async createRuleSet(name) {
+      const r = await xrm.WebApi.createRecord(ENTITY.ruleSet, { asx_name: name });
+      return String(r.id).replace(/[{}]/g, "");
+    },
+    async setRuleSet(ruleId, ruleSetId) {
+      await updateRecord(ENTITY_SET.rule, ruleId, {
+        [`${BIND_NAV.ruleRuleSet}@odata.bind`]: ruleSetId ? `/${ENTITY_SET.ruleSet}(${ruleSetId})` : null,
+      });
+    },
   };
 }
 
