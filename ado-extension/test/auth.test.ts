@@ -47,6 +47,7 @@ describe('getToken', () => {
       authority: 'https://login.microsoftonline.com/ten',
       clientAssertion: 'oidc',
     });
+    expect(acquire).toHaveBeenCalledWith(['https://org.crm.dynamics.com/.default']);
   });
 
   it('fails when the OIDC request fails', async () => {
@@ -55,11 +56,33 @@ describe('getToken', () => {
     await expect(getToken('c', { task: t, fetchImpl: f as unknown as typeof fetch })).rejects.toThrow('OIDC token request failed (401)');
   });
 
-  it('rejects an unsupported scheme', async () => {
-    await expect(getToken('c', { task: task('UsernamePassword', {}) })).rejects.toThrow('Unsupported service connection authentication scheme');
+  it.each([['None'], [undefined], ['UsernamePassword']])('takes the client secret path for scheme %s', async (scheme) => {
+    const acquire = vi.fn().mockResolvedValue('dv-token');
+    const factory: MsalFactory = vi.fn(() => ({ acquireToken: acquire }));
+    const t = task(scheme, { tenantId: 'ten', applicationId: 'app', clientSecret: 'sec' });
+    await getToken('conn', { task: t, msalFactory: factory });
+    expect(factory).toHaveBeenCalledWith({ clientId: 'app', authority: 'https://login.microsoftonline.com/ten', clientSecret: 'sec' });
+  });
+
+  it('reports a missing client secret', async () => {
+    await expect(getToken('c', { task: task('ServicePrincipal', { tenantId: 't', applicationId: 'a' }) })).rejects.toThrow(
+      'The service connection has no client secret; use a client secret or workload identity federation connection.',
+    );
+  });
+
+  it('reports a missing OIDC request URI on the WIF path', async () => {
+    delete process.env.SYSTEM_OIDCREQUESTURI;
+    const t = task('WorkloadIdentityFederation', { tenantid: 't', serviceprincipalid: 'a' });
+    await expect(getToken('c', { task: t })).rejects.toThrow('no OIDC request URI');
+  });
+
+  it('reports a missing access token on the WIF path', async () => {
+    const t = task('WorkloadIdentityFederation', { tenantid: 't', serviceprincipalid: 'a' }, { 'System.OidcRequestUri': 'https://x/oidc' });
+    t.getEndpointAuthorizationParameter = (id, key) => (id === 'SYSTEMVSSCONNECTION' ? undefined : ({ tenantid: 't', serviceprincipalid: 'a' } as Record<string, string>)[key]);
+    await expect(getToken('c', { task: t })).rejects.toThrow('no System.AccessToken');
   });
 
   it('reports a missing parameter', async () => {
-    await expect(getToken('c', { task: task('ServicePrincipal', { tenantId: 't' }) })).rejects.toThrow('no clientSecret');
+    await expect(getToken('c', { task: task('ServicePrincipal', { clientSecret: 's', applicationId: 'a' }) })).rejects.toThrow('no tenantId');
   });
 });

@@ -64,14 +64,26 @@ export class Dataverse {
         return (text ? JSON.parse(text) : undefined) as T;
       }
       if (RETRYABLE.has(res.status) && attempt < MAX_RETRIES) {
-        const retryAfter = Number(res.headers.get('Retry-After'));
-        const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : Math.min(2 ** attempt, 30);
+        const seconds = retryDelaySeconds(res.headers.get('Retry-After'), attempt);
+        await res.body?.cancel().catch(() => undefined);
         await this.sleep(seconds * 1000);
         continue;
       }
       throw await toError(res);
     }
   }
+}
+
+const MAX_RETRY_AFTER_SECONDS = 120;
+
+/** Retry-After as seconds or an HTTP date, capped; falls back to exponential backoff. */
+function retryDelaySeconds(header: string | null, attempt: number): number {
+  let seconds = NaN;
+  if (header) {
+    seconds = /^\s*\d+(\.\d+)?\s*$/.test(header) ? Number(header) : (Date.parse(header) - Date.now()) / 1000;
+  }
+  if (!Number.isFinite(seconds) || seconds <= 0) seconds = Math.min(2 ** attempt, 30);
+  return Math.min(seconds, MAX_RETRY_AFTER_SECONDS);
 }
 
 async function toError(res: Response): Promise<DataverseError> {

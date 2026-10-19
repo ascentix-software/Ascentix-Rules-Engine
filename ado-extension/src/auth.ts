@@ -2,12 +2,11 @@
 import { ConfidentialClientApplication } from '@azure/msal-node';
 
 /**
- * Scheme and parameter names follow the Power Platform Build Tools "powerplatform-spn" connection
- * (microsoft/powerplatform-build-tools, src/params/auth/getCredentials.ts):
- *  - ServicePrincipal (client secret): parameters tenantId, applicationId, clientSecret.
- *  - WorkloadIdentityFederation: parameters tenantid, serviceprincipalid (all lower case).
+ * Mirrors the Power Platform Build Tools "powerplatform-spn" handling
+ * (microsoft/powerplatform-build-tools, src/params/auth/getCredentials.ts): WorkloadIdentityFederation is the
+ * only explicit scheme (parameters tenantid, serviceprincipalid, all lower case). Every other scheme takes the
+ * client secret path (parameters tenantId, applicationId, clientSecret) and fails only when those are missing.
  */
-export const SECRET_SCHEME = 'ServicePrincipal';
 export const WIF_SCHEME = 'WorkloadIdentityFederation';
 
 export interface TaskApi {
@@ -99,16 +98,17 @@ export async function getToken(connectionId: string, deps: AuthDeps = {}): Promi
       authority: `https://login.microsoftonline.com/${tenant}`,
       clientAssertion: await requestOidcToken(task, fetchImpl, connectionId),
     };
-  } else if (scheme === SECRET_SCHEME) {
-    const secret = param('clientSecret');
+  } else {
+    const secret = task.getEndpointAuthorizationParameter(connectionId, 'clientSecret', false);
+    if (!secret) {
+      throw new Error('The service connection has no client secret; use a client secret or workload identity federation connection.');
+    }
     task.setSecret(secret);
     config = {
       clientId: param('applicationId'),
       authority: `https://login.microsoftonline.com/${param('tenantId')}`,
       clientSecret: secret,
     };
-  } else {
-    throw new Error(`Unsupported service connection authentication scheme: ${scheme ?? '(none)'}.`);
   }
 
   const token = await msalFactory(config).acquireToken([`${url}/.default`]);

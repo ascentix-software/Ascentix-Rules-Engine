@@ -49,6 +49,36 @@ describe('Dataverse client', () => {
     expect(sleep).toHaveBeenCalledWith(7000);
   });
 
+  it('caps Retry-After at 120 seconds', async () => {
+    const f = vi.fn().mockResolvedValueOnce(json(429, {}, { 'Retry-After': '9999' })).mockResolvedValueOnce(json(200, {}));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    await new Dataverse('https://org', 't', f as unknown as typeof fetch, sleep).get('x');
+    expect(sleep).toHaveBeenCalledWith(120000);
+  });
+
+  it('parses an HTTP-date Retry-After and falls back to backoff on garbage', async () => {
+    const date = new Date(Date.now() + 30000).toUTCString();
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(json(429, {}, { 'Retry-After': date }))
+      .mockResolvedValueOnce(json(429, {}, { 'Retry-After': 'soon' }))
+      .mockResolvedValueOnce(json(200, {}));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    await new Dataverse('https://org', 't', f as unknown as typeof fetch, sleep).get('x');
+    const first = sleep.mock.calls[0][0] as number;
+    expect(first).toBeGreaterThan(25000);
+    expect(first).toBeLessThanOrEqual(30000);
+    expect(sleep.mock.calls[1][0]).toBe(2000);
+  });
+
+  it('cancels the body of a retried response', async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const retried = { ok: false, status: 429, headers: new Headers(), body: { cancel } };
+    const f = vi.fn().mockResolvedValueOnce(retried).mockResolvedValueOnce(json(200, {}));
+    await new Dataverse('https://org', 't', f as unknown as typeof fetch, vi.fn().mockResolvedValue(undefined)).get('x');
+    expect(cancel).toHaveBeenCalled();
+  });
+
   it('gives up after 5 retries', async () => {
     const f = vi.fn().mockImplementation(async () => json(503, { error: { code: '0x1', message: 'busy' } }));
     const sleep = vi.fn().mockResolvedValue(undefined);
