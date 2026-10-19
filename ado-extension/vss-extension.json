@@ -1,0 +1,33 @@
+{
+  "manifestVersion": 1,
+  "id": "ascentix-rules-transport",
+  "publisher": "ascentix",
+  "version": "0.1.0",
+  "name": "Ascentix Rules Transport",
+  "description": "Export and import Ascentix Rules Engine rules between Dataverse environments from Azure Pipelines.",
+  "public": false,
+  "categories": ["Azure Pipelines"],
+  "tags": ["Power Platform", "Dataverse", "Ascentix", "Rules"],
+  "icons": { "default": "images/icon.png" },
+  "targets": [{ "id": "Microsoft.VisualStudio.Services" }],
+  "content": { "details": { "path": "README.md" } },
+  "files": [
+    { "path": "images", "addressable": true },
+    { "path": "tasks/AscentixRulesExport" },
+    { "path": "tasks/AscentixRulesImport" }
+  ],
+  "contributions": [
+    {
+      "id": "ascentix-rules-export-task",
+      "type": "ms.vss-distributed-task.task",
+      "targets": ["ms.vss-distributed-task.tasks"],
+      "properties": { "name": "tasks/AscentixRulesExport" }
+    },
+    {
+      "id": "ascentix-rules-import-task",
+      "type": "ms.vss-distributed-task.task",
+      "targets": ["ms.vss-distributed-task.tasks"],
+      "properties": { "name": "tasks/AscentixRulesImport" }
+    }
+  ]
+}

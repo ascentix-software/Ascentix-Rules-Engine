@@ -1,0 +1,24 @@
+{
+  "name": "ascentix-rules-transport",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Azure DevOps pipeline tasks that export and import Ascentix Rules Engine rules.",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "package": "tfx extension create --manifest-globs vss-extension.json"
+  },
+  "dependencies": {
+    "@azure/msal-node": "7.1.0",
+    "azure-pipelines-task-lib": "4.17.3"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "tfx-cli": "0.24.2",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12"
+  }
+}
