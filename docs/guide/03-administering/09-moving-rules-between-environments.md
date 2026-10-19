@@ -23,17 +23,25 @@ only rules in a rule set can be exported.
 - The hub's **Rules** tab has a **Rule set** column and a **Rule set** filter (*The Hub*).
 - Changing a rule's set doesn't need a working draft: a published rule's set can be changed while
   it keeps enforcing.
-- Rename or delete a rule set in its standard table view.
+- Rename or delete a rule set in [make.powerapps.com](https://make.powerapps.com) → your
+  environment → **Tables** → **Rule Set**, where each set is a row.
 
 ## Set up the pipeline
 
-1. Install the **Ascentix Rules Transport** extension in your Azure DevOps organization.
+Before you start, install Microsoft's **Power Platform Build Tools** extension in your Azure DevOps
+organization. It provides the **Power Platform** service connection type the tasks sign in with.
+
+1. Install the **Ascentix Rules Transport** extension. It is a private extension: its `.vsix` is
+   the `ado-extension-vsix` artifact of the extension's build pipeline
+   (`pipelines/ado-extension-ci.yml`), uploaded to the Visual Studio Marketplace and shared with
+   your organization. Install it from **Organization settings** → **Extensions** → **Shared**.
 2. Create a **Power Platform** service connection for each environment you read from or write to.
    Both authentication types work: a client secret, or workload identity federation (no secret to
    store or rotate).
 3. In each environment, add the connection's service principal as an **application user** and
    give it the **Rules Engine Author** role (*Security Roles*). Export reads rules; import creates,
-   updates, publishes and archives them.
+   updates, publishes and archives them. Import needs Write on **Rule**, and Create as well for a
+   rule that is new in the target.
 
 ## The two tasks
 
@@ -146,7 +154,8 @@ has:
 
 - an **open working draft** for it,
 - the rule **published in the target**, not imported from a package,
-- the rule **archived**, or
+- the rule **archived**,
+- the rule **unpublished** in the target, or
 - the rule, but it was **never published or imported**.
 
 With `targetChanges: overwrite` the package wins: the definition replaces the target's draft or
@@ -162,6 +171,9 @@ carry:
 - `archive` archives them. Only **Published** rules are archived: drafts and already archived rules
   are never touched, and neither is a rule whose name matches a rule in the package.
 
+A rule the export skipped (a **Draft** or **Archived** rule in the source) isn't in the package
+either, so `archive` also archives its published copy in the target.
+
 `archive` is refused for a package exported with the `rules` input, since that package isn't the
 whole of its rule sets. Export whole rule sets to use it.
 
@@ -173,8 +185,11 @@ attached to the pipeline run as a summary. The report groups rules by outcome, t
 that were archived (or would be, in a dry run), the rules left alone, and any that failed with the
 reason.
 
-Each conflict, collision and left-alone rule is also raised as a pipeline warning, so a run that
-needs attention shows as *succeeded with issues*. A run with any failed rule fails.
+The task also logs one line per rule with its outcome and messages. Each conflict, collision and
+left-alone rule, and each record whose table couldn't be determined, is raised as a pipeline
+warning, and a run with warnings ends as *succeeded with issues*. A run with any failed rule fails.
+The report is written even when the run fails part way, listing what was done before the failure.
 
-Run with `dryRun: true` first: it reports every outcome, and every refusal a real import would hit,
-without writing to the target.
+Run with `dryRun: true` first. Without writing to the target, it reports every outcome and checks
+each rule's validation, record references, conflicts and any pending data update. A refused
+schedule shows only on the real run.

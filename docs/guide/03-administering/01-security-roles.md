@@ -11,12 +11,14 @@ The solution ships two roles for working with rules.
 
 | Role | Privileges | On |
 |---|---|---|
-| **Rules Engine Author** | Create, Read, Write, Delete, Append, Append To | The 12 configuration tables |
-| **Rules Engine Reader** | Read | The same 12 tables |
+| **Rules Engine Author** | Create, Read, Write, Delete, Append, Append To | The 12 configuration tables and **Rule Set** (`asx_ruleset`) |
+| **Rules Engine Reader** | Read | The same 13 tables |
 
-The 12 tables are `asx_rule`, `asx_conditiongroup`, `asx_rulecondition`, `asx_tableconfig`,
-`asx_searchcriteriagroup`, `asx_searchcriterion`, `asx_nodefiltergroup`, `asx_nodefiltercriterion`,
-`asx_ruleaction`, `asx_localizedmessage`, `asx_actionconditiongroup` and `asx_actionconditiontest`.
+The 12 configuration tables are `asx_rule`, `asx_conditiongroup`, `asx_rulecondition`,
+`asx_tableconfig`, `asx_searchcriteriagroup`, `asx_searchcriterion`, `asx_nodefiltergroup`,
+`asx_nodefiltercriterion`, `asx_ruleaction`, `asx_localizedmessage`, `asx_actionconditiongroup` and
+`asx_actionconditiontest`. Rule sets group the rules that move between environments together
+(*Moving Rules Between Environments*).
 
 - Both roles are **additive**: assign them on top of a user's existing roles.
 - All privileges are at **Organization** depth, since rule configuration is org-wide.
