@@ -333,6 +333,19 @@ describe("BIND_NAV @odata.bind round-trips against DEV", () => {
       extra: { asx_tablelogicalname: "account" },
     }));
 
+  it("ruleRuleSet binds a rule to its rule set", async () => {
+    // The rule set is created here (and deleted by the shared afterEach) so the check needs no seed.
+    const setId = await api.createRecord(ENTITY_SET.ruleSet, { asx_name: `${runPrefix}ruleRuleSet_set` });
+    created.push({ set: ENTITY_SET.ruleSet, id: setId });
+    await roundTrip({
+      label: "ruleRuleSet",
+      set: ENTITY_SET.rule, navProp: BIND_NAV.ruleRuleSet, // PascalCase: asx_RuleSet
+      parentSet: ENTITY_SET.ruleSet, parentId: setId,
+      lookupValueField: LOOKUP.ruleSetOfRule, // "_asx_ruleset_value"
+      extra: { asx_tablelogicalname: "account" },
+    });
+  });
+
   it("filterGroupCondition binds a node filter group to its owning rule condition", async () => {
     const condId = await makeCondition("filterGroupCondition_condition");
     await roundTrip({

@@ -22,13 +22,17 @@ The hub, **Rules & data model**, is the Rule Builder's landing page. It has two 
 |---|---|
 | **Rule** | The rule's name, and the data model it uses. |
 | **Table** | The table the rule runs on. |
+| **Rule set** | The rule set the rule is in, or a dash (*Moving Rules Between Environments*). |
 | **Status** | Draft, Published or Archived (*Rule Lifecycle*). |
 | **Triggers** | When it runs (*Triggers & Channels*). |
 | **Actions** | How many actions it has. |
 | **Modified** | When it last changed, and by whom. |
 
 Click a row to open the rule (*Editor Layout*). Above the list: **New rule** (*Creating a New
-Rule*), **Search rules**, and the **Table** and **Status** filters.
+Rule*), **Search rules**, and the **Table**, **Rule set** and **Status** filters.
+
+The **Set rule set** row action puts a rule in a rule set, takes it out of its set, or creates a
+new set. It works on a published rule without a working draft.
 
 While a data update is waiting, a bar reads *Read-only until Update N is applied.* and **New rule**,
 **Duplicate** and **Delete** are hidden. A System Administrator or System Customizer sees **Apply
