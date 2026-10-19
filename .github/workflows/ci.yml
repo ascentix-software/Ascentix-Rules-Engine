@@ -109,3 +109,6 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Build (esbuild bundles and the shelljs patch)
+        run: npm run build
