@@ -72,6 +72,7 @@ prohibited after creation. Existing rules require no initialization operation.
 | Evaluation Time Zone | `asx_evaluationtimezone` | Text (100) | | Windows time zone id (e.g. `Eastern Standard Time`) that decides the calendar day and wall-clock time of an instant when a Date Only or Time Zone Independent column is compared, and the instant a value without an offset (a literal such as `2026-09-01`, or a Date Only / Time Zone Independent anchor) means when a User Local column is compared; blank ⇒ UTC |
 | Root Table Config | `asx_roottableconfig` | Lookup → `asx_tableconfig` | ✔ | The rule's root node; the rule's table-config tree (shareable across rules) hangs off it via `asx_parenttable`. The editor loads the whole tree from here. |
 | Trigger Columns | `asx_triggercolumns` | Multiline (4000) | | JSON array of **root-table** column logical names (`["sample_lineamount"]`). **OnUpdate only**: unioned into the update step's filtering attributes alongside condition columns, so the rule also fires when one of these changes (e.g. an action depends on a column no condition references). Blank ⇒ none. |
+| Rule Set | `asx_ruleset` | Lookup → `asx_ruleset`, RemoveLink | | The named group the rule belongs to (§2.21); blank ⇒ in no set. Deleting a rule set clears this link and keeps the rule |
 
 > **No rule-level severity.** Severity is set **per action** (`asx_ruleaction.asx_severity`,
 > §2.9). A former `asx_rule.asx_severity` column was removed (the engine never read it; it only
@@ -276,6 +277,9 @@ The authoring workflow creates revisions on publication and deletes them with th
 | `asx_hash` | Text (64) | SHA-256 of serialized snapshot |
 | `asx_publisher` | Lookup → `systemuser` | Publishing user, or author whose shared-model edit preserved existing behavior |
 | `asx_publishedon` | DateTime | Snapshot creation time in UTC |
+| `asx_sourceenvironment` | Text (200) | Provenance: the environment a transported rule was exported from; blank on revisions published here |
+| `asx_sourceversion` | Integer (min 0) | Provenance: the rule's published version in that environment |
+| `asx_sourcehash` | Text (64) | Provenance: the source revision's `asx_hash`, used to recognise a rule that is already up to date |
 
 ### 2.12 Publication Lock (`asx_publicationlock`)
 
@@ -453,6 +457,21 @@ Organization-owned. One row per release data update that has started, written on
 
 **Pending:** an update the assembly carries with no row, or with a Running row. Completed and
 Completed with failures are not pending. The shipped roles grant no privileges on this table.
+
+### 2.21 Rule Set (`asx_ruleset`)
+
+Organization-owned. A named group of rules that is exported and imported together. A rule belongs to at
+most one set, through `asx_rule.asx_ruleset` (§2.1).
+
+| Column | Type | Notes |
+|---|---|---|
+| `asx_name` | Text (100, primary) | The set's name; unique through the alternate key `asx_ruleset_name` |
+| `asx_description` | Memo (2,000) | What the set is for |
+
+**Alternate key:** `asx_ruleset_name` on `asx_name`, so a set is matched by name across environments.
+
+**Security:** the Rules Engine Author role has Create, Read, Write, Delete, Append and Append To at
+Global depth; the Rules Engine Reader role has Read at Global depth.
 
 ## 3. `asx_RunRules` Custom API
 
@@ -1236,6 +1255,7 @@ checks it. No additional custom processing steps. In the `AscentixRulesEngine` s
 | `asx_actionconditiongroup_actionconditiontest` | `asx_actionconditiongroup` | `asx_actionconditiontest` (Cascade) |
 | `asx_conditiongroup_actionconditiontest` | `asx_conditiongroup` | `asx_actionconditiontest` (`asx_outcome`, RemoveLink) |
 | `asx_dataupdate_asx_runby_revision` | `systemuser` | `asx_dataupdate` (`asx_runby`, RemoveLink) |
+| `asx_ruleset_rule` | `asx_ruleset` | `asx_rule` (`asx_ruleset`, RemoveLink) |
 
 ---
 

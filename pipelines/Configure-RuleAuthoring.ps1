@@ -55,7 +55,7 @@ function LabelText($Label) {
     if ($Label.UserLocalizedLabel) { return $Label.UserLocalizedLabel.Label }
     return (@($Label.LocalizedLabels) | Where-Object { $_.LanguageCode -eq 1033 } | Select-Object -First 1).Label
 }
-function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'OrganizationOwned', [string]$EntitySetName = '', [string]$CollectionName = '') {
+function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'OrganizationOwned', [string]$EntitySetName = '', [string]$CollectionName = '', [int]$PrimaryMaxLength = 200) {
     $logical = $Name.ToLowerInvariant()
     $setName = if ($EntitySetName) { $EntitySetName } else { $logical + 's' }
     $plural = if ($CollectionName) { $CollectionName } else { $Display + 's' }
@@ -78,7 +78,7 @@ function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'Orga
         }
         return
     }
-    $primary = Field 'asx_Name' 'String' 'Name'; $primary.MaxLength = 200; $primary.IsPrimaryName = $true
+    $primary = Field 'asx_Name' 'String' 'Name'; $primary.MaxLength = $PrimaryMaxLength; $primary.IsPrimaryName = $true
     $primary.FormatName = @{ Value = 'Text' }
     Request POST 'EntityDefinitions' @{
         '@odata.type' = 'Microsoft.Dynamics.CRM.EntityMetadata'; SchemaName = $Name; EntitySetName = $setName;
@@ -122,6 +122,36 @@ function EnsureLookup([string]$From, [string]$To, [string]$Name, [string]$Displa
         ReferencedEntity = $To; ReferencingEntity = $From; Lookup = (Field $Name 'Lookup' $Display);
         CascadeConfiguration = @{ Assign = 'NoCascade'; Delete = $Delete; Merge = 'NoCascade'; Reparent = 'NoCascade'; Share = 'NoCascade'; Unshare = 'NoCascade' }
     } | Out-Null
+}
+# Creates an alternate key on the listed columns unless a key of that name exists. The platform builds
+# the key's index in the background, so a later run may see it still pending; it is never re-created.
+function EnsureKey([string]$Table, [string]$Name, [string[]]$Columns) {
+    $existing = Request GET "EntityDefinitions(LogicalName='$Table')/Keys?`$select=LogicalName"
+    if (@($existing.value | Where-Object { $_.LogicalName -eq $Name.ToLowerInvariant() }).Count -gt 0) { return }
+    Request POST "EntityDefinitions(LogicalName='$Table')/Keys" @{
+        '@odata.type' = 'Microsoft.Dynamics.CRM.EntityKeyMetadata'; SchemaName = $Name;
+        DisplayName = (Label $Name); KeyAttributes = @($Columns)
+    } | Out-Null
+}
+# Grants a security role privileges at the given depths ({ prvReadasx_ruleset = 'Global' }). The role is
+# the one with that name in the root business unit. AddPrivilegesRole adds missing privileges and
+# raises the depth of ones the role already has, so a re-run changes nothing.
+function EnsureRolePrivileges([string]$Role, [hashtable]$PrivilegeDepths) {
+    $root = Request GET "businessunits?`$select=businessunitid&`$filter=parentbusinessunitid eq null"
+    if (@($root.value).Count -ne 1) { throw 'Could not find the root business unit.' }
+    $unitId = @($root.value)[0].businessunitid
+    $roles = Request GET "roles?`$select=roleid&`$filter=name eq '$Role' and _businessunitid_value eq $unitId"
+    if (@($roles.value).Count -ne 1) { throw "Security role '$Role' was not found in the root business unit; import the solution before running the Schema phase." }
+    $roleId = @($roles.value)[0].roleid
+    $names = @($PrivilegeDepths.Keys | Sort-Object)
+    $filter = ($names | ForEach-Object { "name eq '$_'" }) -join ' or '
+    $found = Request GET "privileges?`$select=privilegeid,name&`$filter=$filter"
+    $grants = foreach ($name in $names) {
+        $privilege = @($found.value | Where-Object { $_.name -eq $name }) | Select-Object -First 1
+        if (!$privilege) { throw "Privilege $name was not found; the table may not be visible yet, run the Schema phase again." }
+        @{ PrivilegeId = $privilege.privilegeid; BusinessUnitId = $unitId; Depth = $PrivilegeDepths[$name] }
+    }
+    Request POST "roles($roleId)/Microsoft.Dynamics.CRM.AddPrivilegesRole" @{ Privileges = @($grants) } | Out-Null
 }
 # Creates an environment variable definition in the solution (the header names it) with its default
 # and no value row; an existing definition is left as it is, including any value set on it.
@@ -292,7 +322,23 @@ if ($Phase -eq 'Schema') {
         EnsureField 'asx_dataupdate' $field
     }
     EnsureLookup 'asx_dataupdate' 'systemuser' 'asx_RunBy' 'Run by' 'RemoveLink'
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity><entity>asx_dataupdate</entity><entity>asx_actionconditiongroup</entity><entity>asx_actionconditiontest</entity></entities><optionsets><optionset>asx_triggers</optionset><optionset>asx_actiontype</optionset></optionsets></importexportxml>' } | Out-Null
+    # Rule sets: named groups of rules that move between environments together, with provenance on the
+    # revisions an import writes (docs/Schema.md 2.21).
+    EnsureTable 'asx_RuleSet' 'Rule Set' -PrimaryMaxLength 100
+    $field = Field 'asx_Description' 'Memo' 'Description'; $field.MaxLength = 2000
+    EnsureField 'asx_ruleset' $field
+    EnsureKey 'asx_ruleset' 'asx_ruleset_name' @('asx_name')
+    EnsureLookup 'asx_rule' 'asx_ruleset' 'asx_RuleSet' 'Rule set' 'RemoveLink' 'asx_ruleset_rule'
+    $field = Field 'asx_SourceEnvironment' 'String' 'Source environment'; $field.MaxLength = 200
+    EnsureField 'asx_rulerevision' $field
+    $field = Field 'asx_SourceVersion' 'Integer' 'Source version'; $field.MinValue = 0; $field.MaxValue = 2147483647
+    EnsureField 'asx_rulerevision' $field
+    $field = Field 'asx_SourceHash' 'String' 'Source hash'; $field.MaxLength = 64
+    EnsureField 'asx_rulerevision' $field
+    EnsureRolePrivileges 'Rules Engine Author' @{ prvCreateasx_ruleset = 'Global'; prvReadasx_ruleset = 'Global'; prvWriteasx_ruleset = 'Global';
+        prvDeleteasx_ruleset = 'Global'; prvAppendasx_ruleset = 'Global'; prvAppendToasx_ruleset = 'Global' }
+    EnsureRolePrivileges 'Rules Engine Reader' @{ prvReadasx_ruleset = 'Global' }
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity><entity>asx_dataupdate</entity><entity>asx_actionconditiongroup</entity><entity>asx_actionconditiontest</entity><entity>asx_ruleset</entity></entities><optionsets><optionset>asx_triggers</optionset><optionset>asx_actiontype</optionset></optionsets></importexportxml>' } | Out-Null
     # Only configure the product's shipped views; personal/customer views are not selected.
     foreach ($spec in @(@('asx_rule','asx_draftof'), @('asx_tableconfig','asx_isprivate'))) {
         $viewFolder = Join-Path $PSScriptRoot "../Solutions/$SolutionName/${SolutionName}_unmanaged/Entities/$($spec[0])/SavedQueries"
@@ -326,7 +372,7 @@ if ($Phase -eq 'Schema') {
             }
         }
     }
-    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity><entity>asx_dataupdate</entity><entity>asx_actionconditiongroup</entity><entity>asx_actionconditiontest</entity></entities></importexportxml>' } | Out-Null
+    Request POST 'PublishXml' @{ ParameterXml = '<importexportxml><entities><entity>asx_rule</entity><entity>asx_rulerevision</entity><entity>asx_publicationlock</entity><entity>asx_tableconfig</entity><entity>asx_rulecondition</entity><entity>asx_ruleaction</entity><entity>asx_rulerun</entity><entity>asx_ruleschedule</entity><entity>asx_schedulerstatus</entity><entity>asx_rulediagnostic</entity><entity>asx_nodefiltergroup</entity><entity>asx_dataupdate</entity><entity>asx_actionconditiongroup</entity><entity>asx_actionconditiontest</entity><entity>asx_ruleset</entity></entities></importexportxml>' } | Out-Null
     Write-Host '[revisions] additive schema ready'
     return
 }
