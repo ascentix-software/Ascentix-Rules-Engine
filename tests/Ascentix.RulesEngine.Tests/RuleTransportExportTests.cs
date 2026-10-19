@@ -229,6 +229,21 @@ namespace Ascentix.RulesEngine.Tests
         }
 
         [Fact]
+        public void Each_literal_of_an_array_valued_filter_leaf_is_listed()
+        {
+            var id = Guid.NewGuid(); var rows = RuleRevisionTests.Rule(id);
+            var first = Guid.NewGuid(); var second = Guid.NewGuid();
+            rows[2]["asx_expressionfilters"] = "{\"k\":{\"kind\":\"group\",\"op\":\"and\",\"rules\":["
+                + "{\"kind\":\"rule\",\"column\":\"ownerid\",\"operator\":8,\"valueSource\":1,\"value\":[\"" + first + "\",\"" + second + "\"]}]}}";
+            var context = Prepare(rows); RuleRevisionTests.Freeze(context.GetOrganizationService(), id);
+
+            var references = Export(context, id).RecordReferences;
+
+            Assert.Equal(new[] { first, second }.OrderBy(g => g), references.Select(r => r.RecordId).OrderBy(g => g));
+            Assert.All(references, r => Assert.Equal("asx_expressionfilters", r.Attribute));
+        }
+
+        [Fact]
         public void Entry_round_trips_through_serialize_and_parse()
         {
             var id = Guid.NewGuid();

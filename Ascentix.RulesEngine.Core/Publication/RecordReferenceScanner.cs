@@ -146,9 +146,13 @@ namespace Ascentix.RulesEngine.Core.Publication
                 var source = leaf.Elements().FirstOrDefault(c => c.Name.LocalName == "valueSource")?.Value;
                 if (!string.IsNullOrEmpty(source) && source != "1") continue;
                 var value = leaf.Elements().FirstOrDefault(c => c.Name.LocalName == "value");
-                if (value == null || value.HasElements) continue;
-                foreach (Match m in GuidPattern.Matches(value.Value))
-                    add(row, attribute, Guid.Parse(m.Value), new string[0]);
+                if (value == null) continue;
+                // A multi-value comparison holds an array of literals.
+                var literals = !value.HasElements ? new[] { value }
+                    : (string)value.Attribute("type") == "array" ? value.Elements().Where(item => !item.HasElements).ToArray() : new XElement[0];
+                foreach (var literal in literals)
+                    foreach (Match m in GuidPattern.Matches(literal.Value))
+                        add(row, attribute, Guid.Parse(m.Value), new string[0]);
             }
         }
 
