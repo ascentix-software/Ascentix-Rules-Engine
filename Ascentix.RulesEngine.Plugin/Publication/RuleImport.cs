@@ -92,17 +92,20 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                 var sourceHash = pointer == null ? null : service.Retrieve(PublicationSchema.Revision, pointer.Id,
                     new ColumnSet(PublicationSchema.SourceHash)).GetAttributeValue<string>(PublicationSchema.SourceHash);
                 if (pointer != null) result.TargetVersion = header.GetAttributeValue<int>(PublicationSchema.Number);
-                var published = header.GetAttributeValue<OptionSetValue>("statuscode")?.Value == (int)RuleStatus.Published;
-                if (draft == null && published && sourceHash != null && sourceHash == entry.Hash)
+                var status = header.GetAttributeValue<OptionSetValue>("statuscode")?.Value;
+                if (!options.OverwriteTargetChanges && status == (int)RuleStatus.Archived)
                 {
-                    result.Outcome = "unchanged";
+                    result.Outcome = "conflict";
+                    result.Messages.Add($"{entry.Name} was archived in this environment.");
                     return result;
                 }
+                if (draft == null && status == (int)RuleStatus.Published && sourceHash != null && sourceHash == entry.Hash)
+                    return Unchanged(context, service, entry, header, setName, ruleSet, options, result);
                 if (!options.OverwriteTargetChanges && (draft != null || sourceHash == null))
                 {
                     result.Outcome = "conflict";
-                    result.Messages.Add(draft != null
-                        ? $"Rule {entry.Name} has an open working draft in this environment."
+                    result.Messages.Add(draft != null ? $"Rule {entry.Name} has an open working draft in this environment."
+                        : pointer == null ? $"{entry.Name} exists in this environment but was never published or imported."
                         : $"Rule {entry.Name} was published in this environment, not imported.");
                     return result;
                 }
@@ -119,11 +122,7 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                 return result;
             }
 
-            if (ruleSet == null && setName != null)
-            {
-                ruleSet = new Entity(PublicationSchema.RuleSet) { ["asx_name"] = setName };
-                ruleSet.Id = service.Create(ruleSet);
-            }
+            ruleSet = EnsureRuleSet(service, setName, ruleSet);
             var owner = options.OwnerTeamId is Guid team ? new EntityReference("team", team) : new EntityReference("systemuser", context.InitiatingUserId);
             Guid? draftId = null;
             var revision = header == null
@@ -146,6 +145,48 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             result.Outcome = header == null ? "created" : "updated";
             result.TargetVersion = revision.GetAttributeValue<int>("asx_version");
             return result;
+        }
+
+        // The definition is current. Rule set and schedule are the source's too, but outside the hash: bring them in line.
+        private static ImportResult Unchanged(IPluginExecutionContext context, IOrganizationService service, TransportEntry entry, Entity header,
+            string setName, Entity ruleSet, ImportOptions options, ImportResult result)
+        {
+            var currentSet = header.GetAttributeValue<EntityReference>(PublicationSchema.RuleSet);
+            var setChanged = setName == null ? currentSet != null : currentSet == null || ruleSet == null || currentSet.Id != ruleSet.Id;
+            var scheduleChanged = !SameSchedule(RuleTransportApi.Schedule(service, header.Id), entry.Schedule);
+            if (!setChanged && !scheduleChanged)
+            {
+                result.Outcome = "unchanged";
+                return result;
+            }
+            result.Messages.Add("Definition unchanged; " + (setChanged && scheduleChanged ? "rule set and schedule" : setChanged ? "rule set" : "schedule") + " updated.");
+            if (options.ValidateOnly)
+            {
+                result.Outcome = "wouldUpdate";
+                return result;
+            }
+            if (setChanged)
+            {
+                ruleSet = EnsureRuleSet(service, setName, ruleSet);
+                PublicationCoordinator.Internal(context, service, writer => writer.Update(new Entity("asx_rule", header.Id) {
+                    [PublicationSchema.RuleSet] = ruleSet?.ToEntityReference() }));
+            }
+            if (scheduleChanged) WriteSchedule(service, entry);
+            result.Outcome = "updated";
+            return result;
+        }
+
+        private static bool SameSchedule(TransportSchedule current, TransportSchedule wanted) =>
+            current == null || wanted == null ? current == wanted :
+            current.On == wanted.On && current.Pattern == wanted.Pattern && current.Every == wanted.Every &&
+            current.TimeOfDay == wanted.TimeOfDay && current.DaysOfWeek == wanted.DaysOfWeek && current.DayOfMonth == wanted.DayOfMonth;
+
+        private static Entity EnsureRuleSet(IOrganizationService service, string setName, Entity ruleSet)
+        {
+            if (ruleSet != null || setName == null) return ruleSet;
+            var created = new Entity(PublicationSchema.RuleSet) { ["asx_name"] = setName };
+            created.Id = service.Create(created);
+            return created;
         }
 
         private static Version Normalize(Version version) =>

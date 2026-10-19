@@ -120,7 +120,7 @@ namespace Ascentix.RulesEngine.Plugin
         }
 
         // Definition only: when it next runs and what it last did belong to the environment it runs in.
-        private static TransportSchedule Schedule(IOrganizationService service, Guid ruleId)
+        internal static TransportSchedule Schedule(IOrganizationService service, Guid ruleId)
         {
             var query = new QueryExpression("asx_ruleschedule") { TopCount = 1,
                 ColumnSet = new ColumnSet("asx_on", "asx_pattern", "asx_every", "asx_timeofday", "asx_daysofweek", "asx_dayofmonth") };

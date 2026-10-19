@@ -414,6 +414,126 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Empty(All(service, "asx_ruleschedule"));
         }
 
+        private static TransportEntry Copy(TransportEntry entry) => TransportEntry.Parse(entry.Serialize());
+
+        private static Entity WeeklySchedule(Guid ruleId) => new Entity("asx_ruleschedule", Guid.NewGuid()) {
+            ["asx_rule"] = new EntityReference("asx_rule", ruleId), ["asx_on"] = true, ["asx_pattern"] = new OptionSetValue(4), ["asx_timeofday"] = "06:30",
+            ["asx_daysofweek"] = new OptionSetValueCollection(new List<OptionSetValue> { new OptionSetValue(1) }) };
+
+        [Fact]
+        public void Rule_set_only_change_updates_without_a_new_revision_and_a_rerun_is_unchanged()
+        {
+            var entry = Source();
+            var context = Target(); var service = context.GetOrganizationService();
+            Import(context, entry);
+            var moved = Copy(entry); moved.RuleSet = "Billing";
+
+            var result = Import(context, moved);
+
+            Assert.Equal("updated", result.Outcome);
+            Assert.Equal("Definition unchanged; rule set updated.", Assert.Single(result.Messages));
+            Assert.Equal(1, result.TargetVersion);
+            Assert.Single(All(service, PublicationSchema.Revision));
+            var set = Assert.Single(All(service, "asx_ruleset"));
+            Assert.Equal(set.Id, Header(service, entry.Id).GetAttributeValue<EntityReference>("asx_ruleset").Id);
+            Assert.Equal("unchanged", Import(context, moved).Outcome);
+
+            var removed = Copy(entry);
+            Assert.Equal("updated", Import(context, removed).Outcome);
+            Assert.Null(Header(service, entry.Id).GetAttributeValue<EntityReference>("asx_ruleset"));
+        }
+
+        [Fact]
+        public void Schedule_switched_off_in_source_switches_off_the_target_schedule()
+        {
+            var id = Guid.NewGuid();
+            var entry = Source(id: id, extra: new[] { WeeklySchedule(id) });
+            var context = Target(); var service = context.GetOrganizationService();
+            Import(context, entry);
+            var off = Copy(entry); off.Schedule.On = false;
+
+            var result = Import(context, off);
+
+            Assert.Equal("updated", result.Outcome);
+            Assert.Equal("Definition unchanged; schedule updated.", Assert.Single(result.Messages));
+            Assert.Single(All(service, PublicationSchema.Revision));
+            Assert.False(Assert.Single(All(service, "asx_ruleschedule")).GetAttributeValue<bool>("asx_on"));
+            Assert.Equal("unchanged", Import(context, off).Outcome);
+        }
+
+        [Fact]
+        public void Validate_only_reports_would_update_for_rule_set_and_schedule_changes_and_writes_nothing()
+        {
+            var id = Guid.NewGuid();
+            var entry = Source(id: id, extra: new[] { WeeklySchedule(id) });
+            var context = Target(); var service = context.GetOrganizationService();
+            Import(context, entry);
+            var changed = Copy(entry); changed.RuleSet = "Billing"; changed.Schedule.TimeOfDay = "08:00";
+
+            var result = Import(context, changed, validateOnly: true);
+
+            Assert.Equal("wouldUpdate", result.Outcome);
+            Assert.Equal("Definition unchanged; rule set and schedule updated.", Assert.Single(result.Messages));
+            Assert.Empty(All(service, "asx_ruleset"));
+            Assert.Null(Header(service, entry.Id).GetAttributeValue<EntityReference>("asx_ruleset"));
+            Assert.Equal("06:30", Assert.Single(All(service, "asx_ruleschedule")).GetAttributeValue<string>("asx_timeofday"));
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Archived_rule_is_a_conflict_unless_overwrite(bool overwrite)
+        {
+            var entry = Source();
+            var context = Target(); var service = context.GetOrganizationService();
+            Import(context, entry);
+            service.Update(new Entity("asx_rule", entry.Id) { ["statuscode"] = new OptionSetValue(2) });
+
+            var result = Import(context, entry, overwrite: overwrite);
+
+            if (!overwrite)
+            {
+                Assert.Equal("conflict", result.Outcome);
+                Assert.Equal("Live was archived in this environment.", Assert.Single(result.Messages));
+                Assert.Equal(2, Header(service, entry.Id).GetAttributeValue<OptionSetValue>("statuscode").Value);
+                Assert.Single(All(service, PublicationSchema.Revision));
+                return;
+            }
+            Assert.Equal("updated", result.Outcome);
+            Assert.Equal(2, result.TargetVersion);
+            Assert.Equal(Published, Header(service, entry.Id).GetAttributeValue<OptionSetValue>("statuscode").Value);
+            Assert.Null(RuleDrafts.Find(service, entry.Id));
+        }
+
+        [Fact]
+        public void Rule_never_published_in_the_target_is_a_conflict()
+        {
+            var entry = Source();
+            var local = new Entity("asx_rule", entry.Id) { ["asx_name"] = "Live", ["asx_tablelogicalname"] = "account", ["statuscode"] = new OptionSetValue(1) };
+            var context = Target(local);
+
+            var result = Import(context, entry);
+
+            Assert.Equal("conflict", result.Outcome);
+            Assert.Equal("Live exists in this environment but was never published or imported.", Assert.Single(result.Messages));
+            Assert.Null(result.TargetVersion);
+        }
+
+        [Fact]
+        public void Changed_business_table_is_refused()
+        {
+            var entry = Source();
+            var context = Target(); var service = context.GetOrganizationService();
+            Import(context, entry);
+            service.Update(new Entity("asx_rule", entry.Id) { ["asx_tablelogicalname"] = "contact" });
+
+            var error = Assert.Throws<InvalidPluginExecutionException>(() => Import(context, Changed(entry)));
+
+            Assert.Equal("Rule Live runs on contact in this environment and on account in the package. A rule's business table cannot be changed.", error.Message);
+            Assert.Single(All(service, PublicationSchema.Revision));
+            Assert.Null(RuleDrafts.Find(service, entry.Id));
+        }
+
         [Fact]
         public void Owner_team_owns_new_rows_when_given()
         {
