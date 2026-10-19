@@ -16,6 +16,8 @@ export class FakeDataverse {
   posts: { path: string; body: any }[] = [];
   failFor = new Set<string>();
   crashFor = new Set<string>();
+  /** Lower-case rule set names whose lookup fails. */
+  failRuleSetLookup = new Set<string>();
   outcomeFor: Record<string, string> = {};
   resultIdFor: Record<string, string> = {};
 
@@ -32,6 +34,7 @@ export class FakeDataverse {
     this.gets.push(path);
     if (path.startsWith('asx_rulesets')) {
       const name = this.literal(path, 'asx_name')!.toLowerCase();
+      if (this.failRuleSetLookup.has(name)) throw new DataverseError(503, '0x80040216', 'Service unavailable');
       return {
         value: this.sets.filter((s) => s.name.toLowerCase() === name).map((s) => ({ asx_rulesetid: s.id, asx_name: s.name })),
       } as T;

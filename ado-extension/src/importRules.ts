@@ -29,7 +29,17 @@ export interface ImportReport {
   failed: { name: string; message: string }[];
 }
 
-export async function importRules(dv: Dataverse, pkg: RulePackage, opts: ImportOptions): Promise<ImportReport> {
+export function emptyReport(): ImportReport {
+  return { results: [], archived: [], wouldArchive: [], leftAlone: [], failed: [] };
+}
+
+/** Fills `report` as it goes, so a caller holding it keeps the partial report if the run throws. */
+export async function importRules(
+  dv: Dataverse,
+  pkg: RulePackage,
+  opts: ImportOptions,
+  report: ImportReport = emptyReport(),
+): Promise<ImportReport> {
   const selected = (opts.ruleSets?.length ? opts.ruleSets : pkg.ruleSets).map((n) => n.trim());
   const selectedKeys = new Set(selected.map((n) => n.toLowerCase()));
   const packageKeys = new Set(pkg.ruleSets.map((n) => n.trim().toLowerCase()));
@@ -42,7 +52,6 @@ export async function importRules(dv: Dataverse, pkg: RulePackage, opts: ImportO
     );
   }
   const ownerTeamId = opts.ownerTeam?.trim() ? await resolveTeam(dv, opts.ownerTeam.trim()) : undefined;
-  const report: ImportReport = { results: [], archived: [], wouldArchive: [], leftAlone: [], failed: [] };
 
   const entries = pkg.rules.filter((e) => selectedKeys.has(String(e.RuleSet).trim().toLowerCase()));
   for (const entry of entries) {
@@ -77,9 +86,16 @@ async function handleMissing(
   const inPackage = new Set([...pkg.rules.map((e) => normalizeId(e.Id)), ...report.results.map((r) => normalizeId(r.RuleId))]);
   const namesInPackage = new Set(pkg.rules.map((e) => e.Name.trim().toLowerCase()));
   for (const name of selected) {
-    const set = await findRuleSet(dv, name);
-    if (!set) continue; // The set does not exist in the target yet, so it holds no rules to miss.
-    for (const rule of await listRules(dv, set.id)) {
+    let rules: Awaited<ReturnType<typeof listRules>>;
+    try {
+      const set = await findRuleSet(dv, name);
+      if (!set) continue; // The set does not exist in the target yet, so it holds no rules to miss.
+      rules = await listRules(dv, set.id);
+    } catch (e) {
+      report.failed.push({ name: `Rule set ${name}`, message: `Missing rules could not be checked: ${errorMessage(e)}` });
+      continue;
+    }
+    for (const rule of rules) {
       if (rule.status !== STATUS_PUBLISHED) continue; // Drafts and archived rules are never missing rules.
       if (inPackage.has(normalizeId(rule.id)) || namesInPackage.has(rule.name.trim().toLowerCase())) continue;
       if (opts.missingRules === 'leave') {

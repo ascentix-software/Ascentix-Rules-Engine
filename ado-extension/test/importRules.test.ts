@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { importRules } from '../src/importRules';
+import { emptyReport, importRules } from '../src/importRules';
 import type { RulePackage } from '../src/package';
 import { FakeDataverse } from './fakeDataverse';
 
@@ -167,6 +167,19 @@ describe('importRules', () => {
     const report = await importRules(f.asDataverse(), pkg, opts);
     expect(report.results.map((r) => r.Name)).toEqual(['Rule one', 'Rule three']);
     expect(report.failed).toEqual([{ name: 'Rule two', message: 'network down' }]);
+  });
+
+  it('a_failed_missing_rules_check_is_reported_and_keeps_the_import_results', async () => {
+    const f = world();
+    f.failRuleSetLookup.add('billing');
+    const report = emptyReport();
+    const returned = await importRules(f.asDataverse(), pkg, { ...opts, missingRules: 'archive' }, report);
+    expect(returned).toBe(report);
+    expect(report.results.map((r) => r.Name)).toEqual(['Rule one', 'Rule two', 'Rule three']);
+    expect(report.failed).toEqual([
+      { name: 'Rule set Billing', message: 'Missing rules could not be checked: Service unavailable' },
+    ]);
+    expect(f.posts.some((p) => p.path === 'asx_ArchiveRule')).toBe(false);
   });
 
   it('owner team name shared by several teams is an error', async () => {
