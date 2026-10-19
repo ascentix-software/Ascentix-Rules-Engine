@@ -235,9 +235,27 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             // Publishing a draft writes the original header itself (pointer, number, status, name) with registration.
             var revision = RulePublication.Publish(context, service, new Entity("asx_rule", id) {
                 ["statuscode"] = new OptionSetValue((int)RuleStatus.Published) }, updates);
-            PublicationCoordinator.Internal(context, service, writer => writer.Update(new Entity("asx_rule", header.Id) {
-                [PublicationSchema.RuleSet] = ruleSet?.ToEntityReference() }));
+            var live = LiveColumns(header, definition);
+            live[PublicationSchema.RuleSet] = ruleSet?.ToEntityReference();
+            PublicationCoordinator.Internal(context, service, writer => writer.Update(live), reconcile: true);
             return revision;
+        }
+
+        // The hub keeps the published draft, which the schedule plug-in reads; import deletes it, so the original's own
+        // scalar columns (triggers, scope, time zone...) take the published values. Lookups into configuration rows are
+        // left alone: they name the deleted draft's private models. Name and status were written by the publish.
+        private static Entity LiveColumns(Entity header, RuleSnapshot definition)
+        {
+            bool Copied(string field, object value) =>
+                field.StartsWith("asx_", StringComparison.Ordinal) && field != "asx_ruleid" && field != "asx_name" &&
+                field != "asx_tablelogicalname" && field != PublicationSchema.PublishHash && !PublicationSchema.IsProtected(field) &&
+                !(value is EntityReference reference && PublicationSchema.IsConfig(reference.LogicalName));
+            var patch = new Entity("asx_rule", header.Id);
+            foreach (var attribute in definition.Rows.Single(row => row.Entity == "asx_rule").ToSdk().Attributes)
+                if (Copied(attribute.Key, attribute.Value)) patch[attribute.Key] = attribute.Value;
+            foreach (var attribute in header.Attributes)
+                if (!patch.Contains(attribute.Key) && Copied(attribute.Key, attribute.Value)) patch[attribute.Key] = null;
+            return patch;
         }
 
         // Schedules belong to the published rule (never a draft row) and a rule has at most one.

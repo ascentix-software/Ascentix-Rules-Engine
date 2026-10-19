@@ -534,6 +534,65 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Null(RuleDrafts.Find(service, entry.Id));
         }
 
+        // A new source version that runs On demand for all records in a named time zone.
+        private static TransportEntry Schedulable(TransportEntry entry)
+        {
+            var next = Changed(entry);
+            var rule = next.Definition.Rows.Single(row => row.Entity == "asx_rule").Attributes;
+            rule["asx_triggers"] = SnapshotValue.From(new OptionSetValueCollection(new List<OptionSetValue> { new OptionSetValue(3) }));
+            rule["asx_ondemandscope"] = SnapshotValue.From(new OptionSetValue(2));
+            rule["asx_evaluationtimezone"] = SnapshotValue.From("Pacific Standard Time");
+            next.Hash = next.Definition.Hash();
+            return next;
+        }
+
+        [Fact]
+        public void Update_writes_the_published_scalar_columns_onto_the_original_header()
+        {
+            var entry = Source();
+            var context = Target(); var service = context.GetOrganizationService();
+            Import(context, entry);
+            var root = Header(service, entry.Id).GetAttributeValue<EntityReference>("asx_roottableconfig");
+            var next = Schedulable(entry);
+
+            Assert.Equal("updated", Import(context, next).Outcome);
+
+            var header = Header(service, entry.Id);
+            Assert.Equal(new[] { 3 }, header.GetAttributeValue<OptionSetValueCollection>("asx_triggers").Select(trigger => trigger.Value));
+            Assert.Equal(2, header.GetAttributeValue<OptionSetValue>("asx_ondemandscope").Value);
+            Assert.Equal("Pacific Standard Time", header.GetAttributeValue<string>("asx_evaluationtimezone"));
+            var published = next.Definition.Rows.Single(row => row.Entity == "asx_rule").ToSdk();
+            foreach (var attribute in published.Attributes.Where(a => a.Key.StartsWith("asx_") && !(a.Value is EntityReference)))
+                Assert.Equal(SnapshotValue.From(attribute.Value).Value, SnapshotValue.From(header[attribute.Key]).Value);
+            // The root still names the original's own model, not the deleted draft's copy.
+            Assert.Equal(root, header.GetAttributeValue<EntityReference>("asx_roottableconfig"));
+            Assert.NotNull(service.Retrieve("asx_tableconfig", root.Id, new ColumnSet(false)));
+        }
+
+        [Fact]
+        public void A_schedule_added_after_an_update_that_made_the_rule_schedulable_is_accepted()
+        {
+            var entry = Source();
+            var context = Target(); var service = context.GetOrganizationService();
+            Import(context, entry);
+            var next = Schedulable(entry);
+            Import(context, next);
+            var withSchedule = Copy(next);
+            withSchedule.Schedule = new TransportSchedule { On = true, Pattern = 4, TimeOfDay = "06:30", DaysOfWeek = "1" };
+
+            Assert.Equal("updated", Import(context, withSchedule).Outcome);
+
+            // The schedule plug-in (not run by the fake on writes) accepts it against the original header alone.
+            var row = Assert.Single(All(service, "asx_ruleschedule"));
+            var target = new Entity("asx_ruleschedule") { ["asx_rule"] = row["asx_rule"], ["asx_on"] = true, ["asx_pattern"] = row["asx_pattern"],
+                ["asx_timeofday"] = row["asx_timeofday"], ["asx_daysofweek"] = row["asx_daysofweek"] };
+            service.Delete(row.LogicalName, row.Id);
+            Assert.Null(RuleDrafts.Find(service, entry.Id));
+            context.ExecuteTransactional<RuleSchedulePlugin>(new XrmFakedPluginExecutionContext { MessageName = "Create", Stage = 20,
+                PrimaryEntityName = "asx_ruleschedule", InputParameters = new ParameterCollection { { "Target", target } } });
+            Assert.NotNull(target.GetAttributeValue<DateTime?>("asx_nextrunon"));
+        }
+
         [Fact]
         public void Owner_team_owns_new_rows_when_given()
         {
