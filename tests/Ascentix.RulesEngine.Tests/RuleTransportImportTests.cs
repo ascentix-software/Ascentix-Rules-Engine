@@ -23,8 +23,10 @@ namespace Ascentix.RulesEngine.Tests
         private static readonly Guid Caller = Guid.NewGuid();
 
         // The target environment: no rules, the shared root model, the installed solution version and
-        // metadata for account (name, primarycontactid -> contact) and contact.
-        private static TransactionalPluginContext Target(params Entity[] extra)
+        // metadata for account (name, primarycontactid -> contact) and contact. The caller holds Create on Rule.
+        private static TransactionalPluginContext Target(params Entity[] extra) => Target(true, extra);
+
+        private static TransactionalPluginContext Target(bool canCreateRules, params Entity[] extra)
         {
             var context = RuleRevisionTests.Context();
             var service = context.GetOrganizationService();
@@ -40,6 +42,19 @@ namespace Ascentix.RulesEngine.Tests
             var byName = tables.ToDictionary(entity => entity.LogicalName);
             context.AddExecutionMock<RetrieveEntityRequest>(request => new RetrieveEntityResponse {
                 Results = new ParameterCollection { ["EntityMetadata"] = byName[((RetrieveEntityRequest)request).LogicalName] } });
+            context.AddExecutionMock<RetrieveAttributeRequest>(request => {
+                var attribute = (RetrieveAttributeRequest)request;
+                var metadata = byName.TryGetValue(attribute.EntityLogicalName, out var entity)
+                    ? entity.Attributes.FirstOrDefault(a => a.LogicalName == attribute.LogicalName) : null;
+                return new RetrieveAttributeResponse { Results = new ParameterCollection {
+                    ["AttributeMetadata"] = metadata ?? new StringAttributeMetadata { LogicalName = attribute.LogicalName } } };
+            });
+            context.AddExecutionMock<RetrieveUserPrivilegeByPrivilegeNameRequest>(request => {
+                var asked = (RetrieveUserPrivilegeByPrivilegeNameRequest)request;
+                var granted = canCreateRules && asked.UserId == Caller && asked.PrivilegeName == "prvCreateasx_rule";
+                return new RetrieveUserPrivilegeByPrivilegeNameResponse { Results = new ParameterCollection {
+                    ["RolePrivileges"] = granted ? new[] { new RolePrivilege { Depth = PrivilegeDepth.Global, PrivilegeId = Guid.NewGuid() } } : new RolePrivilege[0] } };
+            });
             return context;
         }
 
@@ -328,15 +343,188 @@ namespace Ascentix.RulesEngine.Tests
         [Fact]
         public void Record_reference_with_unknown_table_is_reported_and_import_continues()
         {
-            var entry = Source();
             var record = Guid.NewGuid();
-            entry.RecordReferences.Add(new RecordReference { RowEntity = "asx_rulecondition", RowId = Guid.NewGuid(), Attribute = "asx_expressionfilters", RecordId = record });
+            var entry = Source(rows => rows[3]["asx_fieldmapping"] = "[{\"target\":\"description\",\"source\":\"literal\",\"value\":\"" + record + "\"}]");
             var context = Target();
 
             var result = Import(context, entry);
 
             Assert.Equal("created", result.Outcome);
-            Assert.Equal($"Could not check record {record} in asx_expressionfilters: its table is unknown.", Assert.Single(result.Messages));
+            Assert.Equal($"Could not check record {record} in asx_fieldmapping: its table is unknown.", Assert.Single(result.Messages));
+        }
+
+        // The entry's own record list and hash are not trusted: the server finds the record ids and hashes the definition.
+        private static TransportEntry WithComparedRecord(TransportEntry entry, Guid record)
+        {
+            var edited = Copy(entry);
+            edited.Definition.Rows.Single(row => row.Entity == "asx_rulecondition").Attributes["asx_comparisonvalue"] = SnapshotValue.From(record.ToString());
+            return edited;
+        }
+
+        [Fact]
+        public void Hand_edited_record_id_is_a_change_and_the_new_id_is_checked()
+        {
+            var first = Guid.NewGuid(); var second = Guid.NewGuid();
+            var entry = Source(rows => { rows[2]["asx_comparisoncolumn"] = "primarycontactid"; rows[2]["asx_comparisonvalue"] = first.ToString(); });
+            var context = Target(new Entity("contact", first)); var service = context.GetOrganizationService();
+            Assert.Equal("created", Import(context, entry).Outcome);
+            var edited = WithComparedRecord(entry, second); // Hash and RecordReferences still describe the original
+
+            var error = Assert.Throws<InvalidPluginExecutionException>(() => Import(context, edited));
+            Assert.Equal($"Rule Live refers to contact record {second}, which does not exist in this environment.", error.Message);
+
+            service.Create(new Entity("contact", second));
+            var result = Import(context, edited);
+            Assert.Equal("updated", result.Outcome);
+            Assert.Equal(2, result.TargetVersion);
+            Assert.Equal(edited.Definition.Hash(), All(service, PublicationSchema.Revision).Single(r => r.GetAttributeValue<int>("asx_version") == 2)
+                .GetAttributeValue<string>(PublicationSchema.SourceHash));
+        }
+
+        [Fact]
+        public void Missing_record_is_refused_even_when_the_entry_lists_no_record_references()
+        {
+            var contact = Guid.NewGuid();
+            var entry = Source(rows => { rows[2]["asx_comparisoncolumn"] = "primarycontactid"; rows[2]["asx_comparisonvalue"] = contact.ToString(); });
+            entry.RecordReferences.Clear();
+            var context = Target(); var service = context.GetOrganizationService();
+
+            var error = Assert.Throws<InvalidPluginExecutionException>(() => Import(context, entry));
+
+            Assert.Equal($"Rule Live refers to contact record {contact}, which does not exist in this environment.", error.Message);
+            Assert.Empty(All(service, "asx_rule"));
+        }
+
+        [Fact]
+        public void A_wrong_hash_field_is_ignored_and_a_matching_definition_is_unchanged()
+        {
+            var entry = Source();
+            var context = Target(); var service = context.GetOrganizationService();
+            var wrong = Copy(entry); wrong.Hash = new string('0', 64);
+            Import(context, wrong);
+
+            Assert.Equal(entry.Definition.Hash(), Assert.Single(All(service, PublicationSchema.Revision)).GetAttributeValue<string>(PublicationSchema.SourceHash));
+            Assert.Equal("unchanged", Import(context, wrong).Outcome);
+            Assert.Equal("unchanged", Import(context, entry).Outcome);
+            var claimsUnchanged = Changed(entry); claimsUnchanged.Hash = entry.Hash;
+            Assert.Equal("updated", Import(context, claimsUnchanged).Outcome);
+        }
+
+        [Fact]
+        public void Columns_a_capture_never_emits_are_not_written()
+        {
+            var entry = Source();
+            var intruder = new EntityReference("systemuser", Guid.NewGuid());
+            var rule = entry.Definition.Rows.Single(row => row.Entity == "asx_rule").Attributes;
+            rule["ownerid"] = SnapshotValue.From(intruder);
+            rule[PublicationSchema.DraftOf] = SnapshotValue.From(new EntityReference("asx_rule", Guid.NewGuid()));
+            rule[PublicationSchema.PublishHash] = SnapshotValue.From("abc");
+            var action = entry.Definition.Rows.Single(row => row.Entity == "asx_ruleaction");
+            action.Attributes["importsequencenumber"] = SnapshotValue.From(7);
+            action.Attributes["asx_ruleactionid"] = SnapshotValue.From(Guid.NewGuid());
+            var context = Target(); var service = context.GetOrganizationService();
+
+            Assert.Equal("created", Import(context, entry).Outcome);
+
+            var header = Header(service, entry.Id);
+            Assert.Equal(new EntityReference("systemuser", Caller), header.GetAttributeValue<EntityReference>("ownerid"));
+            Assert.Null(header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf));
+            Assert.Null(header.GetAttributeValue<string>(PublicationSchema.PublishHash));
+            var stored = Assert.Single(All(service, "asx_ruleaction"));
+            Assert.False(stored.Contains("importsequencenumber"));
+            // The dropped columns are not part of the definition, so the same entry again changes nothing.
+            Assert.Equal("unchanged", Import(context, entry).Outcome);
+        }
+
+        [Theory]
+        [InlineData("asx_rulecondition", "asx_conditiongroup")]
+        [InlineData("asx_rulecondition", "asx_tableconfig")]
+        [InlineData("asx_ruleaction", "asx_rule")]
+        public void Lookup_to_configuration_outside_the_rule_is_refused(string rowEntity, string target)
+        {
+            var entry = Source();
+            var row = entry.Definition.Rows.Single(r => r.Entity == rowEntity);
+            var column = row.Attributes.First(a => a.Value.Kind == "reference" && a.Value.Entity == target).Key;
+            row.Attributes[column] = SnapshotValue.From(new EntityReference(target, Guid.NewGuid()));
+            var context = Target(); var service = context.GetOrganizationService();
+
+            var error = Assert.Throws<InvalidPluginExecutionException>(() => Import(context, entry, validateOnly: true));
+
+            Assert.Equal("The rule package entry refers to configuration outside the rule.", error.Message);
+            Assert.Throws<InvalidPluginExecutionException>(() => Import(context, entry));
+            Assert.Empty(All(service, "asx_rule"));
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Creating_a_rule_needs_the_create_privilege_but_updating_one_does_not(bool validateOnly)
+        {
+            var entry = Source();
+            var context = Target(false); var service = context.GetOrganizationService();
+
+            var error = Assert.Throws<InvalidPluginExecutionException>(() => Import(context, entry, validateOnly: validateOnly));
+
+            Assert.Equal("Creating rules needs the Create privilege on Rule.", error.Message);
+            Assert.Empty(All(service, "asx_rule"));
+
+            var granted = Target(); Import(granted, entry);
+            granted.AddExecutionMock<RetrieveUserPrivilegeByPrivilegeNameRequest>(_ => new RetrieveUserPrivilegeByPrivilegeNameResponse {
+                Results = new ParameterCollection { ["RolePrivileges"] = new RolePrivilege[0] } });
+            Assert.Equal(validateOnly ? "wouldUpdate" : "updated", Import(granted, Changed(entry), validateOnly: validateOnly).Outcome);
+        }
+
+        // A data update that this environment still needs.
+        private sealed class PendingUpdate : Ascentix.RulesEngine.Plugin.DataUpdates.IDataUpdate
+        {
+            public int Number => 3;
+            public string Title => "Convert";
+            public bool IsNeeded(IOrganizationService system) => true;
+            public Ascentix.RulesEngine.Plugin.DataUpdates.DataUpdateStep RunStep(Ascentix.RulesEngine.Plugin.DataUpdates.DataUpdateContext context, string cursor, Func<bool> overBudget) =>
+                new Ascentix.RulesEngine.Plugin.DataUpdates.DataUpdateStep(cursor, true, 0);
+            public string Skip(string cursor, string item) => cursor;
+        }
+
+        [Fact]
+        public void Validate_only_is_refused_while_a_data_update_is_pending()
+        {
+            var entry = Source();
+            var context = Target(); var service = context.GetOrganizationService();
+            var request = new XrmFakedPluginExecutionContext { Stage = 30, MessageName = "asx_ImportRule", InitiatingUserId = Caller };
+            var options = new ImportOptions { SourceEnvironment = "https://source.crm.dynamics.com", ValidateOnly = true,
+                Updates = new Ascentix.RulesEngine.Plugin.DataUpdates.IDataUpdate[] { new PendingUpdate() } };
+
+            var error = Assert.Throws<InvalidPluginExecutionException>(() => RuleImport.Run(request, service, entry, options));
+
+            Assert.Equal(Ascentix.RulesEngine.Plugin.DataUpdates.DataUpdateGate.PublishRefusal(3), error.Message);
+            options.Updates = new Ascentix.RulesEngine.Plugin.DataUpdates.IDataUpdate[0];
+            Assert.Equal("wouldCreate", RuleImport.Run(request, service, entry, options).Outcome);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Rule_unpublished_in_the_target_is_a_conflict_unless_overwrite(bool overwrite)
+        {
+            var entry = Source();
+            var context = Target(); var service = context.GetOrganizationService();
+            Import(context, entry);
+            service.Update(new Entity("asx_rule", entry.Id) { ["statuscode"] = new OptionSetValue(1) }); // unpublished; the pointer stays
+
+            var result = Import(context, entry, overwrite: overwrite);
+
+            if (!overwrite)
+            {
+                Assert.Equal("conflict", result.Outcome);
+                Assert.Equal("Live was unpublished in this environment.", Assert.Single(result.Messages));
+                Assert.Equal(1, Header(service, entry.Id).GetAttributeValue<OptionSetValue>("statuscode").Value);
+                Assert.Single(All(service, PublicationSchema.Revision));
+                return;
+            }
+            Assert.Equal("updated", result.Outcome);
+            Assert.Equal(2, result.TargetVersion);
+            Assert.Equal(Published, Header(service, entry.Id).GetAttributeValue<OptionSetValue>("statuscode").Value);
+            Assert.Null(RuleDrafts.Find(service, entry.Id));
         }
 
         [Fact]
@@ -378,6 +566,7 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal("https://source.crm.dynamics.com", revision.GetAttributeValue<string>(PublicationSchema.SourceEnvironment));
             Assert.Equal(4, revision.GetAttributeValue<int>(PublicationSchema.SourceVersion));
             Assert.Equal(entry.Hash, revision.GetAttributeValue<string>(PublicationSchema.SourceHash));
+            Assert.Equal(entry.Definition.Hash(), revision.GetAttributeValue<string>(PublicationSchema.SourceHash));
             Assert.Equal(1, revision.GetAttributeValue<int>("asx_version"));
         }
 

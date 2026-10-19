@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Text;
+using Microsoft.Crm.Sdk.Messages;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Metadata;
@@ -60,7 +61,11 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             if (Normalize(exportedBy) > Normalize(Version.Parse(installed)))
                 throw new InvalidPluginExecutionException($"This package was exported by engine {entry.EngineVersion}; this environment runs {installed}. Upgrade the engine first.");
 
-            var definition = RuleDrafts.Reidentify(entry.Definition, entry.Id);
+            // The entry is caller input: only the definition is used, cut down to what a capture carries, and its hash
+            // and record ids are worked out here rather than read from the entry.
+            var definition = Captured(RuleDrafts.Reidentify(entry.Definition, entry.Id));
+            RequireSelfContained(definition);
+            var hash = definition.Hash();
             var result = new ImportResult { RuleId = entry.Id, Name = entry.Name };
             var setName = string.IsNullOrWhiteSpace(entry.RuleSet) ? null : entry.RuleSet.Trim();
             var ruleSet = setName == null ? null : FindRuleSet(service, setName);
@@ -99,7 +104,13 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                     result.Messages.Add($"{entry.Name} was archived in this environment.");
                     return result;
                 }
-                if (draft == null && status == (int)RuleStatus.Published && sourceHash != null && sourceHash == entry.Hash)
+                if (!options.OverwriteTargetChanges && status != (int)RuleStatus.Published && pointer != null)
+                {
+                    result.Outcome = "conflict";
+                    result.Messages.Add($"{entry.Name} was unpublished in this environment.");
+                    return result;
+                }
+                if (draft == null && status == (int)RuleStatus.Published && sourceHash != null && sourceHash == hash)
                     return Unchanged(context, service, entry, header, setName, ruleSet, options, result);
                 if (!options.OverwriteTargetChanges && (draft != null || sourceHash == null))
                 {
@@ -114,8 +125,11 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                     throw new InvalidPluginExecutionException($"Rule {entry.Name} runs on {header.GetAttributeValue<string>("asx_tablelogicalname")} in this environment and on {table} in the package. A rule's business table cannot be changed.");
             }
 
+            if (header == null && !HoldsPrivilege(service, context.InitiatingUserId, "prvCreateasx_rule"))
+                throw new InvalidPluginExecutionException("Creating rules needs the Create privilege on Rule.");
+            RulePublication.RequireNoPendingDataUpdate(context, service, options.Updates);
             RulePublication.Validate(service, definition, entry.Id);
-            CheckRecords(service, entry, result);
+            CheckRecords(service, entry.Name, definition, result);
             if (options.ValidateOnly)
             {
                 result.Outcome = header == null ? "wouldCreate" : "wouldUpdate";
@@ -132,7 +146,7 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             PublicationCoordinator.Internal(context, service, writer => writer.Update(new Entity(PublicationSchema.Revision, revision.Id) {
                 [PublicationSchema.SourceEnvironment] = options.SourceEnvironment,
                 [PublicationSchema.SourceVersion] = entry.Version,
-                [PublicationSchema.SourceHash] = entry.Hash }));
+                [PublicationSchema.SourceHash] = hash }));
             // While the working draft exists the schedule plug-in also reads the draft's triggers.
             WriteSchedule(service, entry);
             if (draftId != null)
@@ -287,8 +301,33 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             }
         }
 
+        // Import writes as the system user, so a definition row keeps only the columns a capture emits: never an owner,
+        // a creator, the row id or publication state.
+        private static RuleSnapshot Captured(RuleSnapshot definition)
+        {
+            foreach (var row in definition.Rows)
+                row.Attributes = row.Attributes.Where(a => PublicationSchema.IsCaptured(row.Entity, a.Key)).ToDictionary(a => a.Key, a => a.Value);
+            return definition;
+        }
+
+        // Every lookup into a configuration table names a row of this definition; anything else would make the import
+        // attach the rule to configuration it does not own.
+        private static void RequireSelfContained(RuleSnapshot definition)
+        {
+            var rows = new HashSet<string>(definition.Rows.Select(row => row.Entity + "|" + row.Id));
+            foreach (var value in definition.Rows.SelectMany(row => row.Attributes.Values))
+                if (value?.Kind == "reference" && PublicationSchema.IsConfig(value.Entity) &&
+                    !(Guid.TryParse(value.Value, out var id) && rows.Contains(value.Entity + "|" + id)))
+                    throw new InvalidPluginExecutionException("The rule package entry refers to configuration outside the rule.");
+        }
+
+        private static bool HoldsPrivilege(IOrganizationService service, Guid userId, string privilege) =>
+            ((RetrieveUserPrivilegeByPrivilegeNameResponse)service.Execute(new RetrieveUserPrivilegeByPrivilegeNameRequest {
+                PrivilegeName = privilege, UserId = userId })).RolePrivileges?.Length > 0;
+
         // Record ids the definition stores must name records that exist here; an id whose table is unknown is only reported.
-        private static void CheckRecords(IOrganizationService service, TransportEntry entry, ImportResult result)
+        // The ids are found here, against this environment's lookup metadata, not taken from the entry.
+        private static void CheckRecords(IOrganizationService service, string ruleName, RuleSnapshot definition, ImportResult result)
         {
             var primaryIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             bool Exists(string table, Guid id)
@@ -300,7 +339,7 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                 query.Criteria.AddCondition(column, ConditionOperator.Equal, id);
                 return service.RetrieveMultiple(query).Entities.Count > 0;
             }
-            foreach (var reference in entry.RecordReferences)
+            foreach (var reference in RecordReferenceScanner.Find(definition, RuleTransportApi.LookupTargets(service)))
             {
                 if (reference.Tables == null || reference.Tables.Count == 0)
                 {
@@ -309,7 +348,7 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                 }
                 if (!reference.Tables.Any(table => Exists(table, reference.RecordId)))
                     throw new InvalidPluginExecutionException(
-                        $"Rule {entry.Name} refers to {string.Join(" or ", reference.Tables)} record {reference.RecordId}, which does not exist in this environment.");
+                        $"Rule {ruleName} refers to {string.Join(" or ", reference.Tables)} record {reference.RecordId}, which does not exist in this environment.");
             }
         }
     }

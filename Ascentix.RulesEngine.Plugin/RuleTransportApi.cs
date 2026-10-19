@@ -93,15 +93,6 @@ namespace Ascentix.RulesEngine.Plugin
                 hash = definition.Hash();
             }
 
-            var cache = new Dictionary<string, List<string>>();
-            List<string> LookupTargets(string table, string column)
-            {
-                var key = table + "." + column;
-                if (!cache.TryGetValue(key, out var targets))
-                    cache[key] = targets = Targets(service, table, column);
-                return targets;
-            }
-
             return new TransportEntry
             {
                 EngineVersion = TransportEntry.InstalledEngineVersion(service),
@@ -112,7 +103,20 @@ namespace Ascentix.RulesEngine.Plugin
                 Hash = hash,
                 Definition = definition,
                 Schedule = Schedule(service, header.Id),
-                RecordReferences = RecordReferenceScanner.Find(definition, LookupTargets)
+                RecordReferences = RecordReferenceScanner.Find(definition, LookupTargets(service))
+            };
+        }
+
+        /// <summary>This environment's lookup metadata for the record reference scan: (table, column) gives the column's target tables, read once per column.</summary>
+        internal static Func<string, string, List<string>> LookupTargets(IOrganizationService service)
+        {
+            var cache = new Dictionary<string, List<string>>();
+            return (table, column) =>
+            {
+                var key = table + "." + column;
+                if (!cache.TryGetValue(key, out var targets))
+                    cache[key] = targets = Targets(service, table, column);
+                return targets;
             };
         }
 

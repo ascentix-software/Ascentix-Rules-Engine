@@ -546,7 +546,7 @@ foreach ($api in $ownedTransportApis.value) {
 $id = EnsureApi 'asx_ExportRule' 'prvReadasx_rule' 'Exports one published rule as a transport entry: its published definition, rule set, schedule and the record ids it stores.' 'Export Rule' $transportType
 EnsureParameter $id 'RuleId' 10 $false 'Identifier of the published rule to export.'
 EnsureParameter $id 'Entry' 10 $true 'The rule package entry, serialized as JSON.'
-$id = EnsureApi 'asx_ImportRule' 'prvCreateasx_rule' 'Imports one rule from a transport entry: creates or updates it through a draft and publishes it, or reports why it was left alone.' 'Import Rule' $transportType
+$id = EnsureApi 'asx_ImportRule' 'prvWriteasx_rule' 'Imports one rule from a transport entry: creates or updates it through a draft and publishes it, or reports why it was left alone.' 'Import Rule' $transportType
 EnsureParameter $id 'Entry' 10 $false 'The rule package entry, serialized as JSON.'
 EnsureParameter $id 'SourceEnvironment' 10 $false 'The environment the package was exported from, stamped on the new revision.'
 EnsureParameter $id 'ValidateOnly' 0 $false 'When true, runs every check and writes nothing.' $true

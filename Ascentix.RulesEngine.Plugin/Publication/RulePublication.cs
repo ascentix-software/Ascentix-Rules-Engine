@@ -24,15 +24,7 @@ namespace Ascentix.RulesEngine.Plugin.Publication
         /// </summary>
         public static Entity Publish(IPluginExecutionContext context, IOrganizationService service, Entity target, IReadOnlyList<IDataUpdate> updates)
         {
-            // A pending data update must convert existing rules before any rule is published (docs/Schema.md §5.1).
-            // A publish made by asx_ApplyDataUpdates itself (an update republishing the rules it converted)
-            // is the update's own work, so it is not gated.
-            if (!PluginReentry.IsInsideMessage(context, SchemaNames.Qualify(SchemaNames.ApplyDataUpdatesApi.MessageName)))
-            {
-                var pendingUpdate = DataUpdateGate.FirstPending(service, updates);
-                if (pendingUpdate != null)
-                    throw new InvalidPluginExecutionException(DataUpdateGate.PublishRefusal(pendingUpdate.Number));
-            }
+            RequireNoPendingDataUpdate(context, service, updates);
 
             var header = service.Retrieve("asx_rule", target.Id, new ColumnSet(true));
             if (header.GetAttributeValue<EntityReference>(PublicationSchema.DraftOf) == null &&
@@ -72,6 +64,19 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                 target[PublicationSchema.PublishHash] = null;
             });
             return revision;
+        }
+
+        /// <summary>
+        /// A pending data update must convert existing rules before any rule is published (docs/Schema.md §5.1).
+        /// A publish made by asx_ApplyDataUpdates itself (an update republishing the rules it converted)
+        /// is the update's own work, so it is not gated.
+        /// </summary>
+        public static void RequireNoPendingDataUpdate(IPluginExecutionContext context, IOrganizationService service, IReadOnlyList<IDataUpdate> updates)
+        {
+            if (PluginReentry.IsInsideMessage(context, SchemaNames.Qualify(SchemaNames.ApplyDataUpdatesApi.MessageName))) return;
+            var pendingUpdate = DataUpdateGate.FirstPending(service, updates);
+            if (pendingUpdate != null)
+                throw new InvalidPluginExecutionException(DataUpdateGate.PublishRefusal(pendingUpdate.Number));
         }
 
         /// <summary>Validates a rule definition against this environment's metadata; throws with the validator's errors.</summary>

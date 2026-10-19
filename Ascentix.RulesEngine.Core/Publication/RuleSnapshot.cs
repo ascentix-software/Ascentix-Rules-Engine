@@ -33,6 +33,10 @@ namespace Ascentix.RulesEngine.Core.Publication
             "asx_actionconditiongroup", "asx_actionconditiontest" };
         public static bool IsConfig(string entity) => ConfigTables.Contains(entity);
         public static bool IsProtected(string field) => field == Pointer || field == Number || field == DraftStamp || field == DraftOf || field == DraftBaseVersion || field == RuleSet;
+        /// <summary>Whether a snapshot carries this column of a configuration row: authored asx_ columns and status, never the row id or publication state.</summary>
+        public static bool IsCaptured(string entity, string field) =>
+            (field.StartsWith("asx_", StringComparison.Ordinal) || field == "statuscode") &&
+            field != entity + "id" && !IsProtected(field) && field != PublishHash;
     }
 
     [DataContract]
@@ -178,9 +182,7 @@ namespace Ascentix.RulesEngine.Core.Publication
                 var row = pending.Dequeue();
                 if (!seen.Add(row.LogicalName + row.Id)) continue;
                 if (seen.Count > 10000) throw new InvalidPluginExecutionException("Rule revision exceeds 10,000 configuration records.");
-                var attrs = row.Attributes.Where(a =>
-                    (a.Key.StartsWith("asx_", StringComparison.Ordinal) || a.Key == "statuscode") &&
-                    a.Key != row.LogicalName + "id" && !PublicationSchema.IsProtected(a.Key) && a.Key != PublicationSchema.PublishHash)
+                var attrs = row.Attributes.Where(a => PublicationSchema.IsCaptured(row.LogicalName, a.Key))
                     .OrderBy(a => a.Key, StringComparer.Ordinal).ToDictionary(a => a.Key, a => SnapshotValue.From(a.Value));
                 if (row.LogicalName == "asx_rule") attrs["statuscode"] = SnapshotValue.From(new OptionSetValue(753840000));
                 result.Rows.Add(new SnapshotRow { Entity = row.LogicalName, Id = row.Id, Attributes = attrs });
