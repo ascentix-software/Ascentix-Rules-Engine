@@ -22,13 +22,17 @@ namespace Ascentix.RulesEngine.Core.Publication
         public const string DraftOf = "asx_draftof";
         public const string DraftBaseVersion = "asx_draftbaseversion";
         public const string Lock = "asx_publicationlock";
+        public const string RuleSet = "asx_ruleset";
+        public const string SourceEnvironment = "asx_sourceenvironment";
+        public const string SourceVersion = "asx_sourceversion";
+        public const string SourceHash = "asx_sourcehash";
         public static readonly Guid LockId = new Guid("7e0d7362-c0fd-44ab-a8a1-aecb70d86a79");
         public static readonly string[] ConfigTables = { "asx_rule", "asx_conditiongroup", "asx_rulecondition",
             "asx_searchcriteriagroup", "asx_searchcriterion", "asx_nodefiltergroup", "asx_nodefiltercriterion",
             "asx_ruleaction", "asx_localizedmessage", "asx_tableconfig",
             "asx_actionconditiongroup", "asx_actionconditiontest" };
         public static bool IsConfig(string entity) => ConfigTables.Contains(entity);
-        public static bool IsProtected(string field) => field == Pointer || field == Number || field == DraftStamp || field == DraftOf || field == DraftBaseVersion;
+        public static bool IsProtected(string field) => field == Pointer || field == Number || field == DraftStamp || field == DraftOf || field == DraftBaseVersion || field == RuleSet;
     }
 
     [DataContract]
