@@ -16,13 +16,14 @@ async function run(): Promise<void> {
     const connection = tl.getInput('connection', true)!;
     const outputPath = tl.getPathInput('outputPath', true)!;
     const { url, token } = await getToken(connection);
-    const { pkg, skipped } = await exportRules(new Dataverse(url, token), {
+    const { pkg, skipped, unmatched } = await exportRules(new Dataverse(url, token), {
       url,
       ruleSets: lines('ruleSets'),
       rules: lines('rules'),
       exportedBy: tl.getVariable('Build.RequestedFor') || 'unknown',
     });
     writePackage(outputPath, pkg);
+    for (const n of unmatched) tl.warning(`Rule '${n}' was not found in the selected rule sets.`);
     for (const s of skipped) tl.warning(`Skipped '${s.name}': ${s.reason}.`);
     console.log(`Exported ${pkg.rules.length} rule(s) to ${outputPath}.`);
   } catch (e) {

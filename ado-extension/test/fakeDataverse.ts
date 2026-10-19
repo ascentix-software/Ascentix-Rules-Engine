@@ -15,6 +15,9 @@ export class FakeDataverse {
   gets: string[] = [];
   posts: { path: string; body: any }[] = [];
   failFor = new Set<string>();
+  crashFor = new Set<string>();
+  outcomeFor: Record<string, string> = {};
+  resultIdFor: Record<string, string> = {};
 
   asDataverse(): Dataverse {
     return this as unknown as Dataverse;
@@ -65,11 +68,12 @@ export class FakeDataverse {
     if (path === 'asx_ImportRule') {
       const entry = JSON.parse(body.Entry);
       if (this.failFor.has(entry.Name)) throw new DataverseError(400, '0x80040265', `${entry.Name} is invalid`);
+      if (this.crashFor.has(entry.Name)) throw new TypeError('network down');
       return {
         Result: JSON.stringify({
-          RuleId: entry.Id,
+          RuleId: this.resultIdFor[entry.Name] ?? entry.Id,
           Name: entry.Name,
-          Outcome: body.ValidateOnly ? 'wouldUpdate' : 'updated',
+          Outcome: this.outcomeFor[entry.Name] ?? (body.ValidateOnly ? 'wouldUpdate' : 'updated'),
           Messages: [],
           TargetVersion: 2,
         }),

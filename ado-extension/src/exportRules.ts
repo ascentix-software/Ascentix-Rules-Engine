@@ -14,6 +14,8 @@ export interface ExportOptions {
 export interface ExportResult {
   pkg: RulePackage;
   skipped: { name: string; reason: string }[];
+  /** Names given in the rules input that matched no rule in the selected sets. */
+  unmatched: string[];
 }
 
 export async function exportRules(dv: Dataverse, opts: ExportOptions): Promise<ExportResult> {
@@ -21,10 +23,12 @@ export async function exportRules(dv: Dataverse, opts: ExportOptions): Promise<E
   const wanted = new Set((opts.rules ?? []).map((n) => n.trim().toLowerCase()).filter(Boolean));
   const entries: TransportEntryJson[] = [];
   const skipped: ExportResult['skipped'] = [];
+  const matched = new Set<string>();
 
   for (const set of sets) {
     for (const rule of await listRules(dv, set.id)) {
       if (wanted.size > 0 && !wanted.has(rule.name.toLowerCase())) continue;
+      matched.add(rule.name.toLowerCase());
       if (rule.status !== STATUS_PUBLISHED) {
         skipped.push({ name: rule.name, reason: rule.status === 2 ? 'Archived' : 'Not published' });
         continue;
@@ -43,9 +47,11 @@ export async function exportRules(dv: Dataverse, opts: ExportOptions): Promise<E
       exportedOn: (opts.now ?? new Date()).toISOString(),
       exportedBy: opts.exportedBy,
       ruleSets: sets.map((s) => s.name),
+      ...(wanted.size > 0 ? { narrowed: true } : {}),
       rules: entries,
     },
     skipped,
+    unmatched: (opts.rules ?? []).map((n) => n.trim()).filter((n) => n && !matched.has(n.toLowerCase())),
   };
 }
 

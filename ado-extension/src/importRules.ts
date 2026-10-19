@@ -1,5 +1,5 @@
-import { DataverseError, type Dataverse } from './dataverse';
-import { findRuleSet, listRules, normalizeId, odataString, STATUS_ARCHIVED } from './odata';
+import type { Dataverse } from './dataverse';
+import { findRuleSet, listRules, normalizeId, odataString, STATUS_PUBLISHED } from './odata';
 import type { RulePackage } from './package';
 
 export interface ImportOptions {
@@ -32,6 +32,15 @@ export interface ImportReport {
 export async function importRules(dv: Dataverse, pkg: RulePackage, opts: ImportOptions): Promise<ImportReport> {
   const selected = (opts.ruleSets?.length ? opts.ruleSets : pkg.ruleSets).map((n) => n.trim());
   const selectedKeys = new Set(selected.map((n) => n.toLowerCase()));
+  const packageKeys = new Set(pkg.ruleSets.map((n) => n.trim().toLowerCase()));
+  for (const name of selected) {
+    if (!packageKeys.has(name.toLowerCase())) throw new Error(`Rule set '${name}' is not in this package.`);
+  }
+  if (opts.missingRules === 'archive' && pkg.narrowed) {
+    throw new Error(
+      "This package was exported for selected rules only, so missing rules can't be archived. Export whole rule sets, or use missingRules: leave.",
+    );
+  }
   const ownerTeamId = opts.ownerTeam?.trim() ? await resolveTeam(dv, opts.ownerTeam.trim()) : undefined;
   const report: ImportReport = { results: [], archived: [], wouldArchive: [], leftAlone: [], failed: [] };
 
@@ -48,8 +57,7 @@ export async function importRules(dv: Dataverse, pkg: RulePackage, opts: ImportO
       const response = await dv.post<{ Result: string }>('asx_ImportRule', body);
       report.results.push(JSON.parse(response.Result) as ImportResult);
     } catch (e) {
-      if (!(e instanceof DataverseError)) throw e;
-      report.failed.push({ name: entry.Name, message: e.message });
+      report.failed.push({ name: entry.Name, message: errorMessage(e) });
     }
   }
 
@@ -64,12 +72,16 @@ async function handleMissing(
   opts: ImportOptions,
   report: ImportReport,
 ): Promise<void> {
-  const inPackage = new Set(pkg.rules.map((e) => normalizeId(e.Id)));
+  // Never touch a rule the import just handled, or one a package entry names (a same-name rule with another id
+  // is reported as a collision, not as missing).
+  const inPackage = new Set([...pkg.rules.map((e) => normalizeId(e.Id)), ...report.results.map((r) => normalizeId(r.RuleId))]);
+  const namesInPackage = new Set(pkg.rules.map((e) => e.Name.trim().toLowerCase()));
   for (const name of selected) {
     const set = await findRuleSet(dv, name);
     if (!set) continue; // The set does not exist in the target yet, so it holds no rules to miss.
     for (const rule of await listRules(dv, set.id)) {
-      if (rule.status === STATUS_ARCHIVED || inPackage.has(normalizeId(rule.id))) continue;
+      if (rule.status !== STATUS_PUBLISHED) continue; // Drafts and archived rules are never missing rules.
+      if (inPackage.has(normalizeId(rule.id)) || namesInPackage.has(rule.name.trim().toLowerCase())) continue;
       if (opts.missingRules === 'leave') {
         report.leftAlone.push(rule.name);
       } else if (opts.dryRun) {
@@ -79,19 +91,23 @@ async function handleMissing(
           await dv.post('asx_ArchiveRule', { RuleId: rule.id });
           report.archived.push(rule.name);
         } catch (e) {
-          if (!(e instanceof DataverseError)) throw e;
-          report.failed.push({ name: rule.name, message: e.message });
+          report.failed.push({ name: rule.name, message: errorMessage(e) });
         }
       }
     }
   }
 }
 
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 async function resolveTeam(dv: Dataverse, name: string): Promise<string> {
   const found = await dv.get<{ value: { teamid: string }[] }>(
-    `teams?$select=teamid,name&$filter=name eq ${odataString(name)}`,
+    `teams?$select=teamid,name&$filter=name eq ${odataString(name)} and teamtype eq 0`,
   );
   const team = found.value[0];
   if (!team) throw new Error(`Team '${name}' was not found.`);
+  if (found.value.length > 1) throw new Error(`More than one team is named '${name}'.`);
   return team.teamid;
 }

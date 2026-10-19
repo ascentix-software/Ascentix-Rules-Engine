@@ -60,4 +60,13 @@ describe('exportRules', () => {
     const { pkg } = await exportRules(f.asDataverse(), { ...base, ruleSets: ['Billing'] });
     expect(pkg.engineVersion).toBe('9.9.9.9');
   });
+
+  it('marks_a_package_narrowed_only_when_rules_are_named_and_reports_unmatched_names', async () => {
+    const f = world();
+    const whole = await exportRules(f.asDataverse(), { ...base, ruleSets: ['Billing'] });
+    expect(whole.pkg.narrowed).toBeUndefined();
+    const part = await exportRules(f.asDataverse(), { ...base, ruleSets: ['Billing'], rules: ['Late fee', 'Typo'] });
+    expect(part.pkg.narrowed).toBe(true);
+    expect(part.unmatched).toEqual(['Typo']);
+  });
 });

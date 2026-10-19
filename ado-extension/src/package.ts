@@ -16,6 +16,8 @@ export interface RulePackage {
   exportedOn: string;
   exportedBy: string;
   ruleSets: string[];
+  /** True when the export named individual rules, so the package is not the whole of its rule sets. */
+  narrowed?: boolean;
   rules: TransportEntryJson[];
 }
 

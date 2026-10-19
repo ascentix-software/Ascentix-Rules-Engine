@@ -112,4 +112,72 @@ describe('importRules', () => {
     await importRules(f.asDataverse(), two, { ...opts, ruleSets: ['other'] });
     expect(imports(f).map((p) => JSON.parse(p.body.Entry).Name)).toEqual(['Other set rule']);
   });
+
+  it('archive_mode_does_not_archive_a_colliding_rule', async () => {
+    const f = world();
+    // Same name as package entry "Rule two" but a different id: import reports a collision.
+    f.rules.push({ id: id(20), name: 'rule TWO ', statuscode: 753840000, setId: A });
+    f.outcomeFor = { 'Rule two': 'collision' };
+    const report = await importRules(f.asDataverse(), pkg, { ...opts, missingRules: 'archive' });
+    expect(report.results.find((r) => r.Name === 'Rule two')!.Outcome).toBe('collision');
+    expect(report.archived).toEqual(['Gone from package']);
+    expect(f.posts.filter((p) => p.path === 'asx_ArchiveRule').map((p) => p.body.RuleId)).toEqual([id(7)]);
+  });
+
+  it('never archives a rule whose id the import reported', async () => {
+    const f = world();
+    f.resultIdFor = { 'Rule one': id(7) };
+    const report = await importRules(f.asDataverse(), pkg, { ...opts, missingRules: 'archive' });
+    expect(report.archived).toEqual([]);
+  });
+
+  it('rejects_a_rule_set_that_is_not_in_the_package_before_any_write', async () => {
+    const f = world();
+    await expect(importRules(f.asDataverse(), pkg, { ...opts, ruleSets: ['Billing', 'Nope'] })).rejects.toThrow(
+      "Rule set 'Nope' is not in this package.",
+    );
+    expect(f.posts).toHaveLength(0);
+  });
+
+  it('archive_on_a_narrowed_package_throws_before_any_write', async () => {
+    const f = world();
+    const narrowed = { ...pkg, narrowed: true };
+    await expect(importRules(f.asDataverse(), narrowed, { ...opts, missingRules: 'archive' })).rejects.toThrow(
+      "This package was exported for selected rules only, so missing rules can't be archived. Export whole rule sets, or use missingRules: leave.",
+    );
+    expect(f.posts).toHaveLength(0);
+    const report = await importRules(f.asDataverse(), narrowed, opts);
+    expect(report.failed).toEqual([]);
+  });
+
+  it('missing_rules_considers_only_published_target_rules', async () => {
+    const f = world();
+    f.rules.push({ id: id(21), name: 'Never published', statuscode: 1, setId: A });
+    const left = await importRules(f.asDataverse(), pkg, opts);
+    expect(left.leftAlone).toEqual(['Gone from package']);
+    const g = world();
+    g.rules.push({ id: id(21), name: 'Never published', statuscode: 1, setId: A });
+    const archived = await importRules(g.asDataverse(), pkg, { ...opts, missingRules: 'archive' });
+    expect(archived.archived).toEqual(['Gone from package']);
+  });
+
+  it('a_non_dataverse_error_fails_only_that_rule', async () => {
+    const f = world();
+    f.crashFor.add('Rule two');
+    const report = await importRules(f.asDataverse(), pkg, opts);
+    expect(report.results.map((r) => r.Name)).toEqual(['Rule one', 'Rule three']);
+    expect(report.failed).toEqual([{ name: 'Rule two', message: 'network down' }]);
+  });
+
+  it('owner team name shared by several teams is an error', async () => {
+    const f = world();
+    f.teams = [
+      { id: 'cccccccc-cccc-cccc-cccc-cccccccccccc', name: 'Rules Team' },
+      { id: 'dddddddd-dddd-dddd-dddd-dddddddddddd', name: 'rules team' },
+    ];
+    await expect(importRules(f.asDataverse(), pkg, { ...opts, ownerTeam: 'Rules Team' })).rejects.toThrow(
+      "More than one team is named 'Rules Team'.",
+    );
+    expect(f.gets.find((g) => g.startsWith('teams'))).toContain('teamtype eq 0');
+  });
 });
