@@ -15,10 +15,10 @@ describe('package file', () => {
       exportedOn: '2026-10-19T00:00:00Z',
       exportedBy: 'pipeline',
       ruleSets: ['b', 'a'],
-      rules: [{ name: 'R', nested: { z: 1, a: [3, 1, { y: 1, b: 2 }] } }],
+      rules: [{ Id: 'i', Name: 'R', RuleSet: 's', nested: { z: 1, a: [3, 1, { y: 1, b: 2 }] } }],
     };
     const b = {
-      rules: [{ nested: { a: [3, 1, { b: 2, y: 1 }], z: 1 }, name: 'R' }],
+      rules: [{ nested: { a: [3, 1, { b: 2, y: 1 }], z: 1 }, Name: 'R', RuleSet: 's', Id: 'i' }],
       ruleSets: ['b', 'a'],
       exportedBy: 'pipeline',
       exportedOn: '2026-10-19T00:00:00Z',

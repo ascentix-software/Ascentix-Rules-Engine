@@ -1,7 +1,13 @@
 import * as fs from 'fs';
 
 /** One rule entry of a package: the JSON the asx_ExportRule action returns for it. */
-export type TransportEntryJson = Record<string, unknown>;
+export interface TransportEntryJson {
+  Id: string;
+  Name: string;
+  RuleSet: string;
+  EngineVersion?: string;
+  [member: string]: unknown;
+}
 
 export interface RulePackage {
   format: 1;
