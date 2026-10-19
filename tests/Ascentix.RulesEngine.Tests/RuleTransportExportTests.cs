@@ -19,6 +19,8 @@ namespace Ascentix.RulesEngine.Tests
             var context = RuleRevisionTests.Context(rule);
             var service = context.GetOrganizationService();
             foreach (var row in extra) service.Create(row);
+            if (!extra.Any(e => e.LogicalName == "solution"))
+                service.Create(new Entity("solution", Guid.NewGuid()) { ["uniquename"] = "AscentixRulesEngine", ["version"] = "0.1.0.2" });
             // primarycontactid on account is a lookup to contact; every other column is not a lookup.
             context.AddExecutionMock<RetrieveAttributeRequest>(request =>
             {
@@ -76,7 +78,7 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal("Live", entry.Name);
             Assert.Equal(id, entry.Id);
             Assert.Equal(2, entry.Version);
-            Assert.False(string.IsNullOrEmpty(entry.EngineVersion));
+            Assert.Equal("0.1.0.2", entry.EngineVersion);
             Assert.True(entry.Schedule.On);
             Assert.Equal(4, entry.Schedule.Pattern);
             Assert.Equal("06:30", entry.Schedule.TimeOfDay);
@@ -192,6 +194,38 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal(new[] { "contact" }, references.Single(r => r.RecordId == contact).Tables);
             Assert.Equal("asx_searchcriterion", references.Single(r => r.RecordId == contact).RowEntity);
             Assert.Empty(references.Single(r => r.RecordId == other).Tables);
+        }
+
+        [Fact]
+        public void Export_fails_clearly_when_the_solution_version_is_not_found()
+        {
+            var id = Guid.NewGuid();
+            var context = Prepare(RuleRevisionTests.Rule(id), new Entity("solution", Guid.NewGuid()) { ["uniquename"] = "Other", ["version"] = "9.9" });
+            RuleRevisionTests.Freeze(context.GetOrganizationService(), id);
+            var error = Assert.Throws<InvalidPluginExecutionException>(() => Export(context, id));
+            Assert.Contains("solution version", error.Message);
+        }
+
+        [Fact]
+        public void Literal_record_ids_in_calculation_filters_and_mathexpr_filters_are_listed_but_node_ids_are_not()
+        {
+            var id = Guid.NewGuid(); var rows = RuleRevisionTests.Rule(id);
+            var inCondition = Guid.NewGuid(); var inMapping = Guid.NewGuid(); var node = Guid.NewGuid();
+            var model = new Entity("asx_tableconfig", node) { ["asx_name"] = "Child", ["asx_tablelogicalname"] = "contact", ["asx_tableconfigtype"] = new OptionSetValue(1) };
+            string Tree(Guid literal) => "{\"k\":{\"kind\":\"group\",\"op\":\"and\",\"rules\":["
+                + "{\"kind\":\"rule\",\"column\":\"ownerid\",\"operator\":1,\"valueSource\":1,\"value\":\"" + literal + "\"},"
+                + "{\"kind\":\"rule\",\"column\":\"parentid\",\"operator\":1,\"valueSource\":2,\"valueNodeId\":\"" + node + "\",\"valueColumn\":\"x\"},"
+                + "{\"kind\":\"exists\",\"collectionNodeId\":\"" + node + "\",\"minCount\":1}]}}";
+            rows[2]["asx_expressionfilters"] = Tree(inCondition);
+            rows[3]["asx_fieldmapping"] = "[{\"target\":\"total\",\"source\":\"mathexpr\",\"expression\":\"sum(x)\",\"filters\":" + Tree(inMapping) + "}]";
+            var context = Prepare(rows, model); RuleRevisionTests.Freeze(context.GetOrganizationService(), id);
+
+            var references = Export(context, id).RecordReferences;
+
+            Assert.Equal(2, references.Count);
+            Assert.Equal("asx_expressionfilters", references.Single(r => r.RecordId == inCondition).Attribute);
+            Assert.Equal("asx_fieldmapping", references.Single(r => r.RecordId == inMapping).Attribute);
+            Assert.DoesNotContain(references, r => r.RecordId == node);
         }
 
         [Fact]

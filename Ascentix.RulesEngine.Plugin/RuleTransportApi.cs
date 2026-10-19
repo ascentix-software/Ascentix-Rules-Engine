@@ -75,7 +75,7 @@ namespace Ascentix.RulesEngine.Plugin
 
             return new TransportEntry
             {
-                EngineVersion = TransportEntry.EngineVersionOf(typeof(RuleTransportApi)),
+                EngineVersion = TransportEntry.InstalledEngineVersion(service),
                 Id = header.Id,
                 Name = header.GetAttributeValue<string>("asx_name"),
                 RuleSet = RuleSetName(service, header),

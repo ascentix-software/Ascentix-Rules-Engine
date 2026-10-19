@@ -59,6 +59,7 @@ namespace Ascentix.RulesEngine.Core.Publication
                 switch (row.Entity)
                 {
                     case "asx_rulecondition":
+                        ScanFilterTrees(row, "asx_expressionfilters", Text(row, "asx_expressionfilters"), Add);
                         if (IsLiteral(row))
                             AddLiteralGuids(row, "asx_comparisonvalue", Text(row, "asx_comparisonvalue"),
                                 NodeTable(Ref(row, "asx_tableconfig")), Text(row, "asx_comparisoncolumn"));
@@ -118,20 +119,54 @@ namespace Ascentix.RulesEngine.Core.Publication
             return null;
         }
 
+        private static XElement Load(string json)
+        {
+            try
+            {
+                using (var reader = JsonReaderWriterFactory.CreateJsonReader(Encoding.UTF8.GetBytes(json), XmlDictionaryReaderQuotas.Max))
+                    return XElement.Load(reader);
+            }
+            catch (Exception e) when (e is XmlException || e is ArgumentException) { return null; }
+        }
+
+        private static void ScanFilterTrees(SnapshotRow row, string attribute, string json, Action<SnapshotRow, string, Guid, IEnumerable<string>> add)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return;
+            var root = Load(json);
+            if (root != null) ScanLeaves(row, attribute, root, add);
+        }
+
+        // A criteria-tree leaf ({kind:"rule", column, valueSource, value, valueNodeId}) compares a column with a literal when its
+        // value source is blank or Literal. The tree names no table (the filter targets the aggregate's own node), so Tables stay empty.
+        // valueNodeId and collectionNodeId address model nodes and are never read.
+        private static void ScanLeaves(SnapshotRow row, string attribute, XElement tree, Action<SnapshotRow, string, Guid, IEnumerable<string>> add)
+        {
+            foreach (var leaf in tree.DescendantsAndSelf().Where(e => e.Elements().Any(c => c.Name.LocalName == "kind" && c.Value == "rule")))
+            {
+                var source = leaf.Elements().FirstOrDefault(c => c.Name.LocalName == "valueSource")?.Value;
+                if (!string.IsNullOrEmpty(source) && source != "1") continue;
+                var value = leaf.Elements().FirstOrDefault(c => c.Name.LocalName == "value");
+                if (value == null || value.HasElements) continue;
+                foreach (Match m in GuidPattern.Matches(value.Value))
+                    add(row, attribute, Guid.Parse(m.Value), new string[0]);
+            }
+        }
+
         // Only literal entries carry record ids; node, template, dateexpr and the other sources address model nodes.
         private static void ScanFieldMapping(SnapshotRow action, string json, Action<SnapshotRow, string, Guid, IEnumerable<string>> add)
         {
             if (string.IsNullOrWhiteSpace(json)) return;
-            XElement root;
-            try
-            {
-                using (var reader = JsonReaderWriterFactory.CreateJsonReader(Encoding.UTF8.GetBytes(json), XmlDictionaryReaderQuotas.Max))
-                    root = XElement.Load(reader);
-            }
-            catch (Exception e) when (e is XmlException || e is ArgumentException) { return; }
+            var root = Load(json);
+            if (root == null) return;
             XElement Child(XElement e, string name) => e.Elements().FirstOrDefault(x => x.Name.LocalName == name);
             foreach (var entry in root.Elements())
             {
+                if (Child(entry, "source")?.Value == "mathexpr")
+                {
+                    var filters = Child(entry, "filters");
+                    if (filters != null) ScanLeaves(action, "asx_fieldmapping", filters, add);
+                    continue;
+                }
                 if (Child(entry, "source")?.Value != "literal") continue;
                 var value = Child(entry, "value");
                 if (value == null) continue;

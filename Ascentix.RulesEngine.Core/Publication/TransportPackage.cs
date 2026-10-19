@@ -4,7 +4,9 @@ using System.IO;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Text;
+using System.Linq;
 using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Query;
 
 namespace Ascentix.RulesEngine.Core.Publication
 {
@@ -76,7 +78,15 @@ namespace Ascentix.RulesEngine.Core.Publication
             { throw new InvalidPluginExecutionException("The rule package entry cannot be read.", e); }
         }
 
-        /// <summary>The version of the plug-in assembly that produced or reads an entry.</summary>
-        public static string EngineVersionOf(Type pluginType) => pluginType.Assembly.GetName().Version.ToString();
+        /// <summary>The installed AscentixRulesEngine solution version (the assembly version is fixed for strong-name stability).</summary>
+        public static string InstalledEngineVersion(IOrganizationService service)
+        {
+            var query = new QueryExpression("solution") { ColumnSet = new ColumnSet("version"), TopCount = 1 };
+            query.Criteria.AddCondition("uniquename", ConditionOperator.Equal, "AscentixRulesEngine");
+            var version = service.RetrieveMultiple(query).Entities.FirstOrDefault()?.GetAttributeValue<string>("version");
+            if (string.IsNullOrEmpty(version))
+                throw new InvalidPluginExecutionException("The installed Rules Engine solution version could not be found.");
+            return version;
+        }
     }
 }
