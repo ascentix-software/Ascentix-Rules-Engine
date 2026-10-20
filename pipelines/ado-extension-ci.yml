@@ -1,0 +1,42 @@
+name: ado-extension-ci-$(Date:yyyyMMdd)-$(Rev:r)
+
+# Builds the Ascentix Rules Transport extension and keeps the .vsix as a pipeline artifact.
+# It needs no Dataverse environment and never publishes to the Marketplace.
+
+trigger:
+  branches: { include: [develop] }
+  paths:
+    include:
+      - ado-extension/**
+      - pipelines/ado-extension-ci.yml
+
+pr: none
+
+pool:
+  vmImage: windows-latest
+
+steps:
+  - task: UseNode@1
+    inputs: { version: '20.x' }
+    displayName: Use Node 20
+  - script: npm ci
+    workingDirectory: ado-extension
+    displayName: npm ci
+  - script: npm test
+    workingDirectory: ado-extension
+    displayName: vitest run
+  - script: npm run typecheck
+    workingDirectory: ado-extension
+    displayName: tsc --noEmit
+  - script: npm run build
+    workingDirectory: ado-extension
+    displayName: esbuild bundles
+  - script: npm run package
+    workingDirectory: ado-extension
+    displayName: tfx extension create
+  - task: PublishPipelineArtifact@1
+    displayName: Publish the extension package
+    inputs:
+      targetPath: ado-extension/dist
+      artifact: ado-extension-vsix
+      publishLocation: pipeline

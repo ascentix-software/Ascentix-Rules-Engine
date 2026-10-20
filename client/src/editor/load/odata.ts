@@ -19,9 +19,14 @@ export const ENTITY = {
   // LOGICAL-name-for-Xrm.WebApi rule as every entry above.
   ruleSchedule: "asx_ruleschedule",
   schedulerStatus: "asx_schedulerstatus",
+  // asx_ruleset: groups rules for export/import (same LOGICAL-name-for-Xrm.WebApi rule).
+  ruleSet: "asx_ruleset",
 } as const;
 
 export const LOOKUP = {
+  // asx_rule.asx_ruleset: the rule's set. Protected on the server: written on the stable rule row
+  // (never a draft), with no working draft needed.
+  ruleSetOfRule: "_asx_ruleset_value",
   acgAction: "_asx_ruleaction_value",
   acgParent: "_asx_parentgroup_value",
   actGroup: "_asx_actionconditiongroup_value",
@@ -116,6 +121,7 @@ export const ENTITY_SET = {
   ruleRun: "asx_ruleruns",
   ruleSchedule: "asx_ruleschedules",
   schedulerStatus: "asx_schedulerstatuses",
+  ruleSet: "asx_rulesets",
   actionConditionGroup: "asx_actionconditiongroups",
   actionConditionTest: "asx_actionconditiontests",
 } as const;
@@ -127,6 +133,8 @@ export const ENTITY_SET = {
 // (npm run test:dev).
 // NOTE: conditionValueNode + actionTargetNode are PascalCased, and @odata.bind is case-sensitive.
 export const BIND_NAV = {
+  // asx_rule.asx_ruleset: SchemaName asx_RuleSet, so the nav property is PascalCased.
+  ruleRuleSet: "asx_RuleSet",
   groupRule: "asx_rule",
   groupParent: "asx_parentconditiongroup",
   conditionGroup: "asx_conditiongroup",

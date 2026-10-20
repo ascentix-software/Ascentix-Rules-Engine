@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.vsix
+tasks/**/*.js
+tasks/**/lib.json
+tasks/**/node_modules/
+.taskkey

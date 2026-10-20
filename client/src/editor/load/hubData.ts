@@ -19,6 +19,9 @@ export interface RuleListItem {
    *  (its runs outlive an unpublish). */
   publishedRevisionId?: string | null;
   modifiedOn: string | null; modifiedBy: string | null;
+  /** _asx_ruleset_value and its name: the set the rule belongs to, null when it has none. */
+  ruleSetId?: string | null;
+  ruleSetName?: string | null;
   /** Whether the rule has an On (asx_on = true) asx_ruleschedule row (Task 6 hub indicator).
    *  Optional so pre-Task-6 fixtures keep compiling without the field. */
   scheduled?: boolean;
@@ -106,7 +109,7 @@ async function loadRevisionDefinitions(api: WebApiPort, revisionIds: string[]): 
 export async function loadHubData(api: WebApiPort): Promise<HubData> {
   const [ruleResp, actionResp, nodeResp, scheduleResp] = await Promise.all([
     retrieveAll(api, ENTITY.rule,
-      `?$select=asx_ruleid,asx_name,asx_tablelogicalname,statuscode,asx_triggers,asx_ondemandscope,_asx_publishedrevision_value,${LOOKUP.ruleOfTableConfig},modifiedon,_modifiedby_value&$filter=_asx_draftof_value eq null&$orderby=modifiedon desc`),
+      `?$select=asx_ruleid,asx_name,asx_tablelogicalname,statuscode,asx_triggers,asx_ondemandscope,_asx_publishedrevision_value,${LOOKUP.ruleOfTableConfig},${LOOKUP.ruleSetOfRule},modifiedon,_modifiedby_value&$filter=_asx_draftof_value eq null&$orderby=modifiedon desc`),
     retrieveAll(api, ENTITY.action, `?$select=${LOOKUP.ruleOfAction}`),
     retrieveAll(api, ENTITY.tableConfig,
       `?$select=asx_tableconfigid,asx_name,asx_tablelogicalname,asx_tableconfigtype,${LOOKUP.parentTableOfConfig},modifiedon,_modifiedby_value&$filter=asx_isprivate ne true&$orderby=modifiedon desc`),
@@ -167,6 +170,8 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
       publishedRevisionId: r._asx_publishedrevision_value ?? null,
       rootConfigName: published ? (publishedRoot ? published.tableConfigs[publishedRoot]?.name ?? null : null) : (rootConfigId ? nodeName.get(rootConfigId) ?? r[LOOKUP.ruleOfTableConfig + FV] ?? null : null),
       modifiedOn: r.modifiedon ?? null, modifiedBy: r["_modifiedby_value" + FV] ?? null,
+      ruleSetId: r[LOOKUP.ruleSetOfRule] ?? null,
+      ruleSetName: r[LOOKUP.ruleSetOfRule] ? r[LOOKUP.ruleSetOfRule + FV] ?? null : null,
       scheduled: scheduleSummaryByRule.has(r.asx_ruleid),
       scheduleSummary: scheduleSummaryByRule.get(r.asx_ruleid),
     };

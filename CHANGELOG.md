@@ -6,6 +6,19 @@ Beta releases ship as solution versions below `1.0.0.0` (`0.0.0.1`, then `0.1.0.
 solution versions are numeric only, so the version an administrator sees in their org can never
 carry the word "beta". `1.0.0.0` is reserved for the first full release.
 
+## Unreleased
+
+### Added
+
+- **Rule sets and rule transport.** A rule can belong to a **rule set** (new table `asx_ruleset`),
+  set from the hub's **Set rule set** row action, which also creates sets. The hub's Rules tab has a
+  **Rule set** column and filter. The **Ascentix Rules Transport** extension for Azure DevOps
+  (`ado-extension/`) exports the published rules of rule sets to a package and imports them into
+  another environment, one rule at a time, with a dry run, conflict and collision reporting and an
+  option to archive rules the package no longer carries. Three new Custom APIs back it:
+  `asx_ExportRule`, `asx_ImportRule` and `asx_ArchiveRule`. See *Administering → Moving Rules
+  Between Environments*.
+
 ## 0.1.0.2 (2026-10-12)
 
 **Breaking:** after upgrading, a System Administrator or System Customizer applies **data update
