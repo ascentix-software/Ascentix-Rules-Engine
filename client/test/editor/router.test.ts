@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveRoute, viewHref } from "../../src/editor/ui/router";
+import { resolveRoute, viewHref, hubTabFromSearch } from "../../src/editor/ui/router";
 
 describe("resolveRoute", () => {
   it("explicit hub view ignores any id", () => {
@@ -38,7 +38,28 @@ describe("resolveRoute", () => {
   });
 });
 
+describe("ruleset route", () => {
+  it("resolves ?view=ruleset&id=", () => {
+    expect(resolveRoute("?view=ruleset&id=abc")).toEqual({ view: "ruleset", id: "abc" });
+  });
+});
+
+describe("hubTabFromSearch", () => {
+  it("defaults to rules", () => {
+    expect(hubTabFromSearch("")).toBe("rules");
+    expect(hubTabFromSearch("?view=hub&tab=bogus")).toBe("rules");
+  });
+  it("reads configs and rulesets", () => {
+    expect(hubTabFromSearch("?view=hub&tab=rulesets")).toBe("rulesets");
+    expect(hubTabFromSearch("?view=hub&tab=configs")).toBe("configs");
+  });
+});
+
 describe("viewHref", () => {
+  it("viewHref builds the rulesets tab link", () => {
+    expect(viewHref("hub", undefined, { tab: "rulesets" })).toBe("?view=hub&tab=rulesets");
+    expect(viewHref("ruleset", "abc")).toBe("?view=ruleset&id=abc");
+  });
   it("formats hub without an id", () => {
     expect(viewHref("hub")).toBe("?view=hub");
     expect(viewHref("hub", "abc")).toBe("?view=hub");

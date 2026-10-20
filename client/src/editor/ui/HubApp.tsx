@@ -95,8 +95,9 @@ function GridCard({ cols, headers, stacked, children }: {
 
 const distinct = (xs: string[]) => Array.from(new Set(xs.filter(Boolean))).sort();
 
-export function HubApp({ api, rules: initialRules, configs: initialConfigs, truncated: initialTruncated }: {
+export function HubApp({ api, rules: initialRules, configs: initialConfigs, truncated: initialTruncated, initialTab }: {
   api: EditorApi; rules: RuleListItem[]; configs: ConfigListItem[]; truncated?: boolean;
+  initialTab?: "rules" | "configs" | "rulesets";
 }) {
   const styles = useEditorStyles();
   const { readOnly } = useDataUpdates();
@@ -123,7 +124,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
       .catch(() => { if (live) setSchedulerStatus({ lastSeenOn: null, installed: false }); });
     return () => { live = false; };
   }, [api]);
-  const [tab, setTab] = React.useState<"rules" | "configs">("rules");
+  const [tab, setTab] = React.useState<"rules" | "configs">(initialTab === "configs" ? "configs" : "rules"); // "rulesets" lands with the Rule sets tab (Task 5)
   const [search, setSearch] = React.useState("");
   const [ruleTable, setRuleTable] = React.useState("all");
   const [ruleStatus, setRuleStatus] = React.useState("all");

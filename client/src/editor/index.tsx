@@ -15,7 +15,7 @@ import { HelpApp } from "./help/HelpApp";
 import { MetadataProvider } from "./ui/useMetadata";
 import { RecordSearchProvider } from "./ui/useRecordSearch";
 import { SystemChoicesProvider } from "./ui/useSystemChoices";
-import { resolveRoute, type View } from "./ui/router";
+import { resolveRoute, hubTabFromSearch, type View } from "./ui/router";
 import { ErrorBoundary, ErrorPanel, formatError, installLastResortRejectionHandler } from "./ui/errors";
 
 // Kept exported so the toolchain test still has a stable symbol.
@@ -81,9 +81,22 @@ async function renderView(root: Root) {
     try {
       const data = await loadHubData(api);
       root.render(withProviders("hub",
-        <HubApp api={api} rules={data.rules} configs={data.configs} truncated={data.truncated} />));
+        <HubApp api={api} rules={data.rules} configs={data.configs} truncated={data.truncated}
+          initialTab={hubTabFromSearch(window.location.search)} />));
     } catch (e) {
       root.render(<ErrorPanel title="The hub could not load." error={e} />);
+    }
+    return;
+  }
+
+  if (view === "ruleset") {
+    if (!route.id) { root.render(missingId("rule set")); return; }
+    try {
+      await loadHubData(api);
+      // Placeholder until Task 6 renders <RuleSetApp api ruleSetId data={hubData} />.
+      root.render(withProviders("rule set", <div style={{ padding: 16 }}>Loading rule set…</div>));
+    } catch (e) {
+      root.render(<ErrorPanel title="The rule set could not load." error={e} />);
     }
     return;
   }
