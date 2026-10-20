@@ -1,10 +1,13 @@
-// The documentation demo set on DEV: the "Orders" data model and six rules on sample_order that
-// the guide's screenshots show. Persistent on purpose (retakes reuse it), and named WITHOUT the
-// ZZ_ prefix so the test sweeps leave it alone. Every rule stays unpublished: Preview runs a
-// never-published rule's draft, so nothing here ever fires on a save or a form during e2e/L2.
+// The documentation demo set on DEV: the "Orders" data model, six rules on sample_order and two
+// rule sets ("Billing" with two of the rules, "Seasonal pricing" empty) that the guide's
+// screenshots show. Persistent on purpose (retakes reuse it), and named WITHOUT the ZZ_ prefix so
+// the test sweeps leave it alone. Every rule stays unpublished: Preview runs a never-published
+// rule's draft, so nothing here ever fires on a save or a form during e2e/L2.
 //
-// ensureDocSet() is idempotent: it finds each piece by name and creates only what's missing. To
-// rebuild a piece, delete it on DEV (the hub's Delete) and run the capture again.
+// ensureDocSet() is idempotent: it finds each piece by name and creates only what's missing, and
+// puts the Billing rules back in Billing. To rebuild a piece, delete it on DEV (the hub's Delete)
+// and run the capture again. A rule set with rules can't be deleted: remove its rules first (the
+// rule set page's Remove from set).
 
 import { createDevApi, updateDevRecord } from "../../test-dev/devApi";
 import { authorRule, type ConditionCfg, type RuleConfig } from "../../test-dev/ruleBehavior/authoring";
@@ -21,6 +24,10 @@ export const DOC_RULES = {
 } as const;
 // Typed into the hub search so the list shows only the demo rules (every name contains it).
 export const DOC_HUB_FILTER = "Order";
+export const DOC_RULE_SETS = {
+  billing: { name: "Billing", description: "Credit and order checks for the finance team." },
+  seasonal: { name: "Seasonal pricing", description: null },
+} as const;
 
 export interface DocModel { rootId: string; customerId: string; linesId: string; productId: string }
 
@@ -90,6 +97,21 @@ async function ensureRule(name: string, cfg: Omit<RuleConfig, "name">, after?: (
   return rule.ruleId;
 }
 
+async function ensureRuleSet(name: string, description: string | null): Promise<string> {
+  const found = await findOne(ENTITY_SET.ruleSet, `asx_name eq ${q(name)}`, "asx_rulesetid");
+  if (found) return found.asx_rulesetid;
+  return createDevApi().createRecord(ENTITY_SET.ruleSet, { asx_name: name, ...(description ? { asx_description: description } : {}) });
+}
+
+/** Puts the rule in the set unless it is already there (on the stable rule row, as the hub does). */
+async function ensureInRuleSet(ruleId: string, ruleSetId: string): Promise<void> {
+  const row = await createDevApi().retrieveRecord(ENTITY_SET.rule, ruleId, `?$select=${LOOKUP.ruleSetOfRule}`);
+  if (row[LOOKUP.ruleSetOfRule] === ruleSetId) return;
+  await updateDevRecord(ENTITY_SET.rule, ruleId, {
+    [`${BIND_NAV.ruleRuleSet}@odata.bind`]: `/${ENTITY_SET.ruleSet}(${ruleSetId})`,
+  });
+}
+
 /** A nested subgroup under an outcome: what the building-conditions screenshot shows. */
 async function addSubgroup(ruleId: string, outcome: string, name: string, op: 1 | 2, conditions: ConditionCfg[]): Promise<void> {
   const api = createDevApi();
@@ -110,7 +132,9 @@ async function addSubgroup(ruleId: string, outcome: string, name: string, op: 1 
   }
 }
 
-export async function ensureDocSet(): Promise<{ model: DocModel; rules: Record<keyof typeof DOC_RULES, string> }> {
+export async function ensureDocSet(): Promise<{
+  model: DocModel; rules: Record<keyof typeof DOC_RULES, string>; ruleSets: Record<keyof typeof DOC_RULE_SETS, string>;
+}> {
   const m = await ensureDocModel();
   const credit = await ensureRule(DOC_RULES.credit, {
     rootNodeId: m.rootId, triggers: "1,2,4",
@@ -176,5 +200,8 @@ export async function ensureDocSet(): Promise<{ model: DocModel; rules: Record<k
     actions: [{ actionType: 3, when: { all: [{ outcome: "Gold tier", is: true }] }, targetColumn: "sample_tierlabel",
       message: "Gold customer: offer priority shipping.", severity: 1 }],
   });
-  return { model: m, rules: { credit, lines, email, expedited, stamp, broken } };
+  const billing = await ensureRuleSet(DOC_RULE_SETS.billing.name, DOC_RULE_SETS.billing.description);
+  const seasonal = await ensureRuleSet(DOC_RULE_SETS.seasonal.name, DOC_RULE_SETS.seasonal.description);
+  for (const id of [credit, lines]) await ensureInRuleSet(id, billing);
+  return { model: m, rules: { credit, lines, email, expedited, stamp, broken }, ruleSets: { billing, seasonal } };
 }

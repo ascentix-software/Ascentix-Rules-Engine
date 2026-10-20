@@ -5,8 +5,8 @@ order: 214
 slug: accessibility-responsive
 screenshots:
   - file: images/02-14-accessibility-responsive-01.png
-    caption: On a narrow viewport the editor reflows, wrapping and stacking header actions, the Rule settings strip and data model, and condition rows.
-    alt: "The rule editor at 800 pixels wide: the header actions wrap below the title, the Rule settings strip and the Orders chip stack, and the Only if, Outcomes and Then bands fill the width."
+    caption: On a narrow viewport the editor reflows, wrapping and stacking header actions, the Rule settings strip and its chips, and condition rows.
+    alt: "The rule editor at 800 pixels wide: the header actions wrap below the title, the Rule settings strip, the Orders chip and the Rule set chip stack, and the Only if, Outcomes and Then bands fill the width."
 ---
 
 # Accessibility & Responsive Layout
@@ -25,8 +25,8 @@ screenshots:
 The editor reflows instead of scrolling sideways:
 
 - The header actions wrap below the rule name.
-- The **Rule settings** strip and the data model chip stack.
+- The **Rule settings** strip and the data model and rule set chips stack.
 - Long condition and action rows stack their parts.
 - The rule settings, condition, action and table panels open as an overlay.
 
-![The rule editor at 800 pixels wide: the header actions wrap below the title, the Rule settings strip and the Orders chip stack, and the Only if, Outcomes and Then bands fill the width.](../images/02-14-accessibility-responsive-01.png)
+![The rule editor at 800 pixels wide: the header actions wrap below the title, the Rule settings strip, the Orders chip and the Rule set chip stack, and the Only if, Outcomes and Then bands fill the width.](../images/02-14-accessibility-responsive-01.png)

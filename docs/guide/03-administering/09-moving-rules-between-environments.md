@@ -18,13 +18,14 @@ environments (*Installation*).
 A **rule set** is a named group of rules that move together. A rule is in one rule set or none, and
 only rules in a rule set can be exported.
 
-- Set a rule's rule set from the hub's **Rules** tab: choose the **Set rule set** row action, pick
-  a set (or **No rule set**) and choose **Save**. The dialog can also create a new set.
-- The hub's **Rules** tab has a **Rule set** column and a **Rule set** filter (*The Hub*).
+- Create, rename and delete rule sets on the hub's **Rule sets** tab, which also shows where and
+  when each set was last imported. A set's page adds and removes its rules (*The Hub*).
+- On the hub's **Rules** tab, select rules and choose **Move to rule set** to move them together.
+  The **Rule set** column and filter show which set each rule is in.
+- In the rule editor, the **Rule set** chip sets one rule's set (*Editor Layout*).
 - Changing a rule's set doesn't need a working draft: a published rule's set can be changed while
   it keeps enforcing.
-- Rename or delete a rule set in [make.powerapps.com](https://make.powerapps.com) → your
-  environment → **Tables** → **Rule Set**, where each set is a row.
+- A rule set can't be deleted while it has rules.
 
 ## Set up the pipeline
 
@@ -105,7 +106,9 @@ the end and names the rules that failed.
 Moves with each rule:
 
 - Its **published definition**: conditions, actions, outcomes, triggers and messages.
-- Its **rule set**, created in the target when the target has no set of that name.
+- Its **rule set**, created in the target when the target has no set of that name. If you rename a
+  set in the target, the next import creates a set with the source's name and moves the package's
+  rules into it.
 - Its **schedule definition** (the pattern, time and days), not when it last or next runs.
 - Its **data models**. An imported rule gets **private copies** of its data models. A shared model
   in the target is never changed, so importing can't alter another rule.
