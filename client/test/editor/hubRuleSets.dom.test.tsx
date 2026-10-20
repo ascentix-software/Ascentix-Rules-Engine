@@ -106,7 +106,7 @@ describe("hub Rule sets tab", () => {
 
   it("a delete the server refuses (Restrict) shows the reason inline", async () => {
     const api = makeApi({
-      deleteRuleSet: vi.fn().mockRejectedValue(Object.assign(new Error("The record cannot be deleted because it is referenced"), { code: "0x8004f00c" })),
+      deleteRuleSet: vi.fn().mockRejectedValue(Object.assign(new Error("The record cannot be deleted because it is referenced"), { code: "0x80040227" })),
     } as Partial<EditorApi>);
     renderTab(api);
     fireEvent.click(within(rowFor("Onboarding")).getByRole("button", { name: "Delete" }));

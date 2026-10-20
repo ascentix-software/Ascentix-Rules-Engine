@@ -41,19 +41,21 @@ export function isDuplicateRuleSetName(sets: RuleSetItem[], name: string, except
 /** Why a rule set that still has rules can't be deleted (disabled Delete, and a Restrict refusal). */
 export const DELETE_SET_BLOCKED = "Move or remove its rules first.";
 
-// Dataverse error codes (matched by code OR message text, since Xrm wraps errors differently).
+// Dataverse error codes, as DEV returns them (matched by code OR message text, since Xrm wraps
+// errors differently). Alternate-key violation: 0x80060892 "Entity Key asx_ruleset_name violated...";
+// Restrict delete: 0x80040227 "...Cascade Delete failed due to cascade restrict relation...".
 const DUPLICATE_KEY_CODE = "0x80060892";
-const RESTRICT_CODE = "0x8004f00c";
+const RESTRICT_CODE = "0x80040227";
 
 /** The one place that turns a rule set write failure into words for the author. */
 export function ruleSetErrorMessage(e: unknown, name?: string): string {
   const raw = formatError(e);
   const code = String((e as any)?.code ?? (e as any)?.error?.code ?? "");
   const text = `${code} ${raw}`.toLowerCase();
-  if (text.includes(DUPLICATE_KEY_CODE) || text.includes("duplicate")) {
+  if (text.includes(DUPLICATE_KEY_CODE) || text.includes("entity key")) {
     return `A rule set named ${name ?? "that"} already exists.`;
   }
-  if (text.includes(RESTRICT_CODE) || text.includes("cannot be deleted because it is referenced")) {
+  if (text.includes(RESTRICT_CODE) || text.includes("cascade restrict relation")) {
     return DELETE_SET_BLOCKED;
   }
   return raw;

@@ -67,9 +67,9 @@ describe("isDuplicateRuleSetName", () => {
 describe("ruleSetErrorMessage", () => {
   it("maps the duplicate key and Restrict errors", () => {
     expect(ruleSetErrorMessage({ code: "0x80060892", message: "x" }, "Finance")).toBe("A rule set named Finance already exists.");
-    expect(ruleSetErrorMessage(new Error("Cannot insert duplicate key."), "Finance")).toBe("A rule set named Finance already exists.");
-    expect(ruleSetErrorMessage({ code: "0x8004f00c", message: "x" })).toBe("Move or remove its rules first.");
-    expect(ruleSetErrorMessage(new Error("The record cannot be deleted because it is referenced by other records.")))
+    expect(ruleSetErrorMessage(new Error("Entity Key asx_ruleset_name violated. A record with the same value for Name already exists."), "Finance")).toBe("A rule set named Finance already exists.");
+    expect(ruleSetErrorMessage({ code: "0x80040227", message: "x" })).toBe("Move or remove its rules first.");
+    expect(ruleSetErrorMessage(new Error("Cascade Delete failed due to cascade restrict relation.")))
       .toBe("Move or remove its rules first.");
     expect(ruleSetErrorMessage(new Error("Something else"))).toBe("Something else");
   });

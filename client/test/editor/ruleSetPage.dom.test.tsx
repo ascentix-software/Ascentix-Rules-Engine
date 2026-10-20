@@ -263,7 +263,7 @@ describe("rule set page", () => {
 
   it("a delete the server refuses shows the reason and stays", async () => {
     const api = makeApi({
-      deleteRuleSet: vi.fn().mockRejectedValue(Object.assign(new Error("The record cannot be deleted because it is referenced"), { code: "0x8004f00c" })),
+      deleteRuleSet: vi.fn().mockRejectedValue(Object.assign(new Error("The record cannot be deleted because it is referenced"), { code: "0x80040227" })),
     } as Partial<EditorApi>);
     render(<RuleSetApp api={api} ruleSetId="s2" data={{ ...DATA, rules: [] }} />);
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));

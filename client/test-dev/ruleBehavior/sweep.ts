@@ -47,4 +47,15 @@ export async function sweepRuleBehaviorOrphans(): Promise<void> {
   // task that builds a parent->child customer chain would need the same multi-pass treatment
   // (a restrict-blocked child delete would otherwise survive the sweep).
   await sweepSet("sample_customers", "sample_name");
+  // Rule sets last: rule -> set is Restrict, so the sets go only after their rules above.
+  await sweepRuleSets();
+}
+
+// ZZ_RS_ rule sets left by an interrupted ruleSets.dev.test.ts run.
+async function sweepRuleSets(): Promise<void> {
+  const api = createDevApi();
+  const r = await api.retrieveMultipleRecords(ENTITY_SET.ruleSet, `?$filter=startswith(asx_name,'ZZ_RS_')&$select=asx_name`);
+  for (const rec of r.entities) {
+    await deleteDevRecord(ENTITY_SET.ruleSet, rec.asx_rulesetid as string).catch(console.warn);
+  }
 }
