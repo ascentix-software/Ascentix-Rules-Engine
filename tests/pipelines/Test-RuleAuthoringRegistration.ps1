@@ -303,11 +303,6 @@ foreach ($interrupt in @($false, $true)) {
     $relationships = @{}
     $optionSets = @{}
     $environmentVariables = @{}
-    $keys = @{}
-    $rootUnitId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
-    $roleIds = @{ 'Rules Engine Author' = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'; 'Rules Engine Reader' = 'cccccccc-cccc-cccc-cccc-cccccccccccc' }
-    $privilegeIds = @{}
-    $rolePrivileges = @{}
     $schemaState = @{ Writes = 0; FailViewOnce = $false; TableUpdates = 0; Hidden = @{}; HiddenReads = 0; HideForever = $false
         PublishBodies = [System.Collections.Generic.List[string]]::new() }
     # The script waits for a new table between polls; no real waiting here.
@@ -352,24 +347,6 @@ foreach ($interrupt in @($false, $true)) {
                 "^EntityDefinitions\(LogicalName='([^']+)'\)/ManyToOneRelationships\?.*ReferencingAttribute eq '([^']+)'" {
                     return @{ value = @($relationships.Values | Where-Object { $_.ReferencingEntity -eq $Matches[1] -and $_.ReferencingAttribute -eq $Matches[2] }) }
                 }
-                "^EntityDefinitions\(LogicalName='([^']+)'\)/Keys\?" {
-                    $table = $Matches[1]
-                    return @{ value = @($keys.Keys | Where-Object { $_ -like "$table/*" } | ForEach-Object { @{ LogicalName = $keys[$_].SchemaName.ToLowerInvariant() } }) }
-                }
-                '^businessunits\?.*parentbusinessunitid eq null' { return @{ value = @(@{ businessunitid = $rootUnitId }) } }
-                "^roles\?.*name eq '([^']+)' and _businessunitid_value eq ([\w-]+)" {
-                    Assert ($Matches[2] -eq $rootUnitId) 'Roles must be looked up in the root business unit.'
-                    return @{ value = @(if ($roleIds.ContainsKey($Matches[1])) { @{ roleid = $roleIds[$Matches[1]]; _businessunitid_value = $rootUnitId } }) }
-                }
-                '^privileges\?' {
-                    $found = foreach ($m in [regex]::Matches($path, "name eq '([^']+)'")) {
-                        $name = $m.Groups[1].Value
-                        if ($name -notlike '*asx_ruleset') { continue }
-                        if (!$privilegeIds.ContainsKey($name)) { $privilegeIds[$name] = [guid]::NewGuid().ToString() }
-                        @{ privilegeid = $privilegeIds[$name]; name = $name }
-                    }
-                    return @{ value = @($found) }
-                }
                 "^GlobalOptionSetDefinitions\(Name='([^']+)'\)/Microsoft\.Dynamics\.CRM\.OptionSetMetadata" {
                     $name = $Matches[1]
                     return @{ Options = @(@{ Value = $optionSets[$name].Value; Label = @{ LocalizedLabels = @(@{ Label = $optionSets[$name].Label; LanguageCode = 1033 }) } }) }
@@ -399,27 +376,6 @@ foreach ($interrupt in @($false, $true)) {
                     Assert (!$fields.ContainsKey($key)) 'Duplicate field creation.'
                     $fields[$key] = $record
                     $schemaState.Writes++
-                    return
-                }
-                "^EntityDefinitions\(LogicalName='([^']+)'\)/Keys$" {
-                    $key = "$($Matches[1])/$($record.SchemaName.ToLowerInvariant())"
-                    Assert (!$keys.ContainsKey($key)) 'Duplicate key creation.'
-                    $keys[$key] = $record
-                    $schemaState.Writes++
-                    return
-                }
-                '^roles\(([\w-]+)\)/Microsoft\.Dynamics\.CRM\.AddPrivilegesRole$' {
-                    $roleId = $Matches[1]
-                    Assert ($roleIds.Values -contains $roleId) 'AddPrivilegesRole on an unknown role.'
-                    $added = $false
-                    foreach ($privilege in $record.Privileges) {
-                        Assert ($privilege.BusinessUnitId -eq $rootUnitId) 'Privileges must be granted for the root business unit.'
-                        $name = ($privilegeIds.GetEnumerator() | Where-Object { $_.Value -eq $privilege.PrivilegeId }).Key
-                        Assert ($null -ne $name) 'AddPrivilegesRole with an unknown privilege.'
-                        $slot = "$roleId/$name"
-                        if ($rolePrivileges[$slot] -ne $privilege.Depth) { $rolePrivileges[$slot] = $privilege.Depth; $added = $true }
-                    }
-                    if ($added) { $schemaState.Writes++ }
                     return
                 }
                 '^RelationshipDefinitions$' {
@@ -506,7 +462,7 @@ foreach ($interrupt in @($false, $true)) {
         throw "Unexpected schema request: $Method $path"
     }
     foreach ($interrupt in @($false, $true)) {
-        $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear(); $relationships.Clear(); $environmentVariables.Clear(); $keys.Clear(); $privilegeIds.Clear(); $rolePrivileges.Clear()
+        $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear(); $relationships.Clear(); $environmentVariables.Clear()
         $optionSets.Clear(); $optionSets['asx_triggers'] = @{ Value = 3; Label = 'Manual' }
         $optionSets['asx_actiontype'] = @{ Value = 7; Label = 'Delete Record' }
         $schemaState.Writes = 0; $schemaState.FailViewOnce = $interrupt; $schemaState.TableUpdates = 0
@@ -541,8 +497,8 @@ foreach ($interrupt in @($false, $true)) {
         }
         $schemaState.PublishBodies.Clear()
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($tables.Count -eq 10 -and $fields.Count -eq 75) 'Expected additive authoring tables and fields.'
-        Assert ($schemaState.HiddenReads -eq 20) "Expected the script to wait out two not-yet-visible reads per created table (saw $($schemaState.HiddenReads))."
+        Assert ($tables.Count -eq 9 -and $fields.Count -eq 70) 'Expected additive authoring tables and fields.'
+        Assert ($schemaState.HiddenReads -eq 18)"Expected the script to wait out two not-yet-visible reads per created table (saw $($schemaState.HiddenReads))."
         Assert ($schemaState.PublishBodies.Count -eq 2) 'Expected two PublishXml requests.'
         foreach ($body in $schemaState.PublishBodies) {
             foreach ($entity in @('asx_actionconditiongroup', 'asx_actionconditiontest')) {
@@ -604,24 +560,12 @@ foreach ($interrupt in @($false, $true)) {
         # 54 before the diagnostics table, + 1 table (its primary name rides in the table body)
         # + 5 columns + 2 environment variable definitions (no value rows), + 11 for the data update
         # (1 table, 9 attributes, 1 lookup relationship), + 10 for the action condition tables
-        # (2 tables, 4 attributes, 4 lookup relationships), + 9 for rule sets (1 table, 1 description,
-        # 1 alternate key, 1 rule lookup, 3 revision provenance columns, 2 role privilege grants).
-        Assert ($schemaState.Writes -eq (92 + $views.Count)) 'Unexpected metadata write count.'
+        # (2 tables, 4 attributes, 4 lookup relationships). Rule sets are authored in Dataverse, not here.
+        Assert ($schemaState.Writes -eq (83 + $views.Count)) 'Unexpected metadata write count.'
+        Assert (!$tables.ContainsKey('asx_ruleset') -and !$fields.ContainsKey('asx_rule/asx_ruleset')) 'The Schema phase must not provision rule sets.'
         $writes = $schemaState.Writes
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
         Assert ($schemaState.Writes -eq $writes) 'Schema retry changed already configured metadata.'
-        # Rule sets: table, name key, rule lookup, revision provenance, role privileges.
-        Assert ($tables['asx_ruleset'].OwnershipType -eq 'OrganizationOwned' -and $tables['asx_ruleset'].SchemaName -ceq 'asx_RuleSet') 'Rule Set must be an organization-owned asx_RuleSet table.'
-        Assert ($fields['asx_ruleset/asx_description'].MaxLength -eq 2000 -and $fields['asx_ruleset/asx_description']['@odata.type'] -eq 'Microsoft.Dynamics.CRM.MemoAttributeMetadata') 'Rule Set needs a 2000 character description.'
-        Assert (@($keys['asx_ruleset/asx_ruleset_name'].KeyAttributes).Count -eq 1 -and $keys['asx_ruleset/asx_ruleset_name'].KeyAttributes -contains 'asx_name') 'Rule Set needs the alternate key asx_ruleset_name on asx_name.'
-        $ruleSetLookup = @($relationships.Values | Where-Object { $_.ReferencingEntity -eq 'asx_rule' -and $_.ReferencedEntity -eq 'asx_ruleset' })
-        Assert ($ruleSetLookup.Count -eq 1 -and $ruleSetLookup[0].Lookup.SchemaName -ceq 'asx_RuleSet' -and $ruleSetLookup[0].CascadeConfiguration.Delete -eq 'RemoveLink') 'asx_rule needs a RemoveLink lookup to asx_ruleset.'
-        Assert ($fields['asx_rulerevision/asx_sourceenvironment'].MaxLength -eq 200 -and $fields['asx_rulerevision/asx_sourcehash'].MaxLength -eq 64 -and $fields['asx_rulerevision/asx_sourceversion']['@odata.type'] -eq 'Microsoft.Dynamics.CRM.IntegerAttributeMetadata') 'Revision provenance columns are incorrect.'
-        foreach ($privilege in @('Create', 'Read', 'Write', 'Delete', 'Append', 'AppendTo')) {
-            Assert ($rolePrivileges["$($roleIds['Rules Engine Author'])/prv${privilege}asx_ruleset"] -eq 'Global') "Rules Engine Author needs $privilege on asx_ruleset at Global depth."
-        }
-        Assert ($rolePrivileges["$($roleIds['Rules Engine Reader'])/prvReadasx_ruleset"] -eq 'Global') 'Rules Engine Reader needs Read on asx_ruleset at Global depth.'
-        Assert (@($rolePrivileges.Keys | Where-Object { $_ -like "$($roleIds['Rules Engine Reader'])/*" }).Count -eq 1) 'Rules Engine Reader must only read rule sets.'
         Assert ($tables['asx_actionconditiongroup'].OwnershipType -eq 'UserOwned' -and $tables['asx_actionconditiontest'].OwnershipType -eq 'UserOwned') 'The action condition tables must be user-owned.'
         foreach ($spec in @(@('asx_actionconditiongroup', 'asx_ruleaction', 'asx_ruleaction_actionconditiongroup', 'Cascade'),
                 @('asx_actionconditiongroup', 'asx_actionconditiongroup', 'asx_actionconditiongroup_actionconditiongroup', 'RemoveLink'),
@@ -635,7 +579,7 @@ foreach ($interrupt in @($false, $true)) {
         # publisher ownership or any non-delete cascade setting.
         foreach ($relation in $relationships.Values) { $relation.CascadeConfiguration.Delete = 'Restrict' }
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 14) 'Expected exactly fourteen relationship upgrades.'
+        Assert ($schemaState.Writes -eq $writes + 13) 'Expected exactly thirteen relationship upgrades.'
         foreach ($relation in $relationships.Values) {
             $expected = if ($relation.ReferencingAttribute -eq 'asx_publisher') { 'Restrict' }
                 elseif ($relation.ReferencingAttribute -eq 'asx_rule' -and $relation.ReferencingEntity -in @('asx_rulerun', 'asx_ruleschedule')) { 'Cascade' }
@@ -646,15 +590,15 @@ foreach ($interrupt in @($false, $true)) {
             Assert ($relation.CascadeConfiguration.Assign -eq 'NoCascade') 'Unrelated cascade setting changed.'
         }
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 14) 'Relationship upgrade is not idempotent.'
+        Assert ($schemaState.Writes -eq $writes + 13) 'Relationship upgrade is not idempotent.'
         # An environment provisioned before the set name was fixed converges: exactly one table
         # update, only for Scheduler Status, then nothing on a re-run.
         $tables['asx_schedulerstatus'].EntitySetName = 'asx_schedulerstatuss'
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 15 -and $schemaState.TableUpdates -eq 1) 'Expected exactly one table update for the mismatched set name.'
+        Assert ($schemaState.Writes -eq $writes + 14 -and $schemaState.TableUpdates -eq 1) 'Expected exactly one table update for the mismatched set name.'
         Assert ($tables['asx_schedulerstatus'].EntitySetName -ceq 'asx_schedulerstatuses') 'The mismatched Scheduler Status set name was not reconciled.'
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 15 -and $schemaState.TableUpdates -eq 1) 'Set-name reconciliation is not idempotent.'
+        Assert ($schemaState.Writes -eq $writes + 14 -and $schemaState.TableUpdates -eq 1) 'Set-name reconciliation is not idempotent.'
         # The plural is "Scheduler Statuses", not the appended-s "Scheduler Statuss" that earlier
         # environments were created with; one table update repairs it, then nothing on a re-run.
         $plural = { @($tables['asx_schedulerstatus'].DisplayCollectionName.LocalizedLabels)[0].Label }
@@ -662,15 +606,15 @@ foreach ($interrupt in @($false, $true)) {
         Assert (@($tables['asx_ruleschedule'].DisplayCollectionName.LocalizedLabels)[0].Label -ceq 'Rule Schedules') 'Other tables keep the appended-s plural.'
         $tables['asx_schedulerstatus'].DisplayCollectionName = @{ LocalizedLabels = @(@{ Label = 'Scheduler Statuss'; LanguageCode = 1033 }) }
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 16 -and $schemaState.TableUpdates -eq 2) 'Expected exactly one table update for the misspelled plural.'
+        Assert ($schemaState.Writes -eq $writes + 15 -and $schemaState.TableUpdates -eq 2) 'Expected exactly one table update for the misspelled plural.'
         Assert ((& $plural) -ceq 'Scheduler Statuses') "The Scheduler Status plural was not repaired, got $(& $plural)."
         Assert ($tables['asx_schedulerstatus'].EntitySetName -ceq 'asx_schedulerstatuses') 'Repairing the plural must keep the set name.'
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
-        Assert ($schemaState.Writes -eq $writes + 16 -and $schemaState.TableUpdates -eq 2) 'Plural repair is not idempotent.'
+        Assert ($schemaState.Writes -eq $writes + 15 -and $schemaState.TableUpdates -eq 2) 'Plural repair is not idempotent.'
         Write-Host "PASS: schema and shipped views, filter preservation, idempotent retry (interrupted=$interrupt)."
     }
     # A created table that never becomes visible stops the run with the timeout message instead of waiting forever.
-    $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear(); $relationships.Clear(); $environmentVariables.Clear(); $keys.Clear(); $privilegeIds.Clear(); $rolePrivileges.Clear()
+    $views.Clear(); $viewContexts.Clear(); $fields.Clear(); $tables.Clear(); $relationships.Clear(); $environmentVariables.Clear()
     $schemaState.Hidden.Clear(); $schemaState.HiddenReads = 0; $schemaState.HideForever = $true
     $timedOut = $null
     try { & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock' } catch { $timedOut = $_.Exception.Message }
