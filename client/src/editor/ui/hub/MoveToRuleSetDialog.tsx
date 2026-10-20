@@ -36,6 +36,7 @@ export function MoveToRuleSetDialog({ open, rules, ruleSets, ruleCounts, onCance
   // so Move retries into it instead of creating it again.
   const [adopt, setAdopt] = React.useState<string | null>(null);
   const nameRef = React.useRef<HTMLInputElement>(null);
+  const moveRef = React.useRef<HTMLButtonElement>(null);
 
   React.useEffect(() => {
     if (open) { setChoice(null); setNewName(""); setSaving(false); setError(null); setAdopt(null); }
@@ -63,6 +64,8 @@ export function MoveToRuleSetDialog({ open, rules, ruleSets, ruleCounts, onCance
     } catch (e) {
       setError(formatError(e));
       if ("newName" in target) setAdopt(target.newName);
+      // Back to Move for the retry (the name field may have gone if the new set was adopted).
+      requestAnimationFrame(() => moveRef.current?.focus());
     } finally {
       setSaving(false);
     }
@@ -73,7 +76,9 @@ export function MoveToRuleSetDialog({ open, rules, ruleSets, ruleCounts, onCance
       <DialogShell open={open} title={`Move ${plural(rules.length, "rule")}`} onClose={onCancel} width={520} closeDisabled={saving}
         actions={<>
           <Button appearance="secondary" onClick={onCancel} disabled={saving}>Cancel</Button>
-          <Button appearance="primary" onClick={() => void move()} disabled={!ready}>Move</Button>
+          {/* While saving it stays focusable (aria-disabled), so focus isn't dropped mid-move. */}
+          <Button ref={moveRef} appearance="primary" onClick={() => void move()}
+            disabled={!saving && !ready} disabledFocusable={saving}>Move</Button>
         </>}>
         {rules.length > 0 && (
           <div style={{ fontSize: 13, color: color.inkMuted }}>{currentlyIn(rules, ruleSets)}</div>
@@ -88,7 +93,7 @@ export function MoveToRuleSetDialog({ open, rules, ruleSets, ruleCounts, onCance
         {choice === NEW && (
           <Field label="New rule set name" required validationState={duplicate ? "error" : "none"}
             validationMessage={duplicate ? `A rule set named ${trimmed} already exists.` : undefined}>
-            <Input input={{ ref: nameRef }} value={newName} disabled={saving}
+            <Input input={{ ref: nameRef }} value={newName} readOnly={saving}
               onChange={(_e, d) => { setNewName(d.value); setAdopt(null); setError(null); }}
               onKeyDown={(e) => { if (e.key === "Enter") void move(); }} />
           </Field>

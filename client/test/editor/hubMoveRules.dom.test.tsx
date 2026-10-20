@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
 import { HubApp } from "../../src/editor/ui/HubApp";
+import { DataUpdateProvider } from "../../src/editor/dataUpdates/DataUpdateContext";
 import { withNarrowViewport } from "./domFixtures";
-import type { EditorApi } from "../../src/editor/webapi";
+import type { EditorApi, DataUpdateStatus } from "../../src/editor/webapi";
 import type { RuleListItem, RuleSetItem, HubData } from "../../src/editor/load/hubData";
 
 vi.mock("../../src/editor/ui/router", async (importOriginal) => {
@@ -136,6 +137,10 @@ describe("hub Rules tab: selection and Move to rule set", () => {
     expect(move).toBeDisabled(); // nothing chosen yet
 
     fireEvent.click(within(dialog).getByRole("radio", { name: /^Onboarding/ }));
+    // The closing dialog keeps the rules it opened with: it never reads "Move 0 rules".
+    let sawZero = false;
+    const watch = new MutationObserver(() => { if (document.body.textContent?.includes("Move 0 rules")) sawZero = true; });
+    watch.observe(document.body, { subtree: true, childList: true, characterData: true });
     fireEvent.click(move);
 
     await waitFor(() => expect(loadHubData).toHaveBeenCalled());
@@ -143,6 +148,8 @@ describe("hub Rules tab: selection and Move to rule set", () => {
     expect(api.moveRules).toHaveBeenCalledWith(["r1", "r3", "r4"], "s2");
     expect(api.createRuleSet).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    watch.disconnect();
+    expect(sawZero).toBe(false);
     expect(screen.queryByTestId("hub-selection-bar")).toBeNull(); // selection clears after a move
     expect(within(rowFor("Rule r1")).getByRole("button", { name: "Onboarding" })).toBeInTheDocument();
   });
@@ -223,6 +230,18 @@ describe("hub Rules tab: selection and Move to rule set", () => {
     expect(api.createRuleSet).toHaveBeenCalledTimes(1);
   });
 
+  it("a create that returns no id fails instead of clearing the rules' set", async () => {
+    const api = makeApi({ createRuleSet: vi.fn().mockResolvedValue("") });
+    renderHub(api);
+    select("Rule r1");
+    const dialog = await openMove();
+    fireEvent.click(within(dialog).getByRole("radio", { name: /^New rule set/ }));
+    fireEvent.change(within(dialog).getByRole("textbox", { name: /New rule set name/ }), { target: { value: "Collections" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Couldn't create the rule set Collections.");
+    expect(api.moveRules).not.toHaveBeenCalled();
+  });
+
   it("rule set column links to the set page", () => {
     renderHub(makeApi());
     fireEvent.click(within(rowFor("Rule r1")).getByRole("button", { name: "Billing" }));
@@ -232,10 +251,73 @@ describe("hub Rules tab: selection and Move to rule set", () => {
     expect(screen.queryByRole("button", { name: "Set rule set" })).toBeNull();
   });
 
-  it("read-only or a port without moveRules shows no selection column", () => {
+  it("a port without moveRules shows no selection column", () => {
     renderHub({} as EditorApi);
     expect(screen.queryByRole("checkbox", { name: /^Select/ })).toBeNull();
     expect(screen.queryByTestId("hub-selection-status")).toBeNull();
+  });
+
+  it("a pending data update (read-only) shows no selection column or bar, even with a full port", async () => {
+    const pending: DataUpdateStatus = { required: 1, pending: [{ number: 1, title: "Convert" }], latest: null, canApply: false, done: false };
+    const api = makeApi({
+      retrieveMultipleRecords: async () => ({ entities: [] }),
+      applyDataUpdates: vi.fn().mockResolvedValue(pending),
+    } as Partial<EditorApi>);
+    render(
+      <DataUpdateProvider api={api}>
+        <HubApp api={api} rules={RULES} configs={[]} ruleSets={SETS} />
+      </DataUpdateProvider>,
+    );
+    expect(await screen.findByTestId("data-update-banner")).toBeInTheDocument();
+    expect(screen.getAllByTestId("hub-row")).toHaveLength(4);
+    expect(screen.queryByRole("checkbox", { name: /^Select/ })).toBeNull();
+    expect(screen.queryByTestId("hub-selection-status")).toBeNull();
+    expect(screen.queryByTestId("hub-selection-bar")).toBeNull();
+  });
+
+  it("after a move, focus goes to the header select-all (wide)", async () => {
+    vi.mocked(loadHubData).mockResolvedValue({ rules: RULES, configs: [], ruleSets: SETS, truncated: false });
+    renderHub(makeApi());
+    select("Rule r1");
+    const dialog = await openMove();
+    fireEvent.click(within(dialog).getByRole("radio", { name: /^Onboarding/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("checkbox", { name: "Select all rules on this page" })));
+  });
+
+  it("after a move, focus goes to the first card on the page (stacked)", async () => {
+    vi.mocked(loadHubData).mockResolvedValue({ rules: RULES, configs: [], ruleSets: SETS, truncated: false });
+    await withNarrowViewport(async () => {
+      renderHub(makeApi());
+      select("Rule r3");
+      const dialog = await openMove();
+      fireEvent.click(within(dialog).getByRole("radio", { name: /^Billing/ }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Move" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await waitFor(() => expect(document.activeElement).toBe(screen.getAllByTestId("hub-card")[0]));
+    });
+  });
+
+  it("while a move is saving, Move stays focusable (aria-disabled); a failure returns focus to Move", async () => {
+    let fail!: (e: Error) => void;
+    const api = makeApi({ moveRules: vi.fn(() => new Promise<void>((_res, rej) => { fail = rej; })) });
+    renderHub(api);
+    select("Rule r1");
+    const dialog = await openMove();
+    fireEvent.click(within(dialog).getByRole("radio", { name: /^Onboarding/ }));
+    const move = within(dialog).getByRole("button", { name: "Move" });
+    move.focus();
+    fireEvent.click(move);
+    await waitFor(() => expect(move).toHaveAttribute("aria-disabled", "true"));
+    expect(move).not.toHaveAttribute("disabled");
+    expect(document.activeElement).toBe(move);
+    fireEvent.click(move); // ignored while saving
+    expect(api.moveRules).toHaveBeenCalledTimes(1);
+
+    fail(new Error("Couldn't move 1 rule: Timeout."));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Couldn't move 1 rule: Timeout.");
+    await waitFor(() => expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Move" })));
   });
 });
 

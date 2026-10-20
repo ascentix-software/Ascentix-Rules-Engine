@@ -86,6 +86,11 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
   const [ruleSetFilter, setRuleSetFilter] = React.useState("all"); // "all" | "none" | a rule set id
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
   const [moveOpen, setMoveOpen] = React.useState(false);
+  // The rules being moved, fixed when the dialog opens (so it never reads "Move 0 rules" while closing).
+  const [moving, setMoving] = React.useState<RuleListItem[]>([]);
+  // After a move the bar that opened the dialog is gone: focus goes to a stable control instead.
+  const focusAfterMove = React.useRef(false);
+  const rulesGridRef = React.useRef<HTMLDivElement>(null);
   const [configRoot, setConfigRoot] = React.useState("all");
   const [page, setPageState] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(PAGE_SIZE_DEFAULT);
@@ -134,6 +139,19 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
     return next;
   });
   const selectPage = (on: boolean) => toggle(pageRules.map((r) => r.id), on);
+  const openMove = () => { setMoving(selectedRules); setMoveOpen(true); };
+
+  // Once the dialog has closed and the reload is done, and after the dialog's own focus restore:
+  // wide → the header select-all, stacked → the first card on the page.
+  React.useEffect(() => {
+    if (!focusAfterMove.current || moveOpen || busy) return;
+    focusAfterMove.current = false;
+    requestAnimationFrame(() => {
+      rulesGridRef.current?.querySelector<HTMLElement>(stacked
+        ? '[data-testid="hub-card"]'
+        : '[data-testid="hub-grid-header"] input[type="checkbox"]')?.focus();
+    });
+  }, [moveOpen, busy, stacked]);
 
   const modified = (on: string | null, by: string | null) =>
     `${relativeTime(on, now)}${by ? ` · ${by}` : ""}`;
@@ -216,11 +234,13 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
   // All selected rules in one change set. A failure rejects back into the dialog, which shows it
   // and stays open with the selection intact.
   async function onMove(target: MoveTarget) {
-    const ids = selectedRules.map((r) => r.id);
+    const ids = moving.map((r) => r.id);
     let ruleSetId: string | null;
     let createdName: string | null = null;
     if ("newName" in target) {
       try { ruleSetId = await api.createRuleSet!(target.newName); } catch (e) { throw new Error(ruleSetErrorMessage(e, target.newName)); }
+      // A missing id must never turn into "clear the set".
+      if (!ruleSetId) throw new Error(`Couldn't create the rule set ${target.newName}.`);
       createdName = target.newName;
     } else {
       ruleSetId = target.ruleSetId;
@@ -232,6 +252,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
       if (createdName) { try { await refresh(); } catch { /* the move error is the one to show */ } }
       throw e;
     }
+    focusAfterMove.current = true;
     setMoveOpen(false);
     clearSelection();
     const n = plural(ids.length, "rule");
@@ -352,13 +373,13 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
             </span>
           )}
           {tab === "rules" && selectable && selectedRules.length > 0 && (
-            <div role="toolbar" aria-label="Selected rules" data-testid="hub-selection-bar"
+            <div role="group" aria-label="Selected rules" data-testid="hub-selection-bar"
               style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "6px 8px 6px 14px", marginBottom: 12,
                 background: color.brandTint, border: `1px solid ${color.brandLine}`, borderRadius: 10 }}>
               <span aria-hidden="true" style={{ fontSize: 13, fontWeight: 700, color: color.brandInk, marginRight: 4 }}>
                 {selectedRules.length} selected
               </span>
-              <Button size="small" appearance="primary" icon={<FolderArrowRight16Regular />} disabled={busy} onClick={() => setMoveOpen(true)}>
+              <Button size="small" appearance="primary" icon={<FolderArrowRight16Regular />} disabled={busy} onClick={openMove}>
                 Move to rule set
               </Button>
               {stacked && (
@@ -370,78 +391,80 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
 
           {/* Grid */}
           {tab === "rules" ? (
-            <GridCard cols={selectable ? SELECTABLE_RULES_COLS : RULES_COLS}
-              headers={["Rule", "Table", "Rule set", "Status", "Triggers", "Actions", "Modified", ""]} stacked={stacked}
-              lead={selectable ? (
-                <span style={{ display: "flex", marginLeft: -8 }}>
-                  <Checkbox aria-label="Select all rules on this page" disabled={busy || pageRules.length === 0}
-                    checked={allOnPage ? true : someOnPage ? "mixed" : false} onChange={(_e, d) => selectPage(!!d.checked)} />
-                </span>
-              ) : undefined}>
-              {pageRules.length === 0
-                ? <div style={{ padding: 24, textAlign: "center", color: color.inkMuted, fontSize: 13 }}>No rules match.</div>
-                : pageRules.map((r) => {
-                  const cells: RowCell[] = [
-                    { label: "Rule", node: (
-                      <div>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: color.ink, display: "flex", alignItems: "center", gap: 6 }}>
-                          {r.name}
-                          {r.scheduled && r.scheduleSummary && (
-                            <Tooltip content={`Scheduled: ${r.scheduleSummary}`} relationship="label">
-                              <Clock16Regular style={{ color: color.inkMuted }} />
-                            </Tooltip>
+            <div ref={rulesGridRef}>
+              <GridCard cols={selectable ? SELECTABLE_RULES_COLS : RULES_COLS}
+                headers={["Rule", "Table", "Rule set", "Status", "Triggers", "Actions", "Modified", ""]} stacked={stacked}
+                lead={selectable ? (
+                  <span style={{ display: "flex", marginLeft: -8 }}>
+                    <Checkbox aria-label="Select all rules on this page" disabled={busy || pageRules.length === 0}
+                      checked={allOnPage ? true : someOnPage ? "mixed" : false} onChange={(_e, d) => selectPage(!!d.checked)} />
+                  </span>
+                ) : undefined}>
+                {pageRules.length === 0
+                  ? <div style={{ padding: 24, textAlign: "center", color: color.inkMuted, fontSize: 13 }}>No rules match.</div>
+                  : pageRules.map((r) => {
+                    const cells: RowCell[] = [
+                      { label: "Rule", node: (
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: color.ink, display: "flex", alignItems: "center", gap: 6 }}>
+                            {r.name}
+                            {r.scheduled && r.scheduleSummary && (
+                              <Tooltip content={`Scheduled: ${r.scheduleSummary}`} relationship="label">
+                                <Clock16Regular style={{ color: color.inkMuted }} />
+                              </Tooltip>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 12, color: color.inkMuted }}>uses{" "}
+                            {r.rootConfigReadOnly ? <span>{r.rootConfigName ?? "Published data model"}</span> : r.rootConfigId
+                              ? <button type="button" className={styles.focusRing} onClick={(e) => { e.stopPropagation(); navigate("tableconfig", r.rootConfigId!); }}
+                                  style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: color.brandInk, fontWeight: 600, fontSize: 12 }}>{r.rootConfigName ?? r.rootConfigId}</button>
+                              : <span style={{ color: color.inkMuted }}>—</span>}
+                          </div>
+                        </div>
+                      ) },
+                      { label: "Table", node: <span><NodeTag>{r.tableLogicalName}</NodeTag></span> },
+                      { label: "Rule set", node: r.ruleSetId
+                        ? (
+                          <span style={{ minWidth: 0 }}>
+                            <button type="button" className={styles.focusRing} onClick={(e) => { e.stopPropagation(); navigate("ruleset", r.ruleSetId!); }}
+                              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: color.brandInk, fontWeight: 600, fontSize: 12.5, textAlign: "left" }}>
+                              {ruleSetsById.get(r.ruleSetId)?.name ?? r.ruleSetName ?? r.ruleSetId}
+                            </button>
+                          </span>
+                        )
+                        : <span style={{ fontSize: 12.5, color: color.inkMuted }}>—</span> },
+                      { label: "Status", node: <span><StatusBadge statusCode={r.statusCode} /></span> },
+                      { label: "Triggers", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{r.triggers.map(triggerLabel).join(", ") || "—"}</span> },
+                      { label: "Actions", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{r.actionCount}</span> },
+                      { label: "Modified", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{modified(r.modifiedOn, r.modifiedBy)}</span> },
+                      { label: "", node: (
+                        <span style={{ display: "flex", gap: 2, justifyContent: stacked ? "flex-start" : "flex-end" }} onClick={(e) => e.stopPropagation()}>
+                          {canApply(r.statusCode === PUBLISHED, r.triggers) && (
+                            <Button size="small" appearance="subtle" icon={<Play16Regular />} aria-label="Run now" title="Run now"
+                              disabled={busy || loadingRunNowId === r.id} onClick={() => onRunNow(r)} />
                           )}
-                        </div>
-                        <div style={{ fontSize: 12, color: color.inkMuted }}>uses{" "}
-                          {r.rootConfigReadOnly ? <span>{r.rootConfigName ?? "Published data model"}</span> : r.rootConfigId
-                            ? <button type="button" className={styles.focusRing} onClick={(e) => { e.stopPropagation(); navigate("tableconfig", r.rootConfigId!); }}
-                                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: color.brandInk, fontWeight: 600, fontSize: 12 }}>{r.rootConfigName ?? r.rootConfigId}</button>
-                            : <span style={{ color: color.inkMuted }}>—</span>}
-                        </div>
-                      </div>
-                    ) },
-                    { label: "Table", node: <span><NodeTag>{r.tableLogicalName}</NodeTag></span> },
-                    { label: "Rule set", node: r.ruleSetId
-                      ? (
-                        <span style={{ minWidth: 0 }}>
-                          <button type="button" className={styles.focusRing} onClick={(e) => { e.stopPropagation(); navigate("ruleset", r.ruleSetId!); }}
-                            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: color.brandInk, fontWeight: 600, fontSize: 12.5, textAlign: "left" }}>
-                            {ruleSetsById.get(r.ruleSetId)?.name ?? r.ruleSetName ?? r.ruleSetId}
-                          </button>
+                          {(r.statusCode === 753840000 || !!r.publishedRevisionId) && (
+                            <Button size="small" appearance="subtle" icon={<History16Regular />} aria-label="Runs" title="Runs"
+                              disabled={busy} onClick={() => setRunsRule({ id: r.id, name: r.name, table: r.tableLogicalName })} />
+                          )}
+                          {!readOnly && (<>
+                            <Button size="small" appearance="subtle" icon={<Copy16Regular />} aria-label="Duplicate" title="Duplicate" disabled={busy} onClick={() => onDuplicateRule(r.id)} />
+                            <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete" title="Delete" disabled={busy} style={{ color: color.danger }} onClick={() => setPendingDelete({ kind: "rule", id: r.id, name: r.name })} />
+                          </>)}
                         </span>
-                      )
-                      : <span style={{ fontSize: 12.5, color: color.inkMuted }}>—</span> },
-                    { label: "Status", node: <span><StatusBadge statusCode={r.statusCode} /></span> },
-                    { label: "Triggers", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{r.triggers.map(triggerLabel).join(", ") || "—"}</span> },
-                    { label: "Actions", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{r.actionCount}</span> },
-                    { label: "Modified", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{modified(r.modifiedOn, r.modifiedBy)}</span> },
-                    { label: "", node: (
-                      <span style={{ display: "flex", gap: 2, justifyContent: stacked ? "flex-start" : "flex-end" }} onClick={(e) => e.stopPropagation()}>
-                        {canApply(r.statusCode === PUBLISHED, r.triggers) && (
-                          <Button size="small" appearance="subtle" icon={<Play16Regular />} aria-label="Run now" title="Run now"
-                            disabled={busy || loadingRunNowId === r.id} onClick={() => onRunNow(r)} />
-                        )}
-                        {(r.statusCode === 753840000 || !!r.publishedRevisionId) && (
-                          <Button size="small" appearance="subtle" icon={<History16Regular />} aria-label="Runs" title="Runs"
-                            disabled={busy} onClick={() => setRunsRule({ id: r.id, name: r.name, table: r.tableLogicalName })} />
-                        )}
-                        {!readOnly && (<>
-                          <Button size="small" appearance="subtle" icon={<Copy16Regular />} aria-label="Duplicate" title="Duplicate" disabled={busy} onClick={() => onDuplicateRule(r.id)} />
-                          <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete" title="Delete" disabled={busy} style={{ color: color.danger }} onClick={() => setPendingDelete({ kind: "rule", id: r.id, name: r.name })} />
-                        </>)}
+                      ) },
+                    ];
+                    const lead = selectable ? (
+                      <span style={{ display: "flex", marginLeft: -8 }} onClick={(e) => e.stopPropagation()}>
+                        <Checkbox aria-label={`Select ${r.name}`} disabled={busy} checked={selected.has(r.id)}
+                          onChange={(_e, d) => toggle([r.id], !!d.checked)} />
                       </span>
-                    ) },
-                  ];
-                  const lead = selectable ? (
-                    <span style={{ display: "flex", marginLeft: -8 }} onClick={(e) => e.stopPropagation()}>
-                      <Checkbox aria-label={`Select ${r.name}`} disabled={busy} checked={selected.has(r.id)}
-                        onChange={(_e, d) => toggle([r.id], !!d.checked)} />
-                    </span>
-                  ) : undefined;
-                  return <RowView key={r.id} cols={selectable ? SELECTABLE_RULES_COLS : RULES_COLS} cells={cells} lead={lead}
-                    selected={selected.has(r.id)} dim={r.statusCode === 2} stacked={stacked} onClick={() => navigate("rule", r.id)} />;
-                })}
-            </GridCard>
+                    ) : undefined;
+                    return <RowView key={r.id} cols={selectable ? SELECTABLE_RULES_COLS : RULES_COLS} cells={cells} lead={lead}
+                      selected={selected.has(r.id)} dim={r.statusCode === 2} stacked={stacked} onClick={() => navigate("rule", r.id)} />;
+                  })}
+              </GridCard>
+            </div>
           ) : tab === "configs" ? (
             <GridCard cols={CONFIG_COLS} headers={["Data model", "Root table", "Tables", "Used by", "Modified", ""]} stacked={stacked}>
               {pageConfigs.length === 0
@@ -559,7 +582,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
             onCancel={() => setNewConfigOpen(false)}
             onCreate={(args) => { setNewConfigOpen(false); onCreateConfig(args); }} />
           {selectable && (
-            <MoveToRuleSetDialog open={moveOpen} rules={selectedRules} ruleSets={ruleSets} ruleCounts={ruleCounts}
+            <MoveToRuleSetDialog open={moveOpen} rules={moving} ruleSets={ruleSets} ruleCounts={ruleCounts}
               onCancel={() => setMoveOpen(false)} onMove={onMove} />
           )}
           <ConfirmDeleteDialog open={!!pendingDelete} name={pendingDelete?.name ?? ""}
