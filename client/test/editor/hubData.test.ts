@@ -367,3 +367,55 @@ describe("loadHubData · published rules at scale", () => {
     expect(rules[7].name).toBe("Row name 7");          // unparseable revision: the row's own name
   });
 });
+
+describe("loadHubData · draft rows", () => {
+  // The hub never sees draft rows: the server filter below is the proof. The port emulates that
+  // filter, returning the draft row (no rule set) only to a query without it.
+  it("a rule's working draft row never replaces its stable row in the hub", async () => {
+    const DRAFT = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+    let ruleOptions = "";
+    const stable = { asx_ruleid: RULE1, asx_name: "Rule One", asx_tablelogicalname: "account", statuscode: 1,
+      asx_triggers: "1", modifiedon: "2026-10-01T00:00:00Z", _asx_draftof_value: null,
+      [LOOKUP.ruleSetOfRule]: "cccccccc-cccc-cccc-cccc-cccccccccccc", [LOOKUP.ruleSetOfRule + FV]: "Finance" };
+    const draft = { asx_ruleid: DRAFT, asx_name: "Rule One", asx_tablelogicalname: "account", statuscode: 1,
+      asx_triggers: "1", modifiedon: "2026-10-02T00:00:00Z", _asx_draftof_value: RULE1, [LOOKUP.ruleSetOfRule]: null };
+    const base = port();
+    const api: WebApiPort = {
+      ...base,
+      retrieveMultipleRecords: async (entity, options) => {
+        if (entity !== ENTITY.rule) return base.retrieveMultipleRecords(entity, options);
+        ruleOptions = options ?? "";
+        return { entities: ruleOptions.includes("_asx_draftof_value eq null") ? [stable] : [draft, stable] };
+      },
+    };
+    const { rules } = await loadHubData(api);
+    expect(ruleOptions).toContain("$filter=_asx_draftof_value eq null");
+    expect(rules.map((r) => r.id)).toEqual([RULE1]);
+    expect(rules[0].ruleSetId).toBe("cccccccc-cccc-cccc-cccc-cccccccccccc");
+    expect(rules[0].ruleSetName).toBe("Finance");
+  });
+});
+
+describe("loadHubData · rule set on a published rule", () => {
+  // The published definition replaces the row's name, triggers and model, but the rule set lives
+  // only on the row: a published rule must keep it.
+  it("keeps the row's rule set on a rule shown from its published definition", async () => {
+    const rev = "99999999-1111-1111-1111-111111111111";
+    const api: WebApiPort = {
+      ...port(),
+      retrieveMultipleRecords: async (entity) => {
+        if (entity === ENTITY.rule) return { entities: [{
+          asx_ruleid: publishedRuleId, asx_name: "Row name", asx_tablelogicalname: "account", statuscode: 753840000,
+          asx_triggers: "1", _asx_publishedrevision_value: rev, modifiedon: "2026-10-01T00:00:00Z",
+          [LOOKUP.ruleSetOfRule]: "cccccccc-cccc-cccc-cccc-cccccccccccc", [LOOKUP.ruleSetOfRule + FV]: "Finance" }] };
+        if (entity === "asx_rulerevision") return { entities: [{ asx_rulerevisionid: rev, asx_definition: publishedDefinition }] };
+        if (entity === ENTITY.action || entity === ENTITY.tableConfig || entity === ENTITY.ruleSchedule) return { entities: [] };
+        throw new Error("unexpected " + entity);
+      },
+    };
+    const [rule] = (await loadHubData(api)).rules;
+    expect(rule.name).toBe("Frozen version");
+    expect(rule.ruleSetId).toBe("cccccccc-cccc-cccc-cccc-cccccccccccc");
+    expect(rule.ruleSetName).toBe("Finance");
+  });
+});
