@@ -11,6 +11,7 @@ import { createRecordSearchService } from "./records";
 import { RuleEditorApp } from "./ui/RuleEditorApp";
 import { HubApp } from "./ui/HubApp";
 import { TableConfigApp } from "./ui/TableConfigApp";
+import { RuleSetApp } from "./ui/RuleSetApp";
 import { HelpApp } from "./help/HelpApp";
 import { MetadataProvider } from "./ui/useMetadata";
 import { RecordSearchProvider } from "./ui/useRecordSearch";
@@ -92,9 +93,8 @@ async function renderView(root: Root) {
   if (view === "ruleset") {
     if (!route.id) { root.render(missingId("rule set")); return; }
     try {
-      await loadHubData(api);
-      // Placeholder until Task 6 renders <RuleSetApp api ruleSetId data={hubData} />.
-      root.render(withProviders("rule set", <div style={{ padding: 16 }}>Loading rule set...</div>));
+      const data = await loadHubData(api);
+      root.render(withProviders("rule set", <RuleSetApp api={api} ruleSetId={route.id} data={data} />));
     } catch (e) {
       root.render(<ErrorPanel title="The rule set could not load." error={e} />);
     }
