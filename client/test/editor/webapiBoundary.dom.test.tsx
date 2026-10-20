@@ -92,3 +92,24 @@ describe("createWebApiPort / resolveXrm boundary", () => {
     await expect(api.fetchJson("x")).resolves.toEqual({ value: [1] });
   });
 });
+
+describe("updateRuleSet", () => {
+  async function patchOf(patch: { name?: string; description?: string | null }) {
+    const updateRecord = vi.fn(async () => ({}));
+    (window as any).Xrm = fakeXrm({ WebApi: { updateRecord } });
+    await createWebApiPort().updateRuleSet!("set-1", patch);
+    return updateRecord;
+  }
+
+  it("leaves out fields that are undefined", async () => {
+    const updateRecord = await patchOf({ name: "Billing" });
+    expect(updateRecord).toHaveBeenCalledWith("asx_ruleset", "set-1", { asx_name: "Billing" });
+    const data = updateRecord.mock.calls[0] as unknown as [string, string, Record<string, unknown>];
+    expect("asx_description" in data[2]).toBe(false);
+  });
+
+  it("a null description clears it and an empty patch sends nothing to change", async () => {
+    expect(await patchOf({ description: null })).toHaveBeenCalledWith("asx_ruleset", "set-1", { asx_description: null });
+    expect(await patchOf({})).toHaveBeenCalledWith("asx_ruleset", "set-1", {});
+  });
+});
