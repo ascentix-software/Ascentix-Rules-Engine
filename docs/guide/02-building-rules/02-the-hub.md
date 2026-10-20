@@ -87,7 +87,7 @@ The page shows the set's name, description and last change, with **Delete** at t
 breadcrumb leads back to the **Rule sets** tab.
 
 - **Rules** lists the set's rules with their table, status and last change. Click one to open it.
-  **Remove from set** (the minus button) takes a rule out straight away; the confirmation has
+  The **Remove from set** button on each row takes a rule out straight away; the confirmation has
   **Undo**.
 - **Add rules** lists every rule not in the set, with a search and **Select all**. A rule in
   another set says which set it moves from. Pick rules and choose **Add N rules**.

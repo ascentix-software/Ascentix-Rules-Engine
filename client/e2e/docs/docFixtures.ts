@@ -5,9 +5,10 @@
 // rule's draft, so nothing here ever fires on a save or a form during e2e/L2.
 //
 // ensureDocSet() is idempotent: it finds each piece by name and creates only what's missing, and
-// puts the Billing rules back in Billing. To rebuild a piece, delete it on DEV (the hub's Delete)
-// and run the capture again. A rule set with rules can't be deleted: remove its rules first (the
-// rule set page's Remove from set).
+// puts the Billing rules in Billing unless a set outside the doc sets has them (then it only
+// warns). To rebuild a piece, delete it on DEV (the hub's Delete) and run the capture again. A
+// rule set with rules can't be deleted: remove its rules first (the rule set page's Remove from
+// set).
 
 import { createDevApi, updateDevRecord } from "../../test-dev/devApi";
 import { authorRule, type ConditionCfg, type RuleConfig } from "../../test-dev/ruleBehavior/authoring";
@@ -103,12 +104,21 @@ async function ensureRuleSet(name: string, description: string | null): Promise<
   return createDevApi().createRecord(ENTITY_SET.ruleSet, { asx_name: name, ...(description ? { asx_description: description } : {}) });
 }
 
-/** Puts the rule in the set unless it is already there (on the stable rule row, as the hub does). */
-async function ensureInRuleSet(ruleId: string, ruleSetId: string): Promise<void> {
-  const row = await createDevApi().retrieveRecord(ENTITY_SET.rule, ruleId, `?$select=${LOOKUP.ruleSetOfRule}`);
-  if (row[LOOKUP.ruleSetOfRule] === ruleSetId) return;
+/** Puts the rule in a doc set (on the stable rule row, as the hub does), but never takes it out of
+ *  a set that isn't one of the doc sets: that set is someone's, so it only warns. */
+async function ensureInRuleSet(ruleId: string, ruleName: string, target: { id: string; name: string },
+  docSetIds: string[]): Promise<void> {
+  const api = createDevApi();
+  const row = await api.retrieveRecord(ENTITY_SET.rule, ruleId, `?$select=${LOOKUP.ruleSetOfRule}`);
+  const current = (row[LOOKUP.ruleSetOfRule] as string | null) ?? null;
+  if (current === target.id) return;
+  if (current && !docSetIds.includes(current)) {
+    const set = await api.retrieveRecord(ENTITY_SET.ruleSet, current, "?$select=asx_name");
+    console.warn(`Docs: "${ruleName}" is in rule set "${set.asx_name}"; move it to "${target.name}" for the screenshots.`);
+    return;
+  }
   await updateDevRecord(ENTITY_SET.rule, ruleId, {
-    [`${BIND_NAV.ruleRuleSet}@odata.bind`]: `/${ENTITY_SET.ruleSet}(${ruleSetId})`,
+    [`${BIND_NAV.ruleRuleSet}@odata.bind`]: `/${ENTITY_SET.ruleSet}(${target.id})`,
   });
 }
 
@@ -202,6 +212,8 @@ export async function ensureDocSet(): Promise<{
   });
   const billing = await ensureRuleSet(DOC_RULE_SETS.billing.name, DOC_RULE_SETS.billing.description);
   const seasonal = await ensureRuleSet(DOC_RULE_SETS.seasonal.name, DOC_RULE_SETS.seasonal.description);
-  for (const id of [credit, lines]) await ensureInRuleSet(id, billing);
+  const target = { id: billing, name: DOC_RULE_SETS.billing.name };
+  await ensureInRuleSet(credit, DOC_RULES.credit, target, [billing, seasonal]);
+  await ensureInRuleSet(lines, DOC_RULES.lines, target, [billing, seasonal]);
   return { model: m, rules: { credit, lines, email, expedited, stamp, broken }, ruleSets: { billing, seasonal } };
 }

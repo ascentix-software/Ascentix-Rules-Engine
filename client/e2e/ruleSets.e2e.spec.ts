@@ -88,7 +88,9 @@ test("rule sets end to end", async ({ page }) => {
 
     // 5. From the chip: No rule set, then back. Saved at once, on the stable rule.
     await chip(SET).click();
-    const popover = frame.getByRole("dialog", { name: "Rule set" });
+    // The popover surface by its own label (role dialog or group, by Fluent's trapFocus). The chip is
+    // "Rule set: <name>" and the dropdown is labelled by its Field, so only the surface matches.
+    const popover = frame.locator('[aria-label="Rule set"]');
     await expect(popover.getByText("Saved immediately — not part of the draft.")).toBeVisible();
     await popover.getByRole("combobox").click();
     await frame.getByRole("option", { name: "No rule set", exact: true }).click();
