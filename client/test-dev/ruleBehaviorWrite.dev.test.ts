@@ -5,10 +5,14 @@ import {
   createSubject, createCustomer, orderDataForCustomer, expectBlockedOnCreate, updateSubject,
 } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { eventually } from "./ruleBehavior/settle";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // Write-action enforcement, proven live through the plugin (WriteActionExecutor).
 // Each case authors a ZZ_RB_ rule with a write action, drives a real subject-order Create/Update,
-// then queries DEV to observe the engine's write. Schema §2.9 is the oracle.
+// then queries DEV to observe the engine's write. Schema §2.9 is the oracle. Each act + observe
+// runs inside `eventually` with a fresh subject per attempt (settle.ts): the new step reaches
+// Dataverse's front-end nodes asynchronously after publish.
 
 const api = createDevApi();
 let tc: Awaited<ReturnType<typeof ensureTableConfig>>;
@@ -19,9 +23,10 @@ beforeAll(async () => {
   tc = await ensureTableConfig();
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
 });
 afterAll(async () => {
+  await drainCleanups(cleanups);
   await tc.cleanup();
 });
 
@@ -55,17 +60,19 @@ describe("write actions", () => {
     });
     cleanups.push(r.cleanup);
 
-    const orderId = await createSubject("sample_orders",
-      { sample_name: "ZZ_RB_w_create_subj", sample_ordertotal: 50 });
-    cleanups.push(() => deleteDevRecord("sample_orders", orderId));
+    await eventually(async () => {
+      const orderId = await createSubject("sample_orders",
+        { sample_name: "ZZ_RB_w_create_subj", sample_ordertotal: 50 });
+      cleanups.push(() => deleteDevRecord("sample_orders", orderId));
 
-    const found = await api.retrieveMultipleRecords("sample_customers",
-      "?$filter=sample_name eq 'ZZ_RB_created_cust'&$select=sample_creditlimit");
-    cleanups.push(async () => {
-      for (const c of found.entities) await deleteDevRecord("sample_customers", c.sample_customerid as string);
-    });
-    expect(found.entities.length).toBe(1);
-    expect(found.entities[0].sample_creditlimit).toBe(50);
+      const found = await api.retrieveMultipleRecords("sample_customers",
+        "?$filter=sample_name eq 'ZZ_RB_created_cust'&$select=sample_creditlimit");
+      cleanups.push(async () => {
+        for (const c of found.entities) await deleteDevRecord("sample_customers", c.sample_customerid as string);
+      });
+      expect(found.entities.length).toBe(1);
+      expect(found.entities[0].sample_creditlimit).toBe(50);
+    }, { label: "CreateRecord" });
   });
 
   it("UpdateRecord (root, on Create): applies mapped values in place (Schema §2.9)", async () => {
@@ -78,12 +85,14 @@ describe("write actions", () => {
     });
     cleanups.push(r.cleanup);
 
-    const orderId = await createSubject("sample_orders",
-      { sample_name: "ZZ_RB_w_updroot_subj", sample_ordertotal: 50 });
-    cleanups.push(() => deleteDevRecord("sample_orders", orderId));
+    await eventually(async () => {
+      const orderId = await createSubject("sample_orders",
+        { sample_name: "ZZ_RB_w_updroot_subj", sample_ordertotal: 50 });
+      cleanups.push(() => deleteDevRecord("sample_orders", orderId));
 
-    const order = await api.retrieveRecord("sample_orders", orderId, "?$select=sample_approvalnotes");
-    expect(order.sample_approvalnotes).toBe("ZZ_RB_approved");
+      const order = await api.retrieveRecord("sample_orders", orderId, "?$select=sample_approvalnotes");
+      expect(order.sample_approvalnotes).toBe("ZZ_RB_approved");
+    }, { label: "UpdateRecord (root, on Create)" });
   });
 
   it("UpdateRecord (root, on Update): applies on a matching update (Schema §2.9)", async () => {
@@ -97,13 +106,15 @@ describe("write actions", () => {
     cleanups.push(r.cleanup);
 
     // Create NON-matching (200 > 100) → no fire; then update to matching (50) → fires.
-    const orderId = await createSubject("sample_orders",
-      { sample_name: "ZZ_RB_w_updroot2_subj", sample_ordertotal: 200 });
-    cleanups.push(() => deleteDevRecord("sample_orders", orderId));
-    await updateSubject("sample_orders", orderId, { sample_ordertotal: 50 });
+    await eventually(async () => {
+      const orderId = await createSubject("sample_orders",
+        { sample_name: "ZZ_RB_w_updroot2_subj", sample_ordertotal: 200 });
+      cleanups.push(() => deleteDevRecord("sample_orders", orderId));
+      await updateSubject("sample_orders", orderId, { sample_ordertotal: 50 });
 
-    const order = await api.retrieveRecord("sample_orders", orderId, "?$select=sample_approvalnotes");
-    expect(order.sample_approvalnotes).toBe("ZZ_RB_approved");
+      const order = await api.retrieveRecord("sample_orders", orderId, "?$select=sample_approvalnotes");
+      expect(order.sample_approvalnotes).toBe("ZZ_RB_approved");
+    }, { label: "UpdateRecord (root, on Update)" });
   });
 
   it("UpdateRecord (related): updates the target related record's column (Schema §2.9)", async () => {
@@ -119,13 +130,16 @@ describe("write actions", () => {
     });
     cleanups.push(r.cleanup);
 
+    // The customer keeps 999 until an order create runs the rule, so one customer serves every attempt.
     const orderData = await orderDataForCustomer(custId,
       { sample_name: "ZZ_RB_w_updrel_subj", sample_ordertotal: 50 });
-    const orderId = await createSubject("sample_orders", orderData);
-    cleanups.push(() => deleteDevRecord("sample_orders", orderId));
+    await eventually(async () => {
+      const orderId = await createSubject("sample_orders", orderData);
+      cleanups.push(() => deleteDevRecord("sample_orders", orderId));
 
-    const cust = await api.retrieveRecord("sample_customers", custId, "?$select=sample_creditlimit");
-    expect(cust.sample_creditlimit).toBe(50);
+      const cust = await api.retrieveRecord("sample_customers", custId, "?$select=sample_creditlimit");
+      expect(cust.sample_creditlimit).toBe(50);
+    }, { label: "UpdateRecord (related)" });
   });
 
   it("DeleteRecord: a matching update deletes the target related record (Schema §2.9)", async () => {
@@ -133,30 +147,32 @@ describe("write actions", () => {
     // as the order's INSERT violates the FK (the INSERT sets sample_customerid to a row being
     // deleted). On a later Update the order is already committed, so deleting the customer cleanly
     // nullifies its lookup (RemoveLink) without an INSERT conflict.
-    const custId = await createCustomer({ name: "ZZ_RB_w_del_cust", creditLimit: 500 });
-    // deleteDevRecord tolerates 404, so this cleanup is a no-op once the engine has deleted it.
-    cleanups.push(() => deleteDevRecord("sample_customers", custId));
-
     const r = await authorRule({
       name: "ZZ_RB_w_delete", rootNodeId: tc.order, triggers: "1,4", conditions: cond(),
       actions: [{ actionType: 7 /* DeleteRecord */, fireOn: 1, targetNodeId: tc.customer }],
     });
     cleanups.push(r.cleanup);
 
-    // Create NON-matching (200 > 100) pointing to the customer → committed, no fire.
-    const orderData = await orderDataForCustomer(custId,
-      { sample_name: "ZZ_RB_w_del_subj", sample_ordertotal: 200 });
-    const orderId = await createSubject("sample_orders", orderData);
-    cleanups.push(() => deleteDevRecord("sample_orders", orderId));
-    // Update to matching (50) → DeleteRecord fires → deletes the customer.
-    await updateSubject("sample_orders", orderId, { sample_ordertotal: 50 });
+    await eventually(async () => {
+      const custId = await createCustomer({ name: "ZZ_RB_w_del_cust", creditLimit: 500 });
+      // deleteDevRecord tolerates 404, so this cleanup is a no-op once the engine has deleted it.
+      cleanups.push(() => deleteDevRecord("sample_customers", custId));
 
-    // The customer is gone; the order persists (its lookup nullified, RemoveLink).
-    const found = await api.retrieveMultipleRecords("sample_customers",
-      `?$filter=sample_customerid eq ${custId}&$select=sample_customerid`);
-    expect(found.entities.length).toBe(0);
-    const order = await api.retrieveRecord("sample_orders", orderId, "?$select=sample_name");
-    expect(order.sample_name).toBe("ZZ_RB_w_del_subj");
+      // Create NON-matching (200 > 100) pointing to the customer → committed, no fire.
+      const orderData = await orderDataForCustomer(custId,
+        { sample_name: "ZZ_RB_w_del_subj", sample_ordertotal: 200 });
+      const orderId = await createSubject("sample_orders", orderData);
+      cleanups.push(() => deleteDevRecord("sample_orders", orderId));
+      // Update to matching (50) → DeleteRecord fires → deletes the customer.
+      await updateSubject("sample_orders", orderId, { sample_ordertotal: 50 });
+
+      // The customer is gone; the order persists (its lookup nullified, RemoveLink).
+      const found = await api.retrieveMultipleRecords("sample_customers",
+        `?$filter=sample_customerid eq ${custId}&$select=sample_customerid`);
+      expect(found.entities.length).toBe(0);
+      const order = await api.retrieveRecord("sample_orders", orderId, "?$select=sample_name");
+      expect(order.sample_name).toBe("ZZ_RB_w_del_subj");
+    }, { label: "DeleteRecord" });
   });
 
   it("Block-wins: a Block firing alongside a write performs NO write (Schema §2.9)", async () => {

@@ -8,7 +8,7 @@ vi.mock("../test-dev/devOrg", () => ({
   devOrg: () => ({ runRules, api: { retrieveMultipleRecords } }),
 }));
 
-import { settle, enforcementSettled, dataVisible, configsVisible, traversalDiagnostics } from "../test-dev/ruleBehavior/settle";
+import { settle, eventually, enforcementSettled, dataVisible, configsVisible, traversalDiagnostics } from "../test-dev/ruleBehavior/settle";
 
 // Run `p` to completion while advancing the fake clock past every pending timer.
 async function drain<T>(p: Promise<T>): Promise<T> {
@@ -77,13 +77,42 @@ describe("settle core", () => {
   });
 });
 
+describe("eventually", () => {
+  it("re-runs the whole act + assert until it passes and returns its value", async () => {
+    let n = 0;
+    const fn = vi.fn(async () => {
+      n++;
+      expect(n).toBe(3);
+      return `attempt ${n}`;
+    });
+    await expect(drain(eventually(fn, { intervalMs: 1000 }))).resolves.toBe("attempt 3");
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+
+  it("past the cap rethrows the last attempt's error, prefixed with the label and the wait", async () => {
+    let n = 0;
+    const fn = vi.fn(async () => {
+      throw new Error(`expected null to be 'vip only' (attempt ${++n})`);
+    });
+    const err = await drain(eventually(fn, { label: "notes", timeoutMs: 3000, intervalMs: 1000 })).catch((e) => e);
+    expect(err.message).toBe(`notes: still failing after 3000ms: expected null to be 'vip only' (attempt ${n})`);
+    expect(n).toBeGreaterThanOrEqual(4);
+  });
+
+  it("defaults to a 60s cap at a 1s interval", async () => {
+    const fn = vi.fn(async () => { throw new Error("no"); });
+    await expect(drain(eventually(fn))).rejects.toThrow(/^still failing after 60000ms: no$/);
+    expect(fn.mock.calls.length).toBeGreaterThanOrEqual(61);
+  });
+});
+
 describe("named probes", () => {
-  it("enforcementSettled keeps awaitEnforcement's message (30s cap, 1s interval)", async () => {
+  it("enforcementSettled keeps awaitEnforcement's message (60s cap, 1s interval)", async () => {
     const probe = vi.fn(async () => false);
     await expect(drain(enforcementSettled(probe, { label: "ZZ_RB_dead" }))).rejects.toThrow(
-      "awaitEnforcement: enforcement not observed within 30000ms (ZZ_RB_dead) — step cache never settled or the rule is dead",
+      "awaitEnforcement: enforcement not observed within 60000ms (ZZ_RB_dead) — step cache never settled or the rule is dead",
     );
-    expect(probe.mock.calls.length).toBeGreaterThanOrEqual(31);
+    expect(probe.mock.calls.length).toBeGreaterThanOrEqual(61);
     await expect(drain(enforcementSettled(async () => false, { capMs: 500, intervalMs: 100 }))).rejects.toThrow(
       /^awaitEnforcement: enforcement not observed within 500ms — step cache/,
     );

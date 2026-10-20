@@ -5,6 +5,8 @@ import { ENTITY_SET } from "../src/editor/load/odata";
 import { ensureTableConfig, authorRule, type ActionCfg } from "./ruleBehavior/authoring";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
 import { createSubject, expectBlockedOnCreate } from "./ruleBehavior/subjects";
+import { eventually } from "./ruleBehavior/settle";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // Multi-outcome rules, live: one rule with two named outcomes (High value, VIP) and actions whose
 // "Fires when" trees combine them (docs/Schema.md 2.18-2.19). Proves the engine fires each action
@@ -23,9 +25,10 @@ beforeAll(async () => {
   tc = await ensureTableConfig();
 });
 afterEach(async () => {
-  while (ruleCleanups.length) await ruleCleanups.pop()!();
+  await drainCleanups(ruleCleanups);
 });
 afterAll(async () => {
+  await drainCleanups(ruleCleanups);
   for (const c of recordCleanups.reverse()) await deleteDevRecord(c.set, c.id).catch(() => {});
   await tc.cleanup();
 });
@@ -81,6 +84,14 @@ async function notesOf(id: string): Promise<string | null> {
   return o.sample_approvalnotes ?? null;
 }
 
+// The notes a fresh order gets on create, polled until they are `expected`: each attempt creates a
+// new order, since the write happens only inside the create.
+async function expectNotesOnCreate(suffix: string, total: number, vip: boolean, expected: string): Promise<void> {
+  await eventually(async () => {
+    expect(await notesOf(await createOrder(suffix, total, vip))).toBe(expected);
+  }, { label: `notes on create of ${suffix}` });
+}
+
 describe("multi-outcome rules (docs/Schema.md 2.18-2.19)", () => {
   it("fires each action from its Fires-when tree over the High value and VIP outcomes", async () => {
     const message = `${PREFIX} too small`;
@@ -91,9 +102,9 @@ describe("multi-outcome rules (docs/Schema.md 2.18-2.19)", () => {
     });
     ruleCleanups.push(r.cleanup);
 
-    expect(await notesOf(await createOrder("both", 5000, true))).toBe("both");
-    expect(await notesOf(await createOrder("high", 5000, false))).toBe("high only");
-    expect(await notesOf(await createOrder("vip", 10, true))).toBe("vip only");
+    await expectNotesOnCreate("both", 5000, true, "both");
+    await expectNotesOnCreate("high", 5000, false, "high only");
+    await expectNotesOnCreate("vip", 10, true, "vip only");
     await expectBlockedOnCreate("sample_orders", { sample_name: `${PREFIX}_small`, sample_ordertotal: 10 }, message);
   }, 240000);
 
@@ -108,9 +119,9 @@ describe("multi-outcome rules (docs/Schema.md 2.18-2.19)", () => {
     ruleCleanups.push(r.cleanup);
 
     // High value + VIP fires "both" (order 1), then "late" (order 5): the later write wins.
-    expect(await notesOf(await createOrder("late_both", 5000, true))).toBe("late");
+    await expectNotesOnCreate("late_both", 5000, true, "late");
     // The other tree still fires on its own: "vip only" is unaffected by the new action.
-    expect(await notesOf(await createOrder("late_vip", 10, true))).toBe("vip only");
+    await expectNotesOnCreate("late_vip", 10, true, "vip only");
   }, 240000);
 
   // Manual checklist guard: the Rules Engine Author role is granted CRUD on the two new tables by

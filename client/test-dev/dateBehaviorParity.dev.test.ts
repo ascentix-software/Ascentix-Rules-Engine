@@ -3,6 +3,8 @@ import { createDevApi, deleteDevRecord, runRules } from "./devApi";
 import { ensureTableConfig, ensureLineRootedConfig, authorRule } from "./ruleBehavior/authoring";
 import { createSubject, createOrderLine } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { drainCleanups } from "./ruleBehavior/cleanups";
+import { eventually } from "./ruleBehavior/settle";
 
 // ─── Exact date pushdown by column behavior: fixture-truth boundary pins ─────────────────
 //
@@ -106,7 +108,7 @@ beforeAll(async () => {
 }, 240000);
 
 afterAll(async () => {
-  while (ruleCleanups.length) await ruleCleanups.pop()!();
+  await drainCleanups(ruleCleanups);
   for (const id of lineIds.reverse()) await deleteDevRecord("sample_orderlines", id).catch(() => {});
   if (orderId) await deleteDevRecord("sample_orders", orderId).catch(() => {});
   await lr?.cleanup();
@@ -165,12 +167,15 @@ describe("Exact date pushdown by column behavior — fixture-truth boundary pins
       if (c.pushed) pushed.push({ label: c.label, ruleId });
     }
 
-    const result = await runRules("sample_order", { recordId: orderId, triggers: "Manual" });
-    const fired = JSON.stringify(result.firedActions);
+    // Polled (settle.ts eventually): the new rules reach every server asynchronously.
+    await eventually(async () => {
+      const result = await runRules("sample_order", { recordId: orderId, triggers: "Manual" });
+      const fired = JSON.stringify(result.firedActions);
 
-    const failures = CASES.flatMap(c => pinFailures(fired, c.label, c.truth));
-    failures.push(...await pushFailures(pushed));
-    expect(failures, failures.join("; ")).toEqual([]);
+      const failures = CASES.flatMap(c => pinFailures(fired, c.label, c.truth));
+      failures.push(...await pushFailures(pushed));
+      expect(failures, failures.join("; ")).toEqual([]);
+    }, { label: "date pins" });
   }, 600000);
 
   it("a Date Only anchor is a calendar date in the rule's zone, whatever kind the SDK returns", async () => {
@@ -192,11 +197,14 @@ describe("Exact date pushdown by column behavior — fixture-truth boundary pins
       criterion: { fieldName: "sample_shippedon", operator: "ge", valueSource: 4, value: anchor },
     });
 
-    const result = await runRules("sample_orderline", { recordId: lineIds[0], triggers: "Manual" });
-    const fired = JSON.stringify(result.firedActions);
+    // Polled (settle.ts eventually): the new rules reach every server asynchronously.
+    await eventually(async () => {
+      const result = await runRules("sample_orderline", { recordId: lineIds[0], triggers: "Manual" });
+      const fired = JSON.stringify(result.firedActions);
 
-    const failures = pinFailures(fired, label, truth);
-    failures.push(...await pushFailures([{ label, ruleId }]));
-    expect(failures, failures.join("; ")).toEqual([]);
+      const failures = pinFailures(fired, label, truth);
+      failures.push(...await pushFailures([{ label, ruleId }]));
+      expect(failures, failures.join("; ")).toEqual([]);
+    }, { label: "Date Only anchor pin" });
   }, 600000);
 });

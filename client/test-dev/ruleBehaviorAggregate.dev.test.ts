@@ -2,9 +2,10 @@ import { describe, it, beforeAll, afterEach, afterAll } from "vitest";
 import { deleteDevRecord } from "./devApi";
 import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
 import {
-  createSubject, createOrderLine, updateSubject, expectBlockedOnUpdate, expectBlockedOnCreate, expectAllowedOnUpdate,
+  createSubject, createOrderLine, expectBlockedOnUpdate, expectBlockedOnCreate, expectAllowedOnUpdate, expectAllowedOnCreate, expectUpdateSucceeds,
 } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // Aggregate/math conditions proven live via Block enforcement. Aggregate/count conditions are
 // exercised on Update (child collections are empty at parent Create); RegexMatch on Create.
@@ -17,9 +18,10 @@ beforeAll(async () => {
   tc = await ensureTableConfig();
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
 });
 afterAll(async () => {
+  await drainCleanups(cleanups);
   await tc.cleanup();
 });
 
@@ -48,7 +50,7 @@ describe("aggregate/math conditions", () => {
     await expectBlockedOnUpdate("sample_orders", bad, { sample_ordertotal: 1 }, "ZZ_RB sum over limit");
 
     const good = await seedOrderWithLines("ZZ_RB_agg_sum_good", [30, 20]); // sum 50 <= 100 → satisfied
-    await updateSubject("sample_orders", good, { sample_ordertotal: 1 }); // allowed (no throw)
+    await expectUpdateSucceeds("sample_orders", good, { sample_ordertotal: 1 }); // allowed (no throw)
   });
 
   it("Expression count: blocks when child count exceeds the limit (Schema §2.4)", async () => {
@@ -64,7 +66,7 @@ describe("aggregate/math conditions", () => {
     await expectBlockedOnUpdate("sample_orders", bad, { sample_ordertotal: 1 }, "ZZ_RB too many lines");
 
     const good = await seedOrderWithLines("ZZ_RB_agg_count_good", [10]); // count 1 <= 2
-    await updateSubject("sample_orders", good, { sample_ordertotal: 1 });
+    await expectUpdateSucceeds("sample_orders", good, { sample_ordertotal: 1 });
   });
 
   it("Expression avg: empty collection is not satisfied (blocked); populated discriminates (Schema §2.4)", async () => {
@@ -84,7 +86,7 @@ describe("aggregate/math conditions", () => {
     await expectBlockedOnUpdate("sample_orders", low, { sample_ordertotal: 1 }, "ZZ_RB avg below floor");
 
     const high = await seedOrderWithLines("ZZ_RB_agg_avg_high", [70, 90]); // avg 80 >= 50
-    await updateSubject("sample_orders", high, { sample_ordertotal: 1 });
+    await expectUpdateSucceeds("sample_orders", high, { sample_ordertotal: 1 });
   });
 
   it("Expression max: blocks when the largest line exceeds the cap (Schema §2.4)", async () => {
@@ -100,7 +102,7 @@ describe("aggregate/math conditions", () => {
     await expectBlockedOnUpdate("sample_orders", bad, { sample_ordertotal: 1 }, "ZZ_RB line over cap");
 
     const good = await seedOrderWithLines("ZZ_RB_agg_max_good", [80, 90]); // max 90 <= 100
-    await updateSubject("sample_orders", good, { sample_ordertotal: 1 });
+    await expectUpdateSucceeds("sample_orders", good, { sample_ordertotal: 1 });
   });
 
   it("Expression arithmetic + root operand: sum(lines) + {root.total} vs threshold (Schema §2.4)", async () => {
@@ -119,7 +121,7 @@ describe("aggregate/math conditions", () => {
 
     // Allowed: 150 + 100 = 250 > 200.
     const good = await seedOrderWithLines("ZZ_RB_agg_arith_good", [100, 50], 999);
-    await updateSubject("sample_orders", good, { sample_ordertotal: 100 });
+    await expectUpdateSucceeds("sample_orders", good, { sample_ordertotal: 100 });
   });
 
   it("RowCount max: blocks when child count exceeds max (Schema §2.4)", async () => {
@@ -170,7 +172,7 @@ describe("aggregate/math conditions", () => {
       "ZZ_RB bad email");
 
     // Valid email → allowed.
-    const okId = await createSubject("sample_orders",
+    const okId = await expectAllowedOnCreate("sample_orders",
       { sample_name: "ZZ_RB_regex_good", sample_ordertotal: 0, sample_contactemail: "a@b.com" });
     cleanups.push(() => deleteDevRecord("sample_orders", okId));
   });

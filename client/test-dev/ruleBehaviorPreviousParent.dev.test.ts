@@ -3,6 +3,8 @@ import { createDevApi, deleteDevRecord } from "./devApi";
 import { ensureLineRootedConfig, authorRule } from "./ruleBehavior/authoring";
 import { createSubject, createOrderLine, moveOrderLine } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { drainCleanups } from "./ruleBehavior/cleanups";
+import { eventually } from "./ruleBehavior/settle";
 
 // A line moves from order A to order B. The rule runs on the line and sets its order's expedite
 // flag when the order has at least two lines. Ticked actions also run for the previous order.
@@ -15,9 +17,10 @@ beforeAll(async () => {
   lr = await ensureLineRootedConfig();
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
 });
 afterAll(async () => {
+  await drainCleanups(cleanups);
   await lr.cleanup();
 });
 
@@ -50,20 +53,23 @@ describe("apply to the previous parent", () => {
     });
     cleanups.push(r.cleanup);
 
-    const a = await order("ZZ_RB_prevparent_a", true);    // A starts expedited (two lines)
-    const b = await order("ZZ_RB_prevparent_b", false);
-    await line(a, "ZZ_RB_prevparent_l1");
-    const moving = await line(a, "ZZ_RB_prevparent_l2");
-    await line(b, "ZZ_RB_prevparent_l3");
+    // Fresh orders and lines per attempt (settle.ts eventually): the move is the write under test.
+    await eventually(async () => {
+      const a = await order("ZZ_RB_prevparent_a", true);    // A starts expedited (two lines)
+      const b = await order("ZZ_RB_prevparent_b", false);
+      await line(a, "ZZ_RB_prevparent_l1");
+      const moving = await line(a, "ZZ_RB_prevparent_l2");
+      await line(b, "ZZ_RB_prevparent_l3");
 
-    await moveOrderLine(moving, b);   // after the save: A has 1 line, B has 2
+      await moveOrderLine(moving, b);   // after the save: A has 1 line, B has 2
 
-    const api = createDevApi();
-    const orderA = await api.retrieveRecord("sample_orders", a, "?$select=sample_isexpedited,sample_approvalnotes");
-    const orderB = await api.retrieveRecord("sample_orders", b, "?$select=sample_isexpedited,sample_approvalnotes");
-    expect(orderB.sample_isexpedited).toBe(true);
-    expect(orderB.sample_approvalnotes ?? null).toBeNull(); // B matched: OnNoMatch note never fires
-    expect(orderA.sample_isexpedited).toBe(false);          // run 2 cleared it
-    expect(orderA.sample_approvalnotes ?? null).toBeNull(); // unticked: not applied to A
+      const api = createDevApi();
+      const orderA = await api.retrieveRecord("sample_orders", a, "?$select=sample_isexpedited,sample_approvalnotes");
+      const orderB = await api.retrieveRecord("sample_orders", b, "?$select=sample_isexpedited,sample_approvalnotes");
+      expect(orderB.sample_isexpedited).toBe(true);
+      expect(orderB.sample_approvalnotes ?? null).toBeNull(); // B matched: OnNoMatch note never fires
+      expect(orderA.sample_isexpedited).toBe(false);          // run 2 cleared it
+      expect(orderA.sample_approvalnotes ?? null).toBeNull(); // unticked: not applied to A
+    }, { label: "apply to previous parent" });
   });
 });

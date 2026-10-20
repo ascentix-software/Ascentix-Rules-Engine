@@ -4,14 +4,16 @@ import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
 import {
   expectBlockedOnCreate,
   expectAllowedOnCreate,
-  updateSubject,
   expectBlockedOnUpdate,
+  expectUpdateSucceeds,
   createCustomer,
   orderDataForCustomer,
   createOrderLine,
   createSubject,
 } from "./ruleBehavior/subjects";
 import { createDevApi, deleteDevRecord, runRules } from "./devApi";
+import { eventually } from "./ruleBehavior/settle";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // Same literal header the server plugin emits (docs/guide/03-administering/02-runtime-
 // enforcement.md "Message format"), and subjects.ts asserts it internally via
@@ -34,9 +36,10 @@ beforeAll(async () => {
   tc = await ensureTableConfig();
 });
 afterEach(async () => {
-  while (ruleCleanups.length) await ruleCleanups.pop()!();
+  await drainCleanups(ruleCleanups);
 });
 afterAll(async () => {
+  await drainCleanups(ruleCleanups);
   for (const c of recordCleanups.reverse()) await deleteDevRecord(c.set, c.id).catch(() => {});
   await tc.cleanup();
 });
@@ -85,8 +88,8 @@ describe("Block enforcement — Literal comparison (docs/guide/02-building-rules
     // Violating update: row must stay at 50.
     await expectBlockedOnUpdate("sample_orders", id, { sample_ordertotal: 500 }, "Order total exceeds 100.");
 
-    // Satisfying update: succeeds (throws, and fails the test, if the plugin blocks it).
-    await updateSubject("sample_orders", id, { sample_ordertotal: 80 });
+    // Satisfying update: succeeds (fails the test, at the cap, if the plugin keeps blocking it).
+    await expectUpdateSucceeds("sample_orders", id, { sample_ordertotal: 80 });
   });
 });
 
@@ -157,8 +160,8 @@ describe("Block enforcement — FieldReference to a related record's column (doc
     // server-side against the row being updated, not cached from create time).
     await expectBlockedOnUpdate("sample_orders", id, { sample_ordertotal: 200 }, "Order total exceeds the customer credit limit.");
 
-    // Satisfying update: succeeds (throws, and fails the test, if the plugin blocks it).
-    await updateSubject("sample_orders", id, { sample_ordertotal: 90 });
+    // Satisfying update: succeeds (fails the test, at the cap, if the plugin keeps blocking it).
+    await expectUpdateSucceeds("sample_orders", id, { sample_ordertotal: 90 });
   });
 });
 
@@ -210,12 +213,14 @@ describe("Block enforcement — RowCount over a child collection (docs/guide/02-
     recordCleanups.push({ set: "sample_orders", id: orderId });
 
     // Probe: what would RowCount report for this real, saved, still-childless order right now?
-    const probe = await runRules("sample_order", { recordId: orderId, triggers: "Manual" });
-    expect(probe.isValid).toBe(false);
-    expect(probe.failedRuleCount).toBe(1);
-    expect(
-      probe.firedActions.some((a: any) => a.message === "An order must have at least one order line."),
-    ).toBe(true);
+    await eventually(async () => {
+      const probe = await runRules("sample_order", { recordId: orderId, triggers: "Manual" });
+      expect(probe.isValid).toBe(false);
+      expect(probe.failedRuleCount).toBe(1);
+      expect(
+        probe.firedActions.some((a: any) => a.message === "An order must have at least one order line."),
+      ).toBe(true);
+    }, { label: "RowCount gap runRules probe" });
   });
 
   it("blocks an update that would leave the order lineless (row unchanged) and allows one with a line present, on Update", async () => {
@@ -247,8 +252,8 @@ describe("Block enforcement — RowCount over a child collection (docs/guide/02-
     recordCleanups.push({ set: "sample_orderlines", id: lineId });
 
     // Line present: RowCount sees 1 >= min 1, satisfied: the Block's On No Match does not fire.
-    // A real Update must succeed (throws, and fails the test, if the plugin blocks it).
-    await updateSubject("sample_orders", orderId, { sample_ordertotal: 20 });
+    // A real Update must succeed (fails the test, at the cap, if the plugin keeps blocking it).
+    await expectUpdateSucceeds("sample_orders", orderId, { sample_ordertotal: 20 });
 
     // Remove the only line: the order is lineless again.
     await deleteDevRecord("sample_orderlines", lineId);
@@ -491,27 +496,29 @@ describe("Block enforcement — multi-rule multi-message aggregation and dedup (
     });
     ruleCleanups.push(rStatus.cleanup);
 
+    // Polled: until all three rules have reached the node that takes the create, the exception
+    // carries only some of the messages (or the create succeeds and is removed again).
     const data = { sample_name: "ZZ_RB_multi_bad", sample_ordertotal: 500, sample_status: 5 };
-    let threw = false;
-    let message = "";
-    try {
-      await createSubject("sample_orders", data);
-    } catch (e: any) {
-      threw = true;
-      message = e.message;
-    }
-    expect(threw).toBe(true);
-    expect(message).toContain("(400)");
-    expect(message).toContain(BLOCK_HEADER);
-    expect(message).toContain(M1);
-    expect(message).toContain(M2);
+    await eventually(async () => {
+      let message = "";
+      try {
+        const id = await createSubject("sample_orders", data);
+        await deleteDevRecord("sample_orders", id);
+      } catch (e: any) {
+        message = e.message;
+      }
+      expect(message).toContain("(400)");
+      expect(message).toContain(BLOCK_HEADER);
+      expect(message).toContain(M1);
+      expect(message).toContain(M2);
 
-    // Dedup: M1 fired from TWO rules with the identical message text but must appear as exactly
-    // ONE bullet in the aggregated exception (the engine's Distinct() collapsing it), not two.
-    const m1Occurrences = message.split(M1).length - 1;
-    expect(m1Occurrences).toBe(1);
-    const m2Occurrences = message.split(M2).length - 1;
-    expect(m2Occurrences).toBe(1);
+      // Dedup: M1 fired from TWO rules with the identical message text but must appear as exactly
+      // ONE bullet in the aggregated exception (the engine's Distinct() collapsing it), not two.
+      const m1Occurrences = message.split(M1).length - 1;
+      expect(m1Occurrences).toBe(1);
+      const m2Occurrences = message.split(M2).length - 1;
+      expect(m2Occurrences).toBe(1);
+    }, { label: "multi-rule Block aggregation" });
 
     // Rollback: nothing was created (both a Block's own rollback guarantee and the multi-rule case).
     const api = createDevApi();

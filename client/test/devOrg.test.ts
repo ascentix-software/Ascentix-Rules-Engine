@@ -248,11 +248,17 @@ describe("web api", () => {
   });
 
   it("routes rule deletion through the transactional API and preserves failures", async () => {
-    const { fn, calls } = fakeFetch([{ status: 204 }, { status: 403, body: "denied" }]);
+    const { fn, calls } = fakeFetch([
+      { status: 204 },
+      { status: 403, body: "denied" }, { status: 200, body: "{}" },
+      { status: 400, body: "gone" }, { status: 404 },
+    ]);
     const org = devOrg("user", { ...base, fetch: fn });
     await expect(org.deleteRecord("asx_rules", "id")).resolves.toBeUndefined();
-    await expect(org.deleteRecord("asx_rules", "id")).rejects.toThrow(/403.*denied/);
-    expect(calls).toHaveLength(2);
+    await expect(org.deleteRecord("asx_rules", "id")).rejects.toThrow(/403.*denied/); // GET shows it still exists
+    await expect(org.deleteRecord("asx_rules", "id")).resolves.toBeUndefined(); // GET confirms already gone
+    expect(calls).toHaveLength(5);
+    expect(calls[2].init.method).toBe("GET");
     expect(calls[0].url).toBe(`${URL}/api/data/v9.2/asx_DeleteRule`);
     expect(calls[0].init.method).toBe("POST");
     expect(JSON.parse(calls[0].init.body as string)).toEqual({ RuleId: "id" });

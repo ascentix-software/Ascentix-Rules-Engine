@@ -1,9 +1,11 @@
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
 import { createDevApi, deleteDevRecord, updateDevRecord } from "./devApi";
 import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
-import { createSubject, createOrderLine, expectAllowedOnUpdate, expectBlockedOnUpdate } from "./ruleBehavior/subjects";
+import { expectAllowedOnCreate, createOrderLine, expectAllowedOnUpdate, expectBlockedOnUpdate } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
 import { ENTITY_SET, BIND_NAV } from "../src/editor/load/odata";
+import { drainCleanups } from "./ruleBehavior/cleanups";
+import { eventually } from "./ruleBehavior/settle";
 
 // Pins multi-tree seeding: two published rules on sample_order whose configuration nodes belong
 // to two DIFFERENT trees (two Root Table nodes) must BOTH see the triggering record. If
@@ -47,7 +49,7 @@ beforeAll(async () => {
   tree2 = await createSecondOrderTree();
 });
 afterAll(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
   await tree2.cleanup();
   await tc.cleanup();
 });
@@ -69,20 +71,22 @@ describe("Two configuration trees on one table evaluate independently (live pin)
 
     // With lines: both trees must see the line. Before the fix exactly one tree read 0 rows
     // and blocked, which one depended on dictionary order, so this failed either way.
-    const withLine = await createSubject("sample_orders", { sample_name: "ZZ_RB_mt_with_o", sample_ordertotal: 0 });
+    const withLine = await expectAllowedOnCreate("sample_orders", { sample_name: "ZZ_RB_mt_with_o", sample_ordertotal: 0 });
     cleanups.push(() => deleteDevRecord("sample_orders", withLine));
     const lid = await createOrderLine(withLine, { sample_name: "ZZ_RB_mt_with_l", sample_lineamount: 10 });
     cleanups.push(() => deleteDevRecord("sample_orderlines", lid));
     await expectAllowedOnUpdate("sample_orders", withLine, { sample_ordertotal: 1 }, "needs a line");
 
     // Lineless: both rules fire; the block message carries both bullets.
-    const lineless = await createSubject("sample_orders", { sample_name: "ZZ_RB_mt_none_o", sample_ordertotal: 0 });
+    const lineless = await expectAllowedOnCreate("sample_orders", { sample_name: "ZZ_RB_mt_none_o", sample_ordertotal: 0 });
     cleanups.push(() => deleteDevRecord("sample_orders", lineless));
     await expectBlockedOnUpdate("sample_orders", lineless, { sample_ordertotal: 1 }, "ZZ_RB tree1 needs a line");
-    let bothMessages = "";
-    try { await updateDevRecord("sample_orders", lineless, { sample_ordertotal: 2 }); }
-    catch (e: any) { bothMessages = String(e.message); }
-    expect(bothMessages).toContain("ZZ_RB tree1 needs a line");
-    expect(bothMessages).toContain("ZZ_RB tree2 needs a line");
+    await eventually(async () => {
+      let bothMessages = "";
+      try { await updateDevRecord("sample_orders", lineless, { sample_ordertotal: 2 }); }
+      catch (e: any) { bothMessages = String(e.message); }
+      expect(bothMessages).toContain("ZZ_RB tree1 needs a line");
+      expect(bothMessages).toContain("ZZ_RB tree2 needs a line");
+    }, { label: "both trees block" });
   });
 });

@@ -2,12 +2,14 @@ import type { EditorApi } from "../../src/editor/webapi";
 import { createDevApi, deleteDevRecord } from "../devApi";
 import { ENTITY_SET, BIND_NAV } from "../../src/editor/load/odata";
 import { configsVisible, enforcementSettled } from "./settle";
+import { queueOrphanedCleanup } from "./cleanups";
 
 // The reusable ZZ_RB_ authoring core for the rule-behavior server suite. Builds a shared
 // table-config node graph mirroring the sample Order -> Customer/Line/Product shape, and
 // assembles + validates a real, Published rule against it. Every created record self-cleans via
-// the returned `cleanup()`: it drains on any mid-author failure, and callers drain again after
-// use. `sweep.ts` is the crash-recovery backstop for orphaned ZZ_RB_ rows.
+// the returned `cleanup()`: it drains on any mid-author failure (a drain that fails is queued for
+// cleanups.ts drainCleanups), and callers drain again after use. `sweep.ts` is the
+// crash-recovery backstop for orphaned ZZ_RB_ rows.
 
 interface TrackedRecord {
   set: string;
@@ -105,7 +107,10 @@ export async function ensureTableConfig(): Promise<TableConfigGraph> {
     await awaitConfigsVisible([order, customer, parent, line, product, shipment]);
     return { order, customer, parent, line, product, shipment, cleanup: () => deleteInReverse(created) };
   } catch (err) {
-    await deleteInReverse(created).catch(cleanupError => console.warn("Fixture cleanup failed:", cleanupError));
+    await deleteInReverse(created).catch(cleanupError => {
+      console.warn("Fixture cleanup failed:", cleanupError);
+      queueOrphanedCleanup(() => deleteInReverse(created));
+    });
     throw err;
   }
 }
@@ -163,7 +168,10 @@ export async function ensureLineRootedConfig(): Promise<LineRootedGraph> {
     await awaitConfigsVisible([lineRoot, order, siblings]);
     return { lineRoot, order, siblings, cleanup: () => deleteInReverse(created) };
   } catch (err) {
-    await deleteInReverse(created).catch(cleanupError => console.warn("Fixture cleanup failed:", cleanupError));
+    await deleteInReverse(created).catch(cleanupError => {
+      console.warn("Fixture cleanup failed:", cleanupError);
+      queueOrphanedCleanup(() => deleteInReverse(created));
+    });
     throw err;
   }
 }
@@ -190,7 +198,10 @@ export async function ensureAccountSetConfig(): Promise<AccountSetGraph> {
     await awaitConfigsVisible([account, contacts, tasks]);
     return { account, contacts, tasks, cleanup: () => deleteInReverse(created) };
   } catch (err) {
-    await deleteInReverse(created).catch((e) => console.warn("Fixture cleanup failed:", e));
+    await deleteInReverse(created).catch(cleanupError => {
+      console.warn("Fixture cleanup failed:", cleanupError);
+      queueOrphanedCleanup(() => deleteInReverse(created));
+    });
     throw err;
   }
 }
@@ -296,7 +307,7 @@ export interface RuleConfig {
 
 // Enforcement settle: repeat a sacrificial violating probe until the block is observed (the
 // publish transaction writes the step row; the pipeline cache that runs it propagates
-// asynchronously). Adapter over settle.ts enforcementSettled: same 1s interval / 30s cap /
+// asynchronously). Adapter over settle.ts enforcementSettled: same 1s interval / 60s cap /
 // message. A dead rule still fails: at this step, with this message, not in the real assertions.
 export async function awaitEnforcement(
   probe: () => Promise<boolean>, // true = enforcement observed
@@ -632,7 +643,10 @@ export async function authorRule(cfg: RuleConfig): Promise<AuthoredRule> {
 
     return { ruleId, ruleName, cleanup: () => deleteInReverse(created) };
   } catch (err) {
-    await deleteInReverse(created).catch(cleanupError => console.warn("Fixture cleanup failed:", cleanupError));
+    await deleteInReverse(created).catch(cleanupError => {
+      console.warn("Fixture cleanup failed:", cleanupError);
+      queueOrphanedCleanup(() => deleteInReverse(created));
+    });
     throw err;
   }
 }

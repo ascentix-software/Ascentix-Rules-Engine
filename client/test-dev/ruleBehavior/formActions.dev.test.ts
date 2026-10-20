@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterEach, afterAll } from "vitest";
 import { runRules } from "../devApi";
 import { ensureTableConfig, authorRule } from "./authoring";
 import { sweepRuleBehaviorOrphans } from "./sweep";
+import { drainCleanups } from "./cleanups";
+import { eventually } from "./settle";
 
 // Server-layer proof: an OnForm rule authored with each FE action type fires the
 // correct action, with the correct payload, when evaluated via asx_RunRules(..., "OnForm").
@@ -18,9 +20,10 @@ beforeAll(async () => {
   tc = await ensureTableConfig();
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
 });
 afterAll(async () => {
+  await drainCleanups(cleanups);
   await tc.cleanup();
 });
 
@@ -37,11 +40,13 @@ describe("authorRule FE actions → runRules OnForm payload", () => {
         targetColumn: "sample_ordertotal", valueBool: false }],
     });
     cleanups.push(r.cleanup);
-    const out = await runRules("sample_order", { recordJson: subjectJson, triggers: "OnForm" });
-    const fired = out.firedActions.find((a: any) => a.actionType === "SetVisible");
-    expect(fired).toBeTruthy();
-    expect(fired.targetColumn).toBe("sample_ordertotal");
-    expect(fired.value).toBe(false);
+    await eventually(async () => {
+      const out = await runRules("sample_order", { recordJson: subjectJson, triggers: "OnForm" });
+      const fired = out.firedActions.find((a: any) => a.actionType === "SetVisible");
+      expect(fired).toBeTruthy();
+      expect(fired.targetColumn).toBe("sample_ordertotal");
+      expect(fired.value).toBe(false);
+    }, { label: "runRules OnForm" });
   });
 
   it("SetRequired action fires with value(true)", async () => {
@@ -53,10 +58,12 @@ describe("authorRule FE actions → runRules OnForm payload", () => {
         targetColumn: "sample_ordertotal", valueBool: true }],
     });
     cleanups.push(r.cleanup);
-    const out = await runRules("sample_order", { recordJson: subjectJson, triggers: "OnForm" });
-    const fired = out.firedActions.find((a: any) => a.actionType === "SetRequired");
-    expect(fired).toBeTruthy();
-    expect(fired.value).toBe(true);
+    await eventually(async () => {
+      const out = await runRules("sample_order", { recordJson: subjectJson, triggers: "OnForm" });
+      const fired = out.firedActions.find((a: any) => a.actionType === "SetRequired");
+      expect(fired).toBeTruthy();
+      expect(fired.value).toBe(true);
+    }, { label: "runRules OnForm" });
   });
 
   it("ShowMessage fires at each severity with its message", async () => {
@@ -71,12 +78,14 @@ describe("authorRule FE actions → runRules OnForm payload", () => {
       ],
     });
     cleanups.push(r.cleanup);
-    const out = await runRules("sample_order", { recordJson: subjectJson, triggers: "OnForm" });
-    const msgs = out.firedActions
-      .filter((a: any) => a.actionType === "ShowMessage")
-      .map((a: any) => `${a.severity}:${a.message}`);
-    expect(msgs).toContain("Information:ZZ_RB info msg");
-    expect(msgs).toContain("Warning:ZZ_RB warn msg");
-    expect(msgs).toContain("Error:ZZ_RB error msg");
+    await eventually(async () => {
+      const out = await runRules("sample_order", { recordJson: subjectJson, triggers: "OnForm" });
+      const msgs = out.firedActions
+        .filter((a: any) => a.actionType === "ShowMessage")
+        .map((a: any) => `${a.severity}:${a.message}`);
+      expect(msgs).toContain("Information:ZZ_RB info msg");
+      expect(msgs).toContain("Warning:ZZ_RB warn msg");
+      expect(msgs).toContain("Error:ZZ_RB error msg");
+    }, { label: "runRules OnForm" });
   });
 });

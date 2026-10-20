@@ -3,6 +3,8 @@ import { createDevApi, deleteDevRecord, runRules } from "./devApi";
 import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
 import { createSubject, createOrderLine, createCustomer, orderDataForCustomer } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { drainCleanups } from "./ruleBehavior/cleanups";
+import { eventually } from "./ruleBehavior/settle";
 
 // ─── Pushdown parity: fixture-truth verification bar ─────────────────────────────────────
 //
@@ -145,7 +147,7 @@ beforeAll(async () => {
 }, 240000);
 
 afterAll(async () => {
-  while (ruleCleanups.length) await ruleCleanups.pop()!();
+  await drainCleanups(ruleCleanups);
   for (const id of lineIds.reverse()) await deleteDevRecord("sample_orderlines", id).catch(() => {});
   if (orderId) await deleteDevRecord("sample_orders", orderId).catch(() => {});
   if (customerId) await deleteDevRecord("sample_customers", customerId).catch(() => {});
@@ -177,21 +179,24 @@ describe("Pushdown parity — fixture-truth boundary pins", () => {
       }
     }
 
-    const result = await runRules("sample_order", { recordId: orderId, triggers: "Manual" });
-    const fired = JSON.stringify(result.firedActions);
+    // Polled (settle.ts eventually): the new rules reach every server asynchronously.
+    await eventually(async () => {
+      const result = await runRules("sample_order", { recordId: orderId, triggers: "Manual" });
+      const fired = JSON.stringify(result.firedActions);
 
-    const failures: string[] = [];
-    for (const c of cases) {
-      const loFired = fired.includes(`PARITY ${c.label} lo`);
-      const hiFired = fired.includes(`PARITY ${c.label} hi`);
-      // lo fired ⇒ count < T (under-fetch or semantics drift). hi silent ⇒ count > T.
-      if (loFired) failures.push(`${c.label}: count < ${c.truth} (LO fired — under-fetch?)`);
-      if (!hiFired) failures.push(`${c.label}: count > ${c.truth} (HI did not fire)`);
-    }
-    for (const { label, ruleId } of pushedRules) {
-      const v = await createDevApi().validateRule(ruleId);
-      if (v.issues.some(i => i.code === "TRAV_PUSHDOWN")) failures.push(`${label}: not pushed (TRAV_PUSHDOWN)`);
-    }
-    expect(failures, failures.join("; ")).toEqual([]);
+      const failures: string[] = [];
+      for (const c of cases) {
+        const loFired = fired.includes(`PARITY ${c.label} lo`);
+        const hiFired = fired.includes(`PARITY ${c.label} hi`);
+        // lo fired ⇒ count < T (under-fetch or semantics drift). hi silent ⇒ count > T.
+        if (loFired) failures.push(`${c.label}: count < ${c.truth} (LO fired — under-fetch?)`);
+        if (!hiFired) failures.push(`${c.label}: count > ${c.truth} (HI did not fire)`);
+      }
+      for (const { label, ruleId } of pushedRules) {
+        const v = await createDevApi().validateRule(ruleId);
+        if (v.issues.some(i => i.code === "TRAV_PUSHDOWN")) failures.push(`${label}: not pushed (TRAV_PUSHDOWN)`);
+      }
+      expect(failures, failures.join("; ")).toEqual([]);
+    }, { label: "parity pins" });
   }, 600000);
 });
