@@ -23,6 +23,10 @@ export const ENTITY = {
   ruleSet: "asx_ruleset",
 } as const;
 
+/** $select for asx_ruleset rows (the Rule sets list and the hub's rule set data). */
+export const RULESET_SELECT =
+  "asx_rulesetid,asx_name,asx_description,asx_lastimportedfrom,asx_lastimportedon,modifiedon,_modifiedby_value";
+
 export const LOOKUP = {
   // asx_rule.asx_ruleset: the rule's set. Protected on the server: written on the stable rule row
   // (never a draft), with no working draft needed.

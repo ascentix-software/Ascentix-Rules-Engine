@@ -11,7 +11,7 @@ Free, Apache-2.0 licensed, currently in **open beta**.
 [Download](https://ascentix.ca/power-platform/rules-engine/download) ·
 [Beta limitations](https://ascentix.ca/power-platform/rules-engine/beta-limitations)
 
-![The rule editor for “Order total within credit limit”: Not live and Draft pills, Undo, Redo, Preview, Saved, Publish… and More actions; the Rule settings strip (Order · On create, On form, On update · All channels); the Orders data model chip; an Only if group “Has a customer”; a Credit check outcome; and a Then band with a Block save action; Rule settings open on the right.](docs/guide/images/02-04-editor-layout-01.png)
+![The rule editor for “Order total within credit limit”: Not live and Draft pills, Undo, Redo, Preview, Saved, Publish… and More actions; the Rule settings strip (Order · On create, On form, On update · All channels); the Orders data model chip; the Rule set chip (Billing); an Only if group “Has a customer”; a Credit check outcome; and a Then band with a Block save action; Rule settings open on the right.](docs/guide/images/02-04-editor-layout-01.png)
 
 ## What it does
 

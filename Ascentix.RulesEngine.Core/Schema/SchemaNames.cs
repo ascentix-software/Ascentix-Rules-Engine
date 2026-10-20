@@ -65,6 +65,8 @@ namespace Ascentix.RulesEngine.Schema
         public static class RuleSet
         {
             public const string Entity = "ruleset";
+            public const string LastImportedFrom = "lastimportedfrom";    // source environment of the last import into this set
+            public const string LastImportedOn = "lastimportedon";        // when that import happened (UTC)
         }
 
         public static class RuleRevision

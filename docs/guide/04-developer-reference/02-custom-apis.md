@@ -573,9 +573,13 @@ moved on from.
 ### `asx_ImportRule`
 
 Imports one entry. The caller needs the rule Write privilege (`prvWriteasx_rule`), and for a rule
-that doesn't exist here yet also the rule Create privilege (`prvCreateasx_rule`). Every check runs
+that doesn't exist here yet also the rule Create privilege (`prvCreateasx_rule`). For an entry that
+names a rule set the caller also needs Create and Write on Rule Set (`prvCreateasx_ruleset`,
+`prvWriteasx_ruleset`), because the import creates a missing set and records its last import. Every check runs
 before the first write, so a refused rule leaves nothing behind. The definition is published
 through the normal publish path, as a new rule or as a new version of the rule with the same id.
+When the entry names a rule set, a `created`, `updated` or `unchanged` outcome also records that
+rule set's last import (the source environment and the time).
 
 Only the entry's definition is used. Its rows keep only the `asx_` columns and status a published
 revision carries; the hash and the record ids are worked out from the definition here, so the

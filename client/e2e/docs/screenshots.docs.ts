@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { resolveAppId } from "../devHelpers";
 import { openHub, hubRow, editorReady, headerMenu } from "../editorHarness";
-import { ensureDocSet, DOC_RULES, DOC_HUB_FILTER, DOC_MODEL } from "./docFixtures";
+import { ensureDocSet, DOC_RULES, DOC_HUB_FILTER, DOC_MODEL, DOC_RULE_SETS } from "./docFixtures";
 
 const IMAGES = resolve(dirname(fileURLToPath(import.meta.url)), "../../../docs/guide/images");
 // An order on DEV whose contact email is invalid: the email rule's Preview fires on it.
@@ -63,6 +63,13 @@ async function openModel(page: Page): Promise<FrameLocator> {
   return frame;
 }
 
+async function openRuleSetsTab(page: Page): Promise<FrameLocator> {
+  const frame = await openHub(page, appId);
+  await frame.getByRole("tab", { name: /^Rule sets/ }).click();
+  await expect(hubRow(frame, DOC_RULE_SETS.billing.name)).toBeVisible({ timeout: 30_000 });
+  return frame;
+}
+
 const inspector = (frame: FrameLocator) => frame.getByTestId("inspector-body");
 
 test("opening the rule builder", async ({ page }) => {
@@ -75,6 +82,21 @@ test("hub", async ({ page }) => {
   const frame = await openHubFiltered(page);
   await fitHeight(page, frame);
   await shoot(page, "02-02-the-hub-01.png");
+});
+
+test("rule sets tab", async ({ page }) => {
+  const frame = await openRuleSetsTab(page);
+  await fitHeight(page, frame);
+  await shoot(page, "02-02-the-hub-02.png");
+});
+
+test("rule set page", async ({ page }) => {
+  const frame = await openRuleSetsTab(page);
+  await hubRow(frame, DOC_RULE_SETS.billing.name).click();
+  await expect(frame.getByRole("heading", { level: 1, name: DOC_RULE_SETS.billing.name, exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(hubRow(frame, DOC_RULES.credit)).toBeVisible();
+  await fitHeight(page, frame);
+  await shoot(page, "02-02-the-hub-03.png");
 });
 
 test("new rule dialog", async ({ page }) => {

@@ -3,10 +3,11 @@
 // with no Xrm/DOM access. Navigation is full-reload via window.location.search;
 // keeping it here means a later switch to SPA-style routing touches only navigate().
 
-export type View = "hub" | "rule" | "tableconfig" | "help";
+export type View = "hub" | "rule" | "tableconfig" | "help" | "ruleset";
+export type HubTab = "rules" | "configs" | "rulesets";
 export interface Route { view: View; id: string | null; }
 
-const VIEWS: readonly View[] = ["hub", "rule", "tableconfig", "help"];
+const VIEWS: readonly View[] = ["hub", "rule", "tableconfig", "help", "ruleset"];
 
 function cleanId(raw: string | null): string | null {
   if (!raw) return null;
@@ -30,9 +31,16 @@ export function resolveRoute(search: string): Route {
   return { view: "hub", id: null };
 }
 
-export function viewHref(view: View, idOrPage?: string | null): string {
-  // hub never carries an id; editor views without an id fall back to the bare ?view=
-  if (view === "hub" || !idOrPage) return `?view=${view}`;
+export function hubTabFromSearch(search: string): HubTab {
+  const t = new URLSearchParams(search).get("tab");
+  return t === "configs" || t === "rulesets" ? t : "rules";
+}
+
+export function viewHref(view: View, idOrPage?: string | null, opts?: { tab?: HubTab }): string {
+  // hub never carries an id; it may carry a tab
+  if (view === "hub") return opts?.tab ? `?view=hub&tab=${opts.tab}` : "?view=hub";
+  // editor views without an id fall back to the bare ?view=
+  if (!idOrPage) return `?view=${view}`;
   // help pages are addressed by ?page=, not ?id=
   const key = view === "help" ? "page" : "id";
   return `?view=${view}&${key}=${encodeURIComponent(idOrPage)}`;
@@ -40,4 +48,8 @@ export function viewHref(view: View, idOrPage?: string | null): string {
 
 export function navigate(view: View, idOrPage?: string | null): void {
   window.location.search = viewHref(view, idOrPage);
+}
+
+export function navigateHubTab(tab: HubTab): void {
+  window.location.search = viewHref("hub", undefined, { tab });
 }

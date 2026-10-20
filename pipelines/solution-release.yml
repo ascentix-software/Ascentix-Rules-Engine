@@ -146,7 +146,7 @@ stages:
                 try {
                   $reader = [IO.StreamReader]::new($zip.GetEntry('customizations.xml').Open())
                   try { [xml]$xml = $reader.ReadToEnd() } finally { $reader.Dispose() }
-                  foreach ($field in @('asx_draftof','asx_draftbaseversion','asx_isprivate','asx_publishedrevision','asx_publishedversion','asx_draftstamp','asx_publishhash','asx_ruleset','asx_sourcehash')) {
+                  foreach ($field in @('asx_draftof','asx_draftbaseversion','asx_isprivate','asx_publishedrevision','asx_publishedversion','asx_draftstamp','asx_publishhash','asx_ruleset','asx_lastimportedfrom','asx_lastimportedon','asx_sourcehash')) {
                     if (!$xml.SelectSingleNode("//attribute[Name='$field']")) { throw "Package is missing $field" }
                   }
                   # Entity names are schema names (asx_RuleRevision), so compare without case.

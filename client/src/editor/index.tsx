@@ -11,11 +11,12 @@ import { createRecordSearchService } from "./records";
 import { RuleEditorApp } from "./ui/RuleEditorApp";
 import { HubApp } from "./ui/HubApp";
 import { TableConfigApp } from "./ui/TableConfigApp";
+import { RuleSetApp } from "./ui/RuleSetApp";
 import { HelpApp } from "./help/HelpApp";
 import { MetadataProvider } from "./ui/useMetadata";
 import { RecordSearchProvider } from "./ui/useRecordSearch";
 import { SystemChoicesProvider } from "./ui/useSystemChoices";
-import { resolveRoute, type View } from "./ui/router";
+import { resolveRoute, hubTabFromSearch, type View } from "./ui/router";
 import { ErrorBoundary, ErrorPanel, formatError, installLastResortRejectionHandler } from "./ui/errors";
 
 // Kept exported so the toolchain test still has a stable symbol.
@@ -81,9 +82,21 @@ async function renderView(root: Root) {
     try {
       const data = await loadHubData(api);
       root.render(withProviders("hub",
-        <HubApp api={api} rules={data.rules} configs={data.configs} truncated={data.truncated} />));
+        <HubApp api={api} rules={data.rules} configs={data.configs} ruleSets={data.ruleSets} truncated={data.truncated}
+          ruleSetsError={data.ruleSetsFailed ? data.ruleSetsError ?? "" : undefined} initialTab={hubTabFromSearch(window.location.search)} />));
     } catch (e) {
       root.render(<ErrorPanel title="The hub could not load." error={e} />);
+    }
+    return;
+  }
+
+  if (view === "ruleset") {
+    if (!route.id) { root.render(missingId("rule set")); return; }
+    try {
+      const data = await loadHubData(api);
+      root.render(withProviders("rule set", <RuleSetApp api={api} ruleSetId={route.id} data={data} />));
+    } catch (e) {
+      root.render(<ErrorPanel title="The rule set could not load." error={e} />);
     }
     return;
   }

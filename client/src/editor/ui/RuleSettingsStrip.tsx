@@ -1,7 +1,13 @@
 import * as React from "react";
-import { Popover, PopoverTrigger, PopoverSurface, Link } from "@fluentui/react-components";
-import { ChevronRight16Regular, ChevronDown16Regular, TableSimple16Regular } from "@fluentui/react-icons";
+import {
+  Popover, PopoverTrigger, PopoverSurface, Link, Field, Dropdown, Option, Input, Button,
+} from "@fluentui/react-components";
+import { ChevronRight16Regular, ChevronDown16Regular, TableSimple16Regular, Folder16Regular } from "@fluentui/react-icons";
 import type { RuleGraph } from "../model/types";
+import type { RuleSetItem } from "../load/hubData";
+import { isDuplicateRuleSetName } from "../save/ruleSetWrites";
+import { formatError } from "./errors";
+import { OutsideField } from "./fieldScope";
 import type { RuleSchedule } from "../schedule/scheduleModel";
 import { scheduleApplies, scheduleStripSummary } from "../schedule/scheduleModel";
 import { triggerLabel, channelLabel } from "../model/enums";
@@ -109,6 +115,130 @@ export function DataModelChip({ graph, sharedBy, onEdit, editDisabled }: {
           <Link as="button" disabled={editDisabled} onClick={onEdit} style={{ fontSize: 12.5, fontWeight: 600 }}>Edit data model</Link>
           {sharedBy != null && sharedBy > 0 && <span>· shared by {sharedBy} rule{sharedBy === 1 ? "" : "s"}</span>}
         </div>
+      </PopoverSurface>
+    </Popover>
+  );
+}
+
+const NO_SET = "__none__";
+const NEW_SET = "__new__";
+
+/** What the Rule set chip asks for: an existing set (null = no rule set), or a set to create first. */
+export type RuleSetChange = { ruleSetId: string | null } | { newName: string };
+
+/** What picking a dropdown option means: open the New rule set name box, a set change, or nothing (no value). */
+export function ruleSetChoice(optionValue: string | undefined, currentId: string | null): "new" | RuleSetChange | null {
+  if (!optionValue) return null;
+  if (optionValue === NEW_SET) return "new";
+  const id = optionValue === NO_SET ? null : optionValue;
+  return id === currentId ? null : { ruleSetId: id };
+}
+
+/**
+ * The rule's rule set as a chip beside the data model. A choice is saved at once through
+ * `onChange` (which rejects on failure; the reason shows in the popover), so it is never part of
+ * the draft.
+ */
+export function RuleSetChip({ current, sets, disabled, onChange }: {
+  current: { id: string; name: string } | null;
+  sets: RuleSetItem[];
+  disabled: boolean;
+  onChange(target: RuleSetChange): Promise<void>;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [creating, setCreating] = React.useState(false);
+  const [newName, setNewName] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  // A new set that was created but whose move then failed: once `sets` has it, leave the name
+  // field (which would now call it a duplicate), so the author picks it instead of creating it again.
+  const [adopt, setAdopt] = React.useState<string | null>(null);
+  const nameRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => { if (creating) nameRef.current?.focus(); }, [creating]);
+  React.useEffect(() => { if (disabled && !saving) setOpen(false); }, [disabled, saving]);
+  React.useLayoutEffect(() => {
+    if (adopt && isDuplicateRuleSetName(sets, adopt)) { setCreating(false); setNewName(""); setAdopt(null); }
+  }, [adopt, sets]);
+
+  const label = current?.name ?? "None";
+  const trimmed = newName.trim();
+  // Not while saving: the set this save creates joins `sets` before the save settles.
+  const duplicate = !saving && creating && trimmed !== "" && isDuplicateRuleSetName(sets, trimmed);
+  // Nothing unfinished may save: "New rule set…" needs a valid, unused name.
+  const canCreate = !saving && trimmed !== "" && !duplicate;
+
+  const save = async (target: RuleSetChange) => {
+    setSaving(true); setError(null); setAdopt(null);
+    try {
+      await onChange(target);
+      if ("newName" in target) { setCreating(false); setNewName(""); }
+    } catch (e) {
+      setError(formatError(e));
+      if ("newName" in target) setAdopt(target.newName);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Popover positioning="below-end" withArrow={false} trapFocus open={open}
+      onOpenChange={(_e, d) => {
+        if (!d.open && saving) return;
+        setOpen(d.open);
+        if (d.open) { setCreating(false); setNewName(""); setError(null); setAdopt(null); }
+      }}>
+      <PopoverTrigger disableButtonEnhancement>
+        <button type="button" disabled={disabled} aria-label={`Rule set: ${label}`}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 8, height: 38, padding: "0 12px", flex: "none",
+            background: color.surface, border: `1px solid ${color.line}`, borderRadius: 8,
+            cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.6 : 1,
+            fontFamily: "inherit", fontSize: 13, color: color.ink, maxWidth: "100%",
+          }}>
+          <Folder16Regular aria-hidden style={{ color: color.brandInk, flex: "none" }} />
+          <span style={{ color: color.inkMuted, flex: "none" }}>Rule set</span>{" "}
+          {current
+            ? <b style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current.name}</b>
+            : <span style={{ color: color.inkMuted }}>None</span>}
+          <ChevronDown16Regular aria-hidden style={{ color: color.inkMuted, flex: "none" }} />
+        </button>
+      </PopoverTrigger>
+      <PopoverSurface style={{ width: 300, padding: 0 }} aria-label="Rule set">
+        <OutsideField>
+          <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+            <Field label="Rule set" hint="Saved immediately — not part of the draft.">
+              <Dropdown disabled={saving}
+                value={creating ? "New rule set…" : current?.name ?? "No rule set"}
+                selectedOptions={[creating ? NEW_SET : current?.id ?? NO_SET]}
+                onOptionSelect={(_e, d) => {
+                  setError(null); setAdopt(null);
+                  const choice = ruleSetChoice(d.optionValue, current?.id ?? null);
+                  if (choice === "new") { setCreating(true); return; }
+                  setCreating(false);
+                  if (choice) void save(choice);
+                }}>
+                <Option value={NO_SET}>No rule set</Option>
+                {sets.map((s) => <Option key={s.id} value={s.id}>{s.name}</Option>)}
+                <Option value={NEW_SET}>New rule set…</Option>
+              </Dropdown>
+            </Field>
+            {creating && (
+              <Field label="New rule set name" required validationState={duplicate ? "error" : "none"}
+                validationMessage={duplicate ? `A rule set named ${trimmed} already exists.` : undefined}>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Input input={{ ref: nameRef }} style={{ flex: 1, minWidth: 0 }} value={newName} readOnly={saving}
+                    onChange={(_e, d) => { setNewName(d.value); setError(null); setAdopt(null); }}
+                    onKeyDown={(e) => { if (e.key === "Enter" && canCreate) void save({ newName: trimmed }); }} />
+                  <Button appearance="primary" disabled={!canCreate}
+                    onClick={() => { if (canCreate) void save({ newName: trimmed }); }}>Create</Button>
+                </div>
+              </Field>
+            )}
+            {saving && <span role="status" style={{ fontSize: 12, color: color.inkMuted }}>Saving…</span>}
+            {error && <div role="alert" style={{ fontSize: 12.5, color: color.danger }}>{error}</div>}
+          </div>
+        </OutsideField>
       </PopoverSurface>
     </Popover>
   );

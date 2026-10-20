@@ -1,4 +1,6 @@
-import { ENTITY, ENTITY_SET, BIND_NAV } from "./load/odata";
+import { ENTITY } from "./load/odata";
+import { loadRuleSets, type RuleSetItem } from "./load/hubData";
+import { moveRulesBatch } from "./save/ruleSetWrites";
 import { parseDryRun, type DryRunResult } from "./runs/dryRunFormat";
 
 /** Parsed issue returned by the asx_ValidateRule Custom API. */
@@ -63,11 +65,15 @@ export interface WebApiPort {
   copyRule?(ruleId: string): Promise<string>;
   deleteRule?(ruleId: string): Promise<void>;
   restoreRuleDraft?(ruleId: string): Promise<void>;
-  /** All rule sets, sorted by name. */
-  listRuleSets?(): Promise<{ id: string; name: string }[]>;
+  /** All rule sets, sorted by name (case-insensitive). */
+  listRuleSets?(): Promise<RuleSetItem[]>;
   /** Creates a rule set and returns its id. */
-  createRuleSet?(name: string): Promise<string>;
-  /** PATCHes only the rule set lookup on the STABLE rule row (never a draft); null clears it. */
+  createRuleSet?(name: string, description?: string | null): Promise<string>;
+  updateRuleSet?(id: string, patch: { name?: string; description?: string | null }): Promise<void>;
+  deleteRuleSet?(id: string): Promise<void>;
+  /** Points the rules at the set (null clears), in one change set; stable rule rows only, never a draft. */
+  moveRules?(ruleIds: string[], ruleSetId: string | null): Promise<void>;
+  /** One rule: moveRules([ruleId], ruleSetId). */
   setRuleSet?(ruleId: string, ruleSetId: string | null): Promise<void>;
   /** PATCH the rule's statuscode back to Draft (1), the inverse of publishRule. */
   unpublishRule(ruleId: string): Promise<void>;
@@ -128,7 +134,7 @@ export function createWebApiPort(): EditorApi {
       throw new Error(raw?.error?.message ?? `updateRecord PATCH failed (${res.status})`);
     }
   };
-  return {
+  const port: EditorApi = {
     retrieveRecord: (entity, id, options) => xrm.WebApi.retrieveRecord(entity, id, options),
     retrieveMultipleRecords: (entity, options) => xrm.WebApi.retrieveMultipleRecords(entity, options),
     createRecord: async (entity, data) => {
@@ -222,20 +228,22 @@ export function createWebApiPort(): EditorApi {
     copyRule: async (ruleId) => (await revisionRequest(base, "asx_CopyRule", { RuleId: ruleId })).NewRuleId,
     deleteRule: async (ruleId) => { await revisionRequest(base, "asx_DeleteRule", { RuleId: ruleId }); },
     restoreRuleDraft: async (ruleId) => { await revisionRequest(base, "asx_RestoreRuleDraft", { RuleId: ruleId }); },
-    async listRuleSets() {
-      const r = await xrm.WebApi.retrieveMultipleRecords(ENTITY.ruleSet, "?$select=asx_rulesetid,asx_name&$orderby=asx_name asc");
-      return r.entities.map((e: any) => ({ id: String(e.asx_rulesetid), name: String(e.asx_name) }));
-    },
-    async createRuleSet(name) {
-      const r = await xrm.WebApi.createRecord(ENTITY.ruleSet, { asx_name: name });
+    async listRuleSets() { return loadRuleSets(port); },
+    async createRuleSet(name, description) {
+      const r = await xrm.WebApi.createRecord(ENTITY.ruleSet, { asx_name: name, ...(description ? { asx_description: description } : {}) });
       return String(r.id).replace(/[{}]/g, "");
     },
-    async setRuleSet(ruleId, ruleSetId) {
-      await updateRecord(ENTITY_SET.rule, ruleId, {
-        [`${BIND_NAV.ruleRuleSet}@odata.bind`]: ruleSetId ? `/${ENTITY_SET.ruleSet}(${ruleSetId})` : null,
-      });
+    async updateRuleSet(id, patch) {
+      const data: Record<string, unknown> = {};
+      if (patch.name !== undefined) data.asx_name = patch.name;
+      if (patch.description !== undefined) data.asx_description = patch.description;
+      await xrm.WebApi.updateRecord(ENTITY.ruleSet, id, data);
     },
+    async deleteRuleSet(id) { await xrm.WebApi.deleteRecord(ENTITY.ruleSet, id); },
+    moveRules: (ruleIds, ruleSetId) => moveRulesBatch(port, ruleIds, ruleSetId),
+    setRuleSet: (ruleId, ruleSetId) => moveRulesBatch(port, [ruleId], ruleSetId),
   };
+  return port;
 }
 
 async function patchStatus(base: string, op: string, ruleId: string, statuscode: number): Promise<void> {

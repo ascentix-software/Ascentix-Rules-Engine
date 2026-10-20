@@ -668,6 +668,99 @@ namespace Ascentix.RulesEngine.Tests
             Assert.Equal("06:30", Assert.Single(All(service, "asx_ruleschedule")).GetAttributeValue<string>("asx_timeofday"));
         }
 
+        private static void AssertStamped(Entity set, DateTime start, DateTime end)
+        {
+            Assert.Equal("https://source.crm.dynamics.com", set.GetAttributeValue<string>("asx_lastimportedfrom"));
+            var on = set.GetAttributeValue<DateTime>("asx_lastimportedon");
+            Assert.InRange(on, start, end);
+            Assert.Equal(DateTimeKind.Utc, on.Kind);
+        }
+
+        private static Entity OnlySet(IOrganizationService service) => Assert.Single(All(service, "asx_ruleset"));
+
+        [Fact]
+        public void Created_updated_and_unchanged_imports_stamp_the_rule_set()
+        {
+            var entry = Source(); entry.RuleSet = "Billing";
+            var context = Target(); var service = context.GetOrganizationService();
+
+            var start = DateTime.UtcNow;
+            Assert.Equal("created", Import(context, entry).Outcome);
+            AssertStamped(OnlySet(service), start, DateTime.UtcNow);
+
+            var next = Changed(entry);
+            start = DateTime.UtcNow;
+            Assert.Equal("updated", Import(context, next).Outcome);
+            AssertStamped(OnlySet(service), start, DateTime.UtcNow);
+
+            var moved = Copy(next); moved.RuleSet = "Ops";
+            start = DateTime.UtcNow;
+            Assert.Equal("updated", Import(context, moved).Outcome);
+            var ops = All(service, "asx_ruleset").Single(set => set.GetAttributeValue<string>("asx_name") == "Ops");
+            AssertStamped(ops, start, DateTime.UtcNow);
+        }
+
+        [Fact]
+        public void Unchanged_import_with_nothing_else_to_change_still_stamps()
+        {
+            var entry = Source(); entry.RuleSet = "Billing";
+            var context = Target(); var service = context.GetOrganizationService();
+            Import(context, entry);
+            service.Update(new Entity("asx_ruleset", OnlySet(service).Id) { ["asx_lastimportedfrom"] = "old", ["asx_lastimportedon"] = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) });
+
+            var start = DateTime.UtcNow;
+            var result = Import(context, entry);
+
+            Assert.Equal("unchanged", result.Outcome);
+            Assert.Empty(result.Messages);
+            AssertStamped(OnlySet(service), start, DateTime.UtcNow);
+        }
+
+        [Fact]
+        public void Dry_run_conflict_and_collision_never_stamp()
+        {
+            var entry = Source(); entry.RuleSet = "Billing";
+            var billing = new Entity("asx_ruleset", Guid.NewGuid()) { ["asx_name"] = "Billing" };
+            var context = Target(billing); var service = context.GetOrganizationService();
+
+            Assert.Equal("wouldCreate", Import(context, entry, validateOnly: true).Outcome);
+            Assert.Null(OnlySet(service).GetAttributeValue<string>("asx_lastimportedfrom"));
+
+            Import(context, entry);
+            service.Update(new Entity("asx_ruleset", billing.Id) { ["asx_lastimportedfrom"] = null, ["asx_lastimportedon"] = null });
+            var changed = Changed(entry);
+            Assert.Equal("wouldUpdate", Import(context, changed, validateOnly: true).Outcome);
+            Assert.Equal("unchanged", Import(context, entry, validateOnly: true).Outcome);
+            var moved = Copy(entry); moved.RuleSet = "Ops";
+            Assert.Equal("wouldUpdate", Import(context, moved, validateOnly: true).Outcome);
+
+            var header = Header(service, entry.Id);
+            service.Update(new Entity("asx_rule", header.Id) { ["statuscode"] = new OptionSetValue(2) });
+            Assert.Equal("conflict", Import(context, entry).Outcome);
+            service.Update(new Entity("asx_rule", header.Id) { ["statuscode"] = new OptionSetValue(Published) });
+
+            var rival = Source(name: "Live"); rival.RuleSet = "Billing";
+            Assert.Equal("collision", Import(context, rival).Outcome);
+
+            Assert.Equal(1, All(service, "asx_ruleset").Count(set => set.GetAttributeValue<string>("asx_name") == "Billing"));
+            Assert.DoesNotContain(All(service, "asx_ruleset"), set => set.Contains("asx_lastimportedon") && set["asx_lastimportedon"] != null);
+            Assert.DoesNotContain(All(service, "asx_ruleset"), set => set.Contains("asx_lastimportedfrom") && set["asx_lastimportedfrom"] != null);
+        }
+
+        [Fact]
+        public void An_entry_without_a_rule_set_stamps_nothing()
+        {
+            var other = new Entity("asx_ruleset", Guid.NewGuid()) { ["asx_name"] = "Billing" };
+            var entry = Source();
+            var context = Target(other); var service = context.GetOrganizationService();
+
+            Assert.Equal("created", Import(context, entry).Outcome);
+            Assert.Equal("unchanged", Import(context, entry).Outcome);
+
+            Assert.Null(OnlySet(service).GetAttributeValue<string>("asx_lastimportedfrom"));
+            Assert.Null(OnlySet(service).GetAttributeValue<DateTime?>("asx_lastimportedon"));
+        }
+
         [Theory]
         [InlineData(false)]
         [InlineData(true)]

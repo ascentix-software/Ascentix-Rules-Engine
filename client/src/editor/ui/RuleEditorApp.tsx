@@ -17,8 +17,10 @@ import {
   addTranslation, updateTranslation, removeTranslation, addOutcome, duplicateCondition, duplicateGroup, duplicateAction,
 } from "../model/reducer";
 import { NoticeBar, InfoTip } from "./primitives";
-import { RuleSettingsStrip, DataModelChip } from "./RuleSettingsStrip";
+import { RuleSettingsStrip, DataModelChip, RuleSetChip, type RuleSetChange } from "./RuleSettingsStrip";
 import { ENTITY, LOOKUP } from "../load/odata";
+import type { RuleSetItem } from "../load/hubData";
+import { ruleSetErrorMessage } from "../save/ruleSetWrites";
 import { Breadcrumb } from "./Breadcrumb";
 import { navigate } from "./router";
 import { useUnsavedGuard } from "./useUnsavedGuard";
@@ -61,6 +63,7 @@ import {
 } from "./header/lifecycle";
 
 const clone = (g: RuleGraph): RuleGraph => JSON.parse(JSON.stringify(g));
+const FV = "@OData.Community.Display.V1.FormattedValue";
 // Deterministic-enough unique ids for batch/changeset boundaries.
 let boundaryCounter = 0;
 function nextIds() {
@@ -593,6 +596,48 @@ export function RuleEditorApp({
       .catch(() => { /* leave the count out */ });
     return () => { live = false; };
   }, [api, rootConfigId]);
+  // The Rule set chip: the set lives on the STABLE rule row (never a draft), so it is read and
+  // written there directly, outside the draft, Save, Publish and Undo.
+  const ruleSetRuleId = working.rule.activeRuleId ?? working.rule.id;
+  const ruleSetsSupported = !!(api.listRuleSets && api.createRuleSet && api.moveRules);
+  const [ruleSet, setRuleSet] = React.useState<{ current: { id: string; name: string } | null; sets: RuleSetItem[] } | null>(null);
+  React.useEffect(() => {
+    setRuleSet(null);
+    if (!ruleSetsSupported || !api.retrieveRecord) return;
+    let live = true;
+    Promise.all([api.retrieveRecord(ENTITY.rule, ruleSetRuleId, `?$select=${LOOKUP.ruleSetOfRule}`), api.listRuleSets!()])
+      .then(([row, sets]) => {
+        if (!live) return;
+        const id: string | null = row?.[LOOKUP.ruleSetOfRule] ?? null;
+        const name = id ? sets.find((s) => s.id === id)?.name ?? row?.[LOOKUP.ruleSetOfRule + FV] ?? "" : "";
+        setRuleSet({ current: id ? { id, name } : null, sets });
+      })
+      .catch(() => { /* leave the chip out */ });
+    return () => { live = false; };
+  }, [api, ruleSetRuleId, ruleSetsSupported]);
+  async function onRuleSetChange(target: RuleSetChange) {
+    if (!ruleSet) return;
+    let id: string | null;
+    let name: string;
+    if ("newName" in target) {
+      let created: string;
+      try { created = await api.createRuleSet!(target.newName); } catch (e) { throw new Error(ruleSetErrorMessage(e, target.newName)); }
+      // A missing id must never turn into "clear the set".
+      if (!created) throw new Error(`Couldn't create the rule set ${target.newName}.`);
+      id = created; name = target.newName;
+      const item: RuleSetItem = {
+        id, name, description: null, lastImportedFrom: null, lastImportedOn: null, modifiedOn: null, modifiedBy: null,
+      };
+      // Listed straight away, so a failed move below can be retried into it, not create it again.
+      setRuleSet((r) => r && { ...r, sets: [...r.sets, item].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })) });
+    } else {
+      id = target.ruleSetId;
+      name = id ? ruleSet.sets.find((s) => s.id === id)?.name ?? "" : "";
+    }
+    await api.moveRules!([ruleSetRuleId], id);
+    setRuleSet((r) => r && { ...r, current: id ? { id, name } : null });
+    notify.success(id ? `Moved to ${name}` : "Removed from its rule set");
+  }
   const liveGraph = publishedGraph ?? publishedView ?? (activeRuleId ? null : working);
   const runNowTriggers = liveGraph?.rule.triggers ?? working.rule.triggers;
 
@@ -831,6 +876,10 @@ export function RuleEditorApp({
               onOpen={() => { setSelection({ kind: "rule" }); if (!wide) setPanelOpen(true); }} />
             <DataModelChip graph={displayed} sharedBy={sharedBy} editDisabled={!!publishedView}
               onEdit={() => confirmNavigate(() => navigate("tableconfig", working.rule.modelId ?? working.rule.rootTableConfigId!))} />
+            {ruleSet && (
+              <RuleSetChip current={ruleSet.current} sets={ruleSet.sets} disabled={updateLocked || busy}
+                onChange={onRuleSetChange} />
+            )}
           </div>
           {guardDialog}
           <ConfirmDiscardDraftDialog open={discardDraftOpen} version={version}
