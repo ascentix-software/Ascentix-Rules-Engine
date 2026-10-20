@@ -94,7 +94,7 @@ async function renderView(root: Root) {
     try {
       await loadHubData(api);
       // Placeholder until Task 6 renders <RuleSetApp api ruleSetId data={hubData} />.
-      root.render(withProviders("rule set", <div style={{ padding: 16 }}>Loading rule set…</div>));
+      root.render(withProviders("rule set", <div style={{ padding: 16 }}>Loading rule set...</div>));
     } catch (e) {
       root.render(<ErrorPanel title="The rule set could not load." error={e} />);
     }
