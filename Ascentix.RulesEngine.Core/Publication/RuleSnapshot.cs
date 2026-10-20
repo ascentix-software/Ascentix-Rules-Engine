@@ -23,6 +23,8 @@ namespace Ascentix.RulesEngine.Core.Publication
         public const string DraftBaseVersion = "asx_draftbaseversion";
         public const string Lock = "asx_publicationlock";
         public const string RuleSet = "asx_ruleset";
+        public const string LastImportedFrom = "asx_lastimportedfrom";
+        public const string LastImportedOn = "asx_lastimportedon";
         public const string SourceEnvironment = "asx_sourceenvironment";
         public const string SourceVersion = "asx_sourceversion";
         public const string SourceHash = "asx_sourcehash";

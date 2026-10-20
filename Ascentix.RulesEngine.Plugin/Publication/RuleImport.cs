@@ -149,6 +149,7 @@ namespace Ascentix.RulesEngine.Plugin.Publication
                 [PublicationSchema.SourceHash] = hash }));
             // While the working draft exists the schedule plug-in also reads the draft's triggers.
             WriteSchedule(service, entry);
+            StampRuleSet(service, ruleSet?.ToEntityReference(), options.SourceEnvironment);
             if (draftId != null)
             {
                 var stale = service.Retrieve("asx_rule", draftId.Value, new ColumnSet(true));
@@ -168,26 +169,30 @@ namespace Ascentix.RulesEngine.Plugin.Publication
             var currentSet = header.GetAttributeValue<EntityReference>(PublicationSchema.RuleSet);
             var setChanged = setName == null ? currentSet != null : currentSet == null || ruleSet == null || currentSet.Id != ruleSet.Id;
             var scheduleChanged = !SameSchedule(RuleTransportApi.Schedule(service, header.Id), entry.Schedule);
-            if (!setChanged && !scheduleChanged)
-            {
-                result.Outcome = "unchanged";
-                return result;
-            }
-            result.Messages.Add("Definition unchanged; " + (setChanged && scheduleChanged ? "rule set and schedule" : setChanged ? "rule set" : "schedule") + " updated.");
+            var changed = setChanged || scheduleChanged;
+            if (changed)
+                result.Messages.Add("Definition unchanged; " + (setChanged && scheduleChanged ? "rule set and schedule" : setChanged ? "rule set" : "schedule") + " updated.");
             if (options.ValidateOnly)
             {
-                result.Outcome = "wouldUpdate";
+                result.Outcome = changed ? "wouldUpdate" : "unchanged";
                 return result;
             }
+            ruleSet = EnsureRuleSet(service, setName, ruleSet);
             if (setChanged)
-            {
-                ruleSet = EnsureRuleSet(service, setName, ruleSet);
                 PublicationCoordinator.Internal(context, service, writer => writer.Update(new Entity("asx_rule", header.Id) {
                     [PublicationSchema.RuleSet] = ruleSet?.ToEntityReference() }));
-            }
             if (scheduleChanged) WriteSchedule(service, entry);
-            result.Outcome = "updated";
+            StampRuleSet(service, ruleSet?.ToEntityReference(), options.SourceEnvironment);
+            result.Outcome = changed ? "updated" : "unchanged";
             return result;
+        }
+
+        // The rule set records its last import; rule sets are not configuration tables, so this is a plain update in the import's transaction.
+        private static void StampRuleSet(IOrganizationService service, EntityReference ruleSet, string source)
+        {
+            if (ruleSet == null) return;
+            service.Update(new Entity(PublicationSchema.RuleSet, ruleSet.Id) {
+                [PublicationSchema.LastImportedFrom] = source, [PublicationSchema.LastImportedOn] = DateTime.UtcNow });
         }
 
         private static bool SameSchedule(TransportSchedule current, TransportSchedule wanted) =>
