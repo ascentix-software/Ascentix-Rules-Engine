@@ -1,17 +1,17 @@
 import * as React from "react";
 import { SearchBox, Dropdown, Option, Button, TabList, Tab, Tooltip } from "@fluentui/react-components";
-import { Add16Regular, Copy16Regular, Delete16Regular, Play16Regular, History16Regular, Clock16Regular, Tag16Regular } from "@fluentui/react-icons";
+import { Add16Regular, Copy16Regular, Delete16Regular, Edit16Regular, Play16Regular, History16Regular, Clock16Regular, Tag16Regular } from "@fluentui/react-icons";
 import { AppProvider } from "./AppProvider";
 import { ScreenShell } from "./ScreenShell";
-import { navigate } from "./router";
+import { navigate, type HubTab } from "./router";
 import { useIsWide } from "./useIsWide";
 import { StatusBadge, NodeTag, Eyebrow, Pill, Callout } from "./primitives";
 import { color } from "./tokens";
 import { useEditorStyles } from "./styles";
 import { triggerLabel } from "../model/enums";
-import { relativeTime } from "./hubFormat";
+import { relativeTime, envHost, shortDate } from "./hubFormat";
 import { ListFooter } from "./ListFooter";
-import type { RuleListItem, ConfigListItem } from "../load/hubData";
+import type { RuleListItem, ConfigListItem, RuleSetItem } from "../load/hubData";
 import type { EditorApi } from "../webapi";
 import type { RuleGraph } from "../model/types";
 import { loadHubData, loadSchedulerStatus, schedulerChip } from "../load/hubData";
@@ -24,8 +24,11 @@ import { NewRuleDialog } from "./hub/NewRuleDialog";
 import { NewConfigDialog } from "./hub/NewConfigDialog";
 import { SetRuleSetDialog } from "./hub/SetRuleSetDialog";
 import { ConfirmDeleteDialog } from "./hub/ConfirmDeleteDialog";
-import { activateOnKey } from "./keyboard";
+import { RowView, GridCard, type RowCell } from "./hub/HubGrid";
+import { RuleSetDialog } from "./hub/RuleSetDialog";
 import { formatError } from "./errors";
+import { useNotify } from "./notify";
+import { ruleSetErrorMessage } from "../save/ruleSetWrites";
 import { useDataUpdates } from "../dataUpdates/DataUpdateContext";
 import { DataUpdateBanner } from "../dataUpdates/DataUpdateBanner";
 import { RunDialog, type RunDialogRule } from "../runs/RunDialog";
@@ -35,85 +38,34 @@ import { RunsDialog } from "../runs/RunsDialog";
 const PAGE_SIZE_DEFAULT = 10;
 const RULES_COLS = "2.5fr 1fr 1fr 0.95fr 1.25fr 0.8fr 1.15fr 120px";
 const CONFIG_COLS = "2.5fr 1.1fr 0.9fr 1.1fr 1.15fr 92px";
-
-interface RowCell { label: string; node: React.ReactNode; }
-
-function RowView({ cols, cells, onClick, dim, stacked }: {
-  cols: string; cells: RowCell[]; onClick(): void; dim?: boolean; stacked: boolean;
-}) {
-  const [h, setH] = React.useState(false);
-  const bg = h ? color.canvas : color.surface;
-  const op = dim && !h ? 0.72 : 1;
-  if (stacked) {
-    const [primary, ...rest] = cells;
-    const actions = rest[rest.length - 1];
-    const middle = rest.slice(0, -1);
-    return (
-      <div data-testid="hub-card" role="button" tabIndex={0}
-        onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)} onClick={onClick}
-        onKeyDown={activateOnKey(onClick)}
-        style={{ display: "flex", flexDirection: "column", gap: 8, padding: "14px 16px",
-          borderBottom: `1px solid ${color.line}`, cursor: "pointer", background: bg, opacity: op }}>
-        {primary.node}
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {middle.filter((c) => c.label).map((c) => (
-            <div key={c.label} style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12.5 }}>
-              <span style={{ color: color.inkMuted, fontWeight: 600, minWidth: 76 }}>{c.label}</span>
-              <span>{c.node}</span>
-            </div>
-          ))}
-        </div>
-        <div style={{ marginTop: 2 }}>{actions.node}</div>
-      </div>
-    );
-  }
-  return (
-    <div data-testid="hub-row" role="button" tabIndex={0}
-      onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)} onClick={onClick}
-      onKeyDown={activateOnKey(onClick)}
-      style={{ display: "grid", gridTemplateColumns: cols, gap: 12, padding: "12px 16px", alignItems: "center",
-        borderBottom: `1px solid ${color.line}`, cursor: "pointer", background: bg, opacity: op }}>
-      {cells.map((c, i) => <React.Fragment key={c.label || i}>{c.node}</React.Fragment>)}
-    </div>
-  );
-}
-
-function GridCard({ cols, headers, stacked, children }: {
-  cols: string; headers: string[]; stacked: boolean; children: React.ReactNode;
-}) {
-  return (
-    <div style={{ background: color.surface, border: `1px solid ${color.line}`, borderRadius: 12, boxShadow: "0 1px 3px rgba(0,0,0,.05)", overflow: "hidden" }}>
-      {!stacked && (
-        <div data-testid="hub-grid-header" style={{ display: "grid", gridTemplateColumns: cols, gap: 12, padding: "10px 16px", background: color.canvas, borderBottom: `1px solid ${color.line}` }}>
-          {headers.map((h) => <Eyebrow key={h}>{h}</Eyebrow>)}
-        </div>
-      )}
-      {children}
-    </div>
-  );
-}
+const RULESET_COLS = "2.5fr 0.9fr 1.4fr 1.15fr 92px";
+const DELETE_SET_BLOCKED = "Move or remove its rules first.";
 
 const distinct = (xs: string[]) => Array.from(new Set(xs.filter(Boolean))).sort();
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
-export function HubApp({ api, rules: initialRules, configs: initialConfigs, truncated: initialTruncated, initialTab }: {
-  api: EditorApi; rules: RuleListItem[]; configs: ConfigListItem[]; truncated?: boolean;
-  initialTab?: "rules" | "configs" | "rulesets";
+export function HubApp({ api, rules: initialRules, configs: initialConfigs, ruleSets: initialRuleSets, truncated: initialTruncated, initialTab }: {
+  api: EditorApi; rules: RuleListItem[]; configs: ConfigListItem[]; ruleSets?: RuleSetItem[]; truncated?: boolean;
+  initialTab?: HubTab;
 }) {
   const styles = useEditorStyles();
   const { readOnly } = useDataUpdates();
   const stacked = !useIsWide(900);
   const [rules, setRules] = React.useState(initialRules);
   const [configs, setConfigs] = React.useState(initialConfigs);
+  const [ruleSets, setRuleSets] = React.useState(initialRuleSets ?? []);
   const [truncated, setTruncated] = React.useState(initialTruncated ?? false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [newRuleOpen, setNewRuleOpen] = React.useState(false);
   const [newConfigOpen, setNewConfigOpen] = React.useState(false);
-  const [pendingDelete, setPendingDelete] = React.useState<{ kind: "rule" | "config"; id: string; name: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = React.useState<{ kind: "rule" | "config" | "ruleset"; id: string; name: string } | null>(null);
+  const [ruleSetDialog, setRuleSetDialog] = React.useState<{ mode: "new" } | { mode: "edit"; set: RuleSetItem } | null>(null);
   const [runNowRule, setRunNowRule] = React.useState<RunDialogRule | null>(null);
   const [loadingRunNowId, setLoadingRunNowId] = React.useState<string | null>(null);
   const [runsRule, setRunsRule] = React.useState<{ id: string; name: string; table: string } | null>(null);
   const [schedulerStatus, setSchedulerStatus] = React.useState<{ lastSeenOn: string | null; installed: boolean } | null>(null);
+  const notify = useNotify();
   const now = Date.now();
 
   // Loaded once on mount; the chip itself only shows once some rule is scheduled (below).
@@ -124,7 +76,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
       .catch(() => { if (live) setSchedulerStatus({ lastSeenOn: null, installed: false }); });
     return () => { live = false; };
   }, [api]);
-  const [tab, setTab] = React.useState<"rules" | "configs">(initialTab === "configs" ? "configs" : "rules"); // "rulesets" lands with the Rule sets tab (Task 5)
+  const [tab, setTab] = React.useState<HubTab>(initialTab ?? "rules");
   const [search, setSearch] = React.useState("");
   const [ruleTable, setRuleTable] = React.useState("all");
   const [ruleStatus, setRuleStatus] = React.useState("all");
@@ -135,7 +87,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   const [pageSize, setPageSize] = React.useState(PAGE_SIZE_DEFAULT);
 
   const reset = () => setPage(1);
-  const switchTab = (t: "rules" | "configs") => { setTab(t); setSearch(""); reset(); };
+  const switchTab = (t: HubTab) => { setTab(t); setSearch(""); reset(); };
 
   const q = search.trim().toLowerCase();
   const filteredRules = rules.filter((r) =>
@@ -149,15 +101,20 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   const filteredConfigs = configs.filter((c) =>
     (!q || c.name.toLowerCase().includes(q)) &&
     (configRoot === "all" || c.rootTableLogicalName === configRoot));
+  const filteredRuleSets = ruleSets.filter((s) =>
+    !q || s.name.toLowerCase().includes(q) || (s.description ?? "").toLowerCase().includes(q));
+  // Every stable rule counts toward its set: Draft and Archived as well as Published.
+  const ruleCounts = new Map<string, number>();
+  for (const r of rules) if (r.ruleSetId) ruleCounts.set(r.ruleSetId, (ruleCounts.get(r.ruleSetId) ?? 0) + 1);
 
   const anyScheduleOn = rules.some((r) => r.scheduled);
   const chip = schedulerStatus ? schedulerChip(schedulerStatus, anyScheduleOn, now) : null;
 
-  const list = tab === "rules" ? filteredRules : filteredConfigs;
-  const total = list.length;
+  const total = tab === "rules" ? filteredRules.length : tab === "configs" ? filteredConfigs.length : filteredRuleSets.length;
   const start = (page - 1) * pageSize;
   const pageRules = filteredRules.slice(start, start + pageSize);
   const pageConfigs = filteredConfigs.slice(start, start + pageSize);
+  const pageRuleSets = filteredRuleSets.slice(start, start + pageSize);
 
   const modified = (on: string | null, by: string | null) =>
     `${relativeTime(on, now)}${by ? ` · ${by}` : ""}`;
@@ -168,7 +125,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
   }
   async function refresh() {
     const data = await loadHubData(api);
-    setRules(data.rules); setConfigs(data.configs); setTruncated(data.truncated);
+    setRules(data.rules); setConfigs(data.configs); setRuleSets(data.ruleSets); setTruncated(data.truncated);
   }
   const onCreateRule = (args: { name: string; table: string; triggers: number[]; existingRootId?: string; newConfigName?: string }) =>
     run(async () => { const id = await createRule(api, args); navigate("rule", id); });
@@ -215,12 +172,34 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
     void (async () => {
       setBusy(true); setError(null);
       try {
-        await (pd.kind === "rule" ? deleteRule(api, pd.id) : deleteConfig(api, pd.id));
-      } catch (e) { setError(`Delete failed: ${formatError(e)}`); setBusy(false); return; }
+        if (pd.kind === "ruleset") await api.deleteRuleSet!(pd.id);
+        else await (pd.kind === "rule" ? deleteRule(api, pd.id) : deleteConfig(api, pd.id));
+      } catch (e) {
+        setError(`Delete failed: ${pd.kind === "ruleset" ? ruleSetErrorMessage(e) : formatError(e)}`);
+        setBusy(false); return;
+      }
       try { await refresh(); } catch (e) { setError(`Deleted. List refresh failed: ${formatError(e)}`); }
       setBusy(false);
     })();
   };
+  // A failed write rejects back into the dialog, which shows it inline and stays open.
+  async function onSaveRuleSet(v: { name: string; description: string | null }) {
+    const d = ruleSetDialog;
+    if (!d) return;
+    if (d.mode === "edit") await api.updateRuleSet!(d.set.id, v);
+    else await api.createRuleSet!(v.name, v.description);
+    setRuleSetDialog(null);
+    notify.success(d.mode === "edit" ? "Rule set saved" : "Rule set created");
+    setBusy(true); setError(null);
+    try { await refresh(); } catch (e) { setError(`Saved. List refresh failed: ${formatError(e)}`); }
+    setBusy(false);
+  }
+  const canCreateSet = !readOnly && !!api.createRuleSet;
+  const newRuleSetButton = (
+    <Button appearance="primary" icon={<Add16Regular />} disabled={busy} onClick={() => setRuleSetDialog({ mode: "new" })}>
+      New rule set
+    </Button>
+  );
 
   return (
     <AppProvider>
@@ -229,7 +208,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
           <div style={{ padding: "20px 24px 0", background: `linear-gradient(180deg, ${color.canvas}, ${color.surface})` }}>
             <Eyebrow>Power Apps · Rules Engine</Eyebrow>
             <h1 style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.015em", color: color.ink, margin: "2px 0 2px" }}>Rules &amp; data model</h1>
-            <div style={{ fontSize: 13.5, color: color.inkMuted }}>Browse rules and the shared data models they read.</div>
+            <div style={{ fontSize: 13.5, color: color.inkMuted }}>Browse rules, the shared data models they read, and the rule sets they move between environments in.</div>
           </div>
         }
       >
@@ -252,12 +231,15 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
           {/* Tabs */}
           <div style={{ borderBottom: `1px solid ${color.line}`, margin: "18px 0 16px",
             display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-            <TabList selectedValue={tab} onTabSelect={(_e, d) => switchTab(d.value as "rules" | "configs")}>
+            <TabList selectedValue={tab} onTabSelect={(_e, d) => switchTab(d.value as HubTab)}>
               <Tab value="rules">
                 Rules <Pill tone={tab === "rules" ? "info" : "neutral"}>{rules.length}</Pill>
               </Tab>
               <Tab value="configs">
                 Data models <Pill tone={tab === "configs" ? "info" : "neutral"}>{configs.length}</Pill>
+              </Tab>
+              <Tab value="rulesets">
+                Rule sets <Pill tone={tab === "rulesets" ? "info" : "neutral"}>{ruleSets.length}</Pill>
               </Tab>
             </TabList>
             {chip && (
@@ -269,15 +251,15 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
 
           {/* Command bar */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-            {!readOnly && (
+            {tab === "rulesets" ? canCreateSet && newRuleSetButton : !readOnly && (
               <Button appearance="primary" icon={<Add16Regular />} disabled={busy}
                 onClick={() => (tab === "rules" ? setNewRuleOpen(true) : setNewConfigOpen(true))}>
                 {tab === "rules" ? "New rule" : "New data model"}
               </Button>
             )}
-            <SearchBox placeholder={tab === "rules" ? "Search rules" : "Search data models"} value={search}
+            <SearchBox placeholder={tab === "rules" ? "Search rules" : tab === "configs" ? "Search data models" : "Search rule sets"} value={search}
               onChange={(_e, d) => { setSearch(d.value); reset(); }} style={{ minWidth: 240 }} />
-            {tab === "rules" ? (
+            {tab === "rulesets" ? null : tab === "rules" ? (
               <>
                 <Dropdown style={{ marginLeft: stacked ? 0 : "auto", minWidth: 150 }} value={ruleTable === "all" ? "Table: All" : `Table: ${ruleTable}`}
                   selectedOptions={[ruleTable]} onOptionSelect={(_e, d) => { d.optionValue && setRuleTable(d.optionValue); reset(); }}>
@@ -371,7 +353,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                   return <RowView key={r.id} cols={RULES_COLS} cells={cells} dim={r.statusCode === 2} stacked={stacked} onClick={() => navigate("rule", r.id)} />;
                 })}
             </GridCard>
-          ) : (
+          ) : tab === "configs" ? (
             <GridCard cols={CONFIG_COLS} headers={["Data model", "Root table", "Tables", "Used by", "Modified", ""]} stacked={stacked}>
               {pageConfigs.length === 0
                 ? <div style={{ padding: 24, textAlign: "center", color: color.inkMuted, fontSize: 13 }}>No data models match.</div>
@@ -406,11 +388,81 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, trun
                   return <RowView key={c.id} cols={CONFIG_COLS} cells={cells} stacked={stacked} onClick={() => navigate("tableconfig", c.id)} />;
                 })}
             </GridCard>
+          ) : (
+            <GridCard cols={RULESET_COLS} headers={["Rule set", "Rules", "Last imported", "Modified", ""]} stacked={stacked}>
+              {pageRuleSets.length === 0
+                ? (ruleSets.length === 0
+                  ? (
+                    <div style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                      <div style={{ color: color.inkMuted, fontSize: 13 }}>No rule sets yet</div>
+                      {canCreateSet && newRuleSetButton}
+                    </div>
+                  )
+                  : <div style={{ padding: 24, textAlign: "center", color: color.inkMuted, fontSize: 13 }}>No rule sets match.</div>)
+                : pageRuleSets.map((s) => {
+                  const count = ruleCounts.get(s.id) ?? 0;
+                  const blocked = count > 0;
+                  const deleteButton = (
+                    <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete"
+                      disabled={busy} disabledFocusable={blocked} aria-description={blocked ? DELETE_SET_BLOCKED : undefined}
+                      style={{ color: blocked ? undefined : color.danger }}
+                      onClick={() => setPendingDelete({ kind: "ruleset", id: s.id, name: s.name })} />
+                  );
+                  const cells: RowCell[] = [
+                    { label: "Rule set", node: (
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: color.ink }}>{s.name}</div>
+                        {s.description && (
+                          <div title={s.description} style={{ fontSize: 12, color: color.inkMuted,
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.description}</div>
+                        )}
+                      </div>
+                    ) },
+                    { label: "Rules", node: count > 0
+                      ? (
+                        <span>
+                          <button type="button" className={styles.focusRing} onClick={(e) => { e.stopPropagation(); navigate("ruleset", s.id); }}
+                            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: color.brandInk, fontWeight: 600, fontSize: 12.5 }}>{plural(count, "rule")}</button>
+                        </span>
+                      )
+                      : <span style={{ fontSize: 12.5, color: color.inkMuted }}>Empty</span> },
+                    { label: "Last imported", node: s.lastImportedFrom
+                      ? (
+                        <span style={{ display: "flex", flexDirection: "column", minWidth: 0, fontSize: 12.5 }}>
+                          <span title={s.lastImportedFrom} style={{ color: color.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            from {envHost(s.lastImportedFrom)}
+                          </span>
+                          <span style={{ color: color.inkMuted }}>{shortDate(s.lastImportedOn)}</span>
+                        </span>
+                      )
+                      : <span style={{ fontSize: 12.5, color: color.inkMuted }}>Never</span> },
+                    { label: "Modified", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{modified(s.modifiedOn, s.modifiedBy)}</span> },
+                    { label: "", node: (
+                      <span style={{ display: "flex", gap: 2, justifyContent: stacked ? "flex-start" : "flex-end" }} onClick={(e) => e.stopPropagation()}>
+                        {!readOnly && (<>
+                          {api.updateRuleSet && (
+                            <Button size="small" appearance="subtle" icon={<Edit16Regular />} aria-label="Edit" title="Edit"
+                              disabled={busy} onClick={() => setRuleSetDialog({ mode: "edit", set: s })} />
+                          )}
+                          {api.deleteRuleSet && (blocked
+                            ? <Tooltip content={DELETE_SET_BLOCKED} relationship="inaccessible">{deleteButton}</Tooltip>
+                            : deleteButton)}
+                        </>)}
+                      </span>
+                    ) },
+                  ];
+                  return <RowView key={s.id} cols={RULESET_COLS} cells={cells} stacked={stacked} onClick={() => navigate("ruleset", s.id)} />;
+                })}
+            </GridCard>
           )}
 
           <ListFooter total={total} page={page} pageSize={pageSize}
             onPage={setPage} onPageSize={(n) => { setPageSize(n); reset(); }}
-            noun={tab === "rules" ? "rules" : "data models"} />
+            noun={tab === "rules" ? "rules" : tab === "configs" ? "data models" : "rule sets"} />
+          <RuleSetDialog open={!!ruleSetDialog} mode={ruleSetDialog?.mode ?? "new"}
+            initial={ruleSetDialog?.mode === "edit" ? { name: ruleSetDialog.set.name, description: ruleSetDialog.set.description } : undefined}
+            existing={ruleSets} exceptId={ruleSetDialog?.mode === "edit" ? ruleSetDialog.set.id : undefined}
+            onCancel={() => setRuleSetDialog(null)} onSave={onSaveRuleSet} />
           <NewRuleDialog open={newRuleOpen} configs={configs}
             onCancel={() => setNewRuleOpen(false)}
             onCreate={(args) => { setNewRuleOpen(false); onCreateRule(args); }} />

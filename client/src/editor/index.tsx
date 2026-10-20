@@ -81,7 +81,7 @@ async function renderView(root: Root) {
     try {
       const data = await loadHubData(api);
       root.render(withProviders("hub",
-        <HubApp api={api} rules={data.rules} configs={data.configs} truncated={data.truncated}
+        <HubApp api={api} rules={data.rules} configs={data.configs} ruleSets={data.ruleSets} truncated={data.truncated}
           initialTab={hubTabFromSearch(window.location.search)} />));
     } catch (e) {
       root.render(<ErrorPanel title="The hub could not load." error={e} />);
