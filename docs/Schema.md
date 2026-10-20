@@ -72,7 +72,7 @@ prohibited after creation. Existing rules require no initialization operation.
 | Evaluation Time Zone | `asx_evaluationtimezone` | Text (100) | | Windows time zone id (e.g. `Eastern Standard Time`) that decides the calendar day and wall-clock time of an instant when a Date Only or Time Zone Independent column is compared, and the instant a value without an offset (a literal such as `2026-09-01`, or a Date Only / Time Zone Independent anchor) means when a User Local column is compared; blank ⇒ UTC |
 | Root Table Config | `asx_roottableconfig` | Lookup → `asx_tableconfig` | ✔ | The rule's root node; the rule's table-config tree (shareable across rules) hangs off it via `asx_parenttable`. The editor loads the whole tree from here. |
 | Trigger Columns | `asx_triggercolumns` | Multiline (4000) | | JSON array of **root-table** column logical names (`["sample_lineamount"]`). **OnUpdate only**: unioned into the update step's filtering attributes alongside condition columns, so the rule also fires when one of these changes (e.g. an action depends on a column no condition references). Blank ⇒ none. |
-| Rule Set | `asx_ruleset` | Lookup → `asx_ruleset`, RemoveLink | | The named group the rule belongs to (§2.21); blank ⇒ in no set. Deleting a rule set clears this link and keeps the rule |
+| Rule Set | `asx_ruleset` | Lookup → `asx_ruleset`, Restrict | | The named group the rule belongs to (§2.21); blank ⇒ in no set. A rule set that still has rules can't be deleted |
 
 > **No rule-level severity.** Severity is set **per action** (`asx_ruleaction.asx_severity`,
 > §2.9). A former `asx_rule.asx_severity` column was removed (the engine never read it; it only
@@ -469,6 +469,8 @@ solution; `Configure-RuleAuthoring.ps1` does not provision it.
 |---|---|---|
 | `asx_name` | Text (100, primary) | The set's name; unique through the alternate key `asx_ruleset_name` |
 | `asx_description` | Memo (2,000) | What the set is for |
+| `asx_lastimportedfrom` | Text (200) | Source environment URL of the last `asx_ImportRule` that put a rule in this set (created, updated or unchanged); blank ⇒ never imported |
+| `asx_lastimportedon` | Date and time (stored UTC) | When that import ran |
 
 **Alternate key:** `asx_ruleset_name` on `asx_name`, so a set is matched by name across environments.
 
@@ -1257,7 +1259,7 @@ checks it. No additional custom processing steps. In the `AscentixRulesEngine` s
 | `asx_actionconditiongroup_actionconditiontest` | `asx_actionconditiongroup` | `asx_actionconditiontest` (Cascade) |
 | `asx_conditiongroup_actionconditiontest` | `asx_conditiongroup` | `asx_actionconditiontest` (`asx_outcome`, RemoveLink) |
 | `asx_dataupdate_asx_runby_revision` | `systemuser` | `asx_dataupdate` (`asx_runby`, RemoveLink) |
-| `asx_ruleset_rule` | `asx_ruleset` | `asx_rule` (`asx_ruleset`, RemoveLink) |
+| `asx_ruleset_rule` | `asx_ruleset` | `asx_rule` (`asx_ruleset`, Restrict) |
 
 ---
 
