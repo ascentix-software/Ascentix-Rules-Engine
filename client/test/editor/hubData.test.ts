@@ -70,6 +70,11 @@ function port(): WebApiPort {
           asx_tableconfigtype: 1, [LOOKUP.parentTableOfConfig]: null, modifiedon: "2026-06-17T00:00:00Z" },
       ] };
       if (entity === ENTITY.ruleSchedule) return { entities: [] };
+      if (entity === ENTITY.ruleSet) return { entities: [
+        { asx_rulesetid: "s2", asx_name: "beta", asx_description: "Second", modifiedon: "2026-06-01T00:00:00Z",
+          ["_modifiedby_value" + FV]: "A. Chen", asx_lastimportedfrom: "src.zip", asx_lastimportedon: "2026-05-01T00:00:00Z" },
+        { asx_rulesetid: "s1", asx_name: "Alpha", modifiedon: "2026-06-02T00:00:00Z" },
+      ] };
       throw new Error("unexpected " + entity);
     },
   };
@@ -87,6 +92,29 @@ describe("loadHubData", () => {
     expect(r2.actionCount).toBe(0);
     expect(r2.rootConfigName).toBeNull();
     expect(r2.modifiedBy).toBeNull();
+  });
+  it("returns ruleSets mapped from asx_rulesets, and [] when that query fails", async () => {
+    const { ruleSets } = await loadHubData(port());
+    expect(ruleSets.map((s) => s.id)).toEqual(["s1", "s2"]);   // sorted by name, case-insensitive
+    expect(ruleSets[1]).toEqual({
+      id: "s2", name: "beta", description: "Second", lastImportedFrom: "src.zip",
+      lastImportedOn: "2026-05-01T00:00:00Z", modifiedOn: "2026-06-01T00:00:00Z", modifiedBy: "A. Chen",
+    });
+    expect(ruleSets[0].description).toBeNull();
+    const base = port();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const failing: WebApiPort = {
+      ...base,
+      retrieveMultipleRecords: async (entity, options) => {
+        if (entity === ENTITY.ruleSet) throw new Error("no such table");
+        return base.retrieveMultipleRecords(entity, options);
+      },
+    };
+    const hub = await loadHubData(failing);
+    expect(hub.ruleSets).toEqual([]);
+    expect(hub.rules).toHaveLength(2);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
   it("selects the rule set lookup and maps ruleSetId / ruleSetName from its formatted value", async () => {
     let ruleOptions = "";

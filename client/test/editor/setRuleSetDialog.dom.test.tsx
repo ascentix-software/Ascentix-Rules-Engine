@@ -14,7 +14,11 @@ if (typeof window !== "undefined" && !("ResizeObserver" in window)) {
 
 const RULE = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 
-function fakeApi(sets = [{ id: "s2", name: "Zeta" }, { id: "s1", name: "alpha" }]): RuleSetApi & {
+const item = (id: string, name: string) => ({
+  id, name, description: null, lastImportedFrom: null, lastImportedOn: null, modifiedOn: null, modifiedBy: null,
+});
+
+function fakeApi(sets = [item("s2", "Zeta"), item("s1", "alpha")]): RuleSetApi & {
   listRuleSets: ReturnType<typeof vi.fn>; createRuleSet: ReturnType<typeof vi.fn>; setRuleSet: ReturnType<typeof vi.fn>;
 } {
   return {
