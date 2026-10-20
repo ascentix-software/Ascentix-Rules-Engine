@@ -60,10 +60,8 @@ describe("rule sets on DEV", () => {
 
     // Create with an existing name, then rename onto an existing name.
     const dupCreate = await caught(api.createRecord(ENTITY_SET.ruleSet, { asx_name: b.name }));
-    console.log("DUP CREATE:", (dupCreate as Error).message);
     expect(ruleSetErrorMessage(dupCreate, b.name)).toBe(`A rule set named ${b.name} already exists.`);
     const dupRename = await caught(updateDevRecord(ENTITY_SET.ruleSet, a.id, { asx_name: b.name }));
-    console.log("DUP RENAME:", (dupRename as Error).message);
     expect(ruleSetErrorMessage(dupRename, b.name)).toBe(`A rule set named ${b.name} already exists.`);
   });
 
@@ -74,7 +72,6 @@ describe("rule sets on DEV", () => {
     expect(await ruleSetOf(rule.ruleId)).toBe(set.id);
 
     const refused = await caught(deleteDevRecord(ENTITY_SET.ruleSet, set.id));
-    console.log("RESTRICT DELETE:", (refused as Error).message);
     expect(ruleSetErrorMessage(refused)).toBe(DELETE_SET_BLOCKED);
 
     await moveRulesBatch(api, [rule.ruleId], null);
@@ -94,7 +91,6 @@ describe("rule sets on DEV", () => {
 
     const missing = "00000000-0000-4000-8000-00000000dead";
     const failure = await caught(moveRulesBatch(api, [ids[0], ids[1], missing, ids[2]], set.id));
-    console.log("BAD ID BATCH:", (failure as Error).message);
     expect((failure as Error).message).toMatch(/^Couldn't move 4 rules:/);
     for (const id of ids) expect(await ruleSetOf(id)).toBeNull();
   });
@@ -127,7 +123,6 @@ describe("rule sets on DEV", () => {
       Entry: exported.json.Entry, SourceEnvironment: source, OverwriteTargetChanges: true,
     });
     expect(imported.ok, imported.text).toBe(true);
-    console.log("IMPORT RESULT:", imported.json.Result);
 
     const stamped = await api.retrieveRecord(ENTITY_SET.ruleSet, set.id, "?$select=asx_lastimportedfrom,asx_lastimportedon");
     expect(stamped.asx_lastimportedfrom).toBe(source);
