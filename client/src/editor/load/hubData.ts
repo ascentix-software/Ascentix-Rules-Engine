@@ -3,6 +3,7 @@ import { ENTITY, LOOKUP, RULESET_SELECT } from "./odata";
 import { parseMultiSelect } from "../model/enums";
 import { loadPublishedGraph } from "./publishedGraph";
 import { scheduleSummary } from "../schedule/scheduleModel";
+import { formatError } from "../ui/errors";
 
 const FV = "@OData.Community.Display.V1.FormattedValue";
 
@@ -38,7 +39,13 @@ export interface RuleSetItem {
   lastImportedFrom: string | null; lastImportedOn: string | null;
   modifiedOn: string | null; modifiedBy: string | null;
 }
-export interface HubData { rules: RuleListItem[]; configs: ConfigListItem[]; ruleSets: RuleSetItem[]; truncated: boolean; }
+export interface HubData {
+  rules: RuleListItem[]; configs: ConfigListItem[]; ruleSets: RuleSetItem[]; truncated: boolean;
+  /** The rule set query failed: ruleSets is then empty because it is unknown, not because there are none. */
+  ruleSetsFailed?: boolean;
+  /** Why it failed, when ruleSetsFailed. */
+  ruleSetsError?: string;
+}
 
 function toRuleSetItem(e: any): RuleSetItem {
   return {
@@ -142,11 +149,12 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
       .catch(() => ({ entities: [] as any[], truncated: false })),
     // Also its own catch: a failed rule set query leaves the hub loading, just without the sets.
     retrieveAll(api, ENTITY.ruleSet, `?$select=${RULESET_SELECT}`)
-      .catch((e) => { console.warn("Could not load rule sets", e); return { entities: [] as any[], truncated: false }; }),
+      .catch((e) => { console.warn("Could not load rule sets", e); return { entities: [] as any[], truncated: false, failure: formatError(e) }; }),
   ]);
   const truncated = ruleResp.truncated || actionResp.truncated || nodeResp.truncated || scheduleResp.truncated
     || ruleSetResp.truncated;
   const ruleSets = ruleSetResp.entities.map(toRuleSetItem).sort(byRuleSetName);
+  const ruleSetsFailure = "failure" in ruleSetResp ? ruleSetResp.failure : undefined;
 
   const actionCounts = countByRule(actionResp.entities);
 
@@ -212,7 +220,10 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
       modifiedOn: n.modifiedon ?? null, modifiedBy: n["_modifiedby_value" + FV] ?? null,
     }));
 
-  return { rules, configs, ruleSets, truncated };
+  return {
+    rules, configs, ruleSets, truncated,
+    ...(ruleSetsFailure !== undefined && { ruleSetsFailed: true, ruleSetsError: ruleSetsFailure }),
+  };
 }
 
 /** Loads the (at most one, global) asx_schedulerstatus row the scheduler add-on's flow

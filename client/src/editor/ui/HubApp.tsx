@@ -3,7 +3,7 @@ import { SearchBox, Dropdown, Option, Button, TabList, Tab, Tooltip, Checkbox } 
 import { Add16Regular, Copy16Regular, Delete16Regular, Edit16Regular, Play16Regular, History16Regular, Clock16Regular, FolderArrowRight16Regular } from "@fluentui/react-icons";
 import { AppProvider } from "./AppProvider";
 import { ScreenShell } from "./ScreenShell";
-import { navigate, type HubTab } from "./router";
+import { navigate, viewHref, type HubTab } from "./router";
 import { useIsWide } from "./useIsWide";
 import { StatusBadge, NodeTag, Eyebrow, Pill, Callout } from "./primitives";
 import { color } from "./tokens";
@@ -47,8 +47,10 @@ const VISUALLY_HIDDEN: React.CSSProperties = {
   position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0,
 };
 
-export function HubApp({ api, rules: initialRules, configs: initialConfigs, ruleSets: initialRuleSets, truncated: initialTruncated, initialTab }: {
+export function HubApp({ api, rules: initialRules, configs: initialConfigs, ruleSets: initialRuleSets, truncated: initialTruncated, ruleSetsError: initialRuleSetsError, initialTab }: {
   api: EditorApi; rules: RuleListItem[]; configs: ConfigListItem[]; ruleSets?: RuleSetItem[]; truncated?: boolean;
+  /** Set when the rule set query failed: the reason, shown in place of the (unknown) list. */
+  ruleSetsError?: string;
   initialTab?: HubTab;
 }) {
   const styles = useEditorStyles();
@@ -57,6 +59,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
   const [rules, setRules] = React.useState(initialRules);
   const [configs, setConfigs] = React.useState(initialConfigs);
   const [ruleSets, setRuleSets] = React.useState(initialRuleSets ?? []);
+  const [ruleSetsError, setRuleSetsError] = React.useState(initialRuleSetsError);
   const [truncated, setTruncated] = React.useState(initialTruncated ?? false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -99,7 +102,11 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
   const clearSelection = () => setSelected(new Set());
   const setPage = (p: number) => { setPageState(p); clearSelection(); };
   const reset = () => setPage(1);
-  const switchTab = (t: HubTab) => { setTab(t); setSearch(""); reset(); };
+  // The address follows the tab (no reload), so Back from a rule set page lands on the same tab.
+  const switchTab = (t: HubTab) => {
+    setTab(t); setSearch(""); reset();
+    try { window.history.replaceState(null, "", viewHref("hub", undefined, { tab: t })); } catch { /* the address is a nicety */ }
+  };
 
   const q = search.trim().toLowerCase();
   const filteredRules = rules.filter((r) =>
@@ -163,6 +170,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
   async function refresh() {
     const data = await loadHubData(api);
     setRules(data.rules); setConfigs(data.configs); setRuleSets(data.ruleSets); setTruncated(data.truncated);
+    setRuleSetsError(data.ruleSetsFailed ? data.ruleSetsError ?? "" : undefined);
   }
   const onCreateRule = (args: { name: string; table: string; triggers: number[]; existingRootId?: string; newConfigName?: string }) =>
     run(async () => { const id = await createRule(api, args); navigate("rule", id); });
@@ -263,7 +271,7 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
     try { await refresh(); } catch (e) { setError(`Moved. List refresh failed: ${formatError(e)}`); }
     setBusy(false);
   }
-  const canCreateSet = !readOnly && !!api.createRuleSet;
+  const canCreateSet = !readOnly && !!api.createRuleSet && ruleSetsError === undefined;
   const newRuleSetButton = (
     <Button appearance="primary" icon={<Add16Regular />} disabled={busy} onClick={() => setRuleSetDialog({ mode: "new" })}>
       New rule set
@@ -503,7 +511,13 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
           ) : (
             <GridCard cols={RULESET_COLS} headers={["Rule set", "Rules", "Last imported", "Modified", ""]} stacked={stacked}>
               {pageRuleSets.length === 0
-                ? (ruleSets.length === 0
+                ? (ruleSetsError !== undefined
+                  ? (
+                    <div style={{ padding: 16 }} data-testid="hub-rulesets-error">
+                      <Callout intent="danger">Rule sets couldn't be loaded.{ruleSetsError ? ` ${ruleSetsError}` : ""}</Callout>
+                    </div>
+                  )
+                  : ruleSets.length === 0
                   ? (
                     <div style={{ padding: 24, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
                       <div style={{ color: color.inkMuted, fontSize: 13 }}>No rule sets yet</div>

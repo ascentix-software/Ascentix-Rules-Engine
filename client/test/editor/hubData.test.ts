@@ -94,7 +94,9 @@ describe("loadHubData", () => {
     expect(r2.modifiedBy).toBeNull();
   });
   it("returns ruleSets mapped from asx_rulesets, and [] when that query fails", async () => {
-    const { ruleSets } = await loadHubData(port());
+    const loaded = await loadHubData(port());
+    const { ruleSets } = loaded;
+    expect(loaded.ruleSetsFailed).toBeUndefined();
     expect(ruleSets.map((s) => s.id)).toEqual(["s1", "s2"]);   // sorted by name, case-insensitive
     expect(ruleSets[1]).toEqual({
       id: "s2", name: "beta", description: "Second", lastImportedFrom: "src.zip",
@@ -112,6 +114,8 @@ describe("loadHubData", () => {
     };
     const hub = await loadHubData(failing);
     expect(hub.ruleSets).toEqual([]);
+    expect(hub.ruleSetsFailed).toBe(true);
+    expect(hub.ruleSetsError).toBe("no such table");
     expect(hub.rules).toHaveLength(2);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();

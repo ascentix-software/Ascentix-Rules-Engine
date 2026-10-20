@@ -53,12 +53,16 @@ export function RuleSetApp({ api, ruleSetId, data: initialData }: { api: EditorA
   }
 
   if (!set) {
+    // A list that failed to load says nothing about whether this set exists.
+    const loadFailed = data.ruleSetsFailed;
     return (
       <AppProvider>
         <ScreenShell aboveCard={<Breadcrumb segments={CRUMBS} current="Rule set" />}
           header={<div style={{ padding: "20px 24px 0" }}><Eyebrow>Rule set</Eyebrow></div>}>
           <div style={{ padding: "12px 24px 24px", display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-start" }}>
-            <div style={{ fontSize: 14, color: color.ink }}>This rule set no longer exists.</div>
+            {loadFailed
+              ? <Callout intent="danger">Rule sets couldn't be loaded.{data.ruleSetsError ? ` ${data.ruleSetsError}` : ""}</Callout>
+              : <div style={{ fontSize: 14, color: color.ink }}>This rule set no longer exists.</div>}
             <Link as="button" onClick={() => navigateHubTab("rulesets")}>Back to rule sets</Link>
           </div>
         </ScreenShell>

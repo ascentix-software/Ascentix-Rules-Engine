@@ -302,3 +302,12 @@ describe("rule set page", () => {
     expect(screen.getAllByText("Invoice and credit checks").length).toBeGreaterThan(0);
   });
 });
+
+describe("rule set page when the rule set list failed to load", () => {
+  it("shows the load error instead of saying the set no longer exists", () => {
+    render(<RuleSetApp api={makeApi()} ruleSetId="s1"
+      data={{ ...DATA, ruleSets: [], ruleSetsFailed: true, ruleSetsError: "no such table" }} />);
+    expect(screen.getByText("Rule sets couldn't be loaded. no such table")).toBeInTheDocument();
+    expect(screen.queryByText("This rule set no longer exists.")).toBeNull();
+  });
+});

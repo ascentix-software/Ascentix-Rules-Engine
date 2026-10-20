@@ -240,3 +240,23 @@ describe("hub Rule sets tab", () => {
     });
   });
 });
+
+describe("hub tab address and failed rule set load", () => {
+  it("switching tabs updates the address without navigating", () => {
+    const replaceState = vi.spyOn(window.history, "replaceState").mockImplementation(() => {});
+    try {
+      render(<HubApp api={makeApi()} rules={RULES} configs={[]} ruleSets={SETS} />);
+      fireEvent.click(screen.getByRole("tab", { name: /Rule sets/ }));
+      expect(replaceState).toHaveBeenLastCalledWith(null, "", "?view=hub&tab=rulesets");
+      fireEvent.click(screen.getByRole("tab", { name: /Data models/ }));
+      expect(replaceState).toHaveBeenLastCalledWith(null, "", "?view=hub&tab=configs");
+    } finally { replaceState.mockRestore(); }
+  });
+
+  it("a failed rule set query shows the error, not the empty state or New rule set", () => {
+    render(<HubApp api={makeApi()} rules={RULES} configs={[]} ruleSets={[]} ruleSetsError="no such table" initialTab="rulesets" />);
+    expect(screen.getByTestId("hub-rulesets-error")).toHaveTextContent("Rule sets couldn't be loaded. no such table");
+    expect(screen.queryByText("No rule sets yet")).toBeNull();
+    expect(screen.queryByRole("button", { name: "New rule set" })).toBeNull();
+  });
+});
