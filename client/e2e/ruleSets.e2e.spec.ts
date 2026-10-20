@@ -95,14 +95,20 @@ test("rule sets end to end", async ({ page }) => {
     await popover.getByRole("combobox").click();
     await frame.getByRole("option", { name: "No rule set", exact: true }).click();
     await expect(toast(frame, "Removed from its rule set")).toBeVisible({ timeout: 30_000 });
-    await expect(chip("None")).toBeVisible();
     await expectSetOf([a.ruleId], null);
+    // The open popover traps focus, which hides the rest of the editor from the accessibility
+    // tree, so close it before reading the chip.
+    await page.keyboard.press("Escape");
+    await expect(popover).toBeHidden();
+    await expect(chip("None")).toBeVisible();
+    await chip("None").click();
     await popover.getByRole("combobox").click();
     await frame.getByRole("option", { name: SET, exact: true }).click();
     await expect(toast(frame, `Moved to ${SET}`)).toBeVisible({ timeout: 30_000 });
-    await expect(chip(SET)).toBeVisible();
     await expectSetOf([a.ruleId], setId);
     await page.keyboard.press("Escape");
+    await expect(popover).toBeHidden();
+    await expect(chip(SET)).toBeVisible();
 
     // 6. Select both on the Rules tab and move them to a new set.
     frame = await openHub(page, appId);
