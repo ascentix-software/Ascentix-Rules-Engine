@@ -38,6 +38,9 @@ export function isDuplicateRuleSetName(sets: RuleSetItem[], name: string, except
   return sets.some((s) => s.id !== exceptId && s.name.trim().toLowerCase() === n);
 }
 
+/** Why a rule set that still has rules can't be deleted (disabled Delete, and a Restrict refusal). */
+export const DELETE_SET_BLOCKED = "Move or remove its rules first.";
+
 // Dataverse error codes (matched by code OR message text, since Xrm wraps errors differently).
 const DUPLICATE_KEY_CODE = "0x80060892";
 const RESTRICT_CODE = "0x8004f00c";
@@ -51,7 +54,7 @@ export function ruleSetErrorMessage(e: unknown, name?: string): string {
     return `A rule set named ${name ?? "that"} already exists.`;
   }
   if (text.includes(RESTRICT_CODE) || text.includes("cannot be deleted because it is referenced")) {
-    return "Move or remove its rules first.";
+    return DELETE_SET_BLOCKED;
   }
   return raw;
 }

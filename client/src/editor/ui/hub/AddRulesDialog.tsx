@@ -5,9 +5,8 @@ import { OutsideField } from "../fieldScope";
 import { NodeTag, StatusBadge } from "../primitives";
 import { color } from "../tokens";
 import { formatError } from "../errors";
+import { plural } from "../hubFormat";
 import type { RuleListItem, RuleSetItem } from "../../load/hubData";
-
-const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 /** Pick rules to put in one rule set. Moves exactly the checked rules, in one call; a failure
  *  stays open with the reason and the selection intact. */

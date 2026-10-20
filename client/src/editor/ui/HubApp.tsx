@@ -1,6 +1,6 @@
 import * as React from "react";
-import { SearchBox, Dropdown, Option, Button, TabList, Tab, Tooltip } from "@fluentui/react-components";
-import { Add16Regular, Copy16Regular, Delete16Regular, Edit16Regular, Play16Regular, History16Regular, Clock16Regular, Tag16Regular } from "@fluentui/react-icons";
+import { SearchBox, Dropdown, Option, Button, TabList, Tab, Tooltip, Checkbox } from "@fluentui/react-components";
+import { Add16Regular, Copy16Regular, Delete16Regular, Edit16Regular, Play16Regular, History16Regular, Clock16Regular, FolderArrowRight16Regular } from "@fluentui/react-icons";
 import { AppProvider } from "./AppProvider";
 import { ScreenShell } from "./ScreenShell";
 import { navigate, type HubTab } from "./router";
@@ -9,7 +9,7 @@ import { StatusBadge, NodeTag, Eyebrow, Pill, Callout } from "./primitives";
 import { color } from "./tokens";
 import { useEditorStyles } from "./styles";
 import { triggerLabel } from "../model/enums";
-import { relativeTime, envHost, shortDate } from "./hubFormat";
+import { relativeTime, envHost, shortDate, plural } from "./hubFormat";
 import { ListFooter } from "./ListFooter";
 import type { RuleListItem, ConfigListItem, RuleSetItem } from "../load/hubData";
 import type { EditorApi } from "../webapi";
@@ -22,13 +22,13 @@ import {
 } from "../save/operations";
 import { NewRuleDialog } from "./hub/NewRuleDialog";
 import { NewConfigDialog } from "./hub/NewConfigDialog";
-import { SetRuleSetDialog } from "./hub/SetRuleSetDialog";
+import { MoveToRuleSetDialog, type MoveTarget } from "./hub/MoveToRuleSetDialog";
 import { ConfirmDeleteDialog } from "./hub/ConfirmDeleteDialog";
 import { RowView, GridCard, type RowCell } from "./hub/HubGrid";
 import { RuleSetDialog } from "./hub/RuleSetDialog";
 import { formatError } from "./errors";
 import { useNotify } from "./notify";
-import { ruleSetErrorMessage } from "../save/ruleSetWrites";
+import { ruleSetErrorMessage, DELETE_SET_BLOCKED } from "../save/ruleSetWrites";
 import { useDataUpdates } from "../dataUpdates/DataUpdateContext";
 import { DataUpdateBanner } from "../dataUpdates/DataUpdateBanner";
 import { RunDialog, type RunDialogRule } from "../runs/RunDialog";
@@ -37,12 +37,15 @@ import { RunsDialog } from "../runs/RunsDialog";
 
 const PAGE_SIZE_DEFAULT = 10;
 const RULES_COLS = "2.5fr 1fr 1fr 0.95fr 1.25fr 0.8fr 1.15fr 120px";
+// With the selection checkbox as a leading column.
+const SELECTABLE_RULES_COLS = `32px ${RULES_COLS}`;
 const CONFIG_COLS = "2.5fr 1.1fr 0.9fr 1.1fr 1.15fr 92px";
 const RULESET_COLS = "2.5fr 0.9fr 1.4fr 1.15fr 92px";
-const DELETE_SET_BLOCKED = "Move or remove its rules first.";
 
 const distinct = (xs: string[]) => Array.from(new Set(xs.filter(Boolean))).sort();
-const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+const VISUALLY_HIDDEN: React.CSSProperties = {
+  position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap", border: 0,
+};
 
 export function HubApp({ api, rules: initialRules, configs: initialConfigs, ruleSets: initialRuleSets, truncated: initialTruncated, initialTab }: {
   api: EditorApi; rules: RuleListItem[]; configs: ConfigListItem[]; ruleSets?: RuleSetItem[]; truncated?: boolean;
@@ -81,11 +84,15 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
   const [ruleTable, setRuleTable] = React.useState("all");
   const [ruleStatus, setRuleStatus] = React.useState("all");
   const [ruleSetFilter, setRuleSetFilter] = React.useState("all"); // "all" | "none" | a rule set id
-  const [setRuleSetRule, setSetRuleSetRule] = React.useState<RuleListItem | null>(null);
+  const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
+  const [moveOpen, setMoveOpen] = React.useState(false);
   const [configRoot, setConfigRoot] = React.useState("all");
-  const [page, setPage] = React.useState(1);
+  const [page, setPageState] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(PAGE_SIZE_DEFAULT);
 
+  // The selection is the rows you can see: it clears on any page, filter, search or tab change.
+  const clearSelection = () => setSelected(new Set());
+  const setPage = (p: number) => { setPageState(p); clearSelection(); };
   const reset = () => setPage(1);
   const switchTab = (t: HubTab) => { setTab(t); setSearch(""); reset(); };
 
@@ -115,6 +122,18 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
   const pageRules = filteredRules.slice(start, start + pageSize);
   const pageConfigs = filteredConfigs.slice(start, start + pageSize);
   const pageRuleSets = filteredRuleSets.slice(start, start + pageSize);
+
+  const ruleSetsById = new Map(ruleSets.map((s) => [s.id, s]));
+  const selectable = !readOnly && !!api.moveRules && !!api.createRuleSet;
+  const selectedRules = rules.filter((r) => selected.has(r.id));
+  const allOnPage = pageRules.length > 0 && pageRules.every((r) => selected.has(r.id));
+  const someOnPage = pageRules.some((r) => selected.has(r.id));
+  const toggle = (ids: string[], on: boolean) => setSelected((cur) => {
+    const next = new Set(cur);
+    for (const id of ids) { if (on) next.add(id); else next.delete(id); }
+    return next;
+  });
+  const selectPage = (on: boolean) => toggle(pageRules.map((r) => r.id), on);
 
   const modified = (on: string | null, by: string | null) =>
     `${relativeTime(on, now)}${by ? ` · ${by}` : ""}`;
@@ -192,6 +211,35 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
     notify.success(d.mode === "edit" ? "Rule set saved" : "Rule set created");
     setBusy(true); setError(null);
     try { await refresh(); } catch (e) { setError(`Saved. List refresh failed: ${formatError(e)}`); }
+    setBusy(false);
+  }
+  // All selected rules in one change set. A failure rejects back into the dialog, which shows it
+  // and stays open with the selection intact.
+  async function onMove(target: MoveTarget) {
+    const ids = selectedRules.map((r) => r.id);
+    let ruleSetId: string | null;
+    let createdName: string | null = null;
+    if ("newName" in target) {
+      try { ruleSetId = await api.createRuleSet!(target.newName); } catch (e) { throw new Error(ruleSetErrorMessage(e, target.newName)); }
+      createdName = target.newName;
+    } else {
+      ruleSetId = target.ruleSetId;
+    }
+    try {
+      await api.moveRules!(ids, ruleSetId);
+    } catch (e) {
+      // The new set exists now: reload so the dialog can offer it instead of creating it again.
+      if (createdName) { try { await refresh(); } catch { /* the move error is the one to show */ } }
+      throw e;
+    }
+    setMoveOpen(false);
+    clearSelection();
+    const n = plural(ids.length, "rule");
+    notify.success(ruleSetId
+      ? `Moved ${n} to ${createdName ?? ruleSetsById.get(ruleSetId)?.name ?? "the rule set"}`
+      : `Removed ${n} from ${ids.length === 1 ? "its rule set" : "their rule sets"}`);
+    setBusy(true); setError(null);
+    try { await refresh(); } catch (e) { setError(`Moved. List refresh failed: ${formatError(e)}`); }
     setBusy(false);
   }
   const canCreateSet = !readOnly && !!api.createRuleSet;
@@ -298,9 +346,38 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
             </div>
           )}
 
+          {tab === "rules" && selectable && (
+            <span role="status" aria-live="polite" data-testid="hub-selection-status" style={VISUALLY_HIDDEN}>
+              {selectedRules.length > 0 ? `${selectedRules.length} selected` : ""}
+            </span>
+          )}
+          {tab === "rules" && selectable && selectedRules.length > 0 && (
+            <div role="toolbar" aria-label="Selected rules" data-testid="hub-selection-bar"
+              style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "6px 8px 6px 14px", marginBottom: 12,
+                background: color.brandTint, border: `1px solid ${color.brandLine}`, borderRadius: 10 }}>
+              <span aria-hidden="true" style={{ fontSize: 13, fontWeight: 700, color: color.brandInk, marginRight: 4 }}>
+                {selectedRules.length} selected
+              </span>
+              <Button size="small" appearance="primary" icon={<FolderArrowRight16Regular />} disabled={busy} onClick={() => setMoveOpen(true)}>
+                Move to rule set
+              </Button>
+              {stacked && (
+                <Button size="small" appearance="subtle" disabled={busy || allOnPage} onClick={() => selectPage(true)}>Select all</Button>
+              )}
+              <Button size="small" appearance="subtle" disabled={busy} onClick={clearSelection}>Clear selection</Button>
+            </div>
+          )}
+
           {/* Grid */}
           {tab === "rules" ? (
-            <GridCard cols={RULES_COLS} headers={["Rule", "Table", "Rule set", "Status", "Triggers", "Actions", "Modified", ""]} stacked={stacked}>
+            <GridCard cols={selectable ? SELECTABLE_RULES_COLS : RULES_COLS}
+              headers={["Rule", "Table", "Rule set", "Status", "Triggers", "Actions", "Modified", ""]} stacked={stacked}
+              lead={selectable ? (
+                <span style={{ display: "flex", marginLeft: -8 }}>
+                  <Checkbox aria-label="Select all rules on this page" disabled={busy || pageRules.length === 0}
+                    checked={allOnPage ? true : someOnPage ? "mixed" : false} onChange={(_e, d) => selectPage(!!d.checked)} />
+                </span>
+              ) : undefined}>
               {pageRules.length === 0
                 ? <div style={{ padding: 24, textAlign: "center", color: color.inkMuted, fontSize: 13 }}>No rules match.</div>
                 : pageRules.map((r) => {
@@ -324,7 +401,16 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
                       </div>
                     ) },
                     { label: "Table", node: <span><NodeTag>{r.tableLogicalName}</NodeTag></span> },
-                    { label: "Rule set", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{r.ruleSetName ?? "—"}</span> },
+                    { label: "Rule set", node: r.ruleSetId
+                      ? (
+                        <span style={{ minWidth: 0 }}>
+                          <button type="button" className={styles.focusRing} onClick={(e) => { e.stopPropagation(); navigate("ruleset", r.ruleSetId!); }}
+                            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: color.brandInk, fontWeight: 600, fontSize: 12.5, textAlign: "left" }}>
+                            {ruleSetsById.get(r.ruleSetId)?.name ?? r.ruleSetName ?? r.ruleSetId}
+                          </button>
+                        </span>
+                      )
+                      : <span style={{ fontSize: 12.5, color: color.inkMuted }}>—</span> },
                     { label: "Status", node: <span><StatusBadge statusCode={r.statusCode} /></span> },
                     { label: "Triggers", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{r.triggers.map(triggerLabel).join(", ") || "—"}</span> },
                     { label: "Actions", node: <span style={{ fontSize: 12.5, color: color.inkMuted }}>{r.actionCount}</span> },
@@ -340,17 +426,20 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
                             disabled={busy} onClick={() => setRunsRule({ id: r.id, name: r.name, table: r.tableLogicalName })} />
                         )}
                         {!readOnly && (<>
-                          {api.listRuleSets && api.createRuleSet && api.setRuleSet && (
-                            <Button size="small" appearance="subtle" icon={<Tag16Regular />} aria-label="Set rule set" title="Set rule set"
-                              disabled={busy} onClick={() => setSetRuleSetRule(r)} />
-                          )}
                           <Button size="small" appearance="subtle" icon={<Copy16Regular />} aria-label="Duplicate" title="Duplicate" disabled={busy} onClick={() => onDuplicateRule(r.id)} />
                           <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label="Delete" title="Delete" disabled={busy} style={{ color: color.danger }} onClick={() => setPendingDelete({ kind: "rule", id: r.id, name: r.name })} />
                         </>)}
                       </span>
                     ) },
                   ];
-                  return <RowView key={r.id} cols={RULES_COLS} cells={cells} dim={r.statusCode === 2} stacked={stacked} onClick={() => navigate("rule", r.id)} />;
+                  const lead = selectable ? (
+                    <span style={{ display: "flex", marginLeft: -8 }} onClick={(e) => e.stopPropagation()}>
+                      <Checkbox aria-label={`Select ${r.name}`} disabled={busy} checked={selected.has(r.id)}
+                        onChange={(_e, d) => toggle([r.id], !!d.checked)} />
+                    </span>
+                  ) : undefined;
+                  return <RowView key={r.id} cols={selectable ? SELECTABLE_RULES_COLS : RULES_COLS} cells={cells} lead={lead}
+                    selected={selected.has(r.id)} dim={r.statusCode === 2} stacked={stacked} onClick={() => navigate("rule", r.id)} />;
                 })}
             </GridCard>
           ) : tab === "configs" ? (
@@ -469,12 +558,9 @@ export function HubApp({ api, rules: initialRules, configs: initialConfigs, rule
           <NewConfigDialog open={newConfigOpen}
             onCancel={() => setNewConfigOpen(false)}
             onCreate={(args) => { setNewConfigOpen(false); onCreateConfig(args); }} />
-          {setRuleSetRule && api.listRuleSets && api.createRuleSet && api.setRuleSet && (
-            <SetRuleSetDialog open
-              api={{ listRuleSets: api.listRuleSets, createRuleSet: api.createRuleSet, setRuleSet: api.setRuleSet }}
-              ruleId={setRuleSetRule.id} ruleName={setRuleSetRule.name} currentRuleSetId={setRuleSetRule.ruleSetId ?? null}
-              onCancel={() => setSetRuleSetRule(null)}
-              onDone={() => { setSetRuleSetRule(null); void run(refresh); }} />
+          {selectable && (
+            <MoveToRuleSetDialog open={moveOpen} rules={selectedRules} ruleSets={ruleSets} ruleCounts={ruleCounts}
+              onCancel={() => setMoveOpen(false)} onMove={onMove} />
           )}
           <ConfirmDeleteDialog open={!!pendingDelete} name={pendingDelete?.name ?? ""}
             onCancel={() => setPendingDelete(null)} onConfirm={onConfirmDelete} />

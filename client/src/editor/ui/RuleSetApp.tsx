@@ -8,7 +8,7 @@ import { navigate, navigateHubTab } from "./router";
 import { useIsWide } from "./useIsWide";
 import { Callout, Eyebrow, NodeTag, Pill, StatusBadge } from "./primitives";
 import { color } from "./tokens";
-import { relativeTime, envHost, shortDate } from "./hubFormat";
+import { relativeTime, envHost, shortDate, plural } from "./hubFormat";
 import { formatError } from "./errors";
 import { useNotify } from "./notify";
 import { OutsideField } from "./fieldScope";
@@ -18,16 +18,14 @@ import { ConfirmDeleteDialog } from "./hub/ConfirmDeleteDialog";
 import { useDataUpdates } from "../dataUpdates/DataUpdateContext";
 import { DataUpdateBanner } from "../dataUpdates/DataUpdateBanner";
 import { loadHubData, type HubData, type RuleSetItem } from "../load/hubData";
-import { isDuplicateRuleSetName, ruleSetErrorMessage } from "../save/ruleSetWrites";
+import { isDuplicateRuleSetName, ruleSetErrorMessage, DELETE_SET_BLOCKED } from "../save/ruleSetWrites";
 import type { EditorApi } from "../webapi";
 
 const COLS = "2.4fr 1fr 0.9fr 1.2fr 56px";
-const DELETE_SET_BLOCKED = "Move or remove its rules first.";
 const CRUMBS: Crumb[] = [
   { label: "Rules & data model", view: "hub" },
   { label: "Rule sets", view: "hub", tab: "rulesets" },
 ];
-const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 const panel: React.CSSProperties = {
   border: `1px solid ${color.line}`, borderRadius: 12, padding: 16, background: color.surface,
   display: "flex", flexDirection: "column", gap: 12,
