@@ -1,7 +1,7 @@
 // Packages the private test extension (AscentixSoftware.ascentix-rules-transport) from the built
 // public tasks. It keeps the private extension's own task ids, task names and contribution ids, so
 // both extensions can be installed in one organization and existing test pipelines keep working.
-// Run after `npm run build`.
+// Run after `npm run build`. Optional argument: the output folder (default dist).
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -11,6 +11,7 @@ const DEV_TASKS = {
   RulesTransportImport: { id: '635e8d59-f6e6-4072-976c-83e6ecc6a9a6', name: 'AscentixRulesImport', contribution: 'ascentix-rules-import-task' },
 };
 
+const out = process.argv[2] ?? 'dist';
 const stage = 'dist/dev-stage';
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
@@ -30,5 +31,5 @@ for (const [folder, dev] of Object.entries(DEV_TASKS)) {
 }
 writeFileSync(join(stage, 'vss-extension.json'), JSON.stringify(manifest, null, 2) + '\n');
 
-execFileSync('npx', ['tfx', 'extension', 'create', '--root', stage, '--manifest-globs', 'vss-extension.json', '--output-path', 'dist'],
+execFileSync('npx', ['tfx', 'extension', 'create', '--root', stage, '--manifest-globs', 'vss-extension.json', '--output-path', out],
   { stdio: 'inherit', shell: process.platform === 'win32' });
