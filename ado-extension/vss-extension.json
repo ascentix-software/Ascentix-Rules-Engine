@@ -1,7 +1,7 @@
 {
   "manifestVersion": 1,
   "id": "ascentix-rules-transport",
-  "publisher": "ascentix",
+  "publisher": "AscentixSoftware",
   "version": "0.1.0",
   "name": "Ascentix Rules Transport",
   "description": "Export and import Ascentix Rules Engine rules between Dataverse environments from Azure Pipelines.",
