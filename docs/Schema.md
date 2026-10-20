@@ -461,7 +461,9 @@ Completed with failures are not pending. The shipped roles grant no privileges o
 ### 2.21 Rule Set (`asx_ruleset`)
 
 Organization-owned. A named group of rules that is exported and imported together. A rule belongs to at
-most one set, through `asx_rule.asx_ruleset` (§2.1).
+most one set, through `asx_rule.asx_ruleset` (§2.1). Authored in the maintainer environment (with the
+`asx_rule` lookup, the revision provenance columns and the role privileges) and shipped in the
+solution; `Configure-RuleAuthoring.ps1` does not provision it.
 
 | Column | Type | Notes |
 |---|---|---|
