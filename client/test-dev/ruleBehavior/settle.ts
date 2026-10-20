@@ -5,6 +5,9 @@ import { ENTITY_SET } from "../../src/editor/load/odata";
 // just established. Every wait in the live harness is a PROBE polled to a cap, never a sleep:
 // a dead rule or a genuinely wrong verdict still fails, at the cap, with a message that says so.
 //
+// A rule's effect after publish is asserted with `eventually` (below): the act + assert re-run
+// until they pass or the cap is reached.
+//
 // Two lags, two named probes:
 //   enforcement settle: the publish transaction writes the enforcement step row, but the
 //     plugin pipeline metadata cache propagates asynchronously across front-end nodes; only a
@@ -54,6 +57,49 @@ export async function settle(probe: () => Promise<boolean>, opts: SettleOptions)
   }
 }
 
+// ── Eventually ───────────────────────────────────────────────────────────────
+//
+// A rule's effect right after publish (a write, a note, a created row, an allowed save) is
+// asserted through `eventually`: Dataverse rolls a newly published step (and a deleted rule's
+// removal) out to its front-end nodes asynchronously, so one attempt can land on a node that still
+// runs the previous registration. `fn` is the whole act + assert: it re-runs from scratch on every
+// attempt, so a create-time effect gets a fresh subject each time. A throw (an expect() failure, a
+// blocked save) means "not yet"; the first attempt that returns ends the wait with its value. Past
+// the cap the LAST attempt's error is rethrown, its message prefixed with the label and the wait,
+// so a dead rule or a wrong value still fails with the assertion that proves it.
+export interface EventuallyOptions {
+  label?: string;
+  timeoutMs?: number; // default 60000
+  intervalMs?: number; // default 1000
+}
+
+export async function eventually<T>(fn: () => Promise<T>, opts: EventuallyOptions = {}): Promise<T> {
+  const timeoutMs = opts.timeoutMs ?? 60000;
+  let value: T | undefined;
+  let lastError: unknown;
+  try {
+    await settle(
+      async () => {
+        try {
+          value = await fn();
+          return true;
+        } catch (e) {
+          lastError = e;
+          return false;
+        }
+      },
+      { label: opts.label ?? "eventually", capMs: timeoutMs, intervalMs: opts.intervalMs ?? 1000 },
+    );
+  } catch (timeout: any) {
+    if (lastError instanceof Error) {
+      lastError.message = `${opts.label ? `${opts.label}: ` : ""}still failing after ${timeoutMs}ms: ${lastError.message}`;
+      throw lastError;
+    }
+    throw timeout;
+  }
+  return value as T;
+}
+
 async function diagnosticText(diagnostic: SettleOptions["diagnostic"]): Promise<string> {
   if (!diagnostic) return "";
   try {
@@ -84,7 +130,7 @@ export async function enforcementSettled(
   }, {
     label: opts.label ?? "enforcement",
     intervalMs: opts.intervalMs ?? 1000,
-    capMs: opts.capMs ?? 30000,
+    capMs: opts.capMs ?? 60000,
     timeoutMessage: ({ capMs }) =>
       `awaitEnforcement: enforcement not observed within ${capMs}ms` +
       (opts.label ? ` (${opts.label})` : "") +

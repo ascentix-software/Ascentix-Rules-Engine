@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterEach, afterAll } from "vitest";
 import { deleteDevRecord, createDevApi } from "./devApi";
 import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
-import { createSubject, createOrderLine, updateSubject, expectBlockedOnUpdate } from "./ruleBehavior/subjects";
+import { createSubject, createOrderLine, expectBlockedOnUpdate, expectUpdateSucceeds } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // Relative-date filters proven live via Block enforcement on Update (lines exist by then).
 // Order lines carry no business date, so the filters use createdon: lines created by the test
@@ -17,9 +18,10 @@ beforeAll(async () => {
   tc = await ensureTableConfig();
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
 });
 afterAll(async () => {
+  await drainCleanups(cleanups);
   await tc.cleanup();
 });
 
@@ -68,7 +70,7 @@ describe("relative-date filters", () => {
     cleanups.push(r.cleanup);
 
     const ok = await seedOrderWithLines("ZZ_RB_reldate_sum_ok", [100, 50]); // none older than a day: sum 0
-    await updateSubject("sample_orders", ok, { sample_ordertotal: 1 }); // allowed
+    await expectUpdateSucceeds("sample_orders", ok, { sample_ordertotal: 1 }); // allowed
   });
 
   it("Row Count with a pushed relative-date node filter counts today's lines", async () => {
@@ -116,6 +118,6 @@ describe("relative-date filters", () => {
   it("Row Count with a root-anchored filter excludes lines before the bound date", async () => {
     await rootAnchoredRule("ZZ_RB_reldate_root_none", "add", "ZZ_RB lines a day after order");
     const ok = await seedOrderWithLines("ZZ_RB_reldate_root_ok", [10, 10]); // none a day after the order
-    await updateSubject("sample_orders", ok, { sample_ordertotal: 1 }); // allowed
+    await expectUpdateSucceeds("sample_orders", ok, { sample_ordertotal: 1 }); // allowed
   });
 });

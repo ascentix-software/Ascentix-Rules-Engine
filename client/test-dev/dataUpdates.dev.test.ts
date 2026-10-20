@@ -4,6 +4,7 @@ import { createDevApi, deleteDevRecord } from "./devApi";
 import { ENTITY_SET, BIND_NAV } from "../src/editor/load/odata";
 import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 describe("data updates (asx_ApplyDataUpdates)", () => {
   it("reports nothing pending after the pipeline applied updates", async () => {
@@ -30,7 +31,7 @@ describe("data updates (asx_ApplyDataUpdates)", () => {
   describe("update 1: outcomes", () => {
     const api = createDevApi();
     const cleanups: Array<() => Promise<void>> = [];
-    afterAll(async () => { while (cleanups.length) await cleanups.pop()!().catch(() => {}); });
+    afterAll(async () => { await drainCleanups(cleanups); });
 
     it("converts an On match action to an ALL tree over the rule's outcomes, then reports nothing pending", async () => {
       await sweepRuleBehaviorOrphans();

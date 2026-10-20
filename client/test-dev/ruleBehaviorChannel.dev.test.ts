@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll, afterEach, afterAll } from "vitest";
 import { createDevApi, deleteDevRecord, updateDevRecord } from "./devApi";
 import { getSpToken } from "./spToken";
-import { ensureTableConfig, authorRule, awaitEnforcement } from "./ruleBehavior/authoring";
+import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
+import { eventually } from "./ruleBehavior/settle";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // Channel gating proven live from the STANDARD channel via the Web API.
 // Channels are Standard (1) vs Portal (2) only. DEV populated InitiatingUserApplicationId
@@ -28,34 +30,29 @@ beforeAll(async () => {
   spApi = createDevApi(await getSpToken());
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
 });
 afterAll(async () => {
+  await drainCleanups(cleanups);
   await tc.cleanup();
 });
 
-// A violating create (total 150) that MUST throw the Block and leave no row. Settle-aware
-// (this suite's first live run hit the same post-publish step-cache race the
-// other suites already settle for): a sacrificial create that slips through is deleted and
-// retried until the block is observed: a dead rule still fails, at the awaitEnforcement cap.
+// A violating create (total 150) that MUST throw this rule's Block and leave no row. Polled
+// (settle.ts eventually): a create that slips through, or is blocked by a rule an earlier test
+// deleted, is cleaned up and retried; a dead rule still fails at the cap.
 async function expectBlocked(api: ReturnType<typeof createDevApi>, name: string, msg: string): Promise<void> {
-  let blockError: any = null;
-  await awaitEnforcement(
-    async () => {
-      try {
-        const id = await api.createRecord("sample_orders", { sample_name: name, sample_ordertotal: 150 });
-        await deleteDevRecord("sample_orders", id); // cache not settled yet: clean and retry
-        return false;
-      } catch (e: any) {
-        blockError = e;
-        return true;
-      }
-    },
-    { label: `channel block observed (${name})` },
-  );
-  expect(blockError.message).toContain("(400)");
-  expect(blockError.message).toContain(BLOCK_HEADER);
-  expect(blockError.message).toContain(msg);
+  await eventually(async () => {
+    let blockError: any = null;
+    try {
+      const id = await api.createRecord("sample_orders", { sample_name: name, sample_ordertotal: 150 });
+      await deleteDevRecord("sample_orders", id);
+    } catch (e: any) {
+      blockError = e;
+    }
+    expect(blockError?.message).toContain("(400)");
+    expect(blockError.message).toContain(BLOCK_HEADER);
+    expect(blockError.message).toContain(msg);
+  }, { label: `channel block observed (${name})` });
   const r = await userApi.retrieveMultipleRecords(
     "sample_orders",
     `?$filter=sample_name eq '${name}'&$select=sample_name`,
@@ -65,7 +62,10 @@ async function expectBlocked(api: ReturnType<typeof createDevApi>, name: string,
 
 // A violating create that MUST succeed (the rule's channels exclude this caller).
 async function expectAllowed(api: ReturnType<typeof createDevApi>, name: string): Promise<void> {
-  const id = await api.createRecord("sample_orders", { sample_name: name, sample_ordertotal: 150 });
+  const id = await eventually(
+    () => api.createRecord("sample_orders", { sample_name: name, sample_ordertotal: 150 }),
+    { label: `channel create allowed (${name})` },
+  );
   cleanups.push(() => deleteDevRecord("sample_orders", id));
 }
 
@@ -111,19 +111,21 @@ describe("Standard-channel gating (API)", () => {
     await channelRule("ZZ_RB_ch_upd", [1], "ZZ_RB standard only (update)");
     const spTok = await getSpToken();
     // SP (Standard): create a satisfying order, then a violating update → blocked + rolled back.
-    const id = await spApi.createRecord("sample_orders", { sample_name: "ZZ_RB_ch_upd_sp", sample_ordertotal: 50 });
-    cleanups.push(() => deleteDevRecord("sample_orders", id));
-    let threw = false;
-    try {
-      await updateDevRecord("sample_orders", id, { sample_ordertotal: 150 }, spTok);
-    } catch (e: any) {
-      threw = true;
-      expect(e.message).toContain(BLOCK_HEADER);
-      expect(e.message).toContain("ZZ_RB standard only (update)");
-    }
-    expect(threw).toBe(true);
-    // Rolled back: the persisted total is still the satisfying 50.
-    const row = await userApi.retrieveRecord("sample_orders", id, "?$select=sample_ordertotal");
-    expect((row as any).sample_ordertotal).toBe(50);
+    // Polled with a fresh order per attempt: an update that slips through has changed its order.
+    await eventually(async () => {
+      const id = await spApi.createRecord("sample_orders", { sample_name: "ZZ_RB_ch_upd_sp", sample_ordertotal: 50 });
+      cleanups.push(() => deleteDevRecord("sample_orders", id));
+      let message = "";
+      try {
+        await updateDevRecord("sample_orders", id, { sample_ordertotal: 150 }, spTok);
+      } catch (e: any) {
+        message = e.message;
+      }
+      expect(message).toContain(BLOCK_HEADER);
+      expect(message).toContain("ZZ_RB standard only (update)");
+      // Rolled back: the persisted total is still the satisfying 50.
+      const row = await userApi.retrieveRecord("sample_orders", id, "?$select=sample_ordertotal");
+      expect((row as any).sample_ordertotal).toBe(50);
+    }, { label: "channel update blocked" });
   });
 });

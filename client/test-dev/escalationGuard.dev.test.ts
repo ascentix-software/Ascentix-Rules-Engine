@@ -3,6 +3,7 @@ import { createDevApi } from "./devApi";
 import { devOrg } from "./devOrg";
 import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // Trusted Authors may publish System-context writes without business-table privileges.
 describe("trusted Author System-context publication (live)", () => {
@@ -34,9 +35,10 @@ describe("trusted Author System-context publication (live)", () => {
     tc = await ensureTableConfig();
   });
   afterEach(async () => {
-    while (cleanups.length) await cleanups.pop()!();
+    await drainCleanups(cleanups);
   });
   afterAll(async () => {
+    await drainCleanups(cleanups);
     await tc.cleanup();
   });
 

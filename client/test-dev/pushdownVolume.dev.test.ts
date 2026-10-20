@@ -1,6 +1,8 @@
 import { it, expect, beforeAll, afterEach, afterAll } from "vitest";
 import { createDevApi, runRules } from "./devApi";
 import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
+import { drainCleanups } from "./ruleBehavior/cleanups";
+import { eventually } from "./ruleBehavior/settle";
 
 // ─── Pushdown volume proof: the ZZ_VOL_ fixture ──────────────────────────────────────────
 //
@@ -41,12 +43,13 @@ beforeAll(async () => {
 }, 240000);
 
 afterEach(async () => {
-  while (ruleCleanups.length) await ruleCleanups.pop()!();
+  await drainCleanups(ruleCleanups);
 }, 240000);
 
 // The ZZ_VOL_ rows are permanent by design (outside every sweep). Only the table-config
 // graph authored for this run is cleaned.
 afterAll(async () => {
+  await drainCleanups(ruleCleanups);
   await tc?.cleanup();
 }, 240000);
 
@@ -64,10 +67,12 @@ async function boundaryPin(label: string, truth: number, criteria: Array<{ field
     });
     ruleCleanups.push(r.cleanup);
   }
-  const result = await runRules("sample_order", { recordId: orderId, triggers: "Manual" });
-  const fired = JSON.stringify(result.firedActions);
-  expect(fired.includes(`VOL ${label} lo`), `${label}: count < ${truth}`).toBe(false);
-  expect(fired.includes(`VOL ${label} hi`), `${label}: count > ${truth}`).toBe(true);
+  await eventually(async () => {
+    const result = await runRules("sample_order", { recordId: orderId, triggers: "Manual" });
+    const fired = JSON.stringify(result.firedActions);
+    expect(fired.includes(`VOL ${label} lo`), `${label}: count < ${truth}`).toBe(false);
+    expect(fired.includes(`VOL ${label} hi`), `${label}: count > ${truth}`).toBe(true);
+  }, { label: `${label} pins` });
 }
 
 it("selective pushed filter over the 26k collection evaluates exactly (20 matches)", async () => {
@@ -88,13 +93,15 @@ it("an unfiltered rule on the same collection trips the cap with the named error
   });
   ruleCleanups.push(r.cleanup);
 
-  let message = "";
-  try {
-    await runRules("sample_order", { recordId: orderId, triggers: "Manual" });
-  } catch (e: any) {
-    message = e.message;
-  }
-  expect(message, "cap did not trip — 26k rows were materialized").toContain("25,000");
-  expect(message).toContain("sample_orderline");
+  await eventually(async () => {
+    let message = "";
+    try {
+      await runRules("sample_order", { recordId: orderId, triggers: "Manual" });
+    } catch (e: any) {
+      message = e.message;
+    }
+    expect(message, "cap did not trip — 26k rows were materialized").toContain("25,000");
+    expect(message).toContain("sample_orderline");
+  }, { label: "row cap" });
   // Fail-not-truncate: the run threw; it did not return a silently-wrong count.
 }, 600000);

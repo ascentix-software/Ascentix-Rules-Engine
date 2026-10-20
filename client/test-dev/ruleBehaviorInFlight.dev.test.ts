@@ -1,13 +1,11 @@
 import { describe, it, expect, beforeAll, afterEach, afterAll } from "vitest";
 import { createDevApi, deleteDevRecord } from "./devApi";
 import { ensureLineRootedConfig, authorRule } from "./ruleBehavior/authoring";
-import {
-  createSubject, createOrderLine, updateSubject,
-  expectBlockedOnUpdate, expectBlockedOnCreate,
-} from "./ruleBehavior/subjects";
+import { createSubject, createOrderLine, expectUpdateSucceeds, expectBlockedOnUpdate, expectBlockedOnCreate } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
 import { resolveNavProp } from "./ruleBehavior/navProps";
 import { settle } from "./ruleBehavior/settle";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // In-flight traversal consistency. Enforcement steps are PRE-operation, so a rule rooted on
 // sample_orderline that traverses back to its order's lines re-reads the very table being
@@ -26,9 +24,10 @@ beforeAll(async () => {
   tc = await ensureLineRootedConfig();
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
 });
 afterAll(async () => {
+  await drainCleanups(cleanups);
   await tc.cleanup();
 });
 
@@ -96,7 +95,7 @@ describe("in-flight traversal consistency (root table re-read by its own rule)",
     const { lineIds } = await seedOrder("ZZ_RB_if_under", [100, 50]);
 
     // 10 + 50 = 60 <= 100 -> allowed. Stale read: 100 + 50 = 150 > 100 -> would have blocked.
-    await updateSubject("sample_orderlines", lineIds[0], { sample_lineamount: 10 });
+    await expectUpdateSucceeds("sample_orderlines", lineIds[0], { sample_lineamount: 10 });
   });
 
   it("On Create: the line being created counts toward the sum", async () => {
@@ -180,7 +179,7 @@ describe("in-flight traversal consistency (root table re-read by its own rule)",
       },
       {
         label: "expectBlockedOnDelete sample_orderlines inflight",
-        capMs: 30000,
+        capMs: 60000,
         intervalMs: 1000,
         timeoutMessage: ({ capMs }) =>
           `expectBlockedOnDelete: delete was never blocked within ${capMs}ms ` +

@@ -335,7 +335,16 @@ export function devOrg(identity = "user", opts = {}) {
   // Dataverse can return 404 for a failed nested/platform operation even while
   // the requested row survives. Only accept it after confirming that row is gone.
   async function deleteRecord(entitySet, id) {
-    if (entitySet === "asx_rules") return api.deleteRule(id);
+    if (entitySet === "asx_rules") {
+      try {
+        return await api.deleteRule(id);
+      } catch (e) {
+        // A retried cleanup whose first asx_DeleteRule committed but did not answer.
+        const check = await request("GET", `asx_rules(${id})?$select=asx_ruleid`);
+        if (check.status === 404) return;
+        throw e;
+      }
+    }
     const r = await request("DELETE", `${entitySet}(${id})`);
     if (r.ok) return;
     if (r.status === 404) {

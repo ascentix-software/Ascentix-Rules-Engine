@@ -14,7 +14,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test-dev/**/*.dev.test.ts"],
-    testTimeout: 60000,   // real network round-trips
+    testTimeout: 180000,  // real network round-trips, plus post-publish polling (settle.ts eventually, 60s cap)
     hookTimeout: 120000,  // seed/cleanup hooks
     // Local: a DEV failure is a real signal, never masked. CI (pipeline runs): one retry, because
     // the org is non-hermetic, and a retried-pass is still visible in JUnit; a case that

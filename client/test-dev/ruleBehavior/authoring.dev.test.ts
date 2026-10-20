@@ -3,6 +3,7 @@ import { createDevApi } from "../devApi";
 import { ENTITY_SET } from "../../src/editor/load/odata";
 import { ensureTableConfig, authorRule } from "./authoring";
 import { sweepRuleBehaviorOrphans } from "./sweep";
+import { drainCleanups } from "./cleanups";
 
 const api = createDevApi();
 let tc: Awaited<ReturnType<typeof ensureTableConfig>>;
@@ -13,9 +14,10 @@ beforeAll(async () => {
   tc = await ensureTableConfig();
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
 });
 afterAll(async () => {
+  await drainCleanups(cleanups);
   await tc.cleanup();
 });
 

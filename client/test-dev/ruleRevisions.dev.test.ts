@@ -4,6 +4,7 @@ import { createDevApi, deleteDevRecord, runRules, updateDevRecord } from "./devA
 import { parseBatchOutcome } from "../src/editor/save/batch";
 import { devOrg } from "./devOrg";
 import { loadPublishedGraph } from "../src/editor/load/publishedGraph";
+import { eventually } from "./ruleBehavior/settle";
 
 async function nativeDelete(id: string) {
   const response = await devOrg("user").request("DELETE", `asx_rules(${id})`);
@@ -185,7 +186,9 @@ it("keeps published execution through invalid drafts and accepts latest saved pu
     await api.publishRule(fixture.ruleId);
     const first = await published();
     const liveMessage = first.actions[0].message;
-    expect(await messages()).toContain(liveMessage);
+    // After each publish or unpublish the verdict is polled (settle.ts eventually): the new
+    // definition reaches Dataverse's servers asynchronously.
+    await eventually(async () => expect(await messages()).toContain(liveMessage), { label: "published v1 runs" });
 
     const draftId = await api.openRuleDraft!(fixture.ruleId);
     const reopenedDraftId = await api.openRuleDraft!(fixture.ruleId);
@@ -215,8 +218,11 @@ it("keeps published execution through invalid drafts and accepts latest saved pu
     await api.publishRule(draftId);
     expect((await header()).asx_publishedversion).toBe(2);
     expect((await header()).statuscode).toBe(753840000);
-    expect(await messages()).toContain(nextMessage);
-    expect(await messages()).not.toContain(liveMessage);
+    await eventually(async () => {
+      const now = await messages();
+      expect(now).toContain(nextMessage);
+      expect(now).not.toContain(liveMessage);
+    }, { label: "published v2 runs" });
     expect((await draftHeader()).statuscode).toBe(1);
     await updateDevRecord("asx_ruleactions", actionId, { asx_message: "Discard this" });
     await api.restoreRuleDraft!(draftId);
@@ -224,13 +230,13 @@ it("keeps published execution through invalid drafts and accepts latest saved pu
     expect(await messages()).toContain(nextMessage);
 
     await api.unpublishRule(fixture.ruleId);
-    expect(await messages()).toEqual([]);
+    await eventually(async () => expect(await messages()).toEqual([]), { label: "unpublished rule stops" });
     await expect(api.publishRule(fixture.ruleId)).rejects.toThrow(/working draft/);
     expect((await api.validateRule(draftId)).isValid).toBe(true);
     await api.publishRule(draftId);
     expect((await header()).asx_publishedversion).toBe(3);
-    expect(await messages()).toContain(nextMessage);
+    await eventually(async () => expect(await messages()).toContain(nextMessage), { label: "published v3 runs" });
   } finally {
     await fixture.cleanup();
   }
-});
+}, 300000);

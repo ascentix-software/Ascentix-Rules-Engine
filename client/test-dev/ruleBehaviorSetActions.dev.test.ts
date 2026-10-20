@@ -5,8 +5,9 @@ import { ENTITY_SET } from "../src/editor/load/odata";
 import { ensureAccountSetConfig, authorRule, type AuthoredRule } from "./ruleBehavior/authoring";
 import { createSubject, expectBlockedOnUpdate } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
-import { configsVisible } from "./ruleBehavior/settle";
+import { configsVisible, eventually } from "./ruleBehavior/settle";
 import { setBulkWrites, SWITCH_SETTLE_MS } from "./bulkWritesSwitch";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // Spec §1.1 on DEV: an account rule keeps its contacts and their follow-up tasks in step with credit hold.
 const STAMP = Date.now();
@@ -88,61 +89,67 @@ beforeAll(async () => {
     settleProbe: settleHoldOnObserved,
   });
 }, 300_000);
-afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
-afterAll(async () => { await rule?.cleanup(); await cfg?.cleanup(); });
+afterEach(async () => { await drainCleanups(cleanups); });
+afterAll(async () => { await drainCleanups(cleanups); await rule?.cleanup(); await cfg?.cleanup(); });
 
 describe("set actions on DEV (spec §1.1)", () => {
   it("hold on: updates active contacts and creates one follow-up per active contact; saving again writes nothing", async () => {
-    const acc = await account("a");
-    const ann = await contact(acc, "a_Ann");
-    const bob = await contact(acc, "a_Bob");
-    const cy = await contact(acc, "a_Cy", false);
+    // Fresh account and contacts per attempt (settle.ts eventually).
+    await eventually(async () => {
+      const acc = await account("a");
+      const ann = await contact(acc, "a_Ann");
+      const bob = await contact(acc, "a_Bob");
+      const cy = await contact(acc, "a_Cy", false);
 
-    await updateDevRecord("accounts", acc, { creditonhold: true });
+      await updateDevRecord("accounts", acc, { creditonhold: true });
 
-    const contacts = (await api.retrieveMultipleRecords("contacts", `?$select=contactid,donotbulkemail&$filter=_parentcustomerid_value eq ${acc}`)).entities;
-    expect(contacts.find((c) => c.contactid === ann).donotbulkemail).toBe(true);
-    expect(contacts.find((c) => c.contactid === bob).donotbulkemail).toBe(true);
-    expect(contacts.find((c) => c.contactid === cy).donotbulkemail).toBe(false);
-    expect((await followUps([ann, bob, cy])).length).toBe(2);
+      const contacts = (await api.retrieveMultipleRecords("contacts", `?$select=contactid,donotbulkemail&$filter=_parentcustomerid_value eq ${acc}`)).entities;
+      expect(contacts.find((c) => c.contactid === ann).donotbulkemail).toBe(true);
+      expect(contacts.find((c) => c.contactid === bob).donotbulkemail).toBe(true);
+      expect(contacts.find((c) => c.contactid === cy).donotbulkemail).toBe(false);
+      expect((await followUps([ann, bob, cy])).length).toBe(2);
 
-    const dry = await runRules("account", { recordId: acc, triggers: "OnUpdate" });
-    expect(dry.changeSet).toEqual({ creates: 0, updates: 0, deletes: 0, unchanged: 2 });
+      const dry = await runRules("account", { recordId: acc, triggers: "OnUpdate" });
+      expect(dry.changeSet).toEqual({ creates: 0, updates: 0, deletes: 0, unchanged: 2 });
 
-    const applied = await applyRules(rule.ruleId, acc);
-    expect(applied.writeCount).toBe(0);
-    expect((await followUps([ann, bob, cy])).length).toBe(2);
+      const applied = await applyRules(rule.ruleId, acc);
+      expect(applied.writeCount).toBe(0);
+      expect((await followUps([ann, bob, cy])).length).toBe(2);
+    }, { label: "hold on" });
   });
 
   it("hold off: completes the started follow-up and deletes the one nobody started (merged delete)", async () => {
-    const acc = await account("b");
-    const ann = await contact(acc, "b_Ann");
-    const bob = await contact(acc, "b_Bob");
-    await updateDevRecord("accounts", acc, { creditonhold: true });
-    const [started, untouched] = await followUps([ann, bob]);
-    await updateDevRecord("tasks", started.activityid, { statuscode: 3 }); // In Progress
+    // Fresh account and contacts per attempt (settle.ts eventually).
+    await eventually(async () => {
+      const acc = await account("b");
+      const ann = await contact(acc, "b_Ann");
+      const bob = await contact(acc, "b_Bob");
+      await updateDevRecord("accounts", acc, { creditonhold: true });
+      const [started, untouched] = await followUps([ann, bob]);
+      await updateDevRecord("tasks", started.activityid, { statuscode: 3 }); // In Progress
 
-    // IMPORTANT 4: prove the merge itself, not just its end state — updates go out before
-    // deletes (§4.4), so "deactivate then delete" would land on the same end state even without
-    // R6's merge rule. The dry run's ChangeSet is keyed by record, so it can only show ONE
-    // outcome per row: `untouched` matches both the Deactivate's Rows filter (statecode eq 0) and
-    // the Delete's Rows filter (statuscode eq 2), so with the merge it must report exactly one
-    // update (`started`, deactivated) and one delete (`untouched`) — never two updates.
-    const dryOff = await runRules("account", { recordId: acc, recordJson: JSON.stringify({ creditonhold: false }), triggers: "OnUpdate" });
-    expect(dryOff.changeSet).toEqual({ creates: 0, updates: 1, deletes: 1, unchanged: 0 });
+      // IMPORTANT 4: prove the merge itself, not just its end state — updates go out before
+      // deletes (§4.4), so "deactivate then delete" would land on the same end state even without
+      // R6's merge rule. The dry run's ChangeSet is keyed by record, so it can only show ONE
+      // outcome per row: `untouched` matches both the Deactivate's Rows filter (statecode eq 0) and
+      // the Delete's Rows filter (statuscode eq 2), so with the merge it must report exactly one
+      // update (`started`, deactivated) and one delete (`untouched`) — never two updates.
+      const dryOff = await runRules("account", { recordId: acc, recordJson: JSON.stringify({ creditonhold: false }), triggers: "OnUpdate" });
+      expect(dryOff.changeSet).toEqual({ creates: 0, updates: 1, deletes: 1, unchanged: 0 });
 
-    await updateDevRecord("accounts", acc, { creditonhold: false });
+      await updateDevRecord("accounts", acc, { creditonhold: false });
 
-    const after = await followUps([ann, bob]);
-    expect(after.map((t) => t.activityid)).toEqual([started.activityid]);
-    expect(after[0].statecode).toBe(1); // Completed (Deactivate, default status)
-    // P15b: assert the untouched task's own fate — it matched both the Deactivate's Rows filter
-    // and the Delete's Rows filter, and R6 says an update and a delete of the same record merge
-    // into the delete, so the row itself must be gone.
-    const stillThere = await api.retrieveMultipleRecords(
-      "tasks", `?$select=activityid&$filter=activityid eq ${untouched.activityid}`,
-    );
-    expect(stillThere.entities.length).toBe(0);
+      const after = await followUps([ann, bob]);
+      expect(after.map((t) => t.activityid)).toEqual([started.activityid]);
+      expect(after[0].statecode).toBe(1); // Completed (Deactivate, default status)
+      // P15b: assert the untouched task's own fate — it matched both the Deactivate's Rows filter
+      // and the Delete's Rows filter, and R6 says an update and a delete of the same record merge
+      // into the delete, so the row itself must be gone.
+      const stillThere = await api.retrieveMultipleRecords(
+        "tasks", `?$select=activityid&$filter=activityid eq ${untouched.activityid}`,
+      );
+      expect(stillThere.entities.length).toBe(0);
+    }, { label: "hold off" });
   });
 });
 
@@ -164,13 +171,10 @@ describe("set actions: Block and merge (spec §4.3/§4.4)", () => {
           rowFilter: { criteria: [{ fieldName: "statecode", operator: "eq", value: "0" }] } },
       ],
     });
-    try {
-      await expectBlockedOnUpdate("accounts", acc, { telephone1: marker }, `ZZ_RB_set_${STAMP} blocked`);
-      const after = await api.retrieveRecord("contacts", ann, "?$select=donotbulkemail");
-      expect(after.donotbulkemail).toBe(false);
-    } finally {
-      await r.cleanup();
-    }
+    cleanups.push(r.cleanup);
+    await expectBlockedOnUpdate("accounts", acc, { telephone1: marker }, `ZZ_RB_set_${STAMP} blocked`);
+    const after = await api.retrieveRecord("contacts", ann, "?$select=donotbulkemail");
+    expect(after.donotbulkemail).toBe(false);
   });
 
   it("two actions writing the same row merge into one update in the dry run's change set", async () => {
@@ -189,12 +193,11 @@ describe("set actions: Block and merge (spec §4.3/§4.4)", () => {
           rowFilter: { criteria: [{ fieldName: "statecode", operator: "eq", value: "0" }] } },
       ],
     });
-    try {
+    cleanups.push(r.cleanup);
+    await eventually(async () => {
       const dry = await runRules("account", { recordId: acc, recordJson: JSON.stringify({ telephone1: marker }), triggers: "OnUpdate" });
       expect(dry.changeSet).toEqual({ creates: 0, updates: 1, deletes: 0, unchanged: 0 });
-    } finally {
-      await r.cleanup();
-    }
+    }, { label: "merged change set" });
   });
 });
 
@@ -256,13 +259,17 @@ describe("DEV probes (Task 11 unknowns)", () => {
       const contactRootId = await api.createRecord(ENTITY_SET.tableConfig, {
         asx_name: `ZZ_RB_TC_set_contactroot_${tagStamp}`, asx_tablelogicalname: "contact", asx_tableconfigtype: 1,
       });
+      // The rule goes before its root (cleanups run last-in first-out), and both outlive this test's
+      // finally, so a failed delete is retried by drainCleanups instead of dropped.
+      let tagRule: AuthoredRule | undefined;
+      cleanups.push(() => deleteDevRecord(ENTITY_SET.tableConfig, contactRootId));
+      cleanups.push(async () => { await tagRule?.cleanup(); });
       // IMPORTANT 2: a freshly created asx_tableconfig row is not immediately visible to the
       // engine's id-filtered RetrieveMultiple over that table (same lag ensureTableConfig-style
       // helpers settle for via awaitConfigsVisible) — publish below would validate/register against
       // a tree that doesn't see its own root yet.
       await configsVisible([contactRootId]);
       const settleContactId = await createSubject("contacts", { lastname: `ZZ_RB_set_${tagStamp}_settle`, donotbulkemail: false });
-      let tagRule: AuthoredRule | undefined;
       try {
         tagRule = await authorRule({
           name: `ZZ_RB_set_tag_${tagStamp}`, rootNodeId: contactRootId, tableLogicalName: "contact", triggers: "4",
@@ -289,39 +296,38 @@ describe("DEV probes (Task 11 unknowns)", () => {
         // UpdateMultiple at writes.Count >= 2 (ChangeSetDispatcher.cs); with a single contact the
         // account rule's write goes as an ordinary single Update regardless of whether the tag
         // survives the bulk path, so the probe couldn't fail even if that propagation were broken.
-        const acc = await account("tag");
-        const ann = await contact(acc, "tag_Ann");
-        const bob = await contact(acc, "tag_Bob");
-        await updateDevRecord("accounts", acc, { creditonhold: true }); // fires the account rule's bulk UpdateMultiple
+        // Fresh account and contacts per attempt (settle.ts eventually).
+        await eventually(async () => {
+          const acc = await account("tag");
+          const ann = await contact(acc, "tag_Ann");
+          const bob = await contact(acc, "tag_Bob");
+          await updateDevRecord("accounts", acc, { creditonhold: true }); // fires the account rule's bulk UpdateMultiple
 
-        // Positive control: the bulk write actually happened, for both contacts.
-        const afterBulk = (await api.retrieveMultipleRecords("contacts",
-          `?$select=contactid,donotbulkemail&$filter=_parentcustomerid_value eq ${acc}`)).entities;
-        for (const c of [ann, bob]) {
-          const row = afterBulk.find((x) => x.contactid === c);
-          expect(row?.donotbulkemail).toBe(true);
-        }
+          // Positive control: the bulk write actually happened, for both contacts.
+          const afterBulk = (await api.retrieveMultipleRecords("contacts",
+            `?$select=contactid,donotbulkemail&$filter=_parentcustomerid_value eq ${acc}`)).entities;
+          for (const c of [ann, bob]) {
+            const row = afterBulk.find((x) => x.contactid === c);
+            expect(row?.donotbulkemail).toBe(true);
+          }
 
-        // The real assertion: neither contact's own OnUpdate rule fired as a side effect of the
-        // bulk write that just touched it.
-        for (const c of [ann, bob]) {
-          const tasks = (await api.retrieveMultipleRecords("tasks",
-            `?$select=activityid&$filter=_regardingobjectid_value eq ${c} and subject eq '${probeSubject}'`)).entities;
-          console.log(`PROBE engine-tag propagation: tasks for contact ${c} after bulk UpdateMultiple = ${tasks.length}`);
-          expect(tasks.length).toBe(0);
-        }
+          // The real assertion: neither contact's own OnUpdate rule fired as a side effect of the
+          // bulk write that just touched it.
+          for (const c of [ann, bob]) {
+            const tasks = (await api.retrieveMultipleRecords("tasks",
+              `?$select=activityid&$filter=_regardingobjectid_value eq ${c} and subject eq '${probeSubject}'`)).entities;
+            console.log(`PROBE engine-tag propagation: tasks for contact ${c} after bulk UpdateMultiple = ${tasks.length}`);
+            expect(tasks.length).toBe(0);
+          }
+        }, { label: "bulk write tag probe" });
       } finally {
         const leftoverTasks = await api.retrieveMultipleRecords(
           "tasks", `?$select=activityid&$filter=subject eq '${probeSubject}'`,
         ).catch(() => ({ entities: [] as any[] }));
         for (const t of leftoverTasks.entities) await deleteDevRecord("tasks", t.activityid).catch(() => {});
-        // Cheap fix: keep cleaning up even if the rule's own cascade delete throws (e.g. a
-        // mid-authoring failure left it partially built).
-        try { await tagRule?.cleanup(); } catch (e) { console.warn("tagRule cleanup failed:", e); }
         await deleteDevRecord("contacts", settleContactId).catch(() => {});
-        await deleteDevRecord(ENTITY_SET.tableConfig, contactRootId).catch(() => {});
       }
-    }, 180_000); // IMPORTANT 3: explicit timeout — two settle rounds plus a bulk write and cleanup.
+    }, 300_000); // IMPORTANT 3: explicit timeout — two settle rounds plus a polled bulk write and cleanup.
 
     it("probe: the engine's own CreateMultiple of tasks runs a task OnCreate rule with a server action on every task", async () => {
       // Final review Important 1: a Create per row of >= 2 contacts goes out as ONE engine-issued
@@ -344,10 +350,12 @@ describe("DEV probes (Task 11 unknowns)", () => {
       const taskRootId = await api.createRecord(ENTITY_SET.tableConfig, {
         asx_name: `ZZ_RB_TC_set_taskroot_${cmStamp}`, asx_tablelogicalname: "task", asx_tableconfigtype: 1,
       });
+      let taskRule: AuthoredRule | undefined;
+      cleanups.push(() => deleteDevRecord(ENTITY_SET.tableConfig, taskRootId)); // same order as the tag probe
+      cleanups.push(async () => { await taskRule?.cleanup(); });
       await configsVisible([taskRootId]); // same lag as the tag probe's contact root
       const probeTaskIds: string[] = [];
       let contactIds: string[] = [];
-      let taskRule: AuthoredRule | undefined;
       const description = async (id: string) =>
         (await api.retrieveRecord("tasks", id, "?$select=subject,description")) as { subject: string; description: string | null };
       try {
@@ -367,30 +375,33 @@ describe("DEV probes (Task 11 unknowns)", () => {
 
         // A user-issued CreateMultiple with no ids reaches the same path; each task gets its own subject.
         const org = devOrg("user");
-        const bulk = await org.request("POST", "tasks/Microsoft.Dynamics.CRM.CreateMultiple", {
-          Targets: [1, 2].map((n) => ({ "@odata.type": "Microsoft.Dynamics.CRM.task", subject: `${marker}_cm_user_${n}` })),
-        });
-        console.log(`PROBE user CreateMultiple of tasks without ids: status=${bulk.status}${bulk.ok ? "" : ` ${bulk.text}`}`);
-        expect(bulk.ok).toBe(true);
-        const userIds: string[] = bulk.json?.Ids ?? [];
-        probeTaskIds.push(...userIds);
-        expect(userIds.length).toBe(2);
-        for (const id of userIds) {
-          const row = await description(id);
-          expect(row.description).toBe(row.subject);
-        }
+        // Polled (settle.ts eventually): fresh tasks, account and contacts per attempt.
+        await eventually(async () => {
+          const bulk = await org.request("POST", "tasks/Microsoft.Dynamics.CRM.CreateMultiple", {
+            Targets: [1, 2].map((n) => ({ "@odata.type": "Microsoft.Dynamics.CRM.task", subject: `${marker}_cm_user_${n}` })),
+          });
+          console.log(`PROBE user CreateMultiple of tasks without ids: status=${bulk.status}${bulk.ok ? "" : ` ${bulk.text}`}`);
+          expect(bulk.ok).toBe(true);
+          const userIds: string[] = bulk.json?.Ids ?? [];
+          probeTaskIds.push(...userIds);
+          expect(userIds.length).toBe(2);
+          for (const id of userIds) {
+            const row = await description(id);
+            expect(row.description).toBe(row.subject);
+          }
 
-        // The engine-issued CreateMultiple: the suite's account rule creates one follow-up per active contact.
-        const acc = await account("cm");
-        contactIds = [await contact(acc, "cm_Ann"), await contact(acc, "cm_Bob")];
-        await updateDevRecord("accounts", acc, { creditonhold: true }); // must not fail the save
+          // The engine-issued CreateMultiple: the suite's account rule creates one follow-up per active contact.
+          const acc = await account("cm");
+          contactIds = [await contact(acc, "cm_Ann"), await contact(acc, "cm_Bob")];
+          await updateDevRecord("accounts", acc, { creditonhold: true }); // must not fail the save
 
-        const created = (await api.retrieveMultipleRecords("tasks",
-          `?$select=activityid,subject,description&$filter=(${contactIds.map((c) => `_regardingobjectid_value eq ${c}`).join(" or ")})`)).entities;
-        console.log(`PROBE engine CreateMultiple of follow-ups under a task OnCreate rule: ${created.length} task(s), ` +
-          `descriptions ${created.map((t) => (t.description === t.subject ? "own" : JSON.stringify(t.description))).join(",")}`);
-        expect(created.length).toBe(2);
-        for (const t of created) expect(t.description).toBe(t.subject);
+          const created = (await api.retrieveMultipleRecords("tasks",
+            `?$select=activityid,subject,description&$filter=(${contactIds.map((c) => `_regardingobjectid_value eq ${c}`).join(" or ")})`)).entities;
+          console.log(`PROBE engine CreateMultiple of follow-ups under a task OnCreate rule: ${created.length} task(s), ` +
+            `descriptions ${created.map((t) => (t.description === t.subject ? "own" : JSON.stringify(t.description))).join(",")}`);
+          expect(created.length).toBe(2);
+          for (const t of created) expect(t.description).toBe(t.subject);
+        }, { label: "CreateMultiple probe" });
       } finally {
         const leftovers = contactIds.length
           ? await api.retrieveMultipleRecords("tasks",
@@ -399,9 +410,7 @@ describe("DEV probes (Task 11 unknowns)", () => {
           : { entities: [] as any[] };
         for (const t of leftovers.entities) await deleteDevRecord("tasks", t.activityid).catch(() => {});
         for (const id of probeTaskIds) await deleteDevRecord("tasks", id).catch(() => {});
-        try { await taskRule?.cleanup(); } catch (e) { console.warn("taskRule cleanup failed:", e); }
-        await deleteDevRecord(ENTITY_SET.tableConfig, taskRootId).catch(() => {});
       }
-    }, 180_000);
+    }, 300_000);
   });
 });
