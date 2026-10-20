@@ -11,6 +11,7 @@ import type { EditorApi, DataUpdateStatus } from "../../src/editor/webapi";
 import type { RuleGraph } from "../../src/editor/model/types";
 import type { RuleSetItem } from "../../src/editor/load/hubData";
 import { RuleEditorApp } from "../../src/editor/ui/RuleEditorApp";
+import { ruleSetChoice } from "../../src/editor/ui/RuleSettingsStrip";
 import { publishedRuleId, publishedDefinition } from "./publishedFixtures";
 
 // The editor's Rule set chip writes the stable rule row straight away (never the draft) and is
@@ -268,5 +269,19 @@ describe("Rule set chip in the editor", () => {
     expect(await screen.findByTestId("rule-settings-strip")).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByRole("button", { name: /^Rule set:/ })).toBeNull();
+  });
+});
+
+describe("ruleSetChoice", () => {
+  it("an option select with no value changes nothing", () => {
+    expect(ruleSetChoice(undefined, "set-1")).toBeNull();
+    expect(ruleSetChoice("", null)).toBeNull();
+  });
+  it("maps the options: New opens the name box, No rule set clears, a set picks it, the current one is a no-op", () => {
+    expect(ruleSetChoice("__new__", "set-1")).toBe("new");
+    expect(ruleSetChoice("__none__", "set-1")).toEqual({ ruleSetId: null });
+    expect(ruleSetChoice("set-2", "set-1")).toEqual({ ruleSetId: "set-2" });
+    expect(ruleSetChoice("set-1", "set-1")).toBeNull();
+    expect(ruleSetChoice("__none__", null)).toBeNull();
   });
 });

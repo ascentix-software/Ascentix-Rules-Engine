@@ -126,6 +126,14 @@ const NEW_SET = "__new__";
 /** What the Rule set chip asks for: an existing set (null = no rule set), or a set to create first. */
 export type RuleSetChange = { ruleSetId: string | null } | { newName: string };
 
+/** What picking a dropdown option means: open the New rule set name box, a set change, or nothing (no value). */
+export function ruleSetChoice(optionValue: string | undefined, currentId: string | null): "new" | RuleSetChange | null {
+  if (!optionValue) return null;
+  if (optionValue === NEW_SET) return "new";
+  const id = optionValue === NO_SET ? null : optionValue;
+  return id === currentId ? null : { ruleSetId: id };
+}
+
 /**
  * The rule's rule set as a chip beside the data model. A choice is saved at once through
  * `onChange` (which rejects on failure; the reason shows in the popover), so it is never part of
@@ -205,10 +213,10 @@ export function RuleSetChip({ current, sets, disabled, onChange }: {
                 selectedOptions={[creating ? NEW_SET : current?.id ?? NO_SET]}
                 onOptionSelect={(_e, d) => {
                   setError(null); setAdopt(null);
-                  if (d.optionValue === NEW_SET) { setCreating(true); return; }
+                  const choice = ruleSetChoice(d.optionValue, current?.id ?? null);
+                  if (choice === "new") { setCreating(true); return; }
                   setCreating(false);
-                  const id = !d.optionValue || d.optionValue === NO_SET ? null : d.optionValue;
-                  if (id !== (current?.id ?? null)) void save({ ruleSetId: id });
+                  if (choice) void save(choice);
                 }}>
                 <Option value={NO_SET}>No rule set</Option>
                 {sets.map((s) => <Option key={s.id} value={s.id}>{s.name}</Option>)}
