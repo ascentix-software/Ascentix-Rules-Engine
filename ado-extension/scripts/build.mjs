@@ -3,7 +3,7 @@
 import { build } from 'esbuild';
 import { copyFileSync } from 'node:fs';
 
-for (const task of ['AscentixRulesExport', 'AscentixRulesImport']) {
+for (const task of ['RulesTransportExport', 'RulesTransportImport']) {
   await build({
     entryPoints: [`tasks/${task}/index.ts`],
     outfile: `tasks/${task}/index.js`,

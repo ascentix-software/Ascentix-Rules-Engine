@@ -1,33 +1,83 @@
 {
   "manifestVersion": 1,
-  "id": "ascentix-rules-transport",
+  "id": "rules-transport-tasks",
   "publisher": "AscentixSoftware",
-  "version": "0.1.0",
-  "name": "Ascentix Rules Transport",
+  "version": "0.1.1",
+  "name": "Rules Transport Tasks",
   "description": "Export and import Ascentix Rules Engine rules between Dataverse environments from Azure Pipelines.",
-  "public": false,
-  "categories": ["Azure Pipelines"],
-  "tags": ["Power Platform", "Dataverse", "Ascentix", "Rules"],
-  "icons": { "default": "images/icon.png" },
-  "targets": [{ "id": "Microsoft.VisualStudio.Services" }],
-  "content": { "details": { "path": "README.md" } },
+  "public": true,
+  "categories": [
+    "Azure Pipelines"
+  ],
+  "tags": [
+    "Power Platform",
+    "Dataverse",
+    "Ascentix",
+    "Rules"
+  ],
+  "icons": {
+    "default": "images/icon.png"
+  },
+  "targets": [
+    {
+      "id": "Microsoft.VisualStudio.Services"
+    }
+  ],
+  "content": {
+    "details": {
+      "path": "overview.md"
+    }
+  },
+  "links": {
+    "getstarted": {
+      "uri": "https://ascentix.ca/power-platform/rules-engine/moving-rules-between-environments"
+    },
+    "learn": {
+      "uri": "https://ascentix.ca/power-platform/rules-engine"
+    },
+    "support": {
+      "uri": "https://github.com/ascentix-software/Ascentix-Rules-Engine/issues"
+    },
+    "license": {
+      "uri": "https://github.com/ascentix-software/Ascentix-Rules-Engine/blob/main/LICENSE"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "uri": "https://github.com/ascentix-software/Ascentix-Rules-Engine"
+  },
   "files": [
-    { "path": "images", "addressable": true },
-    { "path": "tasks/AscentixRulesExport" },
-    { "path": "tasks/AscentixRulesImport" }
+    {
+      "path": "images",
+      "addressable": true
+    },
+    {
+      "path": "tasks/RulesTransportExport"
+    },
+    {
+      "path": "tasks/RulesTransportImport"
+    }
   ],
   "contributions": [
     {
-      "id": "ascentix-rules-export-task",
+      "id": "rules-transport-export-task",
       "type": "ms.vss-distributed-task.task",
-      "targets": ["ms.vss-distributed-task.tasks"],
-      "properties": { "name": "tasks/AscentixRulesExport" }
+      "targets": [
+        "ms.vss-distributed-task.tasks"
+      ],
+      "properties": {
+        "name": "tasks/RulesTransportExport"
+      }
     },
     {
-      "id": "ascentix-rules-import-task",
+      "id": "rules-transport-import-task",
       "type": "ms.vss-distributed-task.task",
-      "targets": ["ms.vss-distributed-task.tasks"],
-      "properties": { "name": "tasks/AscentixRulesImport" }
+      "targets": [
+        "ms.vss-distributed-task.tasks"
+      ],
+      "properties": {
+        "name": "tasks/RulesTransportImport"
+      }
     }
   ]
 }

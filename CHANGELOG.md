@@ -12,7 +12,7 @@ carry the word "beta". `1.0.0.0` is reserved for the first full release.
 
 - **Rule sets and rule transport.** A rule can belong to a **rule set** (new table `asx_ruleset`),
   set from the hub's **Set rule set** row action, which also creates sets. The hub's Rules tab has a
-  **Rule set** column and filter. The **Ascentix Rules Transport** extension for Azure DevOps
+  **Rule set** column and filter. The **Rules Transport Tasks** extension for Azure DevOps
   (`ado-extension/`) exports the published rules of rule sets to a package and imports them into
   another environment, one rule at a time, with a dry run, conflict and collision reporting and an
   option to archive rules the package no longer carries. Three new Custom APIs back it:
