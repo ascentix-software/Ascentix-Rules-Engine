@@ -1,7 +1,18 @@
 name: ado-extension-ci-$(Date:yyyyMMdd)-$(Rev:r)
 
-# Builds the Ascentix Rules Transport extension and keeps the .vsix as a pipeline artifact.
-# It needs no Dataverse environment and never publishes to the Marketplace.
+# Builds the Azure DevOps extension and keeps each .vsix as a pipeline artifact. It needs no Dataverse
+# environment and never publishes to the Marketplace.
+#   public:  AscentixSoftware.rules-transport-tasks (Rules Transport Tasks), artifact ado-extension-public
+#   private: AscentixSoftware.ascentix-rules-transport (the test build, from vss-extension.dev.json),
+#            artifact ado-extension-private
+# A develop push builds both. A manual run picks one or both.
+
+parameters:
+  - name: build
+    displayName: Extension to build
+    type: string
+    default: both
+    values: [both, public, private]
 
 trigger:
   branches: { include: [develop] }
@@ -25,18 +36,28 @@ steps:
   - script: npm test
     workingDirectory: ado-extension
     displayName: vitest run
-  - script: npm run typecheck
-    workingDirectory: ado-extension
-    displayName: tsc --noEmit
   - script: npm run build
     workingDirectory: ado-extension
-    displayName: esbuild bundles
-  - script: npm run package
-    workingDirectory: ado-extension
-    displayName: tfx extension create
-  - task: PublishPipelineArtifact@1
-    displayName: Publish the extension package
-    inputs:
-      targetPath: ado-extension/dist
-      artifact: ado-extension-vsix
-      publishLocation: pipeline
+    displayName: Type-check and bundle the tasks
+
+  - ${{ if ne(parameters.build, 'private') }}:
+    - script: npx tfx extension create --manifest-globs vss-extension.json --output-path dist/public
+      workingDirectory: ado-extension
+      displayName: Package the public extension
+    - task: PublishPipelineArtifact@1
+      displayName: Keep the public .vsix
+      inputs:
+        targetPath: ado-extension/dist/public
+        artifact: ado-extension-public
+        publishLocation: pipeline
+
+  - ${{ if ne(parameters.build, 'public') }}:
+    - script: node scripts/package-dev.mjs dist/private
+      workingDirectory: ado-extension
+      displayName: Package the private test extension
+    - task: PublishPipelineArtifact@1
+      displayName: Keep the private .vsix
+      inputs:
+        targetPath: ado-extension/dist/private
+        artifact: ado-extension-private
+        publishLocation: pipeline

@@ -8,7 +8,7 @@ slug: moving-rules-between-environments
 # Moving Rules Between Environments
 
 Rules are built in a development environment and promoted to test and production. The
-**Ascentix Rules Transport** extension for Azure DevOps does this from a pipeline: one task writes
+**Rules Transport Tasks** extension for Azure DevOps does this from a pipeline: one task writes
 the published rules of one or more **rule sets** to a package file, another reads the package and
 imports each rule into the target environment. The solution must be installed in both
 environments (*Installation*).
@@ -32,10 +32,8 @@ only rules in a rule set can be exported.
 Before you start, install Microsoft's **Power Platform Build Tools** extension in your Azure DevOps
 organization. It provides the **Power Platform** service connection type the tasks sign in with.
 
-1. Install the **Ascentix Rules Transport** extension. It is a private extension: its `.vsix` is
-   the `ado-extension-vsix` artifact of the extension's build pipeline
-   (`pipelines/ado-extension-ci.yml`), uploaded to the Visual Studio Marketplace and shared with
-   your organization. Install it from **Organization settings** → **Extensions** → **Shared**.
+1. Install **Rules Transport Tasks** from the
+   [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=AscentixSoftware.rules-transport-tasks).
 2. Create a **Power Platform** service connection for each environment you read from or write to.
    Both authentication types work: a client secret, or workload identity federation (no secret to
    store or rotate).
@@ -46,7 +44,7 @@ organization. It provides the **Power Platform** service connection type the tas
 
 ## The two tasks
 
-**Ascentix Rules Export** (`AscentixRulesExport@0`)
+**Rules Transport Export** (`RulesTransportExport@0`)
 
 | Input | Notes |
 |---|---|
@@ -58,7 +56,7 @@ organization. It provides the **Power Platform** service connection type the tas
 Only **Published** rules are exported. A draft or archived rule in a selected set is skipped with a
 warning, and so is a name in `rules` that matches no rule.
 
-**Ascentix Rules Import** (`AscentixRulesImport@0`)
+**Rules Transport Import** (`RulesTransportImport@0`)
 
 | Input | Default | Notes |
 |---|---|---|
@@ -74,7 +72,7 @@ A pipeline that promotes the `Finance` rule set from dev to test:
 
 ```yaml
 steps:
-  - task: AscentixRulesExport@0
+  - task: RulesTransportExport@0
     displayName: Export Finance rules from dev
     inputs:
       connection: 'Dataverse-Dev'
@@ -82,14 +80,14 @@ steps:
         Finance
       outputPath: '$(Build.ArtifactStagingDirectory)/rules.asxrules.json'
 
-  - task: AscentixRulesImport@0
+  - task: RulesTransportImport@0
     displayName: Check the import against test
     inputs:
       connection: 'Dataverse-Test'
       packagePath: '$(Build.ArtifactStagingDirectory)/rules.asxrules.json'
       dryRun: true
 
-  - task: AscentixRulesImport@0
+  - task: RulesTransportImport@0
     displayName: Import into test
     inputs:
       connection: 'Dataverse-Test'

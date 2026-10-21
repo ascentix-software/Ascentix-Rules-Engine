@@ -89,7 +89,7 @@ The engine collects nothing from your environments. **A filed issue is the only 
 
 ## 11. Rule transport needs Azure DevOps
 
-Rules move between environments with the **Ascentix Rules Transport** extension for Azure
+Rules move between environments with the **Rules Transport Tasks** extension for Azure
 DevOps (*Moving Rules Between Environments*). There's no in-product export or import, and no
 transport from other pipeline tools. Only published rules move; drafts, run history and
 environment variable values stay behind.
