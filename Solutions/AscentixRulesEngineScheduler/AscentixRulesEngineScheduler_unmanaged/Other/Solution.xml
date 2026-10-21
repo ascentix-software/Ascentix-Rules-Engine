@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<ImportExportXml version="9.2.26094.142" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="CrmLive" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26094.142" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.26094.00142">
+<ImportExportXml version="9.2.26101.157" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="CrmLive" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26101.157" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.26101.00157">
   <SolutionManifest>
     <UniqueName>AscentixRulesEngineScheduler</UniqueName>
     <LocalizedNames>
@@ -8,7 +8,7 @@
     <Descriptions>
       <Description description="Optional scheduler for the Ascentix Rules Engine: a cloud flow that starts due rule schedules every 15 minutes and drives their runs." languagecode="1033" />
     </Descriptions>
-    <Version>0.1.0.2</Version>
+    <Version>0.1.0.3</Version>
     <Managed>0</Managed>
     <Publisher>
       <UniqueName>ascentix</UniqueName>

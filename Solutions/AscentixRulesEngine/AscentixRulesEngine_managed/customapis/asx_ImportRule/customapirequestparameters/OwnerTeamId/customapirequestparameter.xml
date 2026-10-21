@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="OwnerTeamId">
+  <description default="Identifier of the team that owns new rows; the caller owns them when empty.">
+    <label description="Identifier of the team that owns new rows; the caller owns them when empty." languagecode="1033" />
+  </description>
+  <displayname default="OwnerTeamId">
+    <label description="OwnerTeamId" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>OwnerTeamId</name>
+  <type>10</type>
+</customapirequestparameter>

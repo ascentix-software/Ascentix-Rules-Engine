@@ -13,6 +13,7 @@
     <RolePrivilege name="prvReadasx_rule" level="Global" />
     <RolePrivilege name="prvReadasx_ruleaction" level="Global" />
     <RolePrivilege name="prvReadasx_rulecondition" level="Global" />
+    <RolePrivilege name="prvReadasx_RuleSet" level="Global" />
     <RolePrivilege name="prvReadasx_searchcriteriagroup" level="Global" />
     <RolePrivilege name="prvReadasx_searchcriterion" level="Global" />
     <RolePrivilege name="prvReadasx_tableconfig" level="Global" />

@@ -1,0 +1,19 @@
+<customapi uniquename="asx_ExportRule">
+  <allowedcustomprocessingsteptype>0</allowedcustomprocessingsteptype>
+  <bindingtype>0</bindingtype>
+  <description default="Exports one published rule as a transport entry: its published definition, rule set, schedule and the record ids it stores.">
+    <label description="Exports one published rule as a transport entry: its published definition, rule set, schedule and the record ids it stores." languagecode="1033" />
+  </description>
+  <displayname default="Export Rule">
+    <label description="Export Rule" languagecode="1033" />
+  </displayname>
+  <executeprivilegename>prvReadasx_rule</executeprivilegename>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>0</isfunction>
+  <isprivate>0</isprivate>
+  <name>asx_ExportRule</name>
+  <plugintypeid>
+    <plugintypeexportkey>1382c55a-2fcc-f111-a05a-70a8a5acb5f7</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>

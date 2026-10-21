@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Result">
+  <description default="JSON: RuleId, Name, Outcome, Messages and TargetVersion.">
+    <label description="JSON: RuleId, Name, Outcome, Messages and TargetVersion." languagecode="1033" />
+  </description>
+  <displayname default="Result">
+    <label description="Result" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Result</name>
+  <type>10</type>
+</customapiresponseproperty>

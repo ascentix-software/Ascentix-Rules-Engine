@@ -41,6 +41,9 @@
     <PluginType AssemblyQualifiedName="Ascentix.RulesEngine.Plugin.RulesEnginePlugin, Ascentix.RulesEngine.Plugin, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67f2dcfd2e8488af" PluginTypeId="e6615897-0679-42ab-920a-fbc754d8659d" Name="Ascentix.RulesEngine.Plugin.RulesEnginePlugin">
       <FriendlyName>96429bfa-a583-467f-839e-718d9bb7d933</FriendlyName>
     </PluginType>
+    <PluginType AssemblyQualifiedName="Ascentix.RulesEngine.Plugin.RuleTransportApi, Ascentix.RulesEngine.Plugin, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67f2dcfd2e8488af" PluginTypeId="1382c55a-2fcc-f111-a05a-70a8a5acb5f7" Name="Ascentix.RulesEngine.Plugin.RuleTransportApi">
+      <FriendlyName>RuleTransportApi</FriendlyName>
+    </PluginType>
     <PluginType AssemblyQualifiedName="Ascentix.RulesEngine.Plugin.RunRulesApi, Ascentix.RulesEngine.Plugin, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67f2dcfd2e8488af" PluginTypeId="07ee4640-7891-41fb-89cb-3956170c480b" Name="Ascentix.RulesEngine.Plugin.RunRulesApi">
       <FriendlyName>8b68ea02-137e-42d9-bb94-d595b51357c6</FriendlyName>
     </PluginType>
