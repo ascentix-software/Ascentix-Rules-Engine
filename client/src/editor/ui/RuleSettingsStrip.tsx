@@ -154,8 +154,16 @@ export function RuleSetChip({ current, sets, disabled, onChange }: {
   // field (which would now call it a duplicate), so the author picks it instead of creating it again.
   const [adopt, setAdopt] = React.useState<string | null>(null);
   const nameRef = React.useRef<HTMLInputElement>(null);
+  const dropdownRef = React.useRef<HTMLButtonElement>(null);
+  const surfaceRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => { if (creating) nameRef.current?.focus(); }, [creating]);
+  // After a save, keep keyboard focus inside the popover (so Escape still closes it).
+  React.useEffect(() => {
+    if (saving || !open) return;
+    const surface = surfaceRef.current;
+    if (surface && !surface.contains(document.activeElement)) (nameRef.current ?? dropdownRef.current)?.focus();
+  }, [saving, open]);
   React.useEffect(() => { if (disabled && !saving) setOpen(false); }, [disabled, saving]);
   React.useLayoutEffect(() => {
     if (adopt && isDuplicateRuleSetName(sets, adopt)) { setCreating(false); setNewName(""); setAdopt(null); }
@@ -204,14 +212,16 @@ export function RuleSetChip({ current, sets, disabled, onChange }: {
           <ChevronDown16Regular aria-hidden style={{ color: color.inkMuted, flex: "none" }} />
         </button>
       </PopoverTrigger>
-      <PopoverSurface style={{ width: 300, padding: 0 }} aria-label="Rule set">
+      <PopoverSurface ref={surfaceRef} style={{ width: 300, padding: 0 }} aria-label="Rule set">
         <OutsideField>
           <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
             <Field label="Rule set" hint="Saved immediately — not part of the draft.">
-              <Dropdown disabled={saving}
+              {/* Never disabled: disabling the focused control drops focus out of the popover. */}
+              <Dropdown button={{ ref: dropdownRef }} aria-busy={saving || undefined}
                 value={creating ? "New rule set…" : current?.name ?? "No rule set"}
                 selectedOptions={[creating ? NEW_SET : current?.id ?? NO_SET]}
                 onOptionSelect={(_e, d) => {
+                  if (saving) return;
                   setError(null); setAdopt(null);
                   const choice = ruleSetChoice(d.optionValue, current?.id ?? null);
                   if (choice === "new") { setCreating(true); return; }
@@ -230,7 +240,7 @@ export function RuleSetChip({ current, sets, disabled, onChange }: {
                   <Input input={{ ref: nameRef }} style={{ flex: 1, minWidth: 0 }} value={newName} readOnly={saving}
                     onChange={(_e, d) => { setNewName(d.value); setError(null); setAdopt(null); }}
                     onKeyDown={(e) => { if (e.key === "Enter" && canCreate) void save({ newName: trimmed }); }} />
-                  <Button appearance="primary" disabled={!canCreate}
+                  <Button appearance="primary" disabled={!saving && !canCreate} disabledFocusable={saving}
                     onClick={() => { if (canCreate) void save({ newName: trimmed }); }}>Create</Button>
                 </div>
               </Field>

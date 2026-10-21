@@ -135,6 +135,25 @@ describe("Rule set chip in the editor", () => {
     expect(await chip("Payments")).toBeInTheDocument();
   });
 
+  it("keeps focus inside the popover through a save, so Escape still closes it", async () => {
+    let finish!: () => void;
+    const api = makeApi({ moveRules: vi.fn(() => new Promise<void>((resolve) => { finish = resolve; })) });
+    renderApp(api);
+    const popover = await openChip("Billing");
+    const combobox = within(popover).getByRole("combobox", { name: "Rule set" });
+    await choose(popover, "Payments");
+    await waitFor(() => expect(api.moveRules).toHaveBeenCalled());
+    // While saving the dropdown stays focusable (disabling it would throw focus out of the popover).
+    expect(combobox).not.toBeDisabled();
+    expect(combobox).toHaveAttribute("aria-busy", "true");
+    finish();
+    await waitFor(() => expect(within(popover).queryByRole("status")).not.toBeInTheDocument());
+    await waitFor(() => expect(popover.contains(document.activeElement)).toBe(true));
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Rule set" })).not.toBeInTheDocument());
+    expect(await chip("Payments")).toBeInTheDocument();
+  });
+
   it("No rule set clears the set", async () => {
     const api = makeApi();
     renderApp(api);
