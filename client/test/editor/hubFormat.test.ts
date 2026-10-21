@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { relativeTime, pageWindow } from "../../src/editor/ui/hubFormat";
+import { relativeTime, pageWindow, envHost, shortDate } from "../../src/editor/ui/hubFormat";
 
 const NOW = Date.parse("2026-06-24T12:00:00Z");
 
@@ -25,5 +25,22 @@ describe("pageWindow", () => {
     expect(pageWindow(1, 12)).toEqual([1, 2, "…", 12]);
     expect(pageWindow(6, 12)).toEqual([1, "…", 5, 6, 7, "…", 12]);
     expect(pageWindow(12, 12)).toEqual([1, "…", 11, 12]);
+  });
+});
+
+describe("envHost", () => {
+  it("returns the host of a URL, or the text when it isn't one", () => {
+    expect(envHost("https://contoso-dev.crm.dynamics.com/")).toBe("contoso-dev.crm.dynamics.com");
+    expect(envHost("https://contoso.crm4.dynamics.com/main.aspx?appid=1")).toBe("contoso.crm4.dynamics.com");
+    expect(envHost("contoso-dev")).toBe("contoso-dev");
+  });
+});
+
+describe("shortDate", () => {
+  it("formats a date, and — for null or unparseable", () => {
+    expect(shortDate("2026-10-14T12:00:00Z")).toBe(
+      new Date("2026-10-14T12:00:00Z").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }));
+    expect(shortDate(null)).toBe("—");
+    expect(shortDate("not-a-date")).toBe("—");
   });
 });

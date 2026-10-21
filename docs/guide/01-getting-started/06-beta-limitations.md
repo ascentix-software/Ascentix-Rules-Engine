@@ -87,11 +87,12 @@ Verified on **Edge and Chrome**. Other browsers are untested during the beta.
 
 The engine collects nothing from your environments. **A filed issue is the only signal there is.**
 
-## 11. No rule transport between environments
+## 11. Rule transport needs Azure DevOps
 
-There's no supported way to promote rules from dev to test to prod. Tools such as the Configuration
-Migration Tool or XrmToolBox's Data Transporter can copy rule records, but neither has been tested
-with the engine's tables; check the result in a sandbox first.
+Rules move between environments with the **Rules Transport Tasks** extension for Azure
+DevOps (*Moving Rules Between Environments*). There's no in-product export or import, and no
+transport from other pipeline tools. Only published rules move; drafts, run history and
+environment variable values stay behind.
 
 ## 12. Upgrade history is short
 

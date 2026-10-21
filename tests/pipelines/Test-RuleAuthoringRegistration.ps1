@@ -182,7 +182,7 @@ function Invoke-RestMethod {
             $key = "$path/$apiId/$($record.uniquename)"
             Assert (!$parameters.ContainsKey($key)) 'Duplicate parameter create on retry.'
             if ($path -eq 'customapirequestparameters') {
-                $expectOptional = $record.uniquename -in @('FailedRecordId', 'FailedMessage', 'IncludeDiagnostics', 'IncludeOutcomes', 'DraftRuleId', 'Retry', 'FailedItem')
+                $expectOptional = $record.uniquename -in @('FailedRecordId', 'FailedMessage', 'IncludeDiagnostics', 'IncludeOutcomes', 'DraftRuleId', 'Retry', 'FailedItem', 'ValidateOnly', 'OverwriteTargetChanges', 'OwnerTeamId')
                 Assert ($record.isoptional -eq $expectOptional) "Unexpected optionality for $($record.uniquename)."
             }
             $parameters[$key] = $record
@@ -220,12 +220,13 @@ foreach ($interrupt in @($false, $true)) {
         Assert ($apis.Count -eq 3 -and $parameters.Count -eq 0) 'Unexpected partial-deployment state.'
     }
     Register
-    Assert ($apis.Count -eq 11 -and $parameters.Count -eq 45) 'Expected nine new APIs and forty-five parameters/properties.'
-    Assert ($state.Creates -eq 58) 'Expected exactly fifty-eight successful creates.'
+    Assert ($apis.Count -eq 14 -and $parameters.Count -eq 55) 'Expected twelve new APIs and fifty-five parameters/properties.'
+    Assert ($state.Creates -eq 71) 'Expected exactly seventy-one successful creates.'
     foreach ($spec in @(
         @('asx_ReadPublishedRule', 'RuleId', 10), @('asx_ReadPublishedRule', 'Definition', 10),
         @('asx_RestoreRuleDraft', 'RuleId', 10),
-        @('asx_OpenRuleDraft', 'RuleId', 10), @('asx_OpenRuleDraft', 'DraftId', 10), @('asx_CopyRule', 'RuleId', 10), @('asx_CopyRule', 'NewRuleId', 10), @('asx_DeleteRule', 'RuleId', 10), @('asx_ValidateRule', 'DraftHash', 10), @('asx_RunRules', 'ChangeSet', 10), @('asx_RunRules', 'Outcomes', 10)
+        @('asx_OpenRuleDraft', 'RuleId', 10), @('asx_OpenRuleDraft', 'DraftId', 10), @('asx_CopyRule', 'RuleId', 10), @('asx_CopyRule', 'NewRuleId', 10), @('asx_DeleteRule', 'RuleId', 10), @('asx_ValidateRule', 'DraftHash', 10), @('asx_RunRules', 'ChangeSet', 10), @('asx_RunRules', 'Outcomes', 10),
+        @('asx_ExportRule', 'RuleId', 10), @('asx_ExportRule', 'Entry', 10)
     )) {
         $binding = "/customapis($($apis[$spec[0]].customapiid))"
         $match = @($parameters.Values | Where-Object { $_.uniquename -eq $spec[1] -and $_['CustomAPIId@odata.bind'] -eq $binding })
@@ -234,6 +235,9 @@ foreach ($interrupt in @($false, $true)) {
     foreach ($apiName in @('asx_ApplyRules', 'asx_ProcessRunPage', 'asx_StartDueSchedules')) {
         Assert ($apis[$apiName].executeprivilegename -eq 'prvCreateasx_RuleRun' -and $apis[$apiName].bindingtype -eq 0 -and $apis[$apiName].isfunction -eq $false) "Incorrect contract for $apiName."
     }
+    Assert ($apis['asx_ExportRule'].executeprivilegename -eq 'prvReadasx_rule' -and $apis['asx_ExportRule']['PluginTypeId@odata.bind'] -eq "/plugintypes($(TypeId 'RuleTransportApi'))" -and $apis['asx_ExportRule'].bindingtype -eq 0 -and $apis['asx_ExportRule'].isfunction -eq $false) 'Incorrect contract for asx_ExportRule.'
+    Assert ($apis['asx_ImportRule'].executeprivilegename -eq 'prvWriteasx_rule' -and $apis['asx_ImportRule']['PluginTypeId@odata.bind'] -eq "/plugintypes($(TypeId 'RuleTransportApi'))" -and $apis['asx_ImportRule'].bindingtype -eq 0 -and $apis['asx_ImportRule'].isfunction -eq $false) 'Incorrect contract for asx_ImportRule.'
+    Assert ($apis['asx_ArchiveRule'].executeprivilegename -eq 'prvWriteasx_rule' -and $apis['asx_ArchiveRule']['PluginTypeId@odata.bind'] -eq "/plugintypes($(TypeId 'RuleTransportApi'))" -and $apis['asx_ArchiveRule'].bindingtype -eq 0 -and $apis['asx_ArchiveRule'].isfunction -eq $false) 'Incorrect contract for asx_ArchiveRule.'
     Assert ($apis['asx_ApplyDataUpdates'].executeprivilegename -eq 'prvReadasx_rule' -and $apis['asx_ApplyDataUpdates'].bindingtype -eq 0 -and $apis['asx_ApplyDataUpdates'].isfunction -eq $false) 'Incorrect contract for asx_ApplyDataUpdates.'
     # (Api, Parameter, Type, IsOutput, IsOptional) — IsOptional is ignored for outputs.
     foreach ($spec in @(
@@ -249,7 +253,10 @@ foreach ($interrupt in @($false, $true)) {
         @('asx_StartDueSchedules', 'IncludeDiagnostics', 0, $false, $true), @('asx_StartDueSchedules', 'Diagnostics', 10, $true, $false),
         @('asx_ApplyDataUpdates', 'Mode', 10, $false, $false), @('asx_ApplyDataUpdates', 'Retry', 7, $false, $true), @('asx_ApplyDataUpdates', 'FailedItem', 10, $false, $true),
         @('asx_ApplyDataUpdates', 'FailedMessage', 10, $false, $true), @('asx_ApplyDataUpdates', 'Required', 7, $true, $false), @('asx_ApplyDataUpdates', 'Pending', 10, $true, $false),
-        @('asx_ApplyDataUpdates', 'Latest', 10, $true, $false), @('asx_ApplyDataUpdates', 'CanApply', 0, $true, $false), @('asx_ApplyDataUpdates', 'Done', 0, $true, $false)
+        @('asx_ApplyDataUpdates', 'Latest', 10, $true, $false), @('asx_ApplyDataUpdates', 'CanApply', 0, $true, $false), @('asx_ApplyDataUpdates', 'Done', 0, $true, $false),
+        @('asx_ImportRule', 'Entry', 10, $false, $false), @('asx_ImportRule', 'SourceEnvironment', 10, $false, $false), @('asx_ImportRule', 'ValidateOnly', 0, $false, $true),
+        @('asx_ImportRule', 'OverwriteTargetChanges', 0, $false, $true), @('asx_ImportRule', 'OwnerTeamId', 10, $false, $true), @('asx_ImportRule', 'Result', 10, $true, $false),
+        @('asx_ArchiveRule', 'RuleId', 10, $false, $false), @('asx_ArchiveRule', 'Result', 10, $true, $false)
     )) {
         $binding = "/customapis($($apis[$spec[0]].customapiid))"
         $match = @($parameters.Values | Where-Object { $_.uniquename -eq $spec[1] -and $_['CustomAPIId@odata.bind'] -eq $binding })
@@ -279,7 +286,7 @@ foreach ($interrupt in @($false, $true)) {
     Assert ($parameters.ContainsKey($otherVersionKey)) 'Registration removed another API parameter.'
     $parameters.Remove($otherVersionKey)
     Register
-    Assert ($parameters.Count -eq 45 -and $state.Creates -eq 58) 'Completed deployment retry changed the API contract.'
+    Assert ($parameters.Count -eq 55 -and $state.Creates -eq 71) 'Completed deployment retry changed the API contract.'
     Assert ($state.GuardCreates -eq 1 -and $state.DeleteStages.Count -eq 3 -and $state.DeleteStages.ContainsKey(10) -and $state.DeleteStages.ContainsKey(20) -and $state.DeleteStages.ContainsKey(40)) 'Expected capture in PreValidation and transactional cleanup in PreOperation/PostOperation.'
     Assert (!$state.RevisionGuard) 'Revision-table plugin vetoes must be removed.'
     Assert ($apis['asx_OpenRuleDraft'].executeprivilegename -eq 'prvWriteasx_rule') 'Opening a draft requires the platform Write privilege.'
@@ -491,7 +498,7 @@ foreach ($interrupt in @($false, $true)) {
         $schemaState.PublishBodies.Clear()
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
         Assert ($tables.Count -eq 9 -and $fields.Count -eq 70) 'Expected additive authoring tables and fields.'
-        Assert ($schemaState.HiddenReads -eq 18) "Expected the script to wait out two not-yet-visible reads per created table (saw $($schemaState.HiddenReads))."
+        Assert ($schemaState.HiddenReads -eq 18)"Expected the script to wait out two not-yet-visible reads per created table (saw $($schemaState.HiddenReads))."
         Assert ($schemaState.PublishBodies.Count -eq 2) 'Expected two PublishXml requests.'
         foreach ($body in $schemaState.PublishBodies) {
             foreach ($entity in @('asx_actionconditiongroup', 'asx_actionconditiontest')) {
@@ -553,8 +560,9 @@ foreach ($interrupt in @($false, $true)) {
         # 54 before the diagnostics table, + 1 table (its primary name rides in the table body)
         # + 5 columns + 2 environment variable definitions (no value rows), + 11 for the data update
         # (1 table, 9 attributes, 1 lookup relationship), + 10 for the action condition tables
-        # (2 tables, 4 attributes, 4 lookup relationships).
+        # (2 tables, 4 attributes, 4 lookup relationships). Rule sets are authored in Dataverse, not here.
         Assert ($schemaState.Writes -eq (83 + $views.Count)) 'Unexpected metadata write count.'
+        Assert (!$tables.ContainsKey('asx_ruleset') -and !$fields.ContainsKey('asx_rule/asx_ruleset')) 'The Schema phase must not provision rule sets.'
         $writes = $schemaState.Writes
         & $DeploymentScript -Phase Schema -EnvUrl 'https://registration.invalid' -AccessToken 'mock'
         Assert ($schemaState.Writes -eq $writes) 'Schema retry changed already configured metadata.'

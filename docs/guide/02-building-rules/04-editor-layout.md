@@ -5,16 +5,16 @@ order: 204
 slug: editor-layout
 screenshots:
   - file: images/02-04-editor-layout-01.png
-    caption: The rule editor, showing the header actions, the Rule settings strip, the data model, and the Only if, Outcomes and Then bands.
-    alt: "The rule editor for “Order total within credit limit”: Not live and Draft pills, Undo, Redo, Preview, Saved, Publish… and More actions; the Rule settings strip (Order · On create, On form, On update · All channels); the Orders data model chip; an Only if group “Has a customer”; a Credit check outcome; and a Then band with a Block save action; Rule settings open on the right."
+    caption: The rule editor, showing the header actions, the Rule settings strip, the data model and rule set chips, and the Only if, Outcomes and Then bands.
+    alt: "The rule editor for “Order total within credit limit”: Not live and Draft pills, Undo, Redo, Preview, Saved, Publish… and More actions; the Rule settings strip (Order · On create, On form, On update · All channels); the Orders data model chip; the Rule set chip (Billing); an Only if group “Has a customer”; a Credit check outcome; and a Then band with a Block save action; Rule settings open on the right."
 ---
 
 # Editor Layout
 
-The editor has a header, the **Rule settings** strip, the data model chip, and three bands that
-hold the rule: **Only if**, **Outcomes** and **Then**.
+The editor has a header, the **Rule settings** strip, the data model and rule set chips, and three
+bands that hold the rule: **Only if**, **Outcomes** and **Then**.
 
-![The rule editor for “Order total within credit limit”: Not live and Draft pills, Undo, Redo, Preview, Saved, Publish… and More actions; the Rule settings strip (Order · On create, On form, On update · All channels); the Orders data model chip; an Only if group “Has a customer”; a Credit check outcome; and a Then band with a Block save action; Rule settings open on the right.](../images/02-04-editor-layout-01.png)
+![The rule editor for “Order total within credit limit”: Not live and Draft pills, Undo, Redo, Preview, Saved, Publish… and More actions; the Rule settings strip (Order · On create, On form, On update · All channels); the Orders data model chip; the Rule set chip (Billing); an Only if group “Has a customer”; a Credit check outcome; and a Then band with a Block save action; Rule settings open on the right.](../images/02-04-editor-layout-01.png)
 
 ## Header
 
@@ -62,6 +62,16 @@ sections:
 
 The chip beside the strip shows the root table and how many related tables the model reaches. Click
 it to see the tree; **Edit data model** opens it for editing (*Table Configuration Tree*).
+
+## Rule set
+
+The **Rule set** chip shows the rule set the rule is in, or **None** (*Moving Rules Between
+Environments*). Click it and pick a set, **No rule set**, or **New rule set…** (type a name and
+choose **Create**).
+
+The change is saved straight away and isn't part of the draft: **Save**, **Publish…**, **Discard
+draft…** and **Undo** don't touch it. It works in every state, including a live rule with no draft
+open and an archived rule. While a data update is waiting, the chip is disabled.
 
 ## Only if, Outcomes and Then
 

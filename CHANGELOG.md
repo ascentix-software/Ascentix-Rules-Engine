@@ -2,9 +2,27 @@
 
 Notable changes to the Ascentix Rules Engine.
 
-Beta releases ship as solution versions below `1.0.0.0` (`0.0.0.1`, then `0.1.0.2`). Dataverse
+Beta releases ship as solution versions below `1.0.0.0` (`0.0.0.1`, `0.1.0.2`, `0.1.0.3`). Dataverse
 solution versions are numeric only, so the version an administrator sees in their org can never
 carry the word "beta". `1.0.0.0` is reserved for the first full release.
+
+## 0.1.0.3 (2026-10-21)
+
+### Added
+
+- **Rule sets.** A rule set is a named group of rules that moves between environments together
+  (new table `asx_ruleset`). A rule is in one rule set or none.
+  - The hub's **Rule sets** tab lists each set with its rule count, last import and last change,
+    and creates, renames and deletes sets. A set that has rules can't be deleted.
+  - Each set has its own page, with **Add rules** and **Remove from set**.
+  - On the **Rules** tab, select rules and choose **Move to rule set**. The **Rule set** column and
+    filter show each rule's set.
+  - In the rule editor, the **Rule set** chip changes a rule's set without touching its draft.
+- **Moving rules between environments.** The **Rules Transport Tasks** extension for Azure DevOps
+  exports the published rules of one or more rule sets to a package and imports them into another
+  environment, one rule at a time. Import has a dry run, reports conflicts and collisions, and can
+  archive rules the package no longer carries. Three new Custom APIs back it: `asx_ExportRule`,
+  `asx_ImportRule` and `asx_ArchiveRule`. See *Administering → Moving Rules Between Environments*.
 
 ## 0.1.0.2 (2026-10-12)
 

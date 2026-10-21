@@ -58,6 +58,15 @@ namespace Ascentix.RulesEngine.Schema
             public const string DraftOf = "draftof";
             public const string DraftBaseVersion = "draftbaseversion";
             public const string OnDemandScope = "ondemandscope";
+            public const string RuleSet = "ruleset";                      // lookup → ruleset; packaging metadata, not part of a rule's configuration
+        }
+
+        /// <summary>A named group of rules that is exported and imported together.</summary>
+        public static class RuleSet
+        {
+            public const string Entity = "ruleset";
+            public const string LastImportedFrom = "lastimportedfrom";    // source environment of the last import into this set
+            public const string LastImportedOn = "lastimportedon";        // when that import happened (UTC)
         }
 
         public static class RuleRevision
@@ -69,6 +78,9 @@ namespace Ascentix.RulesEngine.Schema
             public const string Hash = "hash";
             public const string Publisher = "publisher";
             public const string PublishedOn = "publishedon";
+            public const string SourceEnvironment = "sourceenvironment"; // provenance of an imported revision
+            public const string SourceVersion = "sourceversion";
+            public const string SourceHash = "sourcehash";
         }
 
         public static class PublicationLock

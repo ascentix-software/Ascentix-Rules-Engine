@@ -3,6 +3,8 @@ import { createDevApi, deleteDevRecord } from "./devApi";
 import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
 import { createSubject, expectBlockedOnCreate, expectAllowedOnCreate, expectBlockedOnUpdate } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { drainCleanups } from "./ruleBehavior/cleanups";
+import { eventually } from "./ruleBehavior/settle";
 
 // Live coverage for the remaining rule dimensions (non-numeric comparison operators, trigger and
 // severity combinations, and aggregates over an empty child collection), each proven through the
@@ -17,9 +19,10 @@ beforeAll(async () => {
   tc = await ensureTableConfig();
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
 });
 afterAll(async () => {
+  await drainCleanups(cleanups);
   await tc.cleanup();
 });
 
@@ -96,7 +99,7 @@ describe("trigger & severity combinations", () => {
       condition: { nodeId: tc.order, conditionType: 1, column: "sample_ordertotal", operator: 3, valueSource: 1, literal: "100" },
     });
     // Rule fires OnUpdate only → the satisfying-low create succeeds.
-    const id = await createSubject("sample_orders", { sample_name: "ZZ_RB_mx_onmatch_o", sample_ordertotal: 50 });
+    const id = await expectAllowedOnCreate("sample_orders", { sample_name: "ZZ_RB_mx_onmatch_o", sample_ordertotal: 50 });
     cleanups.push(() => deleteDevRecord("sample_orders", id));
     await expectBlockedOnUpdate("sample_orders", id, { sample_ordertotal: 150 }, "ZZ_RB total over 100 (match)");
   });
@@ -126,21 +129,24 @@ describe("trigger & severity combinations", () => {
       // blocked, the next delete went through). Three in a row, as ruleBehaviorOutcomes does.
       settleConsecutive: 3,
     });
-    let threw = false;
-    try {
-      await deleteDevRecord("sample_orders", bigId);
-    } catch (e: any) {
-      threw = true;
-      expect(e.message).toContain("(400)");
-      expect(e.message).toContain("ZZ_RB cannot delete big order");
-    }
-    expect(threw).toBe(true);
+    // Polled like the settle: a delete that goes through is re-seeded and tried again.
+    await eventually(async () => {
+      let message = "";
+      try {
+        await deleteDevRecord("sample_orders", bigId);
+      } catch (e: any) {
+        message = e.message;
+      }
+      if (!message) bigId = await createSubject("sample_orders", { sample_name: "ZZ_RB_mx_del_big", sample_ordertotal: 150 });
+      expect(message).toContain("(400)");
+      expect(message).toContain("ZZ_RB cannot delete big order");
+    }, { label: "OnDelete Block" });
     const survived = await api.retrieveMultipleRecords("sample_orders", `?$filter=sample_name eq 'ZZ_RB_mx_del_big'&$select=sample_orderid`);
     expect(survived.entities.length).toBe(1);
 
     // A non-matching (total 50) order deletes freely.
-    const smallId = await createSubject("sample_orders", { sample_name: "ZZ_RB_mx_del_small", sample_ordertotal: 50 });
-    await deleteDevRecord("sample_orders", smallId);
+    const smallId = await expectAllowedOnCreate("sample_orders", { sample_name: "ZZ_RB_mx_del_small", sample_ordertotal: 50 });
+    await eventually(() => deleteDevRecord("sample_orders", smallId), { label: "allowed delete" });
     const gone = await api.retrieveMultipleRecords("sample_orders", `?$filter=sample_name eq 'ZZ_RB_mx_del_small'&$select=sample_orderid`);
     expect(gone.entities.length).toBe(0);
   });
@@ -164,7 +170,7 @@ describe("aggregate over an empty child collection", () => {
       triggers: "4", fireOn: 2, message: msg,
       condition: { nodeId: tc.order, conditionType: 4, expression: expr, operator: op, valueSource: 1, literal: rhs },
     });
-    const id = await createSubject("sample_orders", { sample_name: `${name}_o`, sample_ordertotal: 10 });
+    const id = await expectAllowedOnCreate("sample_orders", { sample_name: `${name}_o`, sample_ordertotal: 10 });
     cleanups.push(() => deleteDevRecord("sample_orders", id));
     await expectBlockedOnUpdate("sample_orders", id, { sample_ordertotal: 20 }, msg);
   }

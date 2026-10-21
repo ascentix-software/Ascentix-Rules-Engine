@@ -308,6 +308,11 @@ resolved has since been removed from the Beta Limitations page.
   and that validation reports definition issues without publisher-privilege checks.
   The previous SEC gate and its privilege-resolution implementation were removed.
 
+- **Rule set writes by a Reader** — `ruleSets` (test-dev) keeps this case as an `it.skip`:
+  the dev org has no Reader identity, so a Reader's refused rule set write can't be proven live.
+  The other rule set cases (duplicate name, Restrict delete, all-or-nothing move, clearing
+  without a draft, import stamp) run live.
+
 - **Portal firing** — untestable via the Web API (`IsPortalsClientCall` can't be set); the portal
   branch of `OriginResolver` is unit-tested; Portal-only *exclusion* is proven live (pass C).
 - ~~Create-time RowCount on a structurally-empty child collection~~ — **RESOLVED

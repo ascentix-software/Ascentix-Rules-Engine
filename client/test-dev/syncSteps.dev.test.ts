@@ -4,6 +4,7 @@ import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
 import { expectBlockedOnCreate } from "./ruleBehavior/subjects";
 import { createDevApi, deleteDevRecord } from "./devApi";
 import { devOrg } from "./devOrg";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // Live proof: the asx_SyncSteps Custom API against real DEV drift
 // (docs/Schema.md §6, docs/Plugin-Registration.md "Reconciliation"):
@@ -50,9 +51,10 @@ beforeAll(async () => {
   tc = await ensureTableConfig();
 });
 afterEach(async () => {
-  while (ruleCleanups.length) await ruleCleanups.pop()!();
+  await drainCleanups(ruleCleanups);
 });
 afterAll(async () => {
+  await drainCleanups(ruleCleanups);
   // Self-heal DEV no matter what happened above: reconcile every table's steps.
   await callSyncSteps("Sync").catch(() => {});
   for (const c of recordCleanups.reverse()) await deleteDevRecord(c.set, c.id).catch(() => {});
@@ -103,7 +105,7 @@ describe("asx_SyncSteps — drift repair + RemoveAll teardown, live", () => {
       { sample_name: "ZZ_RB_sync_drift_probe2", sample_ordertotal: 500 },
       "Sync-drift rule fired.",
     );
-  }, 120000);
+  }, 240000);
 
   it("privilege gate: the Author-only SP is denied by name before any work", async () => {
     const before = (await engineSteps()).map((s) => s.name).sort();

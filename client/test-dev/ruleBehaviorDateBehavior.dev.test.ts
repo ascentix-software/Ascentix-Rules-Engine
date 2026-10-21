@@ -1,8 +1,9 @@
 import { describe, it, beforeAll, afterEach, afterAll } from "vitest";
 import { deleteDevRecord } from "./devApi";
 import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
-import { createSubject, createOrderLine, updateSubject, expectBlockedOnUpdate } from "./ruleBehavior/subjects";
+import { createSubject, createOrderLine, expectBlockedOnUpdate, expectUpdateSucceeds } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // Date comparisons by column behavior, in the rule's time zone, proven through a pushed Row Count
 // filter (server) re-applied in memory. Also proves FindSystemTimeZoneById works in the sandbox.
@@ -18,9 +19,10 @@ beforeAll(async () => {
   tc = await ensureTableConfig();
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
 });
 afterAll(async () => {
+  await drainCleanups(cleanups);
   await tc.cleanup();
 });
 
@@ -93,6 +95,6 @@ describe("date comparisons by column behavior", () => {
       "ZZ_RB due by now");
     const tomorrow = addDays(toronto(new Date()).date, 1);
     const order = await orderWithLine("ZZ_RB_datebehavior_future", { sample_duedate: tomorrow });
-    await updateSubject("sample_orders", order, { sample_ordertotal: 1 }); // allowed
+    await expectUpdateSucceeds("sample_orders", order, { sample_ordertotal: 1 }); // allowed
   });
 });

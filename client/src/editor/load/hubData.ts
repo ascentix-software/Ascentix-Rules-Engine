@@ -1,8 +1,9 @@
 import type { WebApiPort } from "../webapi";
-import { ENTITY, LOOKUP } from "./odata";
+import { ENTITY, LOOKUP, RULESET_SELECT } from "./odata";
 import { parseMultiSelect } from "../model/enums";
 import { loadPublishedGraph } from "./publishedGraph";
 import { scheduleSummary } from "../schedule/scheduleModel";
+import { formatError } from "../ui/errors";
 
 const FV = "@OData.Community.Display.V1.FormattedValue";
 
@@ -19,6 +20,9 @@ export interface RuleListItem {
    *  (its runs outlive an unpublish). */
   publishedRevisionId?: string | null;
   modifiedOn: string | null; modifiedBy: string | null;
+  /** _asx_ruleset_value and its name: the set the rule belongs to, null when it has none. */
+  ruleSetId?: string | null;
+  ruleSetName?: string | null;
   /** Whether the rule has an On (asx_on = true) asx_ruleschedule row (Task 6 hub indicator).
    *  Optional so pre-Task-6 fixtures keep compiling without the field. */
   scheduled?: boolean;
@@ -30,7 +34,33 @@ export interface ConfigListItem {
   nodeCount: number; usedByCount: number;
   modifiedOn: string | null; modifiedBy: string | null;
 }
-export interface HubData { rules: RuleListItem[]; configs: ConfigListItem[]; truncated: boolean; }
+export interface RuleSetItem {
+  id: string; name: string; description: string | null;
+  lastImportedFrom: string | null; lastImportedOn: string | null;
+  modifiedOn: string | null; modifiedBy: string | null;
+}
+export interface HubData {
+  rules: RuleListItem[]; configs: ConfigListItem[]; ruleSets: RuleSetItem[]; truncated: boolean;
+  /** The rule set query failed: ruleSets is then empty because it is unknown, not because there are none. */
+  ruleSetsFailed?: boolean;
+  /** Why it failed, when ruleSetsFailed. */
+  ruleSetsError?: string;
+}
+
+function toRuleSetItem(e: any): RuleSetItem {
+  return {
+    id: String(e.asx_rulesetid), name: String(e.asx_name ?? ""), description: e.asx_description ?? null,
+    lastImportedFrom: e.asx_lastimportedfrom ?? null, lastImportedOn: e.asx_lastimportedon ?? null,
+    modifiedOn: e.modifiedon ?? null, modifiedBy: e["_modifiedby_value" + FV] ?? null,
+  };
+}
+const byRuleSetName = (a: RuleSetItem, b: RuleSetItem) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+
+/** All rule sets, sorted by name (case-insensitive), following nextLink. */
+export async function loadRuleSets(api: WebApiPort): Promise<RuleSetItem[]> {
+  const r = await retrieveAll(api, ENTITY.ruleSet, `?$select=${RULESET_SELECT}`);
+  return r.entities.map(toRuleSetItem).sort(byRuleSetName);
+}
 
 // Xrm.WebApi returns at most one page (5000 rows) per call and signals more via nextLink,
 // which must never be silently dropped. Follow it to exhaustion, with a hard
@@ -104,9 +134,9 @@ async function loadRevisionDefinitions(api: WebApiPort, revisionIds: string[]): 
 }
 
 export async function loadHubData(api: WebApiPort): Promise<HubData> {
-  const [ruleResp, actionResp, nodeResp, scheduleResp] = await Promise.all([
+  const [ruleResp, actionResp, nodeResp, scheduleResp, ruleSetResp] = await Promise.all([
     retrieveAll(api, ENTITY.rule,
-      `?$select=asx_ruleid,asx_name,asx_tablelogicalname,statuscode,asx_triggers,asx_ondemandscope,_asx_publishedrevision_value,${LOOKUP.ruleOfTableConfig},modifiedon,_modifiedby_value&$filter=_asx_draftof_value eq null&$orderby=modifiedon desc`),
+      `?$select=asx_ruleid,asx_name,asx_tablelogicalname,statuscode,asx_triggers,asx_ondemandscope,_asx_publishedrevision_value,${LOOKUP.ruleOfTableConfig},${LOOKUP.ruleSetOfRule},modifiedon,_modifiedby_value&$filter=_asx_draftof_value eq null&$orderby=modifiedon desc`),
     retrieveAll(api, ENTITY.action, `?$select=${LOOKUP.ruleOfAction}`),
     retrieveAll(api, ENTITY.tableConfig,
       `?$select=asx_tableconfigid,asx_name,asx_tablelogicalname,asx_tableconfigtype,${LOOKUP.parentTableOfConfig},modifiedon,_modifiedby_value&$filter=asx_isprivate ne true&$orderby=modifiedon desc`),
@@ -117,8 +147,14 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
     retrieveAll(api, ENTITY.ruleSchedule,
       `?$select=${LOOKUP.ruleOfSchedule},asx_pattern,asx_every,asx_timeofday,asx_daysofweek,asx_dayofmonth&$filter=asx_on eq true`)
       .catch(() => ({ entities: [] as any[], truncated: false })),
+    // Also its own catch: a failed rule set query leaves the hub loading, just without the sets.
+    retrieveAll(api, ENTITY.ruleSet, `?$select=${RULESET_SELECT}`)
+      .catch((e) => { console.warn("Could not load rule sets", e); return { entities: [] as any[], truncated: false, failure: formatError(e) }; }),
   ]);
-  const truncated = ruleResp.truncated || actionResp.truncated || nodeResp.truncated || scheduleResp.truncated;
+  const truncated = ruleResp.truncated || actionResp.truncated || nodeResp.truncated || scheduleResp.truncated
+    || ruleSetResp.truncated;
+  const ruleSets = ruleSetResp.entities.map(toRuleSetItem).sort(byRuleSetName);
+  const ruleSetsFailure = "failure" in ruleSetResp ? ruleSetResp.failure : undefined;
 
   const actionCounts = countByRule(actionResp.entities);
 
@@ -167,6 +203,8 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
       publishedRevisionId: r._asx_publishedrevision_value ?? null,
       rootConfigName: published ? (publishedRoot ? published.tableConfigs[publishedRoot]?.name ?? null : null) : (rootConfigId ? nodeName.get(rootConfigId) ?? r[LOOKUP.ruleOfTableConfig + FV] ?? null : null),
       modifiedOn: r.modifiedon ?? null, modifiedBy: r["_modifiedby_value" + FV] ?? null,
+      ruleSetId: r[LOOKUP.ruleSetOfRule] ?? null,
+      ruleSetName: r[LOOKUP.ruleSetOfRule] ? r[LOOKUP.ruleSetOfRule + FV] ?? null : null,
       scheduled: scheduleSummaryByRule.has(r.asx_ruleid),
       scheduleSummary: scheduleSummaryByRule.get(r.asx_ruleid),
     };
@@ -182,7 +220,10 @@ export async function loadHubData(api: WebApiPort): Promise<HubData> {
       modifiedOn: n.modifiedon ?? null, modifiedBy: n["_modifiedby_value" + FV] ?? null,
     }));
 
-  return { rules, configs, truncated };
+  return {
+    rules, configs, ruleSets, truncated,
+    ...(ruleSetsFailure !== undefined && { ruleSetsFailed: true, ruleSetsError: ruleSetsFailure }),
+  };
 }
 
 /** Loads the (at most one, global) asx_schedulerstatus row the scheduler add-on's flow

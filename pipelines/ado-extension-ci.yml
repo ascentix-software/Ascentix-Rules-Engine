@@ -1,0 +1,63 @@
+name: ado-extension-ci-$(Date:yyyyMMdd)-$(Rev:r)
+
+# Builds the Azure DevOps extension and keeps each .vsix as a pipeline artifact. It needs no Dataverse
+# environment and never publishes to the Marketplace.
+#   public:  AscentixSoftware.rules-transport-tasks (Rules Transport Tasks), artifact ado-extension-public
+#   private: AscentixSoftware.ascentix-rules-transport (the test build, from vss-extension.dev.json),
+#            artifact ado-extension-private
+# A develop push builds both. A manual run picks one or both.
+
+parameters:
+  - name: build
+    displayName: Extension to build
+    type: string
+    default: both
+    values: [both, public, private]
+
+trigger:
+  branches: { include: [develop] }
+  paths:
+    include:
+      - ado-extension/**
+      - pipelines/ado-extension-ci.yml
+
+pr: none
+
+pool:
+  vmImage: windows-latest
+
+steps:
+  - task: UseNode@1
+    inputs: { version: '20.x' }
+    displayName: Use Node 20
+  - script: npm ci
+    workingDirectory: ado-extension
+    displayName: npm ci
+  - script: npm test
+    workingDirectory: ado-extension
+    displayName: vitest run
+  - script: npm run build
+    workingDirectory: ado-extension
+    displayName: Type-check and bundle the tasks
+
+  - ${{ if ne(parameters.build, 'private') }}:
+    - script: npx tfx extension create --manifest-globs vss-extension.json --output-path dist/public
+      workingDirectory: ado-extension
+      displayName: Package the public extension
+    - task: PublishPipelineArtifact@1
+      displayName: Keep the public .vsix
+      inputs:
+        targetPath: ado-extension/dist/public
+        artifact: ado-extension-public
+        publishLocation: pipeline
+
+  - ${{ if ne(parameters.build, 'public') }}:
+    - script: node scripts/package-dev.mjs dist/private
+      workingDirectory: ado-extension
+      displayName: Package the private test extension
+    - task: PublishPipelineArtifact@1
+      displayName: Keep the private .vsix
+      inputs:
+        targetPath: ado-extension/dist/private
+        artifact: ado-extension-private
+        publishLocation: pipeline

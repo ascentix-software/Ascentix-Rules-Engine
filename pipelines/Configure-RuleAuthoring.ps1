@@ -55,7 +55,7 @@ function LabelText($Label) {
     if ($Label.UserLocalizedLabel) { return $Label.UserLocalizedLabel.Label }
     return (@($Label.LocalizedLabels) | Where-Object { $_.LanguageCode -eq 1033 } | Select-Object -First 1).Label
 }
-function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'OrganizationOwned', [string]$EntitySetName = '', [string]$CollectionName = '') {
+function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'OrganizationOwned', [string]$EntitySetName = '', [string]$CollectionName = '', [int]$PrimaryMaxLength = 200) {
     $logical = $Name.ToLowerInvariant()
     $setName = if ($EntitySetName) { $EntitySetName } else { $logical + 's' }
     $plural = if ($CollectionName) { $CollectionName } else { $Display + 's' }
@@ -78,7 +78,7 @@ function EnsureTable([string]$Name, [string]$Display, [string]$Ownership = 'Orga
         }
         return
     }
-    $primary = Field 'asx_Name' 'String' 'Name'; $primary.MaxLength = 200; $primary.IsPrimaryName = $true
+    $primary = Field 'asx_Name' 'String' 'Name'; $primary.MaxLength = $PrimaryMaxLength; $primary.IsPrimaryName = $true
     $primary.FormatName = @{ Value = 'Text' }
     Request POST 'EntityDefinitions' @{
         '@odata.type' = 'Microsoft.Dynamics.CRM.EntityMetadata'; SchemaName = $Name; EntitySetName = $setName;
@@ -491,4 +491,23 @@ EnsureParameter $id 'Pending' 10 $true 'JSON array of the data updates still to 
 EnsureParameter $id 'Latest' 10 $true 'JSON of the last data update run, with its failures.'
 EnsureParameter $id 'CanApply' 0 $true 'True when the caller may apply data updates.'
 EnsureParameter $id 'Done' 0 $true 'True when no data update is pending.'
+$transportType = PluginType 'RuleTransportApi'
+$transportApis = @('asx_ExportRule', 'asx_ImportRule', 'asx_ArchiveRule')
+$ownedTransportApis = Request GET "customapis?`$select=customapiid,uniquename&`$filter=_plugintypeid_value eq $transportType"
+foreach ($api in $ownedTransportApis.value) {
+    if ($api.uniquename -notin $transportApis) { Request DELETE "customapis($($api.customapiid))" | Out-Null }
+}
+$id = EnsureApi 'asx_ExportRule' 'prvReadasx_rule' 'Exports one published rule as a transport entry: its published definition, rule set, schedule and the record ids it stores.' 'Export Rule' $transportType
+EnsureParameter $id 'RuleId' 10 $false 'Identifier of the published rule to export.'
+EnsureParameter $id 'Entry' 10 $true 'The rule package entry, serialized as JSON.'
+$id = EnsureApi 'asx_ImportRule' 'prvWriteasx_rule' 'Imports one rule from a transport entry: creates or updates it through a draft and publishes it, or reports why it was left alone.' 'Import Rule' $transportType
+EnsureParameter $id 'Entry' 10 $false 'The rule package entry, serialized as JSON.'
+EnsureParameter $id 'SourceEnvironment' 10 $false 'The environment the package was exported from, stamped on the new revision.'
+EnsureParameter $id 'ValidateOnly' 0 $false 'When true, runs every check and writes nothing.' $true
+EnsureParameter $id 'OverwriteTargetChanges' 0 $false 'When true, imports over a working draft or a version published in this environment.' $true
+EnsureParameter $id 'OwnerTeamId' 10 $false 'Identifier of the team that owns new rows; the caller owns them when empty.' $true
+EnsureParameter $id 'Result' 10 $true 'JSON: RuleId, Name, Outcome, Messages and TargetVersion.'
+$id = EnsureApi 'asx_ArchiveRule' 'prvWriteasx_rule' 'Archives one rule so it stops running and its enforcement steps are removed; archiving an archived rule does nothing.' 'Archive Rule' $transportType
+EnsureParameter $id 'RuleId' 10 $false 'Identifier of the rule to archive.'
+EnsureParameter $id 'Result' 10 $true 'JSON: RuleId, Name and Outcome (archived or alreadyArchived).'
 Write-Host '[revisions] guards, lifecycle ordering, and APIs registered'

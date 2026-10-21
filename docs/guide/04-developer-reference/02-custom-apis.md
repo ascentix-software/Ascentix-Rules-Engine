@@ -22,6 +22,9 @@ from client code, or plain HTTP from a server).
 | `asx_ReadRules` | Returns a table's rule definitions |
 | `asx_SyncSteps` | Reconciles or removes the generated enforcement steps |
 | `asx_DeleteRule` | Deletes a rule and the configuration it owns |
+| `asx_ExportRule` | Exports one published rule as a transport entry |
+| `asx_ImportRule` | Imports one rule from a transport entry |
+| `asx_ArchiveRule` | Archives one rule |
 
 ## `asx_ValidateRule`: validate a rule
 
@@ -543,3 +546,86 @@ rule. A rule that doesn't exist succeeds without changes. There are no response 
 
 A native `DELETE asx_rules(id)` (what the standard Rules grid uses) removes the same graph in its
 transaction; the API adds idempotent deletion of an already-absent rule.
+
+
+## `asx_ExportRule`, `asx_ImportRule` and `asx_ArchiveRule`: rule transport
+
+These three move rules between environments. The Azure DevOps extension calls them once per rule
+(*Moving Rules Between Environments*), and any client can. Each works on one rule, so a failure
+affects only that rule.
+
+### `asx_ExportRule`
+
+Exports one **Published** rule. The caller needs the rule Read privilege. A working draft, an
+archived rule and a rule that was never published are refused.
+
+| Request | Type | Optional | Notes |
+|---|---|---|---|
+| `RuleId` | String | No | GUID of the published `asx_rule` |
+
+| Response | Type | Notes |
+|---|---|---|
+| `Entry` | String | The rule package entry as JSON: engine version, rule id and name, rule set name, published version and hash, the published definition, the schedule definition and the record ids the rule stores |
+
+The entry holds the published revision (what enforces), not the live rows a working draft may have
+moved on from.
+
+### `asx_ImportRule`
+
+Imports one entry. The caller needs the rule Write privilege (`prvWriteasx_rule`), and for a rule
+that doesn't exist here yet also the rule Create privilege (`prvCreateasx_rule`). For an entry that
+names a rule set the caller also needs Create and Write on Rule Set (`prvCreateasx_ruleset`,
+`prvWriteasx_ruleset`), because the import creates a missing set and records its last import. Every check runs
+before the first write, so a refused rule leaves nothing behind. The definition is published
+through the normal publish path, as a new rule or as a new version of the rule with the same id.
+When the entry names a rule set, a `created`, `updated` or `unchanged` outcome also records that
+rule set's last import (the source environment and the time).
+
+Only the entry's definition is used. Its rows keep only the `asx_` columns and status a published
+revision carries; the hash and the record ids are worked out from the definition here, so the
+entry's `Hash` and `RecordReferences` are ignored.
+
+| Request | Type | Optional | Notes |
+|---|---|---|---|
+| `Entry` | String | No | An entry returned by `asx_ExportRule` |
+| `SourceEnvironment` | String | No | Where the entry came from; recorded on the new version |
+| `ValidateOnly` | Boolean | Yes | `true` runs every check before the first write (validation, record ids, conflicts, a pending data update) and writes nothing. Default `false` |
+| `OverwriteTargetChanges` | Boolean | Yes | `true` imports over an open working draft, a version published in this environment, or an archived or unpublished rule. Default `false` |
+| `OwnerTeamId` | String | Yes | GUID of the team that owns new rules. Default: the caller |
+
+| Response | Type | Notes |
+|---|---|---|
+| `Result` | String | JSON: `RuleId`, `Name`, `Outcome`, `Messages` and `TargetVersion` |
+
+`Outcome` is one of:
+
+| Value | Meaning |
+|---|---|
+| `created` / `updated` | Imported and published. `TargetVersion` is the new version |
+| `unchanged` | The target already has this definition and the same rule set and schedule |
+| `wouldCreate` / `wouldUpdate` | With `ValidateOnly`, what would have happened |
+| `conflict` | Not imported: the target has an open working draft, a version published there (not imported), the rule archived or unpublished, or the rule never published or imported. `OverwriteTargetChanges` imports over all of them |
+| `collision` | Not imported: another rule has the same name in the same rule set, or outside any set |
+
+`Messages` carries the reason for a conflict or collision and any warning, for example a record id
+whose table couldn't be determined.
+
+The call throws for a malformed entry, for an entry whose definition refers to configuration rows
+it doesn't contain, for an entry exported by a newer engine than this environment's installed
+solution, for a new rule when the caller lacks the Create privilege, while a data update is
+pending, for a record id the rule stores that doesn't exist here, and for a rule whose business
+table differs from the target's. The imported rule gets private copies of its
+data models, its rule set is created if missing, and its schedule definition travels with it.
+
+### `asx_ArchiveRule`
+
+Archives one rule so it stops running and its enforcement steps are removed. The caller needs the
+rule Write privilege. Archiving an archived rule changes nothing. A working draft is refused.
+
+| Request | Type | Optional | Notes |
+|---|---|---|---|
+| `RuleId` | String | No | GUID of the `asx_rule` |
+
+| Response | Type | Notes |
+|---|---|---|
+| `Result` | String | JSON: `RuleId`, `Name` and `Outcome` (`archived` or `alreadyArchived`) |

@@ -1,8 +1,9 @@
 import { describe, it, beforeAll, afterEach, afterAll } from "vitest";
 import { deleteDevRecord } from "./devApi";
 import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
-import { createSubject, createOrderLine, createShipment, updateSubject, expectBlockedOnUpdate, awaitEngineVerdict } from "./ruleBehavior/subjects";
+import { createSubject, createOrderLine, createShipment, expectBlockedOnUpdate, awaitEngineVerdict, expectUpdateSucceeds } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // EXISTS predicate proven live via Block enforcement, using the sample_shipment sibling
 // collection. RowCount(line, min 1) filtered by EXISTS(shipment). Fires on Update.
@@ -15,9 +16,10 @@ beforeAll(async () => {
   tc = await ensureTableConfig();
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
 });
 afterAll(async () => {
+  await drainCleanups(cleanups);
   await tc.cleanup();
 });
 
@@ -62,7 +64,7 @@ describe("EXISTS predicate", () => {
     // Allowed: a shipment over 100 → EXISTS holds → line kept → RowCount 1.
     const good = await seedOrderLineShipments("ZZ_RB_ex_min1_good", [{ amount: 150 }]);
     await awaitEngineVerdict("sample_order", good, { expectMessage: "ZZ_RB no big shipment", expectFired: false });
-    await updateSubject("sample_orders", good, { sample_ordertotal: 1 });
+    await expectUpdateSucceeds("sample_orders", good, { sample_ordertotal: 1 });
   });
 
   it("EXISTS max 0 (none): order has NO shipment matching the sub-filter (Schema §2.7-2.8 / nestable-exists)", async () => {
@@ -84,7 +86,7 @@ describe("EXISTS predicate", () => {
     // Allowed: no shipment over 100 → EXISTS(max 0) holds → line kept → RowCount 1.
     const good = await seedOrderLineShipments("ZZ_RB_ex_max0_good", [{ amount: 50 }]);
     await awaitEngineVerdict("sample_order", good, { expectMessage: "ZZ_RB has big shipment", expectFired: false });
-    await updateSubject("sample_orders", good, { sample_ordertotal: 1 });
+    await expectUpdateSucceeds("sample_orders", good, { sample_ordertotal: 1 });
   });
 
   // Boolean node-filter value format = "true" (confirmed live; not "1").
@@ -109,7 +111,7 @@ describe("EXISTS predicate", () => {
     // Allowed: an expedited shipment.
     const good = await seedOrderLineShipments("ZZ_RB_ex_bool_good", [{ expedited: true }]);
     await awaitEngineVerdict("sample_order", good, { expectMessage: "ZZ_RB no expedited shipment", expectFired: false });
-    await updateSubject("sample_orders", good, { sample_ordertotal: 1 });
+    await expectUpdateSucceeds("sample_orders", good, { sample_ordertotal: 1 });
   });
 
   it("EXISTS compound AND sub-filter: order has ≥1 expedited shipment over $100 (Schema §2.7-2.8 / nestable-exists)", async () => {
@@ -135,6 +137,6 @@ describe("EXISTS predicate", () => {
     // Allowed: one shipment that is BOTH expedited AND over 100.
     const good = await seedOrderLineShipments("ZZ_RB_ex_cmp_good", [{ expedited: true, amount: 150 }]);
     await awaitEngineVerdict("sample_order", good, { expectMessage: "ZZ_RB no big expedited shipment", expectFired: false });
-    await updateSubject("sample_orders", good, { sample_ordertotal: 1 });
+    await expectUpdateSucceeds("sample_orders", good, { sample_ordertotal: 1 });
   });
 });

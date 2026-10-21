@@ -2,10 +2,10 @@ import { describe, it, beforeAll, afterEach, afterAll } from "vitest";
 import { deleteDevRecord } from "./devApi";
 import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
 import {
-  createSubject, createOrderLine, updateSubject, expectBlockedOnUpdate,
-  expectBlockedOnCreate, createCustomer, createCustomerWithParent, orderDataForCustomer, expectAllowedOnUpdate,
+  createSubject, createOrderLine, expectBlockedOnUpdate, expectBlockedOnCreate, createCustomer, createCustomerWithParent, orderDataForCustomer, expectAllowedOnUpdate, expectAllowedOnCreate, expectUpdateSucceeds,
 } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // Multi-hop FieldReference + node-filtered conditions, proven live via Block enforcement.
 // Node-filtered conditions on the child (line) node fire on Update.
@@ -18,9 +18,10 @@ beforeAll(async () => {
   tc = await ensureTableConfig();
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
 });
 afterAll(async () => {
+  await drainCleanups(cleanups);
   await tc.cleanup();
 });
 
@@ -95,7 +96,7 @@ describe("traversal & node-filtered conditions", () => {
 
     // Allowed: a line (150) exceeds the order total (100).
     const good = await seedOrderWithLines("ZZ_RB_nf_vfr_good", [{ amount: 150 }]);
-    await updateSubject("sample_orders", good, { sample_ordertotal: 100 });
+    await expectUpdateSucceeds("sample_orders", good, { sample_ordertotal: 100 });
   });
 
   it("Multi-hop FieldReference (2 hops): compares against a value two lookups out (Schema §2.4)", async () => {
@@ -120,7 +121,7 @@ describe("traversal & node-filtered conditions", () => {
 
     // Allowed: total 50 <= parent limit 100.
     const goodData = await orderDataForCustomer(custId, { sample_name: "ZZ_RB_mh_good", sample_ordertotal: 50 });
-    const okId = await createSubject("sample_orders", goodData);
+    const okId = await expectAllowedOnCreate("sample_orders", goodData);
     cleanups.push(() => deleteDevRecord("sample_orders", okId));
   });
 });

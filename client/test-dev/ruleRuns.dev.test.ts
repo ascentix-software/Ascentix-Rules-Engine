@@ -4,6 +4,7 @@ import { devOrg } from "./devOrg";
 import { ensureTableConfig, authorRule, type AuthoredRule } from "./ruleBehavior/authoring";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
 import { createSubject } from "./ruleBehavior/subjects";
+import { eventually } from "./ruleBehavior/settle";
 import { ENTITY_SET, BIND_NAV } from "../src/editor/load/odata";
 import { parseRecordFailure } from "../src/editor/runs/runDriver";
 
@@ -182,17 +183,22 @@ describe("on-demand Rule Runs", () => {
   }, 60000);
 
   it("asx_ApplyRules: enforces one record directly", async () => {
-    const big = await createSubject("sample_orders", { sample_name: `${PREFIX}_apply_big`, sample_ordertotal: 500 });
-    extraOrderIds.push(big);
-    const r = await applyRules(rule.ruleId, big);
-    expect(r.isValid).toBe(true);
-    const order = await api.retrieveRecord("sample_orders", big, "?$select=sample_approvalnotes");
-    expect(order.sample_approvalnotes).toBe("run");
+    // Polled with fresh orders per attempt (settle.ts eventually).
+    await eventually(async () => {
+      const big = await createSubject("sample_orders", { sample_name: `${PREFIX}_apply_big`, sample_ordertotal: 500 });
+      extraOrderIds.push(big);
+      const r = await applyRules(rule.ruleId, big);
+      expect(r.isValid).toBe(true);
+      const order = await api.retrieveRecord("sample_orders", big, "?$select=sample_approvalnotes");
+      expect(order.sample_approvalnotes).toBe("run");
+    }, { label: "asx_ApplyRules write" });
 
-    const small = await createSubject("sample_orders", { sample_name: `${PREFIX}_apply_small`, sample_ordertotal: 50 });
-    extraOrderIds.push(small);
-    await expect(applyRules(rule.ruleId, small)).rejects.toThrow(/too small/);
-  }, 60000);
+    await eventually(async () => {
+      const small = await createSubject("sample_orders", { sample_name: `${PREFIX}_apply_small`, sample_ordertotal: 50 });
+      extraOrderIds.push(small);
+      await expect(applyRules(rule.ruleId, small)).rejects.toThrow(/too small/);
+    }, { label: "asx_ApplyRules block" });
+  }, 180000);
 
   it("Cancel: a cancelled run stops advancing, and a new run is then allowed", async () => {
     const runId = await createRun();

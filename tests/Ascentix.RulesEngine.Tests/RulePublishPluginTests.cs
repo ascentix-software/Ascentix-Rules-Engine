@@ -5,8 +5,11 @@ using Ascentix.RulesEngine.Plugin;
 using Ascentix.RulesEngine.Plugin.DataUpdates;
 using Ascentix.RulesEngine.Schema;
 using FakeXrmEasy;
+using Microsoft.Crm.Sdk.Messages;
 using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Query;
 using Xunit;
+using Ascentix.RulesEngine.Plugin.Publication;
 using Ascentix.RulesEngine.Core.Publication;
 
 namespace Ascentix.RulesEngine.Tests
@@ -151,5 +154,43 @@ namespace Ascentix.RulesEngine.Tests
 
             Assert.NotNull(target.GetAttributeValue<EntityReference>(PublicationSchema.Pointer));
         }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Publish_helper_returns_the_stored_revision(bool viaWorkingDraft)
+        {
+            var id = Guid.NewGuid();
+            var context = RuleRevisionTests.Context(RuleRevisionTests.Rule(id));
+            var service = context.GetOrganizationService();
+            var publishedId = id;
+            if (viaWorkingDraft)
+            {
+                // The original is published first so a working draft can be opened from it.
+                var first = new Entity("asx_rule", id) { ["statuscode"] = new OptionSetValue((int)RuleStatus.Published) };
+                RulePublication.Publish(HelperRequest(first), service, first, new IDataUpdate[0]);
+                service.Update(first);
+                context.AddExecutionMock<RetrievePrincipalAccessRequest>(_ => new RetrievePrincipalAccessResponse {
+                    Results = new ParameterCollection { { "AccessRights", AccessRights.ReadAccess | AccessRights.WriteAccess } } });
+                var open = new XrmFakedPluginExecutionContext { Stage = 30, MessageName = "asx_OpenRuleDraft", InitiatingUserId = Guid.NewGuid(),
+                    InputParameters = new ParameterCollection { { "RuleId", id.ToString() } }, OutputParameters = new ParameterCollection() };
+                context.ExecuteTransactional<RuleRevisionApi>(open);
+                publishedId = Guid.Parse((string)open.OutputParameters["DraftId"]);
+            }
+
+            var target = new Entity("asx_rule", publishedId) { ["statuscode"] = new OptionSetValue((int)RuleStatus.Published) };
+            var revision = RulePublication.Publish(HelperRequest(target), service, target, new IDataUpdate[0]);
+            service.Update(target); // the caller writes the mutated target, as the platform does for the plug-in
+
+            var original = service.Retrieve("asx_rule", id, new ColumnSet(true));
+            Assert.Equal(original.GetAttributeValue<EntityReference>(PublicationSchema.Pointer).Id, revision.Id);
+            Assert.Equal(viaWorkingDraft ? 2 : 1, original.GetAttributeValue<int>(PublicationSchema.Number));
+        }
+
+        private static XrmFakedPluginExecutionContext HelperRequest(Entity target) => new XrmFakedPluginExecutionContext
+        {
+            MessageName = "Update", Stage = 20, PrimaryEntityName = "asx_rule", InitiatingUserId = Guid.NewGuid(),
+            InputParameters = new ParameterCollection { { "Target", target } },
+        };
     }
 }

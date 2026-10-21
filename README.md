@@ -11,7 +11,7 @@ Free, Apache-2.0 licensed, currently in **open beta**.
 [Download](https://ascentix.ca/power-platform/rules-engine/download) ·
 [Beta limitations](https://ascentix.ca/power-platform/rules-engine/beta-limitations)
 
-![The rule editor for “Order total within credit limit”: Not live and Draft pills, Undo, Redo, Preview, Saved, Publish… and More actions; the Rule settings strip (Order · On create, On form, On update · All channels); the Orders data model chip; an Only if group “Has a customer”; a Credit check outcome; and a Then band with a Block save action; Rule settings open on the right.](docs/guide/images/02-04-editor-layout-01.png)
+![The rule editor for “Order total within credit limit”: Not live and Draft pills, Undo, Redo, Preview, Saved, Publish… and More actions; the Rule settings strip (Order · On create, On form, On update · All channels); the Orders data model chip; the Rule set chip (Billing); an Only if group “Has a customer”; a Credit check outcome; and a Then band with a Block save action; Rule settings open on the right.](docs/guide/images/02-04-editor-layout-01.png)
 
 ## What it does
 
@@ -52,7 +52,7 @@ covers when a rule fires, and
 Current release **`0.1.0.2`** (2026-10-12), detailed in [CHANGELOG.md](CHANGELOG.md). Intended for
 non-production environments. The supported envelope is roughly 100 published rules per
 environment and 5,000 traversed related rows per save. Rules re-evaluate on root-table writes
-only, and there is no supported rule transport between environments.
+only. Rules move between environments with the Azure DevOps extension in `ado-extension/`.
 
 There is no SLA and no warranty: the software is provided as-is under the Apache-2.0 licence.
 Read [Beta Limitations](https://ascentix.ca/power-platform/rules-engine/beta-limitations)

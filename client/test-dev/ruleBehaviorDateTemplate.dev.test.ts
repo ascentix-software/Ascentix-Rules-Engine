@@ -2,9 +2,10 @@ import { describe, it, beforeAll, afterEach, afterAll } from "vitest";
 import { deleteDevRecord } from "./devApi";
 import { ensureTableConfig, authorRule } from "./ruleBehavior/authoring";
 import {
-  expectBlockedOnCreate, createSubject, createCustomer, orderDataForCustomer,
+  expectBlockedOnCreate, createCustomer, orderDataForCustomer, expectAllowedOnCreate,
 } from "./ruleBehavior/subjects";
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
+import { drainCleanups } from "./ruleBehavior/cleanups";
 
 // Template & DateExpression condition right-hand sides proven live via Block enforcement.
 // FieldComparison on root columns fires on Create. A Block action on OnNoMatch throws + rolls
@@ -20,9 +21,10 @@ beforeAll(async () => {
   tc = await ensureTableConfig();
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()!();
+  await drainCleanups(cleanups);
 });
 afterAll(async () => {
+  await drainCleanups(cleanups);
   await tc.cleanup();
 });
 
@@ -42,7 +44,7 @@ describe("date & template conditions", () => {
       { sample_name: "ZZ_RB_tmpl_root_bad", sample_approvalnotes: "wrong" }, "ZZ_RB notes mismatch");
 
     // Match: notes == "Order ZZ_RB_tmpl_root_good".
-    const okId = await createSubject("sample_orders",
+    const okId = await expectAllowedOnCreate("sample_orders",
       { sample_name: "ZZ_RB_tmpl_root_good", sample_approvalnotes: "Order ZZ_RB_tmpl_root_good" });
     cleanups.push(() => deleteDevRecord("sample_orders", okId));
   });
@@ -71,7 +73,7 @@ describe("date & template conditions", () => {
     // Match: notes == the customer's name (rendered from {node:<customer>.sample_name}).
     const goodData = await orderDataForCustomer(custId,
       { sample_name: "ZZ_RB_tmpl_node_good", sample_approvalnotes: "ZZ_RB_tmpl_node_cust" });
-    const okId = await createSubject("sample_orders", goodData);
+    const okId = await expectAllowedOnCreate("sample_orders", goodData);
     cleanups.push(() => deleteDevRecord("sample_orders", okId));
   });
 
@@ -90,7 +92,7 @@ describe("date & template conditions", () => {
       { sample_name: "ZZ_RB_date_le_bad", sample_orderdate: isoDaysFromNow(10) }, "ZZ_RB date too far");
 
     // Within: orderdate now+1d → <= now+3d → allowed.
-    const okId = await createSubject("sample_orders",
+    const okId = await expectAllowedOnCreate("sample_orders",
       { sample_name: "ZZ_RB_date_le_good", sample_orderdate: isoDaysFromNow(1) });
     cleanups.push(() => deleteDevRecord("sample_orders", okId));
   });
@@ -110,7 +112,7 @@ describe("date & template conditions", () => {
       { sample_name: "ZZ_RB_date_ge_bad", sample_orderdate: isoDaysFromNow(-10) }, "ZZ_RB date too old");
 
     // Recent: orderdate now-1d → >= now-7d → allowed.
-    const okId = await createSubject("sample_orders",
+    const okId = await expectAllowedOnCreate("sample_orders",
       { sample_name: "ZZ_RB_date_ge_good", sample_orderdate: isoDaysFromNow(-1) });
     cleanups.push(() => deleteDevRecord("sample_orders", okId));
   });
@@ -130,7 +132,7 @@ describe("date & template conditions", () => {
       { sample_name: "ZZ_RB_date_month_bad", sample_orderdate: isoDaysFromNow(40) }, "ZZ_RB beyond one month");
 
     // now+5d is within one month → < → allowed.
-    const okId = await createSubject("sample_orders",
+    const okId = await expectAllowedOnCreate("sample_orders",
       { sample_name: "ZZ_RB_date_month_good", sample_orderdate: isoDaysFromNow(5) });
     cleanups.push(() => deleteDevRecord("sample_orders", okId));
   });

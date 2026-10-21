@@ -26,3 +26,18 @@ export function pageWindow(current: number, totalPages: number): (number | "…"
   out.push(totalPages);
   return out;
 }
+
+/** "1 rule", "2 rules". */
+export const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+/** The host of an environment URL ("contoso.crm.dynamics.com"); the text itself if it isn't a URL. */
+export function envHost(url: string): string {
+  try { return new URL(url).host || url; } catch { return url; }
+}
+
+/** A calendar date in the viewer's locale ("Oct 14, 2026"); "—" for null or unparseable. */
+export function shortDate(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}

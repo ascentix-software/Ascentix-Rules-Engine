@@ -1,5 +1,5 @@
 import { createDevApi, updateDevRecord, deleteDevRecord } from "../devApi";
-import { settle, dataVisible, traversalDiagnostics } from "./settle";
+import { settle, eventually, dataVisible, traversalDiagnostics } from "./settle";
 import { resolveNavProp } from "./navProps";
 import { expect } from "vitest";
 
@@ -26,7 +26,7 @@ export async function createSubject(entitySet: string, data: Record<string, unkn
 // issued milliseconds post-publish can land on a node that doesn't run the step yet (observed
 // live: OnDelete, operator-matrix Equals, both green on re-run). When the
 // create unexpectedly SUCCEEDS, the row is deleted and the attempt retried with backoff (1s
-// interval, 30s cap). A genuinely dead rule still fails (at the cap, with a distinct message),
+// interval, 60s cap). A genuinely dead rule still fails (at the cap, with a distinct message),
 // so the assertion stays honest. This is the sacrificial-probe settle applied at the layer
 // every Block suite already goes through.
 export async function expectBlockedOnCreate(
@@ -51,7 +51,7 @@ export async function expectBlockedOnCreate(
     },
     {
       label: `expectBlockedOnCreate ${entitySet}`,
-      capMs: 30000,
+      capMs: 60000,
       intervalMs: 1000,
       timeoutMessage: ({ capMs }) =>
         `expectBlockedOnCreate: create of '${data.sample_name}' was never blocked within ` +
@@ -65,10 +65,14 @@ export async function expectBlockedOnCreate(
 }
 
 // A satisfying create must succeed. Returns the new id so the caller can track it for cleanup.
+// Retried with `eventually`: a blocked attempt can be a node still running a rule an earlier test
+// deleted, or a previous registration of this one. A rule that really blocks fails at the cap.
 export async function expectAllowedOnCreate(entitySet: string, data: Record<string, unknown>): Promise<string> {
-  const id = await api.createRecord(entitySet, data);
-  expect(id).toBeTruthy();
-  return id;
+  return eventually(async () => {
+    const id = await api.createRecord(entitySet, data);
+    expect(id).toBeTruthy();
+    return id;
+  }, { label: `expectAllowedOnCreate ${entitySet} '${data.sample_name}'` });
 }
 
 // Real update against an existing row. Throws on any 400. Callers that expect a block use
@@ -105,7 +109,13 @@ export async function expectAllowedOnUpdate(
   await awaitEngineVerdict(tableOf(entitySet), id, {
     expectMessage: notMessage, expectFired: false, recordJson: JSON.stringify(data),
   });
-  await updateDevRecord(entitySet, id, data);
+  await expectUpdateSucceeds(entitySet, id, data);
+}
+
+// A satisfying update must succeed, retried with `eventually` for the same reason as
+// expectAllowedOnCreate. The update is idempotent, so a blocked attempt is simply re-sent.
+export async function expectUpdateSucceeds(entitySet: string, id: string, data: Record<string, unknown>): Promise<void> {
+  await eventually(() => updateSubject(entitySet, id, data), { label: `allowed update of ${entitySet}(${id})` });
 }
 
 // A violating update must throw the Block AND leave the row's offending column(s) unchanged
@@ -136,7 +146,7 @@ export async function expectBlockedOnUpdate(
 
   // Enforcement settle, mirroring expectBlockedOnCreate: an unexpected success means the
   // update went through on a stale-cache node: restore the pre-update values and re-probe
-  // until the block is observed (30s cap, distinct failure).
+  // until the block is observed (60s cap, distinct failure).
   await settle(
     async () => {
       try {
@@ -154,7 +164,7 @@ export async function expectBlockedOnUpdate(
     },
     {
       label: `expectBlockedOnUpdate ${entitySet}(${id})`,
-      capMs: 30000,
+      capMs: 60000,
       intervalMs: 1000,
       timeoutMessage: ({ capMs }) =>
         `expectBlockedOnUpdate: update of ${entitySet}(${id}) was never blocked within ` +
@@ -177,7 +187,7 @@ export async function expectBlockedOnUpdate(
 // read-after-write visibility for it: a child row created (or deleted) milliseconds earlier can
 // be missing from (or still present in) the collection the rule counts.
 //
-// The Block helpers above already retry for 30s, but an "allowed" assertion has no such slack on
+// The Block helpers above already retry for 60s, but an "allowed" assertion has no such slack on
 // its own: a single attempt against a stale read fails intermittently, and the failure moves
 // between runs, which reads like an engine defect and is not one.
 //
