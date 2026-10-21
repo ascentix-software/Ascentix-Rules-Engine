@@ -7,6 +7,12 @@ screenshots:
   - file: images/02-02-the-hub-01.png
     caption: The hub's Rules tab lists each rule with its table, rule set, status, triggers, action count, and last modified.
     alt: "The Rules & data model hub on its Rules tab, searched for “Order”: the Rules, Data models and Rule sets tabs; New rule, Table, Rule set and Status filters; and six Draft rules on sample_order that use the Orders data model, each with a selection checkbox, its rule set (two are in Billing), triggers, action count and last modified time."
+  - file: images/02-02-the-hub-02.png
+    caption: The Rule sets tab lists each rule set with its rule count, last import and last change.
+    alt: "The hub on its Rule sets tab: New rule set and Search rule sets above two rule sets. Billing, described as credit and order checks for the finance team, holds 2 rules and has Edit and a disabled Delete. Seasonal pricing is Empty, with Edit and Delete. Both were never imported."
+  - file: images/02-02-the-hub-03.png
+    caption: A rule set's page lists its rules, with Add rules, the set's details and its last import.
+    alt: "The Billing rule set page: the breadcrumb Rules & data model, Rule sets, Billing; a disabled Delete; two Draft rules on sample_order that use the Orders data model, each with Remove from set; Add rules; a Details panel with Name and Description; and Between environments showing Never imported."
 ---
 
 # The Hub
@@ -81,13 +87,17 @@ rule set has a **Name**, unique in the environment, and an optional **Descriptio
 **Edit** (name and description) and **Delete**. **Delete** is disabled while the set has rules:
 move or remove them first. Click a row to open the rule set's page.
 
+![The hub on its Rule sets tab: New rule set and Search rule sets above two rule sets. Billing, described as credit and order checks for the finance team, holds 2 rules and has Edit and a disabled Delete. Seasonal pricing is Empty, with Edit and Delete. Both were never imported.](../images/02-02-the-hub-02.png)
+
 ### Rule set page
 
 The page shows the set's name, description and last change, with **Delete** at the top right. The
 breadcrumb leads back to the **Rule sets** tab.
 
+![The Billing rule set page: the breadcrumb Rules & data model, Rule sets, Billing; a disabled Delete; two Draft rules on sample_order that use the Orders data model, each with Remove from set; Add rules; a Details panel with Name and Description; and Between environments showing Never imported.](../images/02-02-the-hub-03.png)
+
 - **Rules** lists the set's rules with their table, status and last change. Click one to open it.
-  The **Remove from set** button on each row takes a rule out straight away; the confirmation has
+  The **Remove from set** button on each row takes a rule out straight away. The confirmation has
   **Undo**.
 - **Add rules** lists every rule not in the set, with a search and **Select all**. A rule in
   another set says which set it moves from. Pick rules and choose **Add N rules**.

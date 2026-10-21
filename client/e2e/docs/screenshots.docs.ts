@@ -23,8 +23,17 @@ test.beforeAll(async () => {
 });
 test.beforeEach(async ({ page }) => { await page.setViewportSize({ width: 1440, height: 900 }); });
 
+/** Closes the model-driven app's "Some components of this app require you to sign in" bar, if shown. */
+async function dismissSignInBar(page: Page): Promise<void> {
+  const signIn = page.getByRole("button", { name: "Sign In", exact: true });
+  if (!(await signIn.isVisible())) return;
+  await page.getByRole("button", { name: "Close", exact: true }).first().click();
+  await expect(signIn).toBeHidden();
+}
+
 /** Grows the window to the editor's full height (at least `min`), so one capture shows the whole screen. */
 async function fitHeight(page: Page, frame: FrameLocator, min = 900): Promise<void> {
+  await dismissSignInBar(page);
   await page.waitForTimeout(300);
   const contentHeight = await frame.locator("body").evaluate(() => document.documentElement.scrollHeight);
   const frameTop = await page.locator("iframe[src*='asx_ruleeditor']").evaluate((el) => el.getBoundingClientRect().top);
@@ -33,6 +42,7 @@ async function fitHeight(page: Page, frame: FrameLocator, min = 900): Promise<vo
 }
 
 async function shoot(page: Page, file: string, clip?: { x: number; y: number; width: number; height: number }): Promise<void> {
+  await dismissSignInBar(page);
   await page.mouse.move(0, 0); // no hover states in the capture
   await page.waitForTimeout(400);
   await page.screenshot({ path: resolve(IMAGES, file), clip });
