@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="SourceEnvironment">
+  <description default="The environment the package was exported from, stamped on the new revision.">
+    <label description="The environment the package was exported from, stamped on the new revision." languagecode="1033" />
+  </description>
+  <displayname default="SourceEnvironment">
+    <label description="SourceEnvironment" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>0</isoptional>
+  <name>SourceEnvironment</name>
+  <type>10</type>
+</customapirequestparameter>

@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="ValidateOnly">
+  <description default="When true, runs every check and writes nothing.">
+    <label description="When true, runs every check and writes nothing." languagecode="1033" />
+  </description>
+  <displayname default="ValidateOnly">
+    <label description="ValidateOnly" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>ValidateOnly</name>
+  <type>0</type>
+</customapirequestparameter>

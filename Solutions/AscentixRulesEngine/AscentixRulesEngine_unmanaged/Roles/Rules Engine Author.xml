@@ -12,6 +12,7 @@
     <RolePrivilege name="prvAppendasx_rule" level="Global" />
     <RolePrivilege name="prvAppendasx_ruleaction" level="Global" />
     <RolePrivilege name="prvAppendasx_rulecondition" level="Global" />
+    <RolePrivilege name="prvAppendasx_RuleSet" level="Global" />
     <RolePrivilege name="prvAppendasx_searchcriteriagroup" level="Global" />
     <RolePrivilege name="prvAppendasx_searchcriterion" level="Global" />
     <RolePrivilege name="prvAppendasx_tableconfig" level="Global" />
@@ -24,6 +25,7 @@
     <RolePrivilege name="prvAppendToasx_rule" level="Global" />
     <RolePrivilege name="prvAppendToasx_ruleaction" level="Global" />
     <RolePrivilege name="prvAppendToasx_rulecondition" level="Global" />
+    <RolePrivilege name="prvAppendToasx_RuleSet" level="Global" />
     <RolePrivilege name="prvAppendToasx_searchcriteriagroup" level="Global" />
     <RolePrivilege name="prvAppendToasx_searchcriterion" level="Global" />
     <RolePrivilege name="prvAppendToasx_tableconfig" level="Global" />
@@ -36,6 +38,7 @@
     <RolePrivilege name="prvCreateasx_rule" level="Global" />
     <RolePrivilege name="prvCreateasx_ruleaction" level="Global" />
     <RolePrivilege name="prvCreateasx_rulecondition" level="Global" />
+    <RolePrivilege name="prvCreateasx_RuleSet" level="Global" />
     <RolePrivilege name="prvCreateasx_searchcriteriagroup" level="Global" />
     <RolePrivilege name="prvCreateasx_searchcriterion" level="Global" />
     <RolePrivilege name="prvCreateasx_tableconfig" level="Global" />
@@ -49,6 +52,7 @@
     <RolePrivilege name="prvDeleteasx_rule" level="Global" />
     <RolePrivilege name="prvDeleteasx_ruleaction" level="Global" />
     <RolePrivilege name="prvDeleteasx_rulecondition" level="Global" />
+    <RolePrivilege name="prvDeleteasx_RuleSet" level="Global" />
     <RolePrivilege name="prvDeleteasx_searchcriteriagroup" level="Global" />
     <RolePrivilege name="prvDeleteasx_searchcriterion" level="Global" />
     <RolePrivilege name="prvDeleteasx_tableconfig" level="Global" />
@@ -61,6 +65,7 @@
     <RolePrivilege name="prvReadasx_rule" level="Global" />
     <RolePrivilege name="prvReadasx_ruleaction" level="Global" />
     <RolePrivilege name="prvReadasx_rulecondition" level="Global" />
+    <RolePrivilege name="prvReadasx_RuleSet" level="Global" />
     <RolePrivilege name="prvReadasx_searchcriteriagroup" level="Global" />
     <RolePrivilege name="prvReadasx_searchcriterion" level="Global" />
     <RolePrivilege name="prvReadasx_tableconfig" level="Global" />
@@ -75,6 +80,7 @@
     <RolePrivilege name="prvWriteasx_rule" level="Global" />
     <RolePrivilege name="prvWriteasx_ruleaction" level="Global" />
     <RolePrivilege name="prvWriteasx_rulecondition" level="Global" />
+    <RolePrivilege name="prvWriteasx_RuleSet" level="Global" />
     <RolePrivilege name="prvWriteasx_searchcriteriagroup" level="Global" />
     <RolePrivilege name="prvWriteasx_searchcriterion" level="Global" />
     <RolePrivilege name="prvWriteasx_tableconfig" level="Global" />
