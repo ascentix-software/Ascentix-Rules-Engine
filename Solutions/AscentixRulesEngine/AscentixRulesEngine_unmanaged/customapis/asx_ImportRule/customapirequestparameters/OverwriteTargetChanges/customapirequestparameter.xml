@@ -1,0 +1,12 @@
+<customapirequestparameter uniquename="OverwriteTargetChanges">
+  <description default="When true, imports over a working draft or a version published in this environment.">
+    <label description="When true, imports over a working draft or a version published in this environment." languagecode="1033" />
+  </description>
+  <displayname default="OverwriteTargetChanges">
+    <label description="OverwriteTargetChanges" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <isoptional>1</isoptional>
+  <name>OverwriteTargetChanges</name>
+  <type>0</type>
+</customapirequestparameter>

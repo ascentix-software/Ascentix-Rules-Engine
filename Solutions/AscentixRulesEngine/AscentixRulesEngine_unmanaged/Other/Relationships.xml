@@ -33,6 +33,7 @@
   <EntityRelationship Name="asx_rulerun_asx_rule_revision" />
   <EntityRelationship Name="asx_ruleschedule_asx_lastrun_revision" />
   <EntityRelationship Name="asx_ruleschedule_asx_rule_revision" />
+  <EntityRelationship Name="asx_ruleset_rule" />
   <EntityRelationship Name="asx_schedulerstatus_asx_lastseenby_revision" />
   <EntityRelationship Name="asx_tableconfig_tableconfig" />
   <EntityRelationship Name="business_unit_asx_actionconditiongroup" />
@@ -78,6 +79,8 @@
   <EntityRelationship Name="lk_asx_rulerun_modifiedby" />
   <EntityRelationship Name="lk_asx_ruleschedule_createdby" />
   <EntityRelationship Name="lk_asx_ruleschedule_modifiedby" />
+  <EntityRelationship Name="lk_asx_ruleset_createdby" />
+  <EntityRelationship Name="lk_asx_ruleset_modifiedby" />
   <EntityRelationship Name="lk_asx_schedulerstatus_createdby" />
   <EntityRelationship Name="lk_asx_schedulerstatus_modifiedby" />
   <EntityRelationship Name="lk_asx_searchcriteriagroup_createdby" />
@@ -91,6 +94,7 @@
   <EntityRelationship Name="organization_asx_rulediagnostic" />
   <EntityRelationship Name="organization_asx_rulerevision" />
   <EntityRelationship Name="organization_asx_ruleschedule" />
+  <EntityRelationship Name="organization_asx_ruleset" />
   <EntityRelationship Name="organization_asx_schedulerstatus" />
   <EntityRelationship Name="owner_asx_actionconditiongroup" />
   <EntityRelationship Name="owner_asx_actionconditiontest" />

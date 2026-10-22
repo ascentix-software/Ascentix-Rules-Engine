@@ -1,0 +1,11 @@
+<customapiresponseproperty uniquename="Entry">
+  <description default="The rule package entry, serialized as JSON.">
+    <label description="The rule package entry, serialized as JSON." languagecode="1033" />
+  </description>
+  <displayname default="Entry">
+    <label description="Entry" languagecode="1033" />
+  </displayname>
+  <iscustomizable>1</iscustomizable>
+  <name>Entry</name>
+  <type>10</type>
+</customapiresponseproperty>

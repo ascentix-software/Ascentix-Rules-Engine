@@ -1,0 +1,19 @@
+<customapi uniquename="asx_ArchiveRule">
+  <allowedcustomprocessingsteptype>0</allowedcustomprocessingsteptype>
+  <bindingtype>0</bindingtype>
+  <description default="Archives one rule so it stops running and its enforcement steps are removed; archiving an archived rule does nothing.">
+    <label description="Archives one rule so it stops running and its enforcement steps are removed; archiving an archived rule does nothing." languagecode="1033" />
+  </description>
+  <displayname default="Archive Rule">
+    <label description="Archive Rule" languagecode="1033" />
+  </displayname>
+  <executeprivilegename>prvWriteasx_rule</executeprivilegename>
+  <iscustomizable>1</iscustomizable>
+  <isfunction>0</isfunction>
+  <isprivate>0</isprivate>
+  <name>asx_ArchiveRule</name>
+  <plugintypeid>
+    <plugintypeexportkey>1382c55a-2fcc-f111-a05a-70a8a5acb5f7</plugintypeexportkey>
+  </plugintypeid>
+  <workflowsdkstepenabled>0</workflowsdkstepenabled>
+</customapi>
