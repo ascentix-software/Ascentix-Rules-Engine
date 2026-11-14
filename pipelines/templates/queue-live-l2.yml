@@ -24,7 +24,7 @@ parameters:
     default: 8
   - name: githubLiveL2PipelineId
     type: number
-    default: 15
+    default: 41
 
 steps:
   - powershell: |
