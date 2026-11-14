@@ -1,5 +1,6 @@
 # Deterministic deploy->verify: explicitly queue the live-L2 pipeline.
-# ADO-source definitions use id 8; GitHub-source definitions use id 15.
+# The live-L2 pipeline is the definition for pipelines/client-live.yml on this build's
+# repository, looked up by name so the step needs no definition id.
 # This is the ONLY trigger path. client-live.yml deliberately has no
 # pipeline-resource triggers (they registered late and double-fired every deploy;
 # removed 2026-08-08). Do not re-add them there.
@@ -7,7 +8,7 @@
 # Dedup: a PR touching both plugin and client paths deploys via BOTH CI pipelines,
 # each of which runs this step, so two L2 runs for one merge commit. Since both CIs
 # build the same commit and this step runs only AFTER its deploy completed, a
-# pipeline-8 run that is still queued (notStarted) for this same commit will start
+# live-L2 run that is still queued (notStarted) for this same commit will start
 # after this deploy too, so it verifies both, and we skip queuing a second. A run that
 # already STARTED may predate this deploy, so we still queue: fail-open to a
 # duplicate verification, never to a missing one. (If both queue steps race in the
@@ -18,25 +19,22 @@
 # Requires the project build service to hold "Queue builds" on the selected Live L2 pipeline
 # (granted 2026-08-08; symptom of a missing grant is TF215106 on this step).
 
-parameters:
-  - name: adoLiveL2PipelineId
-    type: number
-    default: 8
-  - name: githubLiveL2PipelineId
-    type: number
-    default: 41
-
 steps:
   - powershell: |
       $headers = @{ Authorization = "Bearer $(System.AccessToken)" }
       $base = "$(System.CollectionUri)$(System.TeamProject)"
-      $repoProvider = "$(Build.Repository.Provider)"
-      $liveL2DefinitionId = if ($repoProvider -in @("GitHub", "GitHubEnterprise")) {
-        "${{ parameters.githubLiveL2PipelineId }}"
-      } else {
-        "${{ parameters.adoLiveL2PipelineId }}"
+      $definitions = (Invoke-RestMethod -Method Get -Headers $headers `
+        -Uri "$base/_apis/build/definitions?includeAllProperties=true&`$top=500&api-version=7.1").value
+      $liveL2 = @($definitions | Where-Object {
+        $_.process.yamlFilename -and
+        (($_.process.yamlFilename -replace '\\', '/').TrimStart('/') -eq 'pipelines/client-live.yml') -and
+        $_.repository.id -eq "$(Build.Repository.ID)"
+      })
+      if ($liveL2.Count -ne 1) {
+        throw "Expected one pipeline for pipelines/client-live.yml on $(Build.Repository.ID), found $($liveL2.Count)."
       }
-      Write-Host "Repository provider '$repoProvider' selects live-L2 pipeline $liveL2DefinitionId."
+      $liveL2DefinitionId = $liveL2[0].id
+      Write-Host "Live-L2 pipeline is $($liveL2[0].name) (#$liveL2DefinitionId)."
 
       $queued = Invoke-RestMethod -Method Get -Headers $headers `
         -Uri "$base/_apis/build/builds?definitions=$liveL2DefinitionId&statusFilter=notStarted&api-version=7.1"
