@@ -185,7 +185,7 @@ export function ActionInspector({
       {(t === "SetVisible" || t === "SetRequired") && (
         <>
           <InfoField label="Target column">
-            <ColumnPicker table={ruleTable} context="update" value={action.targetColumn}
+            <ColumnPicker table={ruleTable} context="read" value={action.targetColumn}
               allowEmpty emptyLabel="(form-level)" onChange={(v) => onPatch({ targetColumn: v || null })} />
           </InfoField>
           <InfoField label={t === "SetVisible" ? "Visible" : "Required"}>
