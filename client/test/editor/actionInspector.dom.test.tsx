@@ -75,6 +75,23 @@ describe("ActionInspector (routed via ruleEditorInspectorContent)", () => {
     expect(screen.queryByLabelText("Show-message message")).toBeNull();
   });
 
+  // A File column (e.g. a receipt) isn't valid for update, but it is a form field the
+  // form library can show, hide or make required, so Set visible / Set required offer it.
+  it.each(["SetVisible", "SetRequired"] as const)("offers a File column as the %s target", async (actionType) => {
+    const graph = makeGraph({ actions: [makeAction({ id: "a1", actionType })] });
+    const { body } = ruleEditorInspectorContent(graph, { kind: "action", id: "a1" }, handlers());
+    renderWithMeta(
+      <SystemChoicesProvider>{body}</SystemChoicesProvider>,
+      fakeMetadata({ account: [
+        col({ logicalName: "name" }),
+        col({ logicalName: "receipt", displayName: "Receipt", attributeType: "Virtual",
+          isValidForCreate: false, isValidForUpdate: false }),
+      ] }),
+    );
+    fireEvent.click(await screen.findByRole("combobox", { name: "Target column" }));
+    expect(await screen.findByRole("option", { name: "Receipt (receipt)" })).toBeInTheDocument();
+  });
+
   // G1: a ShowMessage that targets a column renders as an ERROR-level control
   // notification, which is the only level a model-driven form renders inline, and it
   // blocks the save. "Show as" says so on the "On a field" card, and hides Severity there.
