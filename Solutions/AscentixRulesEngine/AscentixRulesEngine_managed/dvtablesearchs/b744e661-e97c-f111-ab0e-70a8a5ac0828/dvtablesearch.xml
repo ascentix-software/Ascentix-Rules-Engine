@@ -1,0 +1,11 @@
+<dvtablesearch dvtablesearchid="b744e661-e97c-f111-ab0e-70a8a5ac0828">
+  <appmoduleuniquename>asx_AscentixDataverseRulesEngine</appmoduleuniquename>
+  <iscustomizable>1</iscustomizable>
+  <m365appmoduleid>
+    <uniquename>asx_AscentixDataverseRulesEngine</uniquename>
+  </m365appmoduleid>
+  <name>M365_Primary_model_asx_AscentixDataverseRulesEngine</name>
+  <searchtype>0</searchtype>
+  <statecode>1</statecode>
+  <statuscode>2</statuscode>
+</dvtablesearch>

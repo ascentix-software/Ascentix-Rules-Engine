@@ -5,6 +5,7 @@
   <PluginTypeId>6c1d3b7d-57ae-f111-aaac-70a8a5acb5f7</PluginTypeId>
   <AsyncAutoDelete>0</AsyncAutoDelete>
   <FilteringAttributes></FilteringAttributes>
+  <ImpersonatingUserIdName></ImpersonatingUserIdName>
   <InvocationSource>0</InvocationSource>
   <Mode>0</Mode>
   <Rank>1</Rank>

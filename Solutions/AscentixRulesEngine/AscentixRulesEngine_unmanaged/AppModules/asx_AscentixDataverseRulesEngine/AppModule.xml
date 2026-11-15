@@ -20,6 +20,15 @@
     <Role id="{119f245c-3cc8-4b62-b31c-d1a046ced15d}" />
   </AppModuleRoleMaps>
   <LocalizedNames>
-    <LocalizedName description="Ascentix Rules Engine" languagecode="1033" />
+    <LocalizedName description="Business Rules Engine" languagecode="1033" />
   </LocalizedNames>
+  <Descriptions>
+    <Description description="Streamline the creation and management of business rules to enhance operational efficiency. Empower users to configure, monitor, and optimize rule-driven processes with ease." languagecode="1033" />
+  </Descriptions>
+  <appsettings>
+    <appsetting settingdefinitionid.uniquename="AppChannel">
+      <iscustomizable>1</iscustomizable>
+      <value>1</value>
+    </appsetting>
+  </appsettings>
 </AppModule>
