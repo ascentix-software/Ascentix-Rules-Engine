@@ -6,7 +6,7 @@ Beta releases ship as solution versions below `1.0.0.0` (`0.0.0.1`, `0.1.0.2`, `
 solution versions are numeric only, so the version an administrator sees in their org can never
 carry the word "beta". `1.0.0.0` is reserved for the first full release.
 
-## 0.1.0.4
+## 0.1.0.4 (2026-11-15)
 
 ### Fixed
 
