@@ -1,12 +1,12 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<ImportExportXml version="9.2.26101.157" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="CrmLive" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26101.157" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.26101.00157">
+<ImportExportXml version="9.2.26111.138" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="CrmLive" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26111.138" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.26111.00138">
   <SolutionManifest>
     <UniqueName>AscentixRulesEngine</UniqueName>
     <LocalizedNames>
       <LocalizedName description="Ascentix Rules Engine" languagecode="1033" />
     </LocalizedNames>
     <Descriptions />
-    <Version>0.1.0.3</Version>
+    <Version>0.1.0.4</Version>
     <Managed>0</Managed>
     <Publisher>
       <UniqueName>ascentix</UniqueName>
@@ -213,8 +213,14 @@
     </RootComponents>
     <MissingDependencies>
       <MissingDependency>
-        <Required type="1" schemaName="systemuser" displayName="SystemUser" parentSchemaName="" solution="msdyn_PowerAdminSettingsEmail (2.2.3517.1)" />
+        <Required type="1" schemaName="systemuser" displayName="SystemUser" parentSchemaName="" solution="msdyn_PowerAdminSettingsEmail (2.2.3552.1)" />
         <Dependent type="1" schemaName="systemuser" displayName="SystemUser" />
+      </MissingDependency>
+      <MissingDependency>
+        <Required type="SettingDefinition" displayName="AppChannel" solution="msdyn_AppFrameworkInfraExtensions (1.0.0.28)" id.uniquename="AppChannel">
+          <package appName="PowerAppsAppFramework Package" version="1.0.0.30">PowerAppsAppFramework_Anchor (1.0.0.30)</package>
+        </Required>
+        <Dependent type="AppSetting" displayName="parentappmoduleid.uniquename=asx_AscentixDataverseRulesEngine,settingdefinitionid.uniquename=AppChannel" id.parentappmoduleid.uniquename="asx_AscentixDataverseRulesEngine" id.settingdefinitionid.uniquename="AppChannel" />
       </MissingDependency>
     </MissingDependencies>
   </SolutionManifest>
