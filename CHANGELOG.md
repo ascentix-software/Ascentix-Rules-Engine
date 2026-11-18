@@ -6,6 +6,16 @@ Beta releases ship as solution versions below `1.0.0.0` (`0.0.0.1`, `0.1.0.2`, `
 solution versions are numeric only, so the version an administrator sees in their org can never
 carry the word "beta". `1.0.0.0` is reserved for the first full release.
 
+## 0.1.0.5 (2026-11-18)
+
+### Fixed
+
+- The rule editor saves and opens rules that have a condition on a File or Image column. Saving
+  such a rule left the editor showing the rule as it was before the save, and the rule could fail
+  to open.
+- The rule editor no longer requests an Evaluation Context option set that doesn't exist each time
+  it loads.
+
 ## 0.1.0.4 (2026-11-15)
 
 ### Fixed
