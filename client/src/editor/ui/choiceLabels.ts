@@ -11,7 +11,6 @@ export const SYSTEM_CHOICE = {
   triggers: "asx_triggers",
   channel: "asx_channel",
   comparisonValueSource: "asx_comparisonvaluesource",
-  evaluationContext: "asx_evaluationcontext",
 } as const;
 
 export const SYSTEM_CHOICE_NAMES: string[] = Object.values(SYSTEM_CHOICE);
