@@ -6,7 +6,7 @@
       <LocalizedName description="Ascentix Rules Engine" languagecode="1033" />
     </LocalizedNames>
     <Descriptions />
-    <Version>0.1.0.4</Version>
+    <Version>0.1.0.5</Version>
     <Managed>1</Managed>
     <Publisher>
       <UniqueName>ascentix</UniqueName>
