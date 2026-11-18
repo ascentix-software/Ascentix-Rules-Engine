@@ -5,6 +5,7 @@ import { ensureTableConfig, authorRule, type AuthoredRule } from "./ruleBehavior
 import { sweepRuleBehaviorOrphans } from "./ruleBehavior/sweep";
 import { createSubject } from "./ruleBehavior/subjects";
 import { eventually } from "./ruleBehavior/settle";
+import { forEachLimit } from "./concurrent";
 import { ENTITY_SET, BIND_NAV } from "../src/editor/load/odata";
 import { parseRecordFailure } from "../src/editor/runs/runDriver";
 
@@ -59,7 +60,7 @@ async function createOrders(): Promise<string[]> {
 }
 
 async function deleteOrders(ids: string[]): Promise<void> {
-  for (const id of ids) await deleteDevRecord("sample_orders", id).catch(err => console.warn("order cleanup failed:", err));
+  await forEachLimit(ids, id => deleteDevRecord("sample_orders", id).catch(err => console.warn("order cleanup failed:", err)));
 }
 
 function createRun(recordIds?: string[], ruleId: string = rule.ruleId): Promise<string> {

@@ -19,7 +19,21 @@
 # Requires the project build service to hold "Queue builds" on the selected Live L2 pipeline
 # (granted 2026-08-08; symptom of a missing grant is TF215106 on this step).
 
+# skipWhenL2Unaffected (Client CI): queue only when the merge changes a file L2 loads
+# (client/scripts/l2-relevance.mjs). The job must have run npm ci in client/ and checked out with
+# fetchDepth 2 or more. Manual runs always queue. Plugin CI leaves it off and always queues.
+parameters:
+  - name: skipWhenL2Unaffected
+    type: boolean
+    default: false
+
 steps:
+  - ${{ if eq(parameters.skipWhenL2Unaffected, true) }}:
+      - pwsh: |
+          if ('$(Build.Reason)' -eq 'Manual') { Write-Host 'Manual run: queuing live L2.'; return }
+          node scripts/l2-relevance.mjs
+        workingDirectory: client
+        displayName: Check whether the merge changes anything L2 loads
   - powershell: |
       $headers = @{ Authorization = "Bearer $(System.AccessToken)" }
       $base = "$(System.CollectionUri)$(System.TeamProject)"
@@ -52,3 +66,4 @@ steps:
         -Headers $headers -ContentType "application/json" -Body $body | Out-Null
       Write-Host "Queued live-L2 verification run for $(Build.SourceVersion)."
     displayName: Queue live L2 verification (dedup by commit)
+    condition: and(succeeded(), ne(variables['skipLiveL2'], 'true'))

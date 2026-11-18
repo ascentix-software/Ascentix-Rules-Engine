@@ -17,3 +17,5 @@ stages:
     displayName: L2 DEV contract (live)
     jobs:
       - template: templates/live-l2-job.yml
+        parameters:
+          skipIfVerified: true

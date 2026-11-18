@@ -2,6 +2,13 @@
 # Used by client-live.yml (deploy-triggered) and as the release gate stage in solution-release.yml.
 # Auth: the AzureCLI@2 wrapper logs `az` in via workload identity federation; devToken.ts shells
 # out to `az account get-access-token`, so no secrets are needed for the main path.
+parameters:
+  # Deploy-triggered runs skip the suite when an earlier run of the same commit already tested
+  # their deploy (Wait-DevDeploys.ps1 -SkipIfVerified). The release gate leaves it off.
+  - name: skipIfVerified
+    type: boolean
+    default: false
+
 jobs:
   - job: liveL2
     displayName: seed + DEV contract suite (L2)
@@ -13,18 +20,22 @@ jobs:
       # no Plugin CI or Client CI run is queued or in progress (needs "View builds" for the
       # project build service, which it has by default). Also wait for an earlier L2 run still in
       # progress: two at once sweep each other's ZZ_RB_ test rows.
-      - pwsh: ./pipelines/Wait-DevDeploys.ps1 -CollectionUri "$(System.CollectionUri)" -Project "$(System.TeamProject)" -BuildId $(Build.BuildId)
+      - pwsh: ./pipelines/Wait-DevDeploys.ps1 -CollectionUri "$(System.CollectionUri)" -Project "$(System.TeamProject)" -BuildId $(Build.BuildId) ${{ iif(parameters.skipIfVerified, '-SkipIfVerified', '') }}
+        # Wait-DevDeploys.ps1 finds this step in earlier runs by this name (-WaitStepName).
         displayName: Wait for CI deploys and earlier L2 runs to finish
         env:
           SYSTEM_ACCESSTOKEN: $(System.AccessToken)
       - task: UseNode@1
         inputs: { version: '24.x' }
         displayName: Use Node 24
+        condition: and(succeeded(), ne(variables['liveL2AlreadyVerified'], 'true'))
       - script: npm ci
         workingDirectory: client
         displayName: npm ci
+        condition: and(succeeded(), ne(variables['liveL2AlreadyVerified'], 'true'))
       - task: AzureCLI@2
         displayName: seed fixtures + run L2 vs DEV
+        condition: and(succeeded(), ne(variables['liveL2AlreadyVerified'], 'true'))
         inputs:
           azureSubscription: Azure-DataverseCI
           scriptType: pscore
@@ -48,7 +59,7 @@ jobs:
           AUTHOR_SP_CLIENT_SECRET: $(AUTHOR_SP_CLIENT_SECRET)
           AUTHOR_SP_TENANT_ID: $(AUTHOR_SP_TENANT_ID)
       - task: PublishTestResults@2
-        condition: always()
+        condition: and(always(), ne(variables['liveL2AlreadyVerified'], 'true'))
         displayName: Publish L2 results (JUnit)
         inputs:
           testResultsFormat: JUnit
