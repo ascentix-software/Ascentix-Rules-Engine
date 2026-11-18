@@ -30,7 +30,6 @@ establish that these additions are already installed in an environment.
 | `asx_triggers` | Triggers | On Create = 1, On Form = 2, On demand = 3, On Update = 4, On Delete = 5 (**multi-select**). Value 3 was labelled "Manual"; the stored value is unchanged and API trigger strings accept both `OnDemand` and the old `Manual` alias |
 | `asx_channel` | Channel | Standard = 1, Portal = 2 (**multi-select**). 3 "Application" was retired 2026-08-23; the engine reads a stored 3 as Standard |
 | `asx_comparisonvaluesource` | Comparison Value Source | Literal = 1, Field Reference = 2, Template = 3, Date Expression = 4 |
-| `asx_evaluationcontext` | Evaluation Context | User = 1, System = 2 |
 | `asx_criteriontype` | Criterion Type | Comparison = 1, Exists = 2 |
 
 ---
@@ -68,7 +67,7 @@ prohibited after creation. Existing rules require no initialization operation.
 | Channels | `asx_channels` | MultiSelect → `asx_channel` | | Empty ⇒ applies on all channels; gates which origin channel (Standard/Portal) a rule fires on |
 | Effective From | `asx_effectivefrom` | DateTime (UTC) | | Not enforced before this; null ⇒ open start |
 | Effective To | `asx_effectiveto` | DateTime (UTC) | | Not enforced after this; null ⇒ open end |
-| Evaluation Context | `asx_evaluationcontext` | Choice → `asx_evaluationcontext` | | Selects whether the rule's business-data traversal evaluates in the caller's context (`User` = 1, default) or as system (`System` = 2); default User preserves caller-visibility behavior |
+| Evaluation Context | `asx_evaluationcontext` | Choice (local) | | Selects whether the rule's business-data traversal evaluates in the caller's context (`User` = 1, default) or as system (`System` = 2); default User preserves caller-visibility behavior |
 | Evaluation Time Zone | `asx_evaluationtimezone` | Text (100) | | Windows time zone id (e.g. `Eastern Standard Time`) that decides the calendar day and wall-clock time of an instant when a Date Only or Time Zone Independent column is compared, and the instant a value without an offset (a literal such as `2026-09-01`, or a Date Only / Time Zone Independent anchor) means when a User Local column is compared; blank ⇒ UTC |
 | Root Table Config | `asx_roottableconfig` | Lookup → `asx_tableconfig` | ✔ | The rule's root node; the rule's table-config tree (shareable across rules) hangs off it via `asx_parenttable`. The editor loads the whole tree from here. |
 | Trigger Columns | `asx_triggercolumns` | Multiline (4000) | | JSON array of **root-table** column logical names (`["sample_lineamount"]`). **OnUpdate only**: unioned into the update step's filtering attributes alongside condition columns, so the rule also fires when one of these changes (e.g. an action depends on a column no condition references). Blank ⇒ none. |
