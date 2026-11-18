@@ -13,8 +13,8 @@
     "package:dev": "npm run build && node scripts/package-dev.mjs"
   },
   "dependencies": {
-    "@azure/msal-node": "7.1.0",
-    "azure-pipelines-task-lib": "5.281.2"
+    "@azure/msal-node": "7.2.2",
+    "azure-pipelines-task-lib": "5.283.2"
   },
   "devDependencies": {
     "@types/node": "20.19.43",
