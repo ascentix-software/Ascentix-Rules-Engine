@@ -65,6 +65,13 @@ describe("loadValueLabels", () => {
     ]));
     expect(Object.keys(snap)).toEqual([]);
   });
+  it("leaves a column unlabelled when its option set fails to load", async () => {
+    const svc = { ...fakeSvc(), optionSet: async () => { throw new Error("Metadata fetch failed (404)"); } };
+    const snap = await loadValueLabels(svc, graphWith([
+      cond({ id: "a", comparisonColumn: "statecode", comparisonOperator: 1, comparisonValue: "1" }),
+    ]));
+    expect(snap).toEqual({});
+  });
   it("end-to-end: loaded labels produce a labelled reconciled name", async () => {
     const g = graphWith([cond({ id: "c1", comparisonColumn: "statecode", comparisonOperator: 1, comparisonValue: "1" })]);
     const snap = await loadValueLabels(fakeSvc(), g);
