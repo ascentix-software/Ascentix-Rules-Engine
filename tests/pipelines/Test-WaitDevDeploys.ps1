@@ -17,6 +17,9 @@ $get = {
   param($Uri, $Headers)
   $global:waitTest.calls.Add($Uri)
   if ($Uri -like '*/_apis/build/definitions*') { return $global:waitTest.definitions }
+  if ($Uri -match '/_apis/build/builds/(\d+)/timeline') { return @{ records = @($global:waitTest.timelines[[int]$Matches[1]]) } }
+  if ($Uri -match '/_apis/build/builds/(\d+)\?') { return $global:waitTest.self }
+  if ($Uri -like '*statusFilter=completed*') { return @{ value = @($global:waitTest.completed) } }
   # Poll round i (after i sleeps) serves page i: the builds of the asked definitions and status.
   $round = $global:waitTest.sleeps
   $builds = if ($round -lt $global:waitTest.pages.Count) { $global:waitTest.pages[$round] } else { @() }
@@ -27,11 +30,15 @@ $get = {
 $sleep = { param($s) $global:waitTest.sleeps++; $global:waitTest.now = $global:waitTest.now.AddSeconds($s) }
 $now = { $global:waitTest.now }
 
-function Run([object[]] $BuildPages, [int] $Timeout = 45, [int] $BuildId = 700) {
+function Run([object[]] $BuildPages, [int] $Timeout = 45, [int] $BuildId = 700, [switch] $SkipIfVerified,
+  [object[]] $Completed = @(), [hashtable] $Timelines = @{}) {
   $global:waitTest = @{ calls = [System.Collections.Generic.List[string]]::new(); sleeps = 0;
-    now = [datetime]'2026-10-08T00:00:00Z'; pages = $BuildPages; definitions = $definitions }
+    now = [datetime]'2026-10-08T00:00:00Z'; pages = $BuildPages; definitions = $definitions;
+    self = @{ id = $BuildId; sourceVersion = 'abc123'; queueTime = '2026-10-08T00:10:00Z' };
+    completed = $Completed; timelines = $Timelines }
   $output = & $script -CollectionUri 'https://dev.azure.com/org/' -Project 'proj' -AccessToken 't' `
-    -BuildId $BuildId -TimeoutMinutes $Timeout -PollSeconds 60 -Get $get -Sleep $sleep -Now $now 6>&1 | Out-String
+    -BuildId $BuildId -TimeoutMinutes $Timeout -PollSeconds 60 -Get $get -Sleep $sleep -Now $now `
+    -SkipIfVerified:$SkipIfVerified 6>&1 | Out-String
   return @{ calls = $global:waitTest.calls; sleeps = $global:waitTest.sleeps; output = $output }
 }
 
@@ -73,4 +80,28 @@ $r = Run @(@($running), @($running), @($running), @($running)) -Timeout 2
 Assert ($r.sleeps -eq 2) "Expected 2 waits before the deadline, got $($r.sleeps)."
 Assert ($r.output -like '*##vso`[task.logissue type=warning`]Still active after 2 minutes*') 'No timeout warning.'
 
-Write-Host 'PASS: Wait-DevDeploys waits for active Plugin/Client CI runs and earlier in-progress L2 runs, finds them by YAML file, and fails open at the deadline.'
+# -SkipIfVerified: an earlier successful run of the same commit whose wait ended after this run
+# was queued already tested this deploy, so the suite is skipped.
+$waitStep = { param($finish) @{ type = 'Task'; name = 'Wait for CI deploys and earlier L2 runs to finish'; finishTime = $finish } }
+$sameCommit = @{ id = 690; buildNumber = 'client-live-2'; sourceVersion = 'abc123'; definition = @{ id = 8 } }
+$skipped = '*##vso`[task.setvariable variable=liveL2AlreadyVerified`]true*'
+$r = Run @() -SkipIfVerified -Completed @($sameCommit) -Timelines @{ 690 = (& $waitStep '2026-10-08T00:12:00Z') }
+Assert ($r.output -like $skipped) "Did not skip a run already covered by #690. Output: $($r.output)"
+Assert ($r.output -like '*client-live-2 (#690) tested abc123*') 'Did not name the covering run.'
+
+# Not covered: its wait ended before this run was queued (an earlier deploy), it tested another
+# commit, it is a later run, or the switch is off.
+$r = Run @() -SkipIfVerified -Completed @($sameCommit) -Timelines @{ 690 = (& $waitStep '2026-10-08T00:05:00Z') }
+Assert ($r.output -notlike $skipped) "Skipped although #690's wait ended before this run was queued. Output: $($r.output)"
+Assert ($r.output -like '*Starting L2*') 'Did not start L2.'
+$otherCommit = @{ id = 690; buildNumber = 'client-live-2'; sourceVersion = 'def456'; definition = @{ id = 8 } }
+$r = Run @() -SkipIfVerified -Completed @($otherCommit) -Timelines @{ 690 = (& $waitStep '2026-10-08T00:12:00Z') }
+Assert ($r.output -notlike $skipped) "Skipped for a run of another commit. Output: $($r.output)"
+$later = @{ id = 705; buildNumber = 'client-live-4'; sourceVersion = 'abc123'; definition = @{ id = 8 } }
+$r = Run @() -SkipIfVerified -Completed @($later) -Timelines @{ 705 = (& $waitStep '2026-10-08T00:12:00Z') }
+Assert ($r.output -notlike $skipped) "Skipped for a later run. Output: $($r.output)"
+$r = Run @() -Completed @($sameCommit) -Timelines @{ 690 = (& $waitStep '2026-10-08T00:12:00Z') }
+Assert ($r.output -notlike $skipped) "Skipped without -SkipIfVerified. Output: $($r.output)"
+Assert (-not ($r.calls | Where-Object { $_ -like '*statusFilter=completed*' })) 'Looked for covering runs without -SkipIfVerified.'
+
+Write-Host 'PASS: Wait-DevDeploys waits for active Plugin/Client CI runs and earlier in-progress L2 runs, finds them by YAML file, fails open at the deadline, and skips a suite an earlier run of the same commit already covered.'

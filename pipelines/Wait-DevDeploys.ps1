@@ -14,6 +14,12 @@
   progress. Lower ids only: two runs never wait on each other. Queued (not started) runs don't
   count, since one may be waiting for the agent this run holds.
 
+  With -SkipIfVerified, a run that an earlier L2 run of the same commit already covered sets the
+  pipeline variable liveL2AlreadyVerified=true, and the job skips the suite. A merge that touches
+  the plugin and the client queues two runs: Plugin CI finishes first and its run waits for Client
+  CI, so that run's suite starts after the deploy that queued the second one. An earlier run
+  covers this one when it succeeded and its wait step finished after this run was queued.
+
   The pipelines are found by their YAML file, so the Azure DevOps and GitHub-sourced
   definitions both count. Fails open: with no matching definitions it returns at once, and
   after -TimeoutMinutes it logs a warning and returns (each CI queues its own L2 after its
@@ -29,6 +35,10 @@ param(
   [int] $BuildId = [int]("0$env:BUILD_BUILDID"),
   [int] $TimeoutMinutes = 90,
   [int] $PollSeconds = 30,
+  # Skip the suite when an earlier L2 run of the same commit already covered this run's deploy.
+  # Off for the release gate, which must run its own suite.
+  [switch] $SkipIfVerified,
+  [string] $WaitStepName = 'Wait for CI deploys and earlier L2 runs to finish',
   # Seams for tests: GET a URI and return the parsed JSON; sleep N seconds; the current time.
   [scriptblock] $Get = { param($Uri, $Headers) Invoke-RestMethod -Method Get -Uri $Uri -Headers $Headers },
   [scriptblock] $Sleep = { param($Seconds) Start-Sleep -Seconds $Seconds },
@@ -72,8 +82,8 @@ while ($true) {
     }
   ) | Where-Object { $_ }
   if ($active.Count -eq 0) {
-    Write-Host 'No Plugin CI, Client CI or earlier L2 run is active. Starting L2.'
-    return
+    Write-Host 'No Plugin CI, Client CI or earlier L2 run is active.'
+    break
   }
   $list = ($active | ForEach-Object { "$($_.definition.name) $($_.buildNumber) ($($_.status))" }) -join '; '
   if ((& $Now) -ge $deadline) {
@@ -83,3 +93,21 @@ while ($true) {
   Write-Host "Active: $list. Checking again in $PollSeconds s."
   & $Sleep $PollSeconds
 }
+
+if ($SkipIfVerified -and $l2Ids) {
+  $self = & $Get "$base/_apis/build/builds/$($BuildId)?api-version=7.1" $headers
+  $queuedAt = [datetime]$self.queueTime
+  $earlier = @((& $Get "$base/_apis/build/builds?definitions=$l2Ids&statusFilter=completed&resultFilter=succeeded&`$top=20&api-version=7.1" $headers).value |
+    Where-Object { $_ -and [int]$_.id -lt $BuildId -and $_.sourceVersion -eq $self.sourceVersion })
+  foreach ($run in $earlier) {
+    $wait = (& $Get "$base/_apis/build/builds/$($run.id)/timeline?api-version=7.1" $headers).records |
+      Where-Object { $_.type -eq 'Task' -and $_.name -eq $WaitStepName -and $_.finishTime } | Select-Object -First 1
+    if ($wait -and [datetime]$wait.finishTime -gt $queuedAt) {
+      Write-Host "L2 run $($run.buildNumber) (#$($run.id)) tested $($self.sourceVersion) after this run was queued. Skipping the suite."
+      Write-Host '##vso[task.setvariable variable=liveL2AlreadyVerified]true'
+      return
+    }
+  }
+}
+Write-Host 'Starting L2.'
+
