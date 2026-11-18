@@ -46,7 +46,7 @@ Archived).
 | Channels | `asx_channels` | Choice (multi) → `asx_channel` | No | Empty means all channels |
 | Effective From | `asx_effectivefrom` | DateTime (UTC) | No | Null = open start |
 | Effective To | `asx_effectiveto` | DateTime (UTC) | No | Null = open end |
-| Evaluation Context | `asx_evaluationcontext` | Choice → `asx_evaluationcontext` | No | Default User |
+| Evaluation Context | `asx_evaluationcontext` | Choice (local) | No | Default User |
 | Root Table Config | `asx_roottableconfig` | Lookup → `asx_tableconfig` | Yes | The root of the rule's Table Config tree |
 | Trigger Columns | `asx_triggercolumns` | Multiline Text (4000) | No | JSON array of root-table column logical names; OnUpdate only. The rule also fires when one of these columns changes (unioned with the columns its conditions reference) |
 | Runs for | `asx_ondemandscope` | Choice (local) | No | On demand only: a record it's given (1, default) or all records that pass its execution conditions (2) |

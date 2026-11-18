@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   SYSTEM_CHOICE, SYSTEM_CHOICE_NAMES, buildChoiceMaps, resolveChoiceLabel,
 } from "../../src/editor/ui/choiceLabels";
@@ -7,8 +9,15 @@ describe("choiceLabels", () => {
   it("lists every system choice name for prefetch", () => {
     expect(SYSTEM_CHOICE_NAMES).toContain("asx_conditiontype");
     expect(SYSTEM_CHOICE_NAMES).toContain("asx_comparisonoperator");
-    expect(SYSTEM_CHOICE_NAMES).toContain("asx_evaluationcontext");
     expect(SYSTEM_CHOICE_NAMES.length).toBe(Object.keys(SYSTEM_CHOICE).length);
+  });
+
+  it("prefetches only choices the solution defines as global", () => {
+    // A local choice (e.g. asx_rule_asx_evaluationcontext) has no GlobalOptionSetDefinitions
+    // row, so prefetching it 404s on every editor load.
+    const dir = fileURLToPath(new URL("../../../Solutions/AscentixRulesEngine/AscentixRulesEngine_unmanaged/OptionSets", import.meta.url));
+    const globals = readdirSync(dir).map((f) => f.replace(/\.xml$/, ""));
+    expect(SYSTEM_CHOICE_NAMES.filter((n) => !globals.includes(n))).toEqual([]);
   });
 
   it("builds value→label maps keyed by choice name", () => {

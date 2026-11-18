@@ -38,7 +38,9 @@ export async function loadValueLabels(svc: MetadataService, graph: RuleGraph): P
     const meta = cols.find((x) => x.logicalName === column);
     const kind = meta ? columnKind(meta.attributeType) : "text";
     if (kind === "optionset" || kind === "multiselect") {
-      snap[key(table, column)] = await svc.optionSet(table, column);
+      // Labels only decorate names. A failed fetch leaves the raw value showing.
+      try { snap[key(table, column)] = await svc.optionSet(table, column); }
+      catch (e) { console.warn(`[asx_ruleeditor] option labels for ${table}.${column} not loaded:`, e); }
     }
   }));
   return snap;

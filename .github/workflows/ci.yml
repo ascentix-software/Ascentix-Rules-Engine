@@ -23,7 +23,7 @@ jobs:
     # .NET Framework reference assemblies present on the Windows image.
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Test authoring metadata configuration
         shell: pwsh
@@ -37,7 +37,7 @@ jobs:
         shell: pwsh
         run: ./tests/pipelines/Test-DeployWebResources.ps1
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 
@@ -53,9 +53,9 @@ jobs:
       run:
         working-directory: client
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
@@ -93,9 +93,9 @@ jobs:
       run:
         working-directory: ado-extension
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm

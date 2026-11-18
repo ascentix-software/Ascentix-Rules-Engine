@@ -124,6 +124,22 @@ describe("metadata service", () => {
     expect(await svc.optionSet("account", "asx_tags")).toEqual([{ value: 5, label: "Hot" }]);
   });
 
+  it("keeps File and Image columns (also AttributeType Virtual) out of the multi-select path", async () => {
+    const colsForOpt = { value: [
+      { LogicalName: "demo_tags", AttributeType: "Virtual", AttributeTypeName: { Value: "MultiSelectPicklistType" }, IsValidForRead: true, DisplayName: { UserLocalizedLabel: { Label: "Tags" } } },
+      { LogicalName: "demo_receipt", AttributeType: "Virtual", AttributeTypeName: { Value: "FileType" }, IsValidForRead: true, DisplayName: { UserLocalizedLabel: { Label: "Receipt" } } },
+      { LogicalName: "demo_photo", AttributeType: "Virtual", AttributeTypeName: { Value: "ImageType" }, IsValidForRead: true, DisplayName: { UserLocalizedLabel: { Label: "Photo" } } },
+    ] };
+    const api = fakeApi({ "EntityDefinitions(LogicalName='demo_expenseline')/Attributes": colsForOpt });
+    const svc = createMetadataService(api);
+    const cols = await svc.columns("demo_expenseline");
+    expect(cols.map((c) => c.attributeType)).toEqual(["Virtual", "FileType", "ImageType"]);
+    expect(await svc.optionSet("demo_expenseline", "demo_receipt")).toEqual([]);
+    expect(await svc.optionSet("demo_expenseline", "demo_photo")).toEqual([]);
+    expect(api.calls.some((c) => c.includes("MultiSelectPicklistAttributeMetadata"))).toBe(false);
+    expect(api.calls[0]).toContain("AttributeTypeName");
+  });
+
   it("returns [] for a non-optionset column", async () => {
     const colsForOpt = { value: [
       { LogicalName: "name", AttributeType: "String", IsValidForRead: true, IsCustomAttribute: false, DisplayName: { UserLocalizedLabel: { Label: "Name" } } },

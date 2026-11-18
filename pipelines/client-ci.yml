@@ -66,6 +66,9 @@ stages:
         jobs:
           - job: deploy
             steps:
+              # Depth 2 reaches the merge commit's first parent for the L2 relevance check.
+              - checkout: self
+                fetchDepth: 2
               - task: UseNode@1
                 inputs: { version: '24.x' }
                 displayName: Use Node 24
@@ -96,3 +99,5 @@ stages:
               # Queue the live-L2 verification run (single trigger path, deduped when a
               # cross-cutting merge deploys via both CI pipelines). See the template.
               - template: templates/queue-live-l2.yml
+                parameters:
+                  skipWhenL2Unaffected: true

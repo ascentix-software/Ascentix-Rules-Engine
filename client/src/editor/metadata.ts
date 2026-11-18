@@ -41,6 +41,14 @@ const PICKLIST_CAST: Record<string, string> = {
   Virtual: "MultiSelectPicklistAttributeMetadata",
 };
 
+// Multi-select choice, File and Image columns all report AttributeType "Virtual". Only
+// multi-select keeps "Virtual"; the others take their AttributeTypeName ("FileType", "ImageType").
+function attributeTypeOf(a: any): string {
+  const typeName: string | undefined = a.AttributeTypeName?.Value;
+  if (a.AttributeType !== "Virtual" || !typeName || typeName === "MultiSelectPicklistType") return a.AttributeType;
+  return typeName;
+}
+
 export function columnsForContext(cols: ColumnMeta[], ctx: ColumnContext): ColumnMeta[] {
   return cols.filter((c) =>
     ctx === "create" ? c.isValidForCreate : ctx === "update" ? c.isValidForUpdate : c.isValidForRead,
@@ -69,13 +77,13 @@ export function createMetadataService(api: MetadataApi): MetadataService {
       p = api
         .fetchJson(
           `EntityDefinitions(LogicalName='${table}')/Attributes` +
-            "?$select=LogicalName,AttributeType,IsValidForCreate,IsValidForUpdate,IsValidForRead,IsCustomAttribute,DisplayName",
+            "?$select=LogicalName,AttributeType,AttributeTypeName,IsValidForCreate,IsValidForUpdate,IsValidForRead,IsCustomAttribute,DisplayName",
         )
         .then((r) =>
           (r.value as any[]).map((a) => ({
             logicalName: a.LogicalName,
             displayName: label(a.DisplayName) || a.LogicalName,
-            attributeType: a.AttributeType,
+            attributeType: attributeTypeOf(a),
             isValidForCreate: flag(a.IsValidForCreate),
             isValidForUpdate: flag(a.IsValidForUpdate),
             isValidForRead: flag(a.IsValidForRead),

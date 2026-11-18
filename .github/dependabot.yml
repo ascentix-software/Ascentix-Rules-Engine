@@ -1,0 +1,37 @@
+version: 2
+
+# Version updates open against develop, so they reach main through the normal
+# develop -> main release PR instead of landing on main directly.
+#
+# GitHub always opens SECURITY updates against the default branch (main) and
+# ignores target-branch for them. Retarget those PRs to develop before merging.
+#
+# NuGet is left out on purpose: the plug-in is pinned to the frozen Dataverse
+# SDK 9 surface, and FakeXrmEasy stays on the free 1.58.x line (see the test
+# project's csproj).
+updates:
+  - package-ecosystem: npm
+    directory: /client
+    target-branch: develop
+    schedule:
+      interval: monthly
+    groups:
+      client:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /ado-extension
+    target-branch: develop
+    schedule:
+      interval: monthly
+    groups:
+      ado-extension:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: monthly
