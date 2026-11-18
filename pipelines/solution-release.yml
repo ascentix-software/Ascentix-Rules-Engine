@@ -270,3 +270,54 @@ stages:
                   Write-Host "Tagged $tag."
                 workingDirectory: $(Build.SourcesDirectory)
                 displayName: Tag release
+
+          # Publish the release on GitHub, on the tag pushed above, with the same files the
+          # website ships. The notes are this version's CHANGELOG section when the source tree
+          # already has one; otherwise they point at CHANGELOG.md, and the release can be
+          # edited on GitHub once the entry lands. Beta (0.x) versions are marked pre-release.
+          # Uses the "github.com_ascentix-software (1)" GitHub service connection in ADO.
+          - ${{ if ne(parameters.version, '0') }}:
+              - pwsh: |
+                  $v = "${{ parameters.version }}"
+                  $lines = Get-Content CHANGELOG.md
+                  $start = -1
+                  for ($i = 0; $i -lt $lines.Count; $i++) {
+                    if ($lines[$i] -match "^## $([regex]::Escape($v))(\s|$)") { $start = $i; break }
+                  }
+                  if ($start -ge 0) {
+                    $end = $lines.Count
+                    for ($j = $start + 1; $j -lt $lines.Count; $j++) {
+                      if ($lines[$j] -match '^## ') { $end = $j; break }
+                    }
+                    $notes = if ($end -gt $start + 1) { ($lines[($start + 1)..($end - 1)] -join "`n").Trim() } else { '' }
+                  } else {
+                    Write-Host "##vso[task.logissue type=warning]CHANGELOG.md has no ## $v section; the release notes point at CHANGELOG.md."
+                    $notes = "See [CHANGELOG.md](https://github.com/$(Build.Repository.Name)/blob/v$v/CHANGELOG.md)."
+                  }
+                  $notes += "`n`nVerify the download with ``sha256sum -c SHA256SUMS.txt``. See ""Verifying a release"" in the README."
+                  [IO.File]::WriteAllText("$(Agent.TempDirectory)/release-notes.md", $notes + "`n")
+                  Write-Host $notes
+                workingDirectory: $(Build.SourcesDirectory)
+                displayName: Release notes from CHANGELOG.md
+
+              - task: GitHubRelease@1
+                displayName: Publish GitHub Release
+                inputs:
+                  gitHubConnection: 'github.com_ascentix-software (1)'
+                  repositoryName: $(Build.Repository.Name)
+                  action: create
+                  tagSource: userSpecifiedTag
+                  tag: v${{ parameters.version }}
+                  title: v${{ parameters.version }}
+                  releaseNotesSource: filePath
+                  releaseNotesFilePath: $(Agent.TempDirectory)/release-notes.md
+                  isPreRelease: ${{ startsWith(parameters.version, '0.') }}
+                  addChangeLog: false
+                  assets: |
+                    $(outDir)/$(SOLUTION_NAME)_${{ parameters.version }}_managed.zip
+                    $(outDir)/$(SOLUTION_NAME)_${{ parameters.version }}_unmanaged.zip
+                    $(outDir)/$(SCHEDULER_SOLUTION_NAME)_${{ parameters.version }}_managed.zip
+                    $(outDir)/$(SCHEDULER_SOLUTION_NAME)_${{ parameters.version }}_unmanaged.zip
+                    $(outDir)/SHA256SUMS.txt
+                    $(outDir)/LICENSE
+                    $(outDir)/NOTICE
