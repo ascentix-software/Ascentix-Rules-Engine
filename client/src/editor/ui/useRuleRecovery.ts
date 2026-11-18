@@ -29,7 +29,7 @@ export function readRecovery(key: string, ruleId: string): RuleRecovery | null {
 export function useRuleRecovery(key: string, snapshot: RuleGraph, working: RuleGraph) {
   const [initial] = React.useState(() => {
     try { return { pending: readRecovery(key, snapshot.rule.id), unavailable: false }; }
-    catch { return { pending: null, unavailable: true }; }
+    catch (e) { console.warn("[asx_ruleeditor] recovery read failed:", e); return { pending: null, unavailable: true }; }
   });
   const [pending, setPending] = React.useState(initial.pending);
   const [unavailable, setUnavailable] = React.useState(initial.unavailable);
@@ -38,11 +38,11 @@ export function useRuleRecovery(key: string, snapshot: RuleGraph, working: RuleG
     try {
       if (JSON.stringify(snapshot) === JSON.stringify(working)) sessionStorage.removeItem(key);
       else sessionStorage.setItem(key, JSON.stringify({ version: 1, snapshot, working } satisfies RuleRecovery));
-    } catch { setUnavailable(true); }
+    } catch (e) { console.warn("[asx_ruleeditor] recovery write failed:", e); setUnavailable(true); }
   }, [key, snapshot, working, pending, unavailable]);
   function clear() {
     try { sessionStorage.removeItem(key); }
-    catch { setUnavailable(true); }
+    catch (e) { console.warn("[asx_ruleeditor] recovery clear failed:", e); setUnavailable(true); }
   }
   return { pending, unavailable, clear, dismiss: () => setPending(null) };
 }
