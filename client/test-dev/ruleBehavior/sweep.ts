@@ -1,11 +1,16 @@
 import { createDevApi, deleteDevRecord } from "../devApi";
 import { ENTITY_SET } from "../../src/editor/load/odata";
+import { forEachLimit } from "../concurrent";
 
 // Deletes every ZZ_RB_-prefixed row in `entitySet` whose `nameField` starts with the prefix. The
 // primary id attribute is always returned by Dataverse regardless of $select, so a plain
 // name-only $select is enough to recover it (same heuristic as bindNav.dev.test.ts's seededId:
 // the one remaining "...id" key that isn't a "_..._value" lookup).
-async function sweepSet(entitySet: string, nameField: string): Promise<void> {
+// `concurrent` deletes 8 at a time, for sample data rows only: a run cancelled inside
+// ruleRuns.dev.test.ts leaves 1100 orders, which one at a time outlast the 120 s hook timeout.
+// Rules stay serial (asx_DeleteRule reconciles plug-in steps across every rule), and so do the
+// self-referential and parent/child asx_ sets, whose pass order the sweep depends on.
+async function sweepSet(entitySet: string, nameField: string, concurrent = false): Promise<void> {
   const api = createDevApi();
   // "Copy of ZZ_RB_…": the hub-duplicate e2e clones a ZZ_RB_ rule under a "Copy of "
   // name: a crash between Duplicate and its cleanup would otherwise orphan it forever.
@@ -15,13 +20,17 @@ async function sweepSet(entitySet: string, nameField: string): Promise<void> {
     entitySet,
     `?$filter=${filter}&$select=${nameField}`,
   );
-  for (const rec of r.entities) {
+  const ids = r.entities.flatMap((rec) => {
     const idKey = Object.keys(rec).find((k) => k.endsWith("id") && !k.startsWith("_"));
-    if (!idKey) continue;
-    const deletion = deleteDevRecord(entitySet, rec[idKey] as string);
-    if (entitySet === ENTITY_SET.rule) await deletion;
-    else await deletion.catch(console.warn);
+    return idKey ? [rec[idKey] as string] : [];
+  });
+  if (entitySet === ENTITY_SET.rule) {
+    for (const id of ids) await deleteDevRecord(entitySet, id);
+    return;
   }
+  const remove = (id: string) => deleteDevRecord(entitySet, id).catch(console.warn);
+  if (concurrent) await forEachLimit(ids, remove);
+  else for (const id of ids) await remove(id);
 }
 
 // Crash-recovery backstop: clears stray ZZ_RB_ rows left by an interrupted authoring run, in
@@ -39,9 +48,9 @@ export async function sweepRuleBehaviorOrphans(): Promise<void> {
   for (let pass = 0; pass < 3; pass++) {
     await sweepSet(ENTITY_SET.tableConfig, "asx_name");
   }
-  await sweepSet("sample_orderlines", "sample_name");
-  await sweepSet("sample_shipments", "sample_name");
-  await sweepSet("sample_orders", "sample_name");
+  await sweepSet("sample_orderlines", "sample_name", true);
+  await sweepSet("sample_shipments", "sample_name", true);
+  await sweepSet("sample_orders", "sample_name", true);
   // sample_customers is single-pass, but sample_parentcustomerid is self-referential like
   // asx_tableconfig above. A single pass is fine for today's flat customer rows, but a future
   // task that builds a parent->child customer chain would need the same multi-pass treatment
