@@ -49,7 +49,7 @@ covers when a rule fires, and
 
 ## Status: open beta
 
-Current release **`0.1.0.2`** (2026-10-12), detailed in [CHANGELOG.md](CHANGELOG.md). Intended for
+Current release **`0.1.0.4`** (2026-11-15), detailed in [CHANGELOG.md](CHANGELOG.md). Intended for
 non-production environments. The supported envelope is roughly 100 published rules per
 environment and 5,000 traversed related rows per save. Rules re-evaluate on root-table writes
 only. Rules move between environments with the Azure DevOps extension in `ado-extension/`.

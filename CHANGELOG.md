@@ -2,7 +2,7 @@
 
 Notable changes to the Ascentix Rules Engine.
 
-Beta releases ship as solution versions below `1.0.0.0` (`0.0.0.1`, `0.1.0.2`, `0.1.0.3`). Dataverse
+Beta releases ship as solution versions below `1.0.0.0` (`0.0.0.1`, `0.1.0.2`, `0.1.0.3`, `0.1.0.4`). Dataverse
 solution versions are numeric only, so the version an administrator sees in their org can never
 carry the word "beta". `1.0.0.0` is reserved for the first full release.
 
